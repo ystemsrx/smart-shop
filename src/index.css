@@ -16,6 +16,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -27,4 +28,208 @@ body {
 #root {
   width: 100%;
   min-height: 100vh;
+}
+
+/* Markdown渲染样式 */
+.markdown-content {
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  color: #333;
+}
+
+/* 表格 */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.95em;
+}
+.markdown-content table th,
+.markdown-content table td {
+  border: 1px solid #ccc;
+  padding: 8px 12px;
+  text-align: center;
+  vertical-align: middle;
+}
+.markdown-content table thead { background:#f2f2f2; }
+.markdown-content table tbody tr:nth-child(even){ background:#f9f9f9; }
+.markdown-content table tbody tr:hover{ background:#f1f7ff; }
+
+/* 引用 */
+.markdown-content blockquote {
+  border-left: 4px solid #ccc;
+  padding-left: 1em;
+  margin: 0 0 1em 0;
+  color: #555;
+  background: #f3f3f3;
+}
+
+/* 代码块容器 */
+.code-block-container {
+  border-radius: 16px;
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  margin: 1em 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 代码块头部 - 语言标签 */
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  background: #f1f3f4;
+  color: #6b7280;
+  padding: 0 16px;
+  font-size: 12px;
+  font-family: sans-serif;
+  text-transform: lowercase;
+  -webkit-user-select: none;
+  user-select: none;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+
+/* 代码块内容区域 */
+.code-block-content {
+  position: relative;
+  background: #f8f9fa;
+}
+
+/* 代码块样式 */
+.code-block-container pre {
+  margin: 0;
+  background: transparent !important;
+  border-radius: 0;
+  overflow-y: auto;
+  padding: 16px;
+  font-size: 0.9em;
+}
+
+.code-block-container pre code {
+  display: block;
+  font-family: "Consolas", "Fira Code", monospace;
+  white-space: pre !important;
+  line-height: 1.5;
+}
+
+/* 行内代码 */
+.markdown-content code:not(pre > code) {
+  font-family: "Consolas", "Fira Code", monospace;
+  background: #f5f5f5 !important;
+  border-radius: 4px;
+  padding: 0.2em 0.4em;
+  font-size: 0.9em;
+}
+
+/* 复制按钮 */
+.code-copy-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #fff;
+  color: #4a5568;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.code-copy-button:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #2d3748;
+}
+
+.code-copy-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.code-copy-button span {
+  line-height: 1;
+}
+
+/* 链接样式 */
+.markdown-content a {
+  color: #3b82f6; /* Tailwind blue-500 */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-content a:hover {
+  color: #2563eb; /* Tailwind blue-600 */
+}
+
+/* 脚注 */
+.markdown-content sup.footnote-ref a {
+  text-decoration: none;
+  font-size: 0.8em;
+  vertical-align: super;
+}
+.markdown-content .footnotes {
+  border-top: 1px solid #ccc;
+  margin-top: 1em;
+  padding-top: 1em;
+  font-size: 0.9em;
+}
+
+/* 任务清单 */
+.markdown-content ul.task-list { list-style: none; padding-left: 0; }
+.markdown-content .task-list-item { margin-bottom: 0.3em; }
+.markdown-content .task-list-item input { 
+  margin-right: 0.4em; 
+  pointer-events: none !important; /* 禁用点击 */
+}
+
+/* 斜体样式修复 - 确保斜体能正确显示 */
+.markdown-content em,
+.markdown-content i {
+  font-style: italic !important;
+  font-synthesis: weight style small-caps;
+}
+
+/* 强制斜体 - 如果字体不支持斜体，使用倾斜 */
+.markdown-content em:not([style*="font-style"]),
+.markdown-content i:not([style*="font-style"]) {
+  font-style: italic !important;
+  transform: skew(-14deg);
+}
+
+/* 标题 */
+.markdown-content h1 { font-size: 1.8em; font-weight: 600; border-bottom: 1px solid #eee; padding-bottom: .3em; }
+.markdown-content h2 { font-size: 1.4em; font-weight: 600; border-bottom: 1px solid #eee; padding-bottom: .3em; }
+.markdown-content h3 { font-size: 1.2em; font-weight: 600; }
+.markdown-content h4 { font-size: 1.0em; font-weight: 600; }
+.markdown-content h5 { font-size: 0.9em; font-weight: 600; }
+.markdown-content h6 { font-size: 0.85em; font-weight: 600; color: #666; }
+
+/* 标题间距 */
+.markdown-content h1, .markdown-content h2, .markdown-content h3, 
+.markdown-content h4, .markdown-content h5, .markdown-content h6 {
+  margin: 1.2em 0 0.8em 0;
+}
+.markdown-content h1:first-child, .markdown-content h2:first-child, 
+.markdown-content h3:first-child, .markdown-content h4:first-child, 
+.markdown-content h5:first-child, .markdown-content h6:first-child {
+  margin-top: 0;
+}
+
+/* 段落间距 */
+.markdown-content p {
+  margin: 0.8em 0;
+}
+.markdown-content p:first-child {
+  margin-top: 0;
+}
+.markdown-content p:last-child {
+  margin-bottom: 0;
 }
