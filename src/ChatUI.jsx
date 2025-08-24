@@ -202,9 +202,26 @@ const Bubble = ({ role, children }) => {
   );
 };
 
-function InputBar({ value, onChange, onSend, placeholder, autoFocus }) {
+// 加载指示器组件
+const LoadingIndicator = () => {
+  return (
+    <div className="flex w-full justify-start">      
+      <div className="max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm bg-gray-50 text-gray-900 border border-gray-200">
+        <div className="flex items-center space-x-2">
+          <div className="flex space-x-1">
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+          </div>
+          <span className="text-gray-500">AI正在思考...</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }) {
   const ta = useRef(null);
-  const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -219,13 +236,8 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus }) {
 
   const fire = async () => {
     const txt = value.trim();
-    if (!txt || busy) return;
-    setBusy(true);
-    try {
-      await onSend();
-    } finally {
-      setBusy(false);
-    }
+    if (!txt || isLoading) return;
+    await onSend();
   };
 
   const radius = expanded ? "rounded-3xl" : "rounded-full";
@@ -268,11 +280,12 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus }) {
           aria-label="Send prompt"
           data-testid="send-button"
           onClick={fire}
-          disabled={busy || !value.trim()}
+          disabled={isLoading || !value.trim()}
           title="发送 (Enter)\n换行 (Shift+Enter)"
           className={cx(
             "h-9 w-9 flex items-center justify-center rounded-full bg-black text-white",
-            "hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed"
+            "hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed",
+            isLoading && "animate-pulse"
           )}
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="icon">
@@ -288,61 +301,125 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus }) {
 export default function ChatModern() {
   const [msgs, setMsgs] = useState([]);
   const [inp, setInp] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const first = msgs.length === 0;
   const genId = useId();
   const endRef = useAutoScroll(msgs);
 
   const push = (role, content) => setMsgs((s) => [...s, { id: genId(), role, content }]);
-  const handleSend = () => {
+  
+  const updateLastMessage = (newContent) => {
+    setMsgs((s) => {
+      const newMsgs = [...s];
+      if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === "assistant") {
+        newMsgs[newMsgs.length - 1].content = newContent;
+      }
+      return newMsgs;
+    });
+  };
+
+  // SSE客户端实现
+  const sendMessage = async (messages) => {
+    // 支持本地开发和生产环境
+    // 可以通过设置 VITE_API_URL 环境变量来覆盖默认URL
+    const API_URL = import.meta.env.VITE_API_URL || 
+      (import.meta.env.MODE === 'development' 
+        ? "https://chatapi.your_domain.com/v1/chat"
+        : "https://chatapi.your_domain.com/v1/chat");
+    
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify({ messages }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      let assistantMessageAdded = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === '[DONE]') {
+              continue;
+            }
+            
+            try {
+              const data = JSON.parse(dataStr);
+              
+              if (data.type === "delta" && data.role === "assistant") {
+                // 如果还没有添加助手消息，先添加一个空的
+                if (!assistantMessageAdded) {
+                  push("assistant", "");
+                  assistantMessageAdded = true;
+                }
+                
+                // 累积助手回复内容
+                assistantContent += data.delta;
+                updateLastMessage(assistantContent);
+              } else if (data.type === "completed") {
+                // 对话完成
+                console.log("对话完成，原因:", data.finish_reason);
+                break;
+              } else if (data.type === "tool_status") {
+                // 工具调用状态
+                if (data.status === "started") {
+                  console.log("开始调用工具:", data.function?.name);
+                  // 可以在这里添加工具调用开始的视觉反馈
+                } else if (data.status === "finished") {
+                  console.log("工具调用完成:", data.function?.name);
+                  // 可以在这里添加工具调用完成的视觉反馈
+                }
+              }
+            } catch (e) {
+              console.warn("解析SSE数据失败:", dataStr, e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("发送消息失败:", error);
+      // 添加错误消息
+      push("assistant", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
+    }
+  };
+
+  const handleSend = async () => {
     const txt = inp.trim();
-    if (!txt) return;
+    if (!txt || isLoading) return;
+    
+    setIsLoading(true);
     push("user", txt);
     setInp("");
-    const escapedTxt = escapeHtml(txt);
-    setTimeout(() => push("assistant", `# 已收到您的消息
-
-您问的是：**${escapedTxt}**
-
-这是一个支持Markdown和LaTeX的回复示例：
-
-## 支持的功能
-
-- **粗体文字**
-- *斜体文字*
-- \`行内代码\`
-- [链接](https://example.com)
-
-### 数学公式
-行内公式：$E = mc^2$
-
-块级公式：
-$$
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-$$
-
-第二种写法：
-
-\\[
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-\\]
-
-### 代码块
-\`\`\`python
-def hello_world():
-    print("Hello, AI Chat!")
-    return "支持语法高亮"
-\`\`\`
-
-### 任务列表
-- [x] 支持Markdown渲染
-- [x] 支持LaTeX数学公式
-- [ ] 连接真实AI模型
-
-> 这是一个引用块，展示了丰富的文本格式支持。
-
----
-
-*(此为占位回复，展示Markdown和LaTeX渲染功能)*`), 800);
+    
+    try {
+      // 构建消息历史
+      const newMessages = [...msgs, { role: "user", content: txt }];
+      const apiMessages = newMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+      
+      await sendMessage(apiMessages);
+    } finally {
+      setIsLoading(false);
+    }
   };
   const clear = () => setMsgs([]);
   const PAD = "pb-40";
@@ -365,7 +442,7 @@ def hello_world():
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">
             <h1 className="text-center text-3xl font-semibold">准备好开始聊天</h1>
-            <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="问我任何问题…" autoFocus />
+            <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
           </section>
         </main>
       ) : (
@@ -381,13 +458,14 @@ def hello_world():
                     <Bubble key={m.id} role={m.role}>{m.content}</Bubble>
                   )
                 ))}
+                {isLoading && <LoadingIndicator />}
                 <div ref={endRef} />
               </div>
             </div>
           </main>
           <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white">
             <div className="mx-auto max-w-4xl px-4 py-4">
-              <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="继续提问…" />
+              <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="继续提问…" isLoading={isLoading} />
             </div>
           </div>
         </>
