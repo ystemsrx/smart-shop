@@ -220,6 +220,135 @@ const LoadingIndicator = () => {
   );
 };
 
+// 工具调用卡片组件 - 简约版
+const ToolCallCard = ({ 
+  tool_call_id, 
+  status = "running", 
+  function_name = "", 
+  arguments_text = "", 
+  result_summary = "", 
+  error_message = "",
+  result_details = ""
+}) => {
+  const isRunning = status === "running";
+  const isSuccess = status === "success";
+  const isError = status === "error";
+
+  // 简化的状态指示器
+  const getStatusIndicator = () => {
+    if (isRunning) {
+      return <div className="simple-spinner"></div>;
+    }
+    if (isSuccess) {
+      return <span className="text-green-600">✓</span>;
+    }
+    if (isError) {
+      return <span className="text-red-600">✗</span>;
+    }
+    return null;
+  };
+
+  const getStatusText = () => {
+    if (isRunning) return "执行中";
+    if (isSuccess) return "完成";
+    if (isError) return "失败";
+    return "";
+  };
+
+  const cardClass = cx(
+    "tool-card",
+    isRunning && "tool-card-running",
+    isSuccess && "tool-card-success", 
+    isError && "tool-card-error"
+  );
+
+  // 处理敏感数据 - 对外展示时隐藏具体参数
+  const getDisplayName = (name) => {
+    const nameMap = {
+      'search_products': '商品搜索',
+      'update_cart': '购物车操作', 
+      'get_cart': '查看购物车'
+    };
+    return nameMap[name] || name;
+  };
+
+  // 简化结果显示 - 只显示关键信息
+  const formatSimpleResult = (content) => {
+    if (!content) return "";
+    
+    try {
+      const parsed = JSON.parse(content);
+      if (typeof parsed === 'object') {
+        // 多查询搜索结果
+        if (parsed.multi_query && parsed.queries && parsed.results) {
+          const queryCount = parsed.queries.length;
+          const totalCount = parsed.count || 0;
+          return `搜索 ${queryCount} 个关键词，找到 ${totalCount} 个商品`;
+        }
+        // 单个商品搜索结果
+        if (parsed.count !== undefined && Array.isArray(parsed.items)) {
+          return `找到 ${parsed.count} 个商品`;
+        }
+        // 购物车信息
+        if (parsed.total_quantity !== undefined || parsed.total_price !== undefined) {
+          const qty = parsed.total_quantity ?? 0;
+          const price = parsed.total_price ?? 0;
+          return `共 ${qty} 件商品，总计 ¥${price}`;
+        }
+        // 购物车操作结果
+        if (parsed.action && parsed.message) {
+          return parsed.message;
+        }
+        // 批量操作结果
+        if (parsed.action && parsed.processed !== undefined) {
+          return `处理 ${parsed.processed} 项，成功 ${parsed.successful} 项`;
+        }
+        // 通用操作结果
+        if (parsed.ok !== undefined) {
+          return parsed.ok ? "操作成功" : (parsed.error || "操作失败");
+        }
+      }
+    } catch {
+      // 文本结果，简化显示
+      if (content.includes('成功')) return "操作成功";
+      if (content.includes('失败') || content.includes('错误')) return "操作失败";
+    }
+    
+    // 通用简化 - 只显示前30个字符
+    return content.length > 30 ? content.slice(0, 30) + '...' : content;
+  };
+
+  return (
+    <div className="flex w-full justify-start mb-3">
+      <div className={cx("max-w-[80%] w-full", cardClass)}>
+        <div className="tool-card-body">
+          <div className="tool-card-header">
+            <div className="tool-card-title">
+              {getStatusIndicator()}
+              <span className="tool-name">{getDisplayName(function_name)}</span>
+              <span className="tool-status">{getStatusText()}</span>
+            </div>
+          </div>
+
+          {/* 执行进度 */}
+          {isRunning && (
+            <div className="tool-progress">
+              <span>正在处理请求...</span>
+            </div>
+          )}
+
+          {/* 简化的结果显示 */}
+          {(isSuccess || isError) && (result_summary || error_message) && (
+            <div className="tool-result-simple">
+              {isError ? error_message : formatSimpleResult(result_summary)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }) {
   const ta = useRef(null);
   const [expanded, setExpanded] = useState(false);
@@ -302,11 +431,24 @@ export default function ChatModern() {
   const [msgs, setMsgs] = useState([]);
   const [inp, setInp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showThinking, setShowThinking] = useState(false);
   const first = msgs.length === 0;
   const genId = useId();
   const endRef = useAutoScroll(msgs);
 
+
+
   const push = (role, content) => setMsgs((s) => [...s, { id: genId(), role, content }]);
+  const pushToolCallCard = (payload) => setMsgs((s) => [...s, { id: genId(), role: "tool_call", ...payload }]);
+  const updateToolCallCard = (toolCallId, updater) => {
+    setMsgs((s) => s.map((m) => {
+      if (m.role === "tool_call" && m.tool_call_id === toolCallId) {
+        const patch = typeof updater === 'function' ? updater(m) : updater;
+        return { ...m, ...patch };
+      }
+      return m;
+    }));
+  };
   
   const updateLastMessage = (newContent) => {
     setMsgs((s) => {
@@ -345,6 +487,8 @@ export default function ChatModern() {
       const decoder = new TextDecoder();
       let assistantContent = "";
       let assistantMessageAdded = false;
+      let streamHasStarted = false;
+      let toolCallsInProgress = new Set(); // 跟踪进行中的工具调用
 
       while (true) {
         const { done, value } = await reader.read();
@@ -364,37 +508,130 @@ export default function ChatModern() {
               const data = JSON.parse(dataStr);
               
               if (data.type === "delta" && data.role === "assistant") {
-                // 如果还没有添加助手消息，先添加一个空的
+                if (!streamHasStarted) {
+                  streamHasStarted = true;
+                  setShowThinking(false);
+                }
                 if (!assistantMessageAdded) {
                   push("assistant", "");
                   assistantMessageAdded = true;
                 }
-                
-                // 累积助手回复内容
                 assistantContent += data.delta;
                 updateLastMessage(assistantContent);
+
+              } else if (data.type === "tool_status" && data.status === "started") {
+                if (!streamHasStarted) {
+                  streamHasStarted = true;
+                  setShowThinking(false);
+                }
+                
+                // 将工具调用ID加入进行中的集合
+                toolCallsInProgress.add(data.tool_call_id);
+                
+                const fn = data.function || {};
+                const argsText = (fn.arguments ?? "").toString();
+                pushToolCallCard({
+                  tool_call_id: data.tool_call_id,
+                  status: "running",
+                  tool_type: "function",
+                  function_name: fn.name || "",
+                  arguments_text: argsText,
+                  result_summary: "",
+                });
+
+              } else if (data.type === "tool_status" && data.status === "finished") {
+                const toolId = data.tool_call_id;
+                const resultType = data.result_type || "text";
+                const result = data.result;
+                
+                const stringify = (v) => { try { return typeof v === 'string' ? v : JSON.stringify(v); } catch { return String(v); } };
+                const textVal = stringify(result);
+                const isError = (() => {
+                  if (resultType === 'json' && result && typeof result === 'object') {
+                    if (typeof result.ok === 'boolean') return !result.ok;
+                  }
+                  const lower = (textVal || '').toLowerCase();
+                  return /错误|error|不存在|非法|invalid/.test(textVal) || lower.startsWith('error:');
+                })();
+                const summarize = () => {
+                  if (resultType === 'json' && result && typeof result === 'object') {
+                    // 多查询搜索结果
+                    if (result.multi_query && result.queries && result.results) {
+                      const queryCount = result.queries.length;
+                      const totalCount = result.count || 0;
+                      return `搜索 ${queryCount} 个关键词，找到 ${totalCount} 个商品`;
+                    }
+                    // 单个商品搜索结果
+                    if (typeof result.count === 'number' && Array.isArray(result.items)) {
+                      const firstName = result.items[0]?.name;
+                      return `找到 ${result.count} 个商品${firstName ? ` · ${firstName}` : ''}`;
+                    }
+                    // 购物车信息
+                    if (typeof result.total_quantity === 'number' || typeof result.total_price === 'number') {
+                      const qty = result.total_quantity ?? 0;
+                      const price = result.total_price ?? 0;
+                      return `共 ${qty} 件商品 · ¥${price}`;
+                    }
+                    // 购物车操作结果
+                    if (result.action && result.message) {
+                      return result.message;
+                    }
+                    // 批量操作结果
+                    if (result.action && result.processed !== undefined) {
+                      return `处理 ${result.processed} 项，成功 ${result.successful} 项`;
+                    }
+                    // 通用操作结果
+                    if (typeof result.ok === 'boolean') {
+                      return result.ok ? "操作成功" : (result.error || "操作失败");
+                    }
+                  }
+                  return (textVal || '').slice(0, 140);
+                };
+                const summary = summarize();
+
+                updateToolCallCard(data.tool_call_id, {
+                  status: isError ? 'error' : 'success',
+                  result_summary: summary,
+                  error_message: isError ? (textVal || '工具执行出错') : '',
+                });
+
+                // 从进行中的集合移除该工具调用
+                toolCallsInProgress.delete(data.tool_call_id);
+                
+                // 当所有工具调用都完成时，重置助手消息状态以接收后续回复
+                if (toolCallsInProgress.size === 0) {
+                  assistantMessageAdded = false;
+                  assistantContent = "";
+                }
+
+                // 以 role:tool 写入消息历史
+                setMsgs((s) => ([
+                  ...s,
+                  { id: genId(), role: 'tool', content: resultType === 'json' ? stringify(result) : textVal },
+                ]));
+
               } else if (data.type === "completed") {
                 // 对话完成
-                console.log("对话完成，原因:", data.finish_reason);
                 break;
-              } else if (data.type === "tool_status") {
-                // 工具调用状态
-                if (data.status === "started") {
-                  console.log("开始调用工具:", data.function?.name);
-                  // 可以在这里添加工具调用开始的视觉反馈
-                } else if (data.status === "finished") {
-                  console.log("工具调用完成:", data.function?.name);
-                  // 可以在这里添加工具调用完成的视觉反馈
+              } else if (data.type === "error") {
+                // 处理后端错误
+                // 添加错误消息给用户
+                if (!assistantMessageAdded) {
+                  push("assistant", "");
+                  assistantMessageAdded = true;
                 }
+                assistantContent += `\n\n⚠️ 系统遇到问题：${data.error}`;
+                updateLastMessage(assistantContent);
+                break;
               }
             } catch (e) {
-              console.warn("解析SSE数据失败:", dataStr, e);
+              // 静默跳过解析失败的数据
             }
           }
         }
       }
+      
     } catch (error) {
-      console.error("发送消息失败:", error);
       // 添加错误消息
       push("assistant", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
     }
@@ -405,20 +642,22 @@ export default function ChatModern() {
     if (!txt || isLoading) return;
     
     setIsLoading(true);
+    setShowThinking(true);
     push("user", txt);
     setInp("");
     
     try {
       // 构建消息历史
       const newMessages = [...msgs, { role: "user", content: txt }];
-      const apiMessages = newMessages.map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }));
+      // 过滤 UI 专用消息，仅传 user/assistant/tool
+      const apiMessages = newMessages
+        .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+        .map(msg => ({ role: msg.role, content: msg.content }));
       
       await sendMessage(apiMessages);
     } finally {
       setIsLoading(false);
+      setShowThinking(false);
     }
   };
   const clear = () => setMsgs([]);
@@ -451,13 +690,27 @@ export default function ChatModern() {
           <main className={cx("flex-1 overflow-y-auto", PAD)}>
             <div className="mx-auto w-full max-w-4xl px-4 pt-6">
               <div className="mx-auto flex max-w-3xl flex-col gap-4">
-                {msgs.map((m) => (
-                  m.role === "assistant" ? (
-                    <MarkdownRenderer key={m.id} content={m.content} />
-                  ) : (
-                    <Bubble key={m.id} role={m.role}>{m.content}</Bubble>
-                  )
-                ))}
+                {msgs.map((m) => {
+                  if (m.role === "assistant") {
+                    return <MarkdownRenderer key={m.id} content={m.content} />;
+                  } else if (m.role === "tool_call") {
+                    return (
+                      <ToolCallCard
+                        key={m.id}
+                        tool_call_id={m.tool_call_id}
+                        status={m.status}
+                        function_name={m.function_name}
+                        arguments_text={m.arguments_text}
+                        result_summary={m.result_summary}
+                        error_message={m.error_message}
+                      />
+                    );
+                  } else if (m.role === "user") {
+                    return <Bubble key={m.id} role={m.role}>{m.content}</Bubble>;
+                  }
+                  // 跳过其他角色的消息（如 tool 角色，已经在卡片中显示）
+                  return null;
+                })}
                 {isLoading && <LoadingIndicator />}
                 <div ref={endRef} />
               </div>
