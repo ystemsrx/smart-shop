@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
- * 2025‑08‑23 • v14 (Markdown & LaTeX support)
+ * 2025‑08‑23 • v14 (Markdown & LaTeX support) - Next.js版
  * --------------------------------------------------
  * • 助手消息支持Markdown和LaTeX渲染，不使用气泡样式
  * • 用户消息继续使用气泡样式
+ * • 适配Next.js环境变量和SSR
  * --------------------------------------------------
  */
 
@@ -52,7 +53,7 @@ const MarkdownRenderer = ({ content }) => {
   const containerRef = useRef(null);
 
   useEffect(() => {
-    if (!containerRef.current || !window.markdownit) return;
+    if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
 
     // 配置Prism自动加载器
     if (window.Prism?.plugins?.autoloader) {
@@ -489,10 +490,10 @@ export default function ChatModern() {
 
   // SSE客户端实现
   const sendMessage = async (messages) => {
+    // Next.js环境变量支持
     // 支持本地开发和生产环境
-    // 可以通过设置 VITE_API_URL 环境变量来覆盖默认URL
-    const API_URL = import.meta.env.VITE_API_URL || 
-      (import.meta.env.MODE === 'development' 
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 
+      (process.env.NODE_ENV === 'development' 
         ? "https://chatapi.your_domain.com/v1/chat"
         : "https://chatapi.your_domain.com/v1/chat");
     
