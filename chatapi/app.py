@@ -1,4 +1,3 @@
-# /mnt/shop/chatapi/app.py
 import asyncio, uuid, json, time, logging, traceback
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
@@ -72,9 +71,7 @@ UPSTREAM_SSE_HEADERS = {
 # ========== Lifespan：替代 on_event(“shutdown”) ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 如需预热可在此添加
     yield
-    # shutdown
     try:
         await client.aclose()
     except Exception:
@@ -353,28 +350,32 @@ async def _stream_chat(request: Request, init_messages: List[Dict[str, Any]]) ->
                             choice = (chunk.get("choices") or [{}])[0]
                             delta  = choice.get("delta", {})
 
+                            # 普通 token
                             if "content" in delta and delta["content"]:
                                 text = delta["content"]
                                 assistant_text_parts.append(text)
                                 await send(_sse("message", {"type":"delta","delta":text,"role":"assistant"}))
 
+                            # ✅ 关键修复：一次 delta 可能带多个工具，逐个合并
                             if "tool_calls" in delta and delta["tool_calls"]:
-                                part = delta["tool_calls"][0]
-                                idx  = part.get("index", 0)
-                                if idx not in tool_calls_buffer:
-                                    tool_calls_buffer[idx] = {"id":"","type":"function","function":{"name":"","arguments":""}}
-                                if "id" in part and part["id"]:
-                                    tool_calls_buffer[idx]["id"] = part["id"]
-                                if "function" in part:
-                                    fn = tool_calls_buffer[idx]["function"]
-                                    if part["function"].get("name"):
-                                        fn["name"] = part["function"]["name"]
-                                    if part["function"].get("arguments"):
-                                        fn["arguments"] += part["function"]["arguments"]
+                                for part in delta["tool_calls"]:
+                                    idx  = part.get("index", 0)
+                                    if idx not in tool_calls_buffer:
+                                        tool_calls_buffer[idx] = {"id":"","type":"function","function":{"name":"","arguments":""}}
+                                    # id
+                                    if part.get("id"):
+                                        tool_calls_buffer[idx]["id"] = part["id"]
+                                    # function
+                                    f = part.get("function") or {}
+                                    if f.get("name"):
+                                        tool_calls_buffer[idx]["function"]["name"] = f["name"]
+                                    if f.get("arguments"):
+                                        tool_calls_buffer[idx]["function"]["arguments"] += f["arguments"]
 
                             if choice.get("finish_reason"):
                                 finish_reason = choice["finish_reason"]
 
+                    # 把这段助手消息写回历史
                     assistant_joined = "".join(assistant_text_parts)
                     session2 = await SESSION.get(sid)
                     session2_messages = session2.get("messages") or []
@@ -386,7 +387,8 @@ async def _stream_chat(request: Request, init_messages: List[Dict[str, Any]]) ->
                     session2["messages"] = session2_messages
                     await SESSION.set(sid, session2)
 
-                    if tool_calls_buffer and (finish_reason in ("tool_calls","stop", None)):
+                    # ✅ 有工具就执行全部（不看 finish_reason 具体值，以免兼容性问题）
+                    if tool_calls_buffer:
                         ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
                         base_messages = session2["messages"]
                         await _handle_tool_calls_and_continue(sid, base_messages, ordered, send)
@@ -469,6 +471,7 @@ async def chat_nostream(request: Request):
 
     if tool_calls:
         try:
+            # ✅ 非流式也依次执行全部工具
             for i, tc in enumerate(tool_calls, 1):
                 name = tc.get("function",{}).get("name","")
                 args = parse_tool_args(tc.get("function",{}).get("arguments","") or "")
