@@ -207,13 +207,10 @@ const LoadingIndicator = () => {
   return (
     <div className="flex w-full justify-start">      
       <div className="max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm bg-gray-50 text-gray-900 border border-gray-200">
-        <div className="flex items-center space-x-2">
-          <div className="flex space-x-1">
-            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-          </div>
-          <span className="text-gray-500">AI正在思考...</span>
+        <div className="flex space-x-1">
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
         </div>
       </div>
     </div>
@@ -753,7 +750,7 @@ export default function ChatModern() {
                   // 跳过其他角色的消息（如 tool 角色，已经在卡片中显示）
                   return null;
                 })}
-                {isLoading && <LoadingIndicator />}
+                {showThinking && <LoadingIndicator />}
                 <div ref={endRef} />
               </div>
             </div>
