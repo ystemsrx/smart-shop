@@ -349,7 +349,7 @@ const ToolCallCard = ({
   );
 };
 
-function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }) {
+function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isLoading }) {
   const ta = useRef(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -369,8 +369,37 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }
     await onSend();
   };
 
+  const handleClick = () => {
+    if (isLoading) {
+      onStop();
+    } else {
+      fire();
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!isLoading) {
+        fire();
+      }
+    }
+  };
+
   const radius = expanded ? "rounded-3xl" : "rounded-full";
   const minH = expanded ? "min-h-[44px]" : "min-h-[32px]";
+
+  const sendIcon = (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="icon">
+      <path d="M8.99992 16V6.41407L5.70696 9.70704C5.31643 10.0976 4.68342 10.0976 4.29289 9.70704C3.90237 9.31652 3.90237 8.6835 4.29289 8.29298L9.29289 3.29298L9.36907 3.22462C9.76184 2.90427 10.3408 2.92686 10.707 3.29298L15.707 8.29298L15.7753 8.36915C16.0957 8.76192 16.0731 9.34092 15.707 9.70704C15.3408 10.0732 14.7618 10.0958 14.3691 9.7754L14.2929 9.70704L10.9999 6.41407V16C10.9999 16.5523 10.5522 17 9.99992 17C9.44764 17 8.99992 16.5523 8.99992 16Z" />
+    </svg>
+  );
+
+  const stopIcon = (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="icon">
+      <path d="M4.5 5.75C4.5 5.05964 5.05964 4.5 5.75 4.5H14.25C14.9404 4.5 15.5 5.05964 15.5 5.75V14.25C15.5 14.9404 14.9404 15.5 14.25 15.5H5.75C5.05964 15.5 4.5 14.9404 4.5 14.25V5.75Z"></path>
+    </svg>
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -390,12 +419,7 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }
             rows={1}
             autoFocus={autoFocus}
             aria-label="chat input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                fire();
-              }
-            }}
+            onKeyDown={handleKeyDown}
             className={cx(
               "w-full resize-none bg-transparent px-3 py-0.5 text-[15px] text-gray-900 outline-none",
               "placeholder:text-gray-400 focus:ring-0"
@@ -403,26 +427,26 @@ function InputBar({ value, onChange, onSend, placeholder, autoFocus, isLoading }
           />
         </div>
 
-        {/* black send button */}
         <button
           id="composer-submit-button"
-          aria-label="Send prompt"
-          data-testid="send-button"
-          onClick={fire}
-          disabled={isLoading || !value.trim()}
-          title="发送 (Enter)\n换行 (Shift+Enter)"
+          aria-label={isLoading ? "Stop generating" : "Send prompt"}
+          data-testid={isLoading ? "stop-button" : "send-button"}
+          onClick={handleClick}
+          disabled={!isLoading && !value.trim()}
+          title={isLoading ? "停止生成" : "发送 (Enter)\n换行 (Shift+Enter)"}
           className={cx(
-            "h-9 w-9 flex items-center justify-center rounded-full bg-black text-white",
-            "hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed",
-            isLoading && "animate-pulse"
+            "h-9 w-9 flex items-center justify-center rounded-full transition-colors",
+            isLoading
+              ? "bg-white text-black border border-gray-300 hover:bg-gray-100"
+              : "bg-black text-white hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed"
           )}
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="icon">
-            <path d="M8.99992 16V6.41407L5.70696 9.70704C5.31643 10.0976 4.68342 10.0976 4.29289 9.70704C3.90237 9.31652 3.90237 8.6835 4.29289 8.29298L9.29289 3.29298L9.36907 3.22462C9.76184 2.90427 10.3408 2.92686 10.707 3.29298L15.707 8.29298L15.7753 8.36915C16.0957 8.76192 16.0731 9.34092 15.707 9.70704C15.3408 10.0732 14.7618 10.0958 14.3691 9.7754L14.2929 9.70704L10.9999 6.41407V16C10.9999 16.5523 10.5522 17 9.99992 17C9.44764 17 8.99992 16.5523 8.99992 16Z" />
-          </svg>
+          {isLoading ? stopIcon : sendIcon}
         </button>
       </div>
-      <p className="mt-2 text-center text-xs text-gray-400">Enter 发送 · Shift+Enter 换行</p>
+      <p className="mt-2 text-center text-xs text-gray-400">
+        {isLoading ? "AI 正在响应..." : "Enter 发送 · Shift+Enter 换行"}
+      </p>
     </div>
   );
 }
@@ -435,8 +459,14 @@ export default function ChatModern() {
   const first = msgs.length === 0;
   const genId = useId();
   const endRef = useAutoScroll(msgs);
+  const abortControllerRef = useRef(null);
 
 
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
 
   const push = (role, content) => setMsgs((s) => [...s, { id: genId(), role, content }]);
   const pushToolCallCard = (payload) => setMsgs((s) => [...s, { id: genId(), role: "tool_call", ...payload }]);
@@ -469,6 +499,9 @@ export default function ChatModern() {
         ? "https://chatapi.your_domain.com/v1/chat"
         : "https://chatapi.your_domain.com/v1/chat");
     
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const response = await fetch(API_URL, {
         method: "POST",
@@ -477,6 +510,7 @@ export default function ChatModern() {
           "Accept": "text/event-stream",
         },
         body: JSON.stringify({ messages }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -632,6 +666,10 @@ export default function ChatModern() {
       }
       
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Stream generation stopped by user.');
+        return; 
+      }
       // 添加错误消息
       push("assistant", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
     }
@@ -658,9 +696,13 @@ export default function ChatModern() {
     } finally {
       setIsLoading(false);
       setShowThinking(false);
+      abortControllerRef.current = null;
     }
   };
-  const clear = () => setMsgs([]);
+  const clear = () => {
+    handleStop();
+    setMsgs([]);
+  };
   const PAD = "pb-40";
 
   const Header = useMemo(() => (
@@ -681,7 +723,7 @@ export default function ChatModern() {
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">
             <h1 className="text-center text-3xl font-semibold">准备好开始聊天</h1>
-            <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
+            <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
           </section>
         </main>
       ) : (
@@ -718,7 +760,7 @@ export default function ChatModern() {
           </main>
           <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white">
             <div className="mx-auto max-w-4xl px-4 py-4">
-              <InputBar value={inp} onChange={setInp} onSend={handleSend} placeholder="继续提问…" isLoading={isLoading} />
+              <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="继续提问…" isLoading={isLoading} />
             </div>
           </div>
         </>
