@@ -18,7 +18,7 @@ except Exception:
 from settings import (
     BIGMODEL_API_URL, BIGMODEL_API_KEY, BIGMODEL_MODEL,
     BIND_HOST, BIND_PORT, CORS_ALLOW_ORIGINS,
-    MAX_CONNECTIONS, MAX_KEEPALIVE, REDIS_URL, SESSION_TTL
+    MAX_CONNECTIONS, MAX_KEEPALIVE, REDIS_URL, SESSION_TTL, SYSTEM_PROMPT
 )
 from tools import TOOLS, execute_tool_locally, parse_tool_args, parse_tool_args_multiple
 
@@ -81,6 +81,19 @@ def _ensure_cookie_session(request: Request, resp: Response) -> str:
         sid = uuid.uuid4().hex
         resp.set_cookie("chat_session", sid, max_age=SESSION_TTL, httponly=False, samesite="Lax")
     return sid
+
+def _add_system_prompt(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """在消息列表开头添加系统提示词（如果配置了的话）"""
+    if not SYSTEM_PROMPT or not SYSTEM_PROMPT.strip():
+        return messages
+    
+    # 检查是否已经有系统消息
+    if messages and messages[0].get("role") == "system":
+        return messages
+    
+    # 在开头添加系统消息
+    system_message = {"role": "system", "content": SYSTEM_PROMPT.strip()}
+    return [system_message] + messages
 
 def _sse(event: str, data: Dict[str, Any]) -> bytes:
     return f"event: {event}\ndata: {dumps(data)}\n\n".encode("utf-8")
@@ -186,7 +199,9 @@ async def _handle_tool_calls_and_continue(sid: str, base_messages: List[Dict[str
     sess["messages"] = base_messages
     await SESSION.set(sid, sess)
 
-    payload = {"model": BIGMODEL_MODEL, "messages": base_messages, "stream": True,
+    # 添加系统提示词到消息列表
+    messages_with_system = _add_system_prompt(base_messages)
+    payload = {"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": True,
                "tools": TOOLS, "thinking": {"type":"disabled"}}
     
 
@@ -308,7 +323,9 @@ async def _stream_chat(request: Request, init_messages: List[Dict[str, Any]]) ->
             session["messages"] = messages
             await SESSION.set(sid, session)
 
-            payload = {"model": BIGMODEL_MODEL, "messages": messages, "stream": True,
+            # 添加系统提示词到消息列表
+            messages_with_system = _add_system_prompt(messages)
+            payload = {"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": True,
                        "tools": TOOLS, "thinking": {"type":"disabled"}}
 
             retries = 2
@@ -425,7 +442,9 @@ async def chat_nostream(request: Request):
         return client.post(BIGMODEL_API_URL, json=payload, headers={"Accept-Encoding":"identity"})
 
     try:
-        r = await _post_json({"model": BIGMODEL_MODEL, "messages": sess["messages"], "stream": False,
+        # 添加系统提示词到消息列表
+        messages_with_system = _add_system_prompt(sess["messages"])
+        r = await _post_json({"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": False,
                               "tools": TOOLS, "thinking": {"type":"disabled"}})
         r.raise_for_status()
         data = r.json()
@@ -457,7 +476,9 @@ async def chat_nostream(request: Request):
                                  "tool_error": f"{e}"}, status_code=200)
 
         try:
-            r2 = await _post_json({"model": BIGMODEL_MODEL, "messages": sess["messages"], "stream": False,
+            # 添加系统提示词到消息列表（工具调用后的第二次请求）
+            messages_with_system_2 = _add_system_prompt(sess["messages"])
+            r2 = await _post_json({"model": BIGMODEL_MODEL, "messages": messages_with_system_2, "stream": False,
                                    "tools": TOOLS, "thinking": {"type":"disabled"}})
             r2.raise_for_status()
             data2 = r2.json()

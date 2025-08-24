@@ -22,3 +22,8 @@ MAX_KEEPALIVE   = int(os.getenv("MAX_KEEPALIVE", "50"))
 
 # 会话 TTL（秒）
 SESSION_TTL = int(os.getenv("SESSION_TTL", "7200"))  # 2 小时
+
+# 系统提示词配置
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """
+你是一个智能购物助手，你的名字是L。
+""")
