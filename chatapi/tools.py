@@ -61,18 +61,18 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "根据关键词搜索商城中的商品",
+            "description": "Search for products in the store by keyword",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": ["string", "array"],
-                        "description": "搜索的关键词，可以是单个字符串或字符串数组",
+                        "description": "Search keyword(s), can be a single string or an array of strings",
                         "items": {"type": "string"}
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "返回的最大商品数量，默认10",
+                        "description": "Maximum number of products to return, default is 10",
                         "default": 10
                     }
                 },
@@ -84,22 +84,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_cart",
-            "description": "更新购物车：添加/更新/删除/清空。支持单个和批量操作",
+            "description": "Update the shopping cart: add/update/remove/clear. Supports single and batch operations",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
                         "enum": ["add", "update", "remove", "clear"],
-                        "description": "操作类型"
+                        "description": "Type of operation"
                     },
                     "product_id": {
                         "type": ["string", "array"],
-                        "description": "商品ID（字符串或字符串数组）"
+                        "description": "Product ID(s), can be a string or an array of strings"
                     },
                     "quantity": {
                         "type": ["integer", "array"],
-                        "description": "数量（add/update 时使用）"
+                        "description": "Quantity (used for add/update operations)"
                     }
                 },
                 "required": ["action"]
@@ -110,7 +110,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_cart",
-            "description": "获取当前购物车中的所有商品内容",
+            "description": "Retrieve all products currently in the shopping cart",
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
     }
