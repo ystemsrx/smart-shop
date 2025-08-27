@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -11,11 +11,96 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  */
 
 const cx = (...xs) => xs.filter(Boolean).join(" ");
-const useAutoScroll = (dep) => {
-  const end = useRef(null);
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [dep]);
-  return end;
+
+// 智能自动滚动 Hook - 支持用户滚动检测和固定底栏适配
+const useSmartAutoScroll = (dep) => {
+  const endRef = useRef(null);
+  const containerRef = useRef(null);
+  const userScrolledRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  
+  // 检测是否接近底部（考虑固定输入栏高度）
+  const checkIfNearBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return false;
+    
+    // 固定输入栏高度大约是 100px（包括padding），加上一些缓冲
+    const BOTTOM_OFFSET = 120;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isNearBottom = scrollTop + clientHeight >= scrollHeight - BOTTOM_OFFSET;
+    
+    isNearBottomRef.current = isNearBottom;
+    return isNearBottom;
+  }, []);
+  
+  // 平滑滚动到底部（考虑固定输入栏）
+  const scrollToBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    // 滚动到底部但留出输入栏空间
+    const BOTTOM_OFFSET = 100;
+    const targetScrollTop = container.scrollHeight - container.clientHeight - BOTTOM_OFFSET;
+    
+    container.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: 'smooth'
+    });
+  }, []);
+  
+  // 监听滚动事件
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    let scrollTimeout;
+    const handleScroll = () => {
+      // 清除之前的超时
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
+      
+      // 延迟检测，避免在自动滚动时误判为用户滚动
+      scrollTimeout = setTimeout(() => {
+        const wasNearBottom = isNearBottomRef.current;
+        const isNearBottom = checkIfNearBottom();
+        
+        // 如果从底部向上滚动，标记为用户主动滚动
+        if (wasNearBottom && !isNearBottom) {
+          userScrolledRef.current = true;
+        }
+        // 如果滚动回底部，重置用户滚动标记
+        else if (!wasNearBottom && isNearBottom) {
+          userScrolledRef.current = false;
+        }
+      }, 150);
+    };
+    
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
+    };
+  }, [checkIfNearBottom]);
+  
+  // 自动滚动逻辑
+  useEffect(() => {
+    if (!dep) return;
+    
+    // 只有在用户没有主动滚动或者已经在底部时才自动滚动
+    if (!userScrolledRef.current || isNearBottomRef.current) {
+      // 使用 setTimeout 确保 DOM 更新完成后再滚动
+      setTimeout(() => {
+        scrollToBottom();
+      }, 50);
+    }
+  }, [dep, scrollToBottom]);
+  
+  return { endRef, containerRef };
 };
+
 const useId = () => {
   const r = useRef(0);
   return () => ++r.current;
@@ -317,7 +402,7 @@ const ToolCallCard = ({
   };
 
   return (
-    <div className="flex w-full justify-start mb-3">
+    <div className="flex w-full justify-start">
       <div className={cx("max-w-[80%] w-full", cardClass)}>
         <div className="tool-card-body">
           <div className="tool-card-header">
@@ -456,7 +541,7 @@ export default function ChatModern() {
   const [showThinking, setShowThinking] = useState(false);
   const first = msgs.length === 0;
   const genId = useId();
-  const endRef = useAutoScroll(msgs);
+  const { endRef, containerRef } = useSmartAutoScroll(msgs);
   const abortControllerRef = useRef(null);
 
 
@@ -727,7 +812,7 @@ export default function ChatModern() {
       ) : (
         <>
           {Header}
-          <main className={cx("flex-1 overflow-y-auto", PAD)}>
+          <main ref={containerRef} className={cx("flex-1 overflow-y-auto", PAD)}>
             <div className="mx-auto w-full max-w-4xl px-4 pt-6">
               <div className="mx-auto flex max-w-3xl flex-col gap-4">
                 {msgs.map((m) => {

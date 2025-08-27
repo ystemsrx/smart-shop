@@ -35,6 +35,9 @@ body {
   font-family: system-ui, sans-serif;
   line-height: 1.6;
   color: #333;
+  /* 确保代码块能够横向滚动 */
+  overflow-x: visible;
+  word-wrap: break-word;
 }
 
 /* 表格 */
@@ -70,7 +73,7 @@ body {
   background: #f8f9fa;
   border: 1px solid #e5e7eb;
   margin: 1em 0;
-  overflow: hidden;
+  overflow: visible; /* 允许内容溢出，由内部元素控制滚动 */
   position: relative;
 }
 
@@ -96,6 +99,9 @@ body {
 .code-block-content {
   position: relative;
   background: #f8f9fa;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  overflow: auto; /* 允许双向滚动 */
 }
 
 /* 代码块样式 */
@@ -103,16 +109,55 @@ body {
   margin: 0;
   background: transparent !important;
   border-radius: 0;
-  overflow-y: auto;
+  overflow: auto; /* 双向滚动 */
   padding: 16px;
   font-size: 0.9em;
+  /* 确保长行能够横向滚动 */
+  min-width: 100%;
+  width: max-content;
 }
 
 .code-block-container pre code {
   display: block;
   font-family: "Consolas", "Fira Code", monospace;
-  white-space: pre !important;
+  white-space: pre !important; /* 保持原始格式，不换行 */
+  word-wrap: normal; /* 不强制换行 */
+  word-break: normal; /* 不强制断行 */
   line-height: 1.5;
+  /* 确保代码内容能够横向滚动 */
+  min-width: max-content;
+}
+
+/* 代码块滚动条样式 */
+.code-block-content::-webkit-scrollbar,
+.code-block-container pre::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-block-content::-webkit-scrollbar-track,
+.code-block-container pre::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.code-block-content::-webkit-scrollbar-thumb,
+.code-block-container pre::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.code-block-content::-webkit-scrollbar-thumb:hover,
+.code-block-container pre::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 确保代码块在移动设备上也能横向滚动 */
+.code-block-content,
+.code-block-container pre {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
 }
 
 /* 行内代码 */
