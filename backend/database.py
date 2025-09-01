@@ -774,6 +774,26 @@ class CategoryDB:
             conn.commit()
             return success
 
+    @staticmethod
+    def cleanup_orphan_categories() -> int:
+        """自动删除没有任何商品引用的分类，返回删除数量"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    DELETE FROM categories
+                    WHERE name NOT IN (SELECT DISTINCT category FROM products)
+                ''')
+                deleted = cursor.rowcount if cursor.rowcount is not None else 0
+                conn.commit()
+                if deleted > 0:
+                    logger.info(f"自动清理空分类完成，删除 {deleted} 个分类")
+                return deleted
+            except Exception as e:
+                logger.error(f"清理空分类失败: {e}")
+                conn.rollback()
+                return 0
+
 # 管理员相关操作
 class AdminDB:
     @staticmethod

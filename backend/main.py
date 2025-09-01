@@ -129,6 +129,11 @@ async def startup_event():
     
     # 初始化数据库
     init_database()
+    # 启动时清理无商品的空分类
+    try:
+        CategoryDB.cleanup_orphan_categories()
+    except Exception as e:
+        logger.warning(f"启动时清理空分类失败: {e}")
     
     # 启动定时清理任务
     asyncio.create_task(periodic_cleanup())
@@ -142,6 +147,11 @@ async def periodic_cleanup():
             # 每天凌晨3点清理过期聊天记录
             await asyncio.sleep(24 * 60 * 60)  # 24小时
             cleanup_old_chat_logs()
+            # 顺带清理无商品的空分类
+            try:
+                CategoryDB.cleanup_orphan_categories()
+            except Exception as e:
+                logger.warning(f"定时清理空分类失败: {e}")
         except Exception as e:
             logger.error(f"定时清理任务失败: {e}")
 
@@ -268,6 +278,11 @@ async def search_products(q: str):
 async def get_categories():
     """获取商品分类（只返回有商品的分类）"""
     try:
+        # 返回前自动清理空分类
+        try:
+            CategoryDB.cleanup_orphan_categories()
+        except Exception:
+            pass
         categories = CategoryDB.get_categories_with_products()
         return success_response("获取分类成功", {"categories": categories})
     
@@ -472,6 +487,14 @@ async def get_admin_stats(request: Request):
     
     try:
         products = ProductDB.get_all_products()
+        try:
+            CategoryDB.cleanup_orphan_categories()
+        except Exception:
+            pass
+        try:
+            CategoryDB.cleanup_orphan_categories()
+        except Exception:
+            pass
         categories = CategoryDB.get_all_categories()
         
         stats = {
