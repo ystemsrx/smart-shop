@@ -279,6 +279,55 @@ body {
   margin-bottom: 0;
 }
 
+/* 移动端优化 */
+@media (max-width: 640px) {
+  /* 确保在小屏幕上有适当的间距 */
+  .markdown-content {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  
+  /* 代码块在移动端的优化 */
+  .code-block-container {
+    margin: 0.8em 0;
+    border-radius: 12px;
+  }
+  
+  .code-block-header {
+    padding: 0 12px;
+    height: 32px;
+    font-size: 11px;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+  }
+  
+  .code-block-container pre {
+    padding: 12px;
+    font-size: 0.8em;
+  }
+  
+  /* 确保代码块在移动端可以横向滚动 */
+  .code-block-content {
+    max-width: calc(100vw - 2rem);
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+  }
+  
+  /* 工具卡片移动端优化 */
+  .tool-card .tool-card-body {
+    padding: 10px 12px;
+  }
+  
+  .tool-card .tool-card-title {
+    font-size: 13px;
+  }
+  
+  .tool-result-simple {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
 /* 工具调用卡片样式 - 简约版 */
 .tool-card {
   border: 1px solid #e2e8f0;

@@ -6,3 +6,5 @@ test.py
 .next
 package-lock.json
 q.txt
+__pycache__
+venv/
