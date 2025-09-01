@@ -21,8 +21,8 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // 自动识别管理员账号
-      const isAdmin = formData.student_id === 'admin';
+      // 自动识别管理员账号（仅支持 ADMIN_USERNAME1 / ADMIN_USERNAME2）
+      const isAdmin = ['ADMIN_USERNAME1', 'ADMIN_USERNAME2'].includes(formData.student_id);
       await login(formData.student_id, formData.password, isAdmin);
       
       // 根据用户类型跳转到不同页面
@@ -61,7 +61,7 @@ export default function Login() {
             登录宿舍小商城
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            使用学号和密码登录，或输入"admin"进入管理后台
+            使用学号和密码登录；管理员请直接输入管理员账号
           </p>
         </div>
 
@@ -76,7 +76,7 @@ export default function Login() {
 
               <div>
                 <label htmlFor="student_id" className="block text-sm font-medium text-gray-700">
-                  学号/管理员账号
+                  账号
                 </label>
                 <div className="mt-1">
                   <input
@@ -87,7 +87,7 @@ export default function Login() {
                     value={formData.student_id}
                     onChange={handleInputChange}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    placeholder="请输入学号或管理员账号（admin）"
+                  placeholder="请输入学号或管理员账号"
                   />
                 </div>
               </div>
@@ -105,7 +105,7 @@ export default function Login() {
                     value={formData.password}
                     onChange={handleInputChange}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    placeholder="请输入密码"
+                    placeholder="请输入办事大厅密码"
                   />
                 </div>
               </div>

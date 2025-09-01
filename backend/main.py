@@ -13,7 +13,7 @@ import uvicorn
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs,
-    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB
+    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -120,6 +120,36 @@ class OrderStatusUpdateRequest(BaseModel):
 
 class PaymentStatusUpdateRequest(BaseModel):
     payment_status: str
+
+# 地址管理模型
+class AddressCreateRequest(BaseModel):
+    name: str
+    enabled: bool = True
+    sort_order: int = 0
+
+class AddressUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+# 楼栋管理模型
+class BuildingCreateRequest(BaseModel):
+    address_id: str
+    name: str
+    enabled: bool = True
+    sort_order: int = 0
+
+class BuildingUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+class AddressReorderRequest(BaseModel):
+    order: List[str]
+
+class BuildingReorderRequest(BaseModel):
+    address_id: str
+    order: List[str]
 
 # 启动事件
 @app.on_event("startup")
@@ -289,6 +319,234 @@ async def get_categories():
     except Exception as e:
         logger.error(f"获取分类失败: {e}")
         return error_response("获取分类失败", 500)
+
+# ==================== 地址（宿舍区/自提点等）路由 ====================
+
+@app.get("/addresses")
+async def get_enabled_addresses():
+    """获取启用的地址列表；若为空，返回默认 '桃园' 作为回退"""
+    try:
+        addrs = AddressDB.get_enabled_addresses()
+        if not addrs:
+            # 回退默认值，不写入数据库，仅供前端选择
+            addrs = [{
+                "id": "addr_default_taoyuan",
+                "name": "桃园",
+                "enabled": 1,
+                "sort_order": 0,
+                "created_at": None,
+                "updated_at": None
+            }]
+        return success_response("获取地址成功", {"addresses": addrs})
+    except Exception as e:
+        logger.error(f"获取地址失败: {e}")
+        return error_response("获取地址失败", 500)
+
+@app.get("/admin/addresses")
+async def admin_get_addresses(request: Request):
+    """获取全部地址（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        addrs = AddressDB.get_all_addresses(include_disabled=True)
+        # 若为空，则自动创建默认 桃园/六舍，便于管理员直接看到并管理
+        if not addrs:
+            try:
+                addr_id = AddressDB.create_address("桃园", True, 0)
+                if addr_id:
+                    # 创建默认楼栋 六舍
+                    try:
+                        from database import BuildingDB
+                        BuildingDB.create_building(addr_id, "六舍", True, 0)
+                    except Exception:
+                        pass
+                    addrs = AddressDB.get_all_addresses(include_disabled=True)
+            except Exception:
+                pass
+        return success_response("获取地址成功", {"addresses": addrs})
+    except Exception as e:
+        logger.error(f"管理员获取地址失败: {e}")
+        return error_response("获取地址失败", 500)
+
+@app.post("/admin/addresses")
+async def admin_create_address(payload: AddressCreateRequest, request: Request):
+    """创建地址（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if AddressDB.get_by_name(payload.name):
+            return error_response("地址名称已存在", 400)
+        addr_id = AddressDB.create_address(payload.name, payload.enabled, payload.sort_order)
+        if not addr_id:
+            return error_response("创建地址失败，名称可能冲突", 400)
+        return success_response("地址创建成功", {"address_id": addr_id})
+    except Exception as e:
+        logger.error(f"创建地址失败: {e}")
+        return error_response("创建地址失败", 500)
+
+@app.put("/admin/addresses/{address_id}")
+async def admin_update_address(address_id: str, payload: AddressUpdateRequest, request: Request):
+    """更新地址（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = AddressDB.get_by_id(address_id)
+        if not existing:
+            return error_response("地址不存在", 404)
+        # 名称冲突检查
+        if payload.name and payload.name != existing.get("name"):
+            if AddressDB.get_by_name(payload.name):
+                return error_response("地址名称已存在", 400)
+        ok = AddressDB.update_address(address_id, payload.name, payload.enabled, payload.sort_order)
+        if not ok:
+            return error_response("更新地址失败", 400)
+        return success_response("地址更新成功")
+    except Exception as e:
+        logger.error(f"更新地址失败: {e}")
+        return error_response("更新地址失败", 500)
+
+@app.delete("/admin/addresses/{address_id}")
+async def admin_delete_address(address_id: str, request: Request):
+    """删除地址（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = AddressDB.get_by_id(address_id)
+        if not existing:
+            return error_response("地址不存在", 404)
+        # 允许级联删除：先删除楼栋，再删除地址（由 AddressDB 实现）
+        ok = AddressDB.delete_address(address_id)
+        if not ok:
+            return error_response("删除地址失败", 400)
+        return success_response("地址删除成功")
+    except Exception as e:
+        logger.error(f"删除地址失败: {e}")
+        return error_response("删除地址失败", 500)
+
+@app.post("/admin/addresses/reorder")
+async def admin_reorder_addresses(payload: AddressReorderRequest, request: Request):
+    """批量重排地址顺序（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if not payload.order or not isinstance(payload.order, list):
+            return error_response("无效排序数据", 400)
+        ok = AddressDB.reorder(payload.order)
+        if not ok:
+            return error_response("重排失败", 400)
+        return success_response("重排成功")
+    except Exception as e:
+        logger.error(f"地址重排失败: {e}")
+        return error_response("地址重排失败", 500)
+
+# ==================== 楼栋路由 ====================
+
+@app.get("/buildings")
+async def get_enabled_buildings(address_id: Optional[str] = None, address_name: Optional[str] = None):
+    """根据地址获取启用的楼栋，若为空则回退默认“六舍”"""
+    try:
+        addr_id = address_id
+        if not addr_id and address_name:
+            addr = AddressDB.get_by_name(address_name)
+            addr_id = addr.get('id') if addr else None
+
+        buildings = []
+        if addr_id:
+            buildings = BuildingDB.get_enabled_buildings(addr_id)
+
+        if not buildings:
+            buildings = [{
+                "id": "bld_default_6she",
+                "address_id": addr_id or "addr_default_taoyuan",
+                "name": "六舍",
+                "enabled": 1,
+                "sort_order": 0,
+                "created_at": None,
+                "updated_at": None
+            }]
+        return success_response("获取楼栋成功", {"buildings": buildings})
+    except Exception as e:
+        logger.error(f"获取楼栋失败: {e}")
+        return error_response("获取楼栋失败", 500)
+
+@app.get("/admin/buildings")
+async def admin_get_buildings(request: Request, address_id: Optional[str] = None):
+    """获取楼栋（可按地址过滤）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        blds = BuildingDB.get_all_buildings(address_id=address_id, include_disabled=True)
+        return success_response("获取楼栋成功", {"buildings": blds})
+    except Exception as e:
+        logger.error(f"管理员获取楼栋失败: {e}")
+        return error_response("获取楼栋失败", 500)
+
+@app.post("/admin/buildings")
+async def admin_create_building(payload: BuildingCreateRequest, request: Request):
+    """创建楼栋（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        addr = AddressDB.get_by_id(payload.address_id)
+        if not addr:
+            return error_response("所属地址不存在", 400)
+        if BuildingDB.get_by_name_in_address(payload.address_id, payload.name):
+            return error_response("该地址下楼栋名称已存在", 400)
+        bld_id = BuildingDB.create_building(payload.address_id, payload.name, payload.enabled, payload.sort_order)
+        if not bld_id:
+            return error_response("创建楼栋失败，名称冲突", 400)
+        return success_response("楼栋创建成功", {"building_id": bld_id})
+    except Exception as e:
+        logger.error(f"创建楼栋失败: {e}")
+        return error_response("创建楼栋失败", 500)
+
+@app.put("/admin/buildings/{building_id}")
+async def admin_update_building(building_id: str, payload: BuildingUpdateRequest, request: Request):
+    """更新楼栋（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = BuildingDB.get_by_id(building_id)
+        if not existing:
+            return error_response("楼栋不存在", 404)
+        # 名称冲突校验（同地址下唯一）
+        if payload.name and payload.name != existing.get('name'):
+            if BuildingDB.get_by_name_in_address(existing.get('address_id'), payload.name):
+                return error_response("该地址下楼栋名称已存在", 400)
+        ok = BuildingDB.update_building(building_id, payload.name, payload.enabled, payload.sort_order)
+        if not ok:
+            return error_response("更新楼栋失败", 400)
+        return success_response("楼栋更新成功")
+    except Exception as e:
+        logger.error(f"更新楼栋失败: {e}")
+        return error_response("更新楼栋失败", 500)
+
+@app.delete("/admin/buildings/{building_id}")
+async def admin_delete_building(building_id: str, request: Request):
+    """删除楼栋（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = BuildingDB.get_by_id(building_id)
+        if not existing:
+            return error_response("楼栋不存在", 404)
+        ok = BuildingDB.delete_building(building_id)
+        if not ok:
+            return error_response("删除楼栋失败", 400)
+        return success_response("楼栋删除成功")
+    except Exception as e:
+        logger.error(f"删除楼栋失败: {e}")
+        return error_response("删除楼栋失败", 500)
+
+@app.post("/admin/buildings/reorder")
+async def admin_reorder_buildings(payload: BuildingReorderRequest, request: Request):
+    """对某地址下的楼栋批量重排（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if not payload.order or not isinstance(payload.order, list):
+            return error_response("无效排序数据", 400)
+        # 校验地址存在
+        addr = AddressDB.get_by_id(payload.address_id)
+        if not addr:
+            return error_response("地址不存在", 404)
+        ok = BuildingDB.reorder(payload.address_id, payload.order)
+        if not ok:
+            return error_response("重排失败", 400)
+        return success_response("重排成功")
+    except Exception as e:
+        logger.error(f"楼栋重排失败: {e}")
+        return error_response("楼栋重排失败", 500)
 
 # ==================== 购物车路由 ====================
 

@@ -22,6 +22,10 @@ export default function Checkout() {
     room: '',
     note: ''
   });
+  const [addressOptions, setAddressOptions] = useState([]);
+  const [addrLoading, setAddrLoading] = useState(false);
+  const [buildingOptions, setBuildingOptions] = useState([]);
+  const [bldLoading, setBldLoading] = useState(false);
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -76,10 +80,16 @@ export default function Checkout() {
 
   // 表单输入处理
   const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    if (name === 'dormitory') {
+      // 切换园区时清空已选楼栋
+      setFormData({ ...formData, dormitory: value, building: '' });
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value
+      });
+    }
   };
 
   // 表单提交处理
@@ -87,6 +97,51 @@ export default function Checkout() {
     e.preventDefault(); // 防止默认表单提交行为
     // 当用户按回车或点击提交时，触发支付创建
     if (!isCreatingPayment) handleCreatePayment();
+  };
+
+  // 加载可选地址（宿舍区）
+  const loadAddresses = async () => {
+    setAddrLoading(true);
+    try {
+      const res = await apiRequest('/addresses');
+      const addrs = res?.data?.addresses || [];
+      setAddressOptions(addrs);
+      // 如果当前未选择，默认选第一个
+      if (!formData.dormitory && addrs.length > 0) {
+        setFormData(prev => ({ ...prev, dormitory: addrs[0].name }));
+      }
+    } catch (e) {
+      // 回退一个默认值：桃园
+      const fallback = [{ id: 'addr_default_taoyuan', name: '桃园' }];
+      setAddressOptions(fallback);
+      if (!formData.dormitory) {
+        setFormData(prev => ({ ...prev, dormitory: '桃园' }));
+      }
+    } finally {
+      setAddrLoading(false);
+    }
+  };
+
+  // 根据选中的园区加载楼栋
+  const loadBuildings = async (addrName, addrId) => {
+    setBldLoading(true);
+    try {
+      const query = addrId ? `?address_id=${encodeURIComponent(addrId)}` : (addrName ? `?address_name=${encodeURIComponent(addrName)}` : '');
+      const res = await apiRequest(`/buildings${query}`);
+      const blds = res?.data?.buildings || [];
+      setBuildingOptions(blds);
+      if (!formData.building && blds.length > 0) {
+        setFormData(prev => ({ ...prev, building: blds[0].name }));
+      }
+    } catch (e) {
+      const fallback = [{ id: 'bld_default_6she', name: '六舍' }];
+      setBuildingOptions(fallback);
+      if (!formData.building) {
+        setFormData(prev => ({ ...prev, building: '六舍' }));
+      }
+    } finally {
+      setBldLoading(false);
+    }
   };
 
   // 创建订单并展示微信收款码
@@ -165,8 +220,16 @@ export default function Checkout() {
   useEffect(() => {
     if (user) {
       loadCart();
+      loadAddresses();
     }
   }, [user]);
+
+  // 当园区变化时，刷新楼栋
+  useEffect(() => {
+    if (!formData.dormitory) return;
+    const addr = addressOptions.find(a => a.name === formData.dormitory);
+    loadBuildings(formData.dormitory, addr?.id);
+  }, [formData.dormitory, addressOptions]);
 
   // 如果用户未登录，不渲染内容
   if (!user) {
@@ -290,13 +353,10 @@ export default function Checkout() {
                           onChange={handleInputChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         >
-                          <option value="">请选择</option>
-                          <option value="梧桐苑">梧桐苑</option>
-                          <option value="丁香苑">丁香苑</option>
-                          <option value="玉兰苑">玉兰苑</option>
-                          <option value="桂花苑">桂花苑</option>
-                          <option value="竹园">竹园</option>
-                          <option value="松园">松园</option>
+                          <option value="">{addrLoading ? '加载中...' : '请选择'}</option>
+                          {addressOptions.map(a => (
+                            <option key={a.id || a.name} value={a.name}>{a.name}</option>
+                          ))}
                         </select>
                       </div>
                       
@@ -304,16 +364,19 @@ export default function Checkout() {
                         <label htmlFor="building" className="block text-sm font-medium text-gray-700 mb-1">
                           楼栋 *
                         </label>
-                        <input
-                          type="text"
+                        <select
                           id="building"
                           name="building"
                           required
                           value={formData.building}
                           onChange={handleInputChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="如：1号楼"
-                        />
+                        >
+                          <option value="">{bldLoading ? '加载中...' : '请选择'}</option>
+                          {buildingOptions.map(b => (
+                            <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                          ))}
+                        </select>
                       </div>
                       
                       <div>

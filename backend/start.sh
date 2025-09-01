@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # 配置环境变量
-export JWT_SECRET_KEY="${JWT_SECRET_KEY:-your-secret-key-change-in-production}"
+export JWT_SECRET_KEY="${JWT_SECRET_KEY:-your JWT_SECRET_KEY}"
 export BIGMODEL_API_KEY="${BIGMODEL_API_KEY:-your_api_key}"
 export BIGMODEL_API_URL="${BIGMODEL_API_URL:-https://open.bigmodel.cn/api/paas/v4/chat/completions}"
 
@@ -32,9 +32,17 @@ pip install -r requirements.txt
 mkdir -p items
 mkdir -p logs
 
-# 初始化数据库
-echo "初始化数据库..."
-python database.py
+# 初始化数据库（仅首次或显式重置）
+echo "检查数据库是否需要初始化..."
+if [ "${DB_RESET}" = "1" ]; then
+    echo "检测到 DB_RESET=1，正在重置数据库..."
+    python init_db.py
+elif [ ! -f "dorm_shop.db" ]; then
+    echo "首次启动，正在初始化数据库..."
+    python init_db.py
+else
+    echo "检测到现有数据库，跳过初始化。"
+fi
 
 # 启动应用
 echo "启动宿舍智能小商城API..."

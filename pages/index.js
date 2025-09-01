@@ -100,7 +100,7 @@ export default function Home() {
       
       {/* 未登录提示 */}
       {!user && (
-        <div className="fixed bottom-20 left-4 right-4 z-40">
+        <div className="fixed bottom-32 left-4 right-4 z-40">
           <div className="max-w-md mx-auto bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-sm">
             <div className="flex items-start">
               <div className="flex-shrink-0">

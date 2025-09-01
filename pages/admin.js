@@ -898,7 +898,21 @@ export default function Admin() {
     total_revenue: 0
   });
   const [orderStatusFilter, setOrderStatusFilter] = useState('全部'); // 全部/未付款/待确认/待配送/配送中/已完成
-  const [activeTab, setActiveTab] = useState('products'); // products, orders
+  const [activeTab, setActiveTab] = useState('products'); // products, orders, addresses
+
+  // 地址管理相关状态
+  const [addresses, setAddresses] = useState([]);
+  const [addrLoading, setAddrLoading] = useState(false);
+  const [addrSubmitting, setAddrSubmitting] = useState(false);
+  const [newAddrName, setNewAddrName] = useState('');
+  // 合并视图用：每个地址下的楼栋列表、输入与拖拽状态
+  const [buildingsByAddress, setBuildingsByAddress] = useState({}); // { [addrId]: [] }
+  const [newBldNameMap, setNewBldNameMap] = useState({}); // { [addrId]: string }
+  const [bldDragState, setBldDragState] = useState({ id: null, addressId: null });
+  const [addrDragId, setAddrDragId] = useState(null);
+  const [addrDragging, setAddrDragging] = useState(false);
+
+  // 楼栋管理状态（已合并到地址列表）
 
   // 检查管理员权限
   useEffect(() => {
@@ -920,11 +934,12 @@ export default function Admin() {
     setError('');
     
     try {
-      const [statsData, productsData, categoriesData, ordersData] = await Promise.all([
+      const [statsData, productsData, categoriesData, ordersData, addressesData] = await Promise.all([
         apiRequest('/admin/stats'),
         apiRequest('/products'),
         apiRequest('/admin/categories'),
-        apiRequest('/admin/orders')
+        apiRequest('/admin/orders'),
+        apiRequest('/admin/addresses')
       ]);
       
       setStats(statsData.data);
@@ -937,6 +952,7 @@ export default function Admin() {
         today_orders: 0,
         total_revenue: 0
       });
+      setAddresses(addressesData.data.addresses || []);
       setSelectedProducts([]); // 重新加载数据时清空选择
     } catch (err) {
       setError(err.message || '加载数据失败');
@@ -944,6 +960,137 @@ export default function Admin() {
       setIsLoading(false);
     }
   };
+
+  // 地址操作
+  const loadAddresses = async () => {
+    setAddrLoading(true);
+    try {
+      const res = await apiRequest('/admin/addresses');
+      const addrs = res.data.addresses || [];
+      setAddresses(addrs);
+      // 同时加载每个地址下的楼栋
+      const entries = await Promise.all(
+        addrs.map(async (a) => {
+          try {
+            const r = await apiRequest(`/admin/buildings?address_id=${encodeURIComponent(a.id)}`);
+            return [a.id, r.data.buildings || []];
+          } catch (e) {
+            return [a.id, []];
+          }
+        })
+      );
+      const map = {};
+      entries.forEach(([id, list]) => { map[id] = list; });
+      setBuildingsByAddress(map);
+    } catch (e) {
+      alert(e.message || '获取地址失败');
+    } finally {
+      setAddrLoading(false);
+    }
+  };
+
+  // 地址拖拽排序
+  const onAddressDragStart = (id) => {
+    setAddrDragId(id);
+    setAddrDragging(true);
+  };
+  const onAddressDragOver = (e, overId) => {
+    e.preventDefault();
+    if (!addrDragging || addrDragId === overId) return;
+    setAddresses((prev) => {
+      const from = prev.findIndex(a => a.id === addrDragId);
+      const to = prev.findIndex(a => a.id === overId);
+      if (from === -1 || to === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+  const onAddressDragEnd = async () => {
+    if (!addrDragging) return;
+    setAddrDragging(false);
+    setAddrDragId(null);
+    try {
+      const order = addresses.map(a => a.id);
+      await apiRequest('/admin/addresses/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ order })
+      });
+    } catch (e) {
+      alert(e.message || '保存地址排序失败');
+      await loadAddresses();
+    }
+  };
+
+  const handleAddAddress = async () => {
+    const name = newAddrName.trim();
+    if (!name) { alert('请输入地址名称'); return; }
+    setAddrSubmitting(true);
+    try {
+      const payload = { name, enabled: true, sort_order: 0 };
+      const res = await apiRequest('/admin/addresses', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      setNewAddrName('');
+      await loadAddresses();
+      alert('地址添加成功！');
+    } catch (e) {
+      alert(e.message || '添加地址失败');
+    } finally {
+      setAddrSubmitting(false);
+    }
+  };
+
+  const handleUpdateAddress = async (addr, changes) => {
+    setAddrSubmitting(true);
+    try {
+      await apiRequest(`/admin/addresses/${addr.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(changes)
+      });
+      await loadAddresses();
+    } catch (e) {
+      alert(e.message || '更新地址失败');
+    } finally {
+      setAddrSubmitting(false);
+    }
+  };
+
+  const handleDeleteAddress = async (addr) => {
+    if (!confirm(`确定删除地址"${addr.name}"吗？`)) return;
+    setAddrSubmitting(true);
+    try {
+      await apiRequest(`/admin/addresses/${addr.id}`, { method: 'DELETE' });
+      await loadAddresses();
+      alert('删除成功');
+    } catch (e) {
+      alert(e.message || '删除地址失败');
+    } finally {
+      setAddrSubmitting(false);
+    }
+  };
+
+  // 楼栋：新增（合并视图）
+  const handleAddBuilding = async (addrId) => {
+    const name = (newBldNameMap[addrId] || '').trim();
+    if (!name) { alert('请输入楼栋名称'); return; }
+    try {
+      await apiRequest('/admin/buildings', {
+        method: 'POST',
+        body: JSON.stringify({ address_id: addrId, name, enabled: true, sort_order: 0 })
+      });
+      setNewBldNameMap(prev => ({ ...prev, [addrId]: '' }));
+      // 重新拉取该地址的楼栋列表
+      const res = await apiRequest(`/admin/buildings?address_id=${encodeURIComponent(addrId)}`);
+      setBuildingsByAddress(prev => ({ ...prev, [addrId]: res.data.buildings || [] }));
+    } catch (e) {
+      alert(e.message || '添加楼栋失败');
+    }
+  };
+
+  // 旧楼栋管理逻辑已合并至地址列表中
 
   // 添加商品
   const handleAddProduct = async (productData) => {
@@ -1329,6 +1476,20 @@ export default function Admin() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('addresses');
+                    // 懒加载地址数据
+                    loadAddresses();
+                  }}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'addresses'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  地址管理
+                </button>
               </nav>
             </div>
           </div>
@@ -1472,6 +1633,219 @@ export default function Admin() {
             </>
           )}
 
+          {/* 地址管理 */}
+          {activeTab === 'addresses' && (
+            <>
+              <div className="mb-6">
+                <h2 className="text-lg font-medium text-gray-900">地址管理</h2>
+                <p className="text-sm text-gray-600 mt-1">配置用户下单可选地址（例如：宿舍区/园区/自提点）。</p>
+              </div>
+
+              {/* 新增地址 */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">地址名称 *</label>
+                    <input
+                      type="text"
+                      value={newAddrName}
+                      onChange={(e) => setNewAddrName(e.target.value)}
+                      placeholder="例如：桃园"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="flex sm:col-span-2">
+                    <button
+                      onClick={handleAddAddress}
+                      disabled={addrSubmitting}
+                      className="ml-auto bg-indigo-600 text-white px-4 py-2 rounded-md font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    >{addrSubmitting ? '提交中...' : '添加地址'}</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 地址列表（可拖拽排序） */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                  <h3 className="text-lg font-medium text-gray-900">地址列表</h3>
+                  <button onClick={loadAddresses} className="text-sm text-indigo-600 hover:underline">刷新</button>
+                </div>
+                <div className="divide-y">
+                  {addrLoading && (
+                    <div className="px-6 py-4 text-gray-500">加载中...</div>
+                  )}
+                  {!addrLoading && addresses.length === 0 && (
+                    <div className="px-6 py-8 text-center text-gray-500">暂无地址。默认会向用户展示“桃园”。</div>
+                  )}
+                  {!addrLoading && addresses.length > 0 && (
+                    addresses.map(addr => (
+                      <div key={addr.id} className="border-b last:border-b-0">
+                        {/* 地址行 */}
+                        <div
+                          className={`px-6 py-3 flex items-center gap-4 ${addrDragId === addr.id && addrDragging ? 'bg-indigo-50' : ''}`}
+                          draggable
+                          onDragStart={() => onAddressDragStart(addr.id)}
+                          onDragOver={(e) => onAddressDragOver(e, addr.id)}
+                          onDragEnd={onAddressDragEnd}
+                        >
+                          <div className="text-gray-400 cursor-move select-none">≡</div>
+                          <input
+                            type="text"
+                            defaultValue={addr.name}
+                            onBlur={(e) => {
+                              const val = e.target.value.trim();
+                              if (val && val !== addr.name) {
+                                handleUpdateAddress(addr, { name: val });
+                              }
+                            }}
+                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              defaultChecked={!!addr.enabled}
+                              onChange={(e) => handleUpdateAddress(addr, { enabled: e.target.checked })}
+                              className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                            />
+                            启用
+                          </label>
+                          <button
+                            onClick={() => handleDeleteAddress(addr)}
+                            className="text-red-600 hover:text-red-800 text-sm px-2 py-1"
+                          >删除</button>
+                        </div>
+
+                        {/* 楼栋列表（嵌套） */}
+                        <div className="bg-white/60 px-6 pb-3">
+                          {(buildingsByAddress[addr.id] || []).length === 0 ? (
+                            <div className="text-sm text-gray-500 py-2">暂无楼栋（用户默认看到“六舍”）</div>
+                          ) : (
+                            <div className="divide-y border rounded-md bg-white">
+                              {(buildingsByAddress[addr.id] || []).map((bld) => (
+                                <div
+                                  key={bld.id}
+                                  className="flex items-center gap-3 px-3 py-2"
+                                  draggable
+                                  onDragStart={() => setBldDragState({ id: bld.id, addressId: addr.id })}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    const dragging = bldDragState.id;
+                                    if (!dragging || bldDragState.addressId !== addr.id || dragging === bld.id) return;
+                                    setBuildingsByAddress(prev => {
+                                      const list = prev[addr.id] || [];
+                                      const from = list.findIndex(x => x.id === dragging);
+                                      const to = list.findIndex(x => x.id === bld.id);
+                                      if (from === -1 || to === -1) return prev;
+                                      const next = [...list];
+                                      const [moved] = next.splice(from, 1);
+                                      next.splice(to, 0, moved);
+                                      return { ...prev, [addr.id]: next };
+                                    });
+                                  }}
+                                  onDragEnd={async () => {
+                                    const dragging = bldDragState.id;
+                                    if (!dragging || bldDragState.addressId !== addr.id) return;
+                                    setBldDragState({ id: null, addressId: null });
+                                    try {
+                                      const order = (buildingsByAddress[addr.id] || []).map(x => x.id);
+                                      await apiRequest('/admin/buildings/reorder', {
+                                        method: 'POST',
+                                        body: JSON.stringify({ address_id: addr.id, order })
+                                      });
+                                    } catch (e) {
+                                      alert(e.message || '保存楼栋排序失败');
+                                      // 回滚刷新
+                                      try {
+                                        const r = await apiRequest(`/admin/buildings?address_id=${encodeURIComponent(addr.id)}`);
+                                        setBuildingsByAddress(prev => ({ ...prev, [addr.id]: r.data.buildings || [] }));
+                                      } catch {}
+                                    }
+                                  }}
+                                >
+                                  <div className="text-gray-400 cursor-move select-none">≡</div>
+                                  <input
+                                    type="text"
+                                    defaultValue={bld.name}
+                                    onBlur={async (e) => {
+                                      const val = e.target.value.trim();
+                                      if (val && val !== bld.name) {
+                                        try {
+                                          await apiRequest(`/admin/buildings/${bld.id}`, { method: 'PUT', body: JSON.stringify({ name: val }) });
+                                          // 同步本地
+                                          setBuildingsByAddress(prev => ({
+                                            ...prev,
+                                            [addr.id]: (prev[addr.id] || []).map(x => x.id === bld.id ? { ...x, name: val } : x)
+                                          }));
+                                        } catch (e) {
+                                          alert(e.message || '更新失败');
+                                        }
+                                      }
+                                    }}
+                                    className="flex-1 min-w-0 px-2 py-1 border border-gray-300 rounded"
+                                  />
+                                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                                    <input
+                                      type="checkbox"
+                                      defaultChecked={!!bld.enabled}
+                                      onChange={async (e) => {
+                                        try {
+                                          await apiRequest(`/admin/buildings/${bld.id}`, { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) });
+                                          setBuildingsByAddress(prev => ({
+                                            ...prev,
+                                            [addr.id]: (prev[addr.id] || []).map(x => x.id === bld.id ? { ...x, enabled: e.target.checked ? 1 : 0 } : x)
+                                          }));
+                                        } catch (er) {
+                                          alert(er.message || '更新失败');
+                                        }
+                                      }}
+                                      className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                                    />
+                                    启用
+                                  </label>
+                                  <button
+                                    onClick={async () => {
+                                      if (!confirm(`确定删除楼栋"${bld.name}"吗？`)) return;
+                                      try {
+                                        await apiRequest(`/admin/buildings/${bld.id}`, { method: 'DELETE' });
+                                        setBuildingsByAddress(prev => ({
+                                          ...prev,
+                                          [addr.id]: (prev[addr.id] || []).filter(x => x.id !== bld.id)
+                                        }));
+                                      } catch (er) {
+                                        alert(er.message || '删除失败');
+                                      }
+                                    }}
+                                    className="text-red-600 hover:text-red-800 text-xs px-2 py-1"
+                                  >删除</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 新增楼栋 */}
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="新增楼栋名称（如：六舍）"
+                              value={newBldNameMap[addr.id] || ''}
+                              onChange={(e) => setNewBldNameMap(prev => ({ ...prev, [addr.id]: e.target.value }))}
+                              className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                            <button
+                              onClick={() => handleAddBuilding(addr.id)}
+                              className="bg-indigo-600 text-white px-3 py-2 rounded-md text-sm hover:bg-indigo-700"
+                            >添加楼栋</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* 合并视图：楼栋已嵌入各地址下方 */}
+            </>
+          )}
         </main>
       </div>
     </>
