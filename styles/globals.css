@@ -360,6 +360,13 @@ body {
   color: #374151; 
 }
 
+/* 关键元信息展示（如搜索关键词） */
+.tool-card .tool-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .tool-card .tool-name { 
   font-weight: 500;
   color: #374151;

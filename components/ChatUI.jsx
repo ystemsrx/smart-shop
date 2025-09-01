@@ -350,7 +350,8 @@ const ToolCallCard = ({
     const nameMap = {
       'search_products': '商品搜索',
       'update_cart': '购物车操作', 
-      'get_cart': '查看购物车'
+      'get_cart': '查看购物车',
+      'get_category': '分类列表'
     };
     return nameMap[name] || name;
   };
@@ -362,21 +363,32 @@ const ToolCallCard = ({
     try {
       const parsed = JSON.parse(content);
       if (typeof parsed === 'object') {
+        // 分类结果（不包含商品）
+        if (Array.isArray(parsed.categories)) {
+          const count = typeof parsed.count === 'number' ? parsed.count : parsed.categories.length;
+          const names = parsed.categories
+            .map((c) => (typeof c === 'string' ? c : (c?.name || '')))
+            .filter(Boolean);
+          const display = names.slice(0, 6).join(', ');
+          const more = names.length > 6 ? ', ...' : '';
+          return `找到 ${count} 类 · [${display}${more}]`;
+        }
         // 多查询搜索结果
         if (parsed.multi_query && parsed.queries && parsed.results) {
-          const queryCount = parsed.queries.length;
           const totalCount = parsed.count || 0;
-          return `搜索 ${queryCount} 个关键词，找到 ${totalCount} 个商品`;
+          const qs = Array.isArray(parsed.queries) ? parsed.queries.filter(Boolean).join(', ') : '';
+          return `[${qs}] · 找到 ${totalCount} 个商品`;
         }
         // 单个商品搜索结果
         if (parsed.count !== undefined && Array.isArray(parsed.items)) {
-          return `找到 ${parsed.count} 个商品`;
+          const q = typeof parsed.query === 'string' ? parsed.query : '';
+          return q ? `${q} · 找到 ${parsed.count} 个商品` : `找到 ${parsed.count} 个商品`;
         }
         // 购物车信息
         if (parsed.total_quantity !== undefined || parsed.total_price !== undefined) {
           const qty = parsed.total_quantity ?? 0;
           const price = parsed.total_price ?? 0;
-          return `共 ${qty} 件商品，总计 ¥${price}`;
+          return `共 ${qty} 件商品 · ¥${price}`;
         }
         // 购物车操作结果
         if (parsed.action && parsed.message) {
@@ -397,8 +409,8 @@ const ToolCallCard = ({
       if (content.includes('失败') || content.includes('错误')) return "操作失败";
     }
     
-    // 通用简化 - 只显示前30个字符
-    return content.length > 30 ? content.slice(0, 30) + '...' : content;
+    // 解析失败则直接返回（避免关键信息被截断）
+    return content;
   };
 
   return (
@@ -412,6 +424,16 @@ const ToolCallCard = ({
               <span className="tool-status">{getStatusText()}</span>
             </div>
           </div>
+
+          {/* 运行中展示关键信息：例如搜索关键词 */}
+          {isRunning && function_name === 'search_products' && (() => {
+            try {
+              const args = JSON.parse(arguments_text || '{}');
+              const q = args?.query;
+              const qs = Array.isArray(q) ? q.filter(Boolean).join(', ') : (typeof q === 'string' ? q : '');
+              return qs ? <div className="tool-meta">关键词：{qs}</div> : null;
+            } catch { return null; }
+          })()}
 
           {/* 执行进度 */}
           {isRunning && (
@@ -705,11 +727,10 @@ export default function ChatModern({ user }) {
                   }
                   return (textVal || '').slice(0, 140);
                 };
-                const summary = summarize();
-
+                // 传递原始JSON结果给卡片，由卡片内统一格式化摘要（可展示搜索关键词等）
                 updateToolCallCard(data.tool_call_id, {
                   status: isError ? 'error' : 'success',
-                  result_summary: summary,
+                  result_summary: textVal,
                   error_message: isError ? (textVal || '工具执行出错') : '',
                 });
 
