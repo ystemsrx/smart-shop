@@ -534,7 +534,7 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
   );
 }
 
-export default function ChatModern() {
+export default function ChatModern({ user }) {
   const [msgs, setMsgs] = useState([]);
   const [inp, setInp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -579,8 +579,8 @@ export default function ChatModern() {
     // 支持本地开发和生产环境
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 
       (process.env.NODE_ENV === 'development' 
-        ? "https://chatapi.your_domain.com/v1/chat"
-        : "https://chatapi.your_domain.com/v1/chat");
+        ? "http://localhost:8000/ai/chat"
+        : "https://api.dormshop.com/ai/chat");
     
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -592,6 +592,7 @@ export default function ChatModern() {
           "Content-Type": "application/json",
           "Accept": "text/event-stream",
         },
+        credentials: 'include', // 包含Cookie认证
         body: JSON.stringify({ messages }),
         signal: controller.signal,
       });
