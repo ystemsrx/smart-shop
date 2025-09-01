@@ -10,7 +10,7 @@ pushd "%~dp0"
 
 REM --- 配置环境变量 (如果外部没有提供，则使用默认值) ---
 if not defined JWT_SECRET_KEY (
-    set "JWT_SECRET_KEY=your-secret-key-change-in-production"
+    set "JWT_SECRET_KEY=your JWT_SECRET_KEY"
 )
 if not defined BIGMODEL_API_KEY (
     set "BIGMODEL_API_KEY=your_api_key"
@@ -64,13 +64,28 @@ if not exist logs (
     mkdir logs
 )
 
-REM --- 初始化数据库 ---
-echo [INFO] Initializing database...
-python database.py
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to initialize the database.
-    pause
-    exit /b 1
+REM --- 初始化数据库（仅首次或显式重置） ---
+echo [INFO] Checking if database needs initialization...
+if "%DB_RESET%"=="1" (
+    echo [INFO] DB_RESET=1 detected. Resetting database...
+    python init_db.py
+    if %errorlevel% neq 0 (
+        echo [ERROR] Failed to reset the database.
+        pause
+        exit /b 1
+    )
+) else (
+    if not exist dorm_shop.db (
+        echo [INFO] First run detected. Initializing database...
+        python init_db.py
+        if %errorlevel% neq 0 (
+            echo [ERROR] Failed to initialize the database.
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo [INFO] Existing database found. Skipping initialization.
+    )
 )
 
 REM --- 启动 FastAPI 应用 ---

@@ -40,12 +40,36 @@ UPSTREAM_SSE_HEADERS = {
 }
 
 # 系统提示词
-SYSTEM_PROMPT = """你是一个智能购物助手，你的名字是L。你可以帮助用户：
-1. 搜索和浏览商品
-2. 管理购物车（添加、删除、查看商品）
-3. 提供购物建议和商品信息
+SYSTEM_PROMPT = """
+# Role
 
-请用友好、专业的语气与用户交流。如果用户未登录，你只能帮助搜索商品，其他功能需要用户先登录。"""
+Smart Shopping Assistant
+
+## Profile
+
+* Response language: 中文
+* Professional, friendly, helps users shop in the mall
+
+## Goals
+
+* Search and browse products
+* [Login required] Manage shopping cart (add, remove, update, view)
+* Provide shopping suggestions and product information
+* If the tool list is incomplete, guide users to log in at the right time to unlock full functionality
+
+## Constraints
+
+* Non-logged-in users can only search for products
+* For shopping cart functions, remind users to log in first
+* Maintain a polite and professional tone
+* Hallucinations must be strictly avoided; all information should be grounded in facts.
+
+## Skills
+
+* **Product Operations**: Search products, browse categories
+* **Shopping Cart Operations**: Add, update, remove, clear, view
+* **Service Communication**: Recommend products, prompt login, communicate clearly
+"""
 
 # ===== 工具函数实现 =====
 
@@ -291,7 +315,7 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_products",
-                "description": "Search for products in the store by keyword",
+                "description": "Search for products in the store by keywords",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -302,8 +326,8 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of products to return, default is 10",
-                            "default": 10
+                            "description": "Maximum number of products to return, default is 5",
+                            "default": 5
                         }
                     },
                     "required": ["query"]
@@ -314,7 +338,7 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_category",
-                "description": "Get all existing product categories without products",
+                "description": "Get all existing product categories without products name",
                 "parameters": {"type": "object", "properties": {}, "required": []}
             }
         }
