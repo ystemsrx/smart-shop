@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 from contextlib import asynccontextmanager
 
 # 导入数据库和认证模块
-from database import ProductDB, CartDB, ChatLogDB
+from database import ProductDB, CartDB, ChatLogDB, CategoryDB
 from auth import get_current_user_optional
 
 # 配置日志
@@ -164,6 +164,24 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
         logger.error(f"获取购物车失败: {e}")
         return {"ok": False, "error": f"获取购物车失败: {str(e)}"}
 
+def get_category_impl() -> Dict[str, Any]:
+    """获取所有商品类别（不包含商品，未登录也可用）"""
+    try:
+        categories = CategoryDB.get_all_categories()
+        # 仅返回必要字段
+        items = [
+            {
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "description": c.get("description", "")
+            }
+            for c in categories
+        ]
+        return {"ok": True, "count": len(items), "categories": items}
+    except Exception as e:
+        logger.error(f"获取分类失败: {e}")
+        return {"ok": False, "error": f"获取分类失败: {str(e)}"}
+
 def update_cart_impl(user_id: str, action: str, product_id: Any = None, quantity: Any = None) -> Dict[str, Any]:
     """更新购物车实现"""
     try:
@@ -291,6 +309,14 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
                     "required": ["query"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_category",
+                "description": "Get all existing product categories without products",
+                "parameters": {"type": "object", "properties": {}, "required": []}
+            }
         }
     ]
     
@@ -357,6 +383,8 @@ def execute_tool_locally(name: str, args: Dict[str, Any], user_id: Optional[str]
             if not user_id:
                 return {"ok": False, "error": "需要登录才能查看购物车"}
             return get_cart_impl(user_id)
+        elif name == "get_category":
+            return get_category_impl()
         else:
             return {"ok": False, "error": f"未知的工具: {name}"}
     except Exception as e:
