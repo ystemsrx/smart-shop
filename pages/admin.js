@@ -541,45 +541,35 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
 
 
 
-// 订单状态映射
-const ORDER_STATUS_MAP = {
-  pending: { text: '待确认', color: 'yellow' },
-  confirmed: { text: '已确认', color: 'blue' },
-  shipped: { text: '已发货', color: 'purple' },
-  delivered: { text: '已送达', color: 'green' },
-  cancelled: { text: '已取消', color: 'red' }
+// 统一状态映射（显示）
+const UNIFIED_STATUS_MAP = {
+  '未付款': { text: '未付款', color: 'gray' },
+  '待确认': { text: '待确认', color: 'yellow' },
+  '待配送': { text: '待配送', color: 'blue' },
+  '配送中': { text: '配送中', color: 'purple' },
+  '已完成': { text: '已完成', color: 'green' }
 };
 
-// 支付状态映射
-const PAYMENT_STATUS_MAP = {
-  pending: { text: '待支付', color: 'gray' },
-  processing: { text: '支付中', color: 'yellow' },
-  succeeded: { text: '已支付', color: 'green' },
-  failed: { text: '支付失败', color: 'red' }
+const UNIFIED_STATUS_ORDER = ['未付款', '待确认', '待配送', '配送中', '已完成'];
+
+// 将后端的 status/payment_status 映射为统一状态
+const getUnifiedStatus = (order) => {
+  const ps = order?.payment_status;
+  const st = order?.status;
+  if (!ps && !st) return '未付款';
+  if (ps === 'processing') return '待确认';
+  if (ps !== 'succeeded') return '未付款';
+  // 已支付
+  if (st === 'shipped') return '配送中';
+  if (st === 'delivered') return '已完成';
+  // 已支付但未发货/未送达
+  return '待配送';
 };
 
 // 订单表格组件
-const OrderTable = ({ orders, onUpdateStatus, onUpdatePaymentStatus, isLoading }) => {
+const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading }) => {
   const getStatusBadge = (status) => {
-    const statusInfo = ORDER_STATUS_MAP[status] || { text: status, color: 'gray' };
-    const colorClasses = {
-      yellow: 'bg-yellow-100 text-yellow-800',
-      blue: 'bg-blue-100 text-blue-800',
-      purple: 'bg-purple-100 text-purple-800',
-      green: 'bg-green-100 text-green-800',
-      red: 'bg-red-100 text-red-800',
-      gray: 'bg-gray-100 text-gray-800'
-    };
-    
-    return (
-      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${colorClasses[statusInfo.color]}`}>
-        {statusInfo.text}
-      </span>
-    );
-  };
-
-  const getPaymentStatusBadge = (paymentStatus) => {
-    const statusInfo = PAYMENT_STATUS_MAP[paymentStatus] || { text: paymentStatus || '未知', color: 'gray' };
+    const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
     const colorClasses = {
       yellow: 'bg-yellow-100 text-yellow-800',
       blue: 'bg-blue-100 text-blue-800',
@@ -626,9 +616,6 @@ const OrderTable = ({ orders, onUpdateStatus, onUpdatePaymentStatus, isLoading }
                 状态
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                支付状态
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 创建时间
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -672,50 +659,22 @@ const OrderTable = ({ orders, onUpdateStatus, onUpdatePaymentStatus, isLoading }
                   ¥{order.total_amount}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {getStatusBadge(order.status)}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {getPaymentStatusBadge(order.payment_status)}
+                  {getStatusBadge(getUnifiedStatus(order))}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {formatDate(order.created_at)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <select
-                    value={order.status}
-                    onChange={(e) => onUpdateStatus(order.id, e.target.value)}
+                    value={getUnifiedStatus(order)}
+                    onChange={(e) => onUpdateUnifiedStatus(order, e.target.value)}
                     disabled={isLoading}
                     className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
                   >
-                    <option value="pending">待确认</option>
-                    <option value="confirmed">已确认</option>
-                    <option value="shipped">已发货</option>
-                    <option value="delivered">已送达</option>
-                    <option value="cancelled">已取消</option>
+                    {UNIFIED_STATUS_ORDER.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
                   </select>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {order.payment_status !== 'succeeded' && (
-                      <button
-                        onClick={() => onUpdatePaymentStatus(order.id, 'succeeded')}
-                        disabled={isLoading}
-                        className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-                      >标记已付款</button>
-                    )}
-                    {order.payment_status !== 'processing' && (
-                      <button
-                        onClick={() => onUpdatePaymentStatus(order.id, 'processing')}
-                        disabled={isLoading}
-                        className="text-xs bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600 disabled:opacity-50"
-                      >设为待验证</button>
-                    )}
-                    {order.payment_status !== 'failed' && (
-                      <button
-                        onClick={() => onUpdatePaymentStatus(order.id, 'failed')}
-                        disabled={isLoading}
-                        className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50"
-                      >付款错误</button>
-                    )}
-                  </div>
                 </td>
               </tr>
             ))}
@@ -938,6 +897,7 @@ export default function Admin() {
     today_orders: 0,
     total_revenue: 0
   });
+  const [orderStatusFilter, setOrderStatusFilter] = useState('全部'); // 全部/未付款/待确认/待配送/配送中/已完成
   const [activeTab, setActiveTab] = useState('products'); // products, orders
 
   // 检查管理员权限
@@ -1189,6 +1149,47 @@ export default function Admin() {
     }
   };
 
+  // 统一状态更新：根据选择自动映射到后端支付状态/订单状态
+  const handleUpdateUnifiedStatus = async (order, newUnified) => {
+    try {
+      // 当前统一状态和目标统一状态
+      const currentUnified = getUnifiedStatus(order);
+      if (currentUnified === newUnified) return;
+
+      // 操作顺序：先处理支付状态，再处理发货/完成状态
+      if (newUnified === '未付款') {
+        // 回退为未付款：支付状态 pending，订单状态 pending
+        await handleUpdatePaymentStatus(order.id, 'pending');
+        await handleUpdateOrderStatus(order.id, 'pending');
+      } else if (newUnified === '待确认') {
+        await handleUpdatePaymentStatus(order.id, 'processing');
+        await handleUpdateOrderStatus(order.id, 'pending');
+      } else if (newUnified === '待配送') {
+        // 标记已支付（会扣库存），并设为已确认
+        if (order.payment_status !== 'succeeded') {
+          await handleUpdatePaymentStatus(order.id, 'succeeded');
+        }
+        await handleUpdateOrderStatus(order.id, 'confirmed');
+      } else if (newUnified === '配送中') {
+        // 需已支付
+        if (order.payment_status !== 'succeeded') {
+          alert('请先确认付款后再设为配送中');
+          return;
+        }
+        await handleUpdateOrderStatus(order.id, 'shipped');
+      } else if (newUnified === '已完成') {
+        // 需已支付
+        if (order.payment_status !== 'succeeded') {
+          alert('请先确认付款后再设为已完成');
+          return;
+        }
+        await handleUpdateOrderStatus(order.id, 'delivered');
+      }
+    } catch (err) {
+      alert(err.message || '更新状态失败');
+    }
+  };
+
   // 登出
   const handleLogout = async () => {
     if (confirm('确定要退出登录吗？')) {
@@ -1410,21 +1411,28 @@ export default function Admin() {
               </div>
 
               {/* 订单状态统计 */}
-              {orderStats.status_counts && Object.keys(orderStats.status_counts).length > 0 && (
+              {(() => {
+                // 基于订单列表计算统一状态统计
+                const counts = orders.reduce((acc, o) => {
+                  const k = getUnifiedStatus(o);
+                  acc[k] = (acc[k] || 0) + 1;
+                  return acc;
+                }, {});
+                const hasAny = Object.keys(counts).length > 0;
+                return hasAny ? (
                 <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                   <h3 className="text-md font-medium text-gray-900 mb-4">订单状态统计</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                    {Object.entries(orderStats.status_counts).map(([status, count]) => (
+                    {UNIFIED_STATUS_ORDER.map((status) => (
                       <div key={status} className="text-center">
-                        <div className="text-2xl font-bold text-gray-900">{count}</div>
-                        <div className="text-sm text-gray-600">
-                          {ORDER_STATUS_MAP[status]?.text || status}
-                        </div>
+                        <div className="text-2xl font-bold text-gray-900">{counts[status] || 0}</div>
+                        <div className="text-sm text-gray-600">{status}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
+                ) : null;
+              })()}
 
               {/* 订单列表 */}
               {isLoading ? (
@@ -1441,12 +1449,25 @@ export default function Admin() {
                   </div>
                 </div>
               ) : (
-                <OrderTable 
-                  orders={orders} 
-                  onUpdateStatus={handleUpdateOrderStatus}
-                  onUpdatePaymentStatus={handleUpdatePaymentStatus}
-                  isLoading={isSubmitting}
-                />
+                <>
+                  {/* 筛选器 */}
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {['全部', ...UNIFIED_STATUS_ORDER].map((label) => (
+                      <button
+                        key={label}
+                        onClick={() => setOrderStatusFilter(label)}
+                        className={`px-3 py-1 rounded-md text-sm border ${orderStatusFilter === label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <OrderTable 
+                    orders={(orderStatusFilter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === orderStatusFilter))}
+                    onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
+                    isLoading={isSubmitting}
+                  />
+                </>
               )}
             </>
           )}

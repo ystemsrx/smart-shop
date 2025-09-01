@@ -4,12 +4,44 @@ import Link from 'next/link';
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 
-const PAYMENT_STATUS_TEXT = {
-  pending: '未付款',
-  processing: '待验证',
-  succeeded: '已支付',
-  failed: '付款错误'
+// 统一状态计算（与管理端保持一致）
+const getUnifiedStatus = (order) => {
+  const ps = order?.payment_status;
+  const st = order?.status;
+  if (ps === 'processing') return '待确认';
+  if (ps !== 'succeeded') return '未付款';
+  if (st === 'shipped') return '配送中';
+  if (st === 'delivered') return '已完成';
+  return '待配送';
 };
+
+const UNIFIED_STATUS_MAP = {
+  '未付款': { color: 'gray' },
+  '待确认': { color: 'yellow' },
+  '待配送': { color: 'blue' },
+  '配送中': { color: 'purple' },
+  '已完成': { color: 'green' },
+};
+
+const UNIFIED_STATUS_ORDER = ['全部', '未付款', '待确认', '待配送', '配送中', '已完成'];
+
+const colorClasses = {
+  yellow: 'bg-yellow-100 text-yellow-800',
+  blue: 'bg-blue-100 text-blue-800',
+  purple: 'bg-purple-100 text-purple-800',
+  green: 'bg-green-100 text-green-800',
+  red: 'bg-red-100 text-red-800',
+  gray: 'bg-gray-100 text-gray-800'
+};
+
+function StatusBadge({ status }) {
+  const meta = UNIFIED_STATUS_MAP[status] || { color: 'gray' };
+  return (
+    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${colorClasses[meta.color]}`}>
+      {status}
+    </span>
+  );
+}
 
 export default function Orders() {
   const router = useRouter();
@@ -21,6 +53,8 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payOrderId, setPayOrderId] = useState(null);
+  const [expanded, setExpanded] = useState({});
+  const [filter, setFilter] = useState('全部');
 
   useEffect(() => {
     if (!user) {
@@ -63,6 +97,19 @@ export default function Orders() {
 
   if (!user) return null;
 
+  const filteredOrders = filter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === filter);
+
+  const formatDate = (dateString) => new Date(dateString).toLocaleString('zh-CN');
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('已复制订单号');
+    } catch (e) {
+      // ignore
+    }
+  };
+
   return (
     <>
       <Head>
@@ -99,7 +146,7 @@ export default function Orders() {
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">我的订单</h1>
-            <p className="text-gray-600 mt-1">查看订单状态和付款情况</p>
+            <p className="text-gray-600 mt-1">查看订单状态</p>
           </div>
 
           {error && (
@@ -115,28 +162,97 @@ export default function Orders() {
             </div>
           ) : (
             <div className="space-y-4">
-              {orders.map((o) => (
-                <div key={o.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="text-sm text-gray-500">订单号</div>
-                      <div className="font-mono text-gray-900 text-sm">{o.id}</div>
+              {/* 筛选器 */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                {UNIFIED_STATUS_ORDER.map((label) => (
+                  <button
+                    key={label}
+                    onClick={() => setFilter(label)}
+                    className={`px-3 py-1 rounded-md text-sm border ${filter === label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {filteredOrders.map((o) => {
+                const us = getUnifiedStatus(o);
+                const isOpen = !!expanded[o.id];
+                return (
+                  <div key={o.id} className="bg-white rounded-lg shadow-sm border border-gray-200">
+                    {/* header */}
+                    <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
+                      <div className="flex items-center gap-3">
+                        <StatusBadge status={us} />
+                        <div className="text-sm text-gray-500">下单时间：{formatDate(o.created_at)}</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm text-gray-900 font-medium">总计 ¥{o.total_amount}</div>
+                        <button
+                          onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
+                          className="text-sm text-indigo-600 hover:underline"
+                        >{isOpen ? '收起' : '查看详情'}</button>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-sm text-gray-500">金额</div>
-                      <div className="text-gray-900 font-medium">¥{o.total_amount}</div>
+
+                    {/* body */}
+                    <div className="px-4 py-3">
+                      <div className="flex flex-wrap justify-between items-start gap-4">
+                        <div className="text-sm text-gray-600">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500">订单号：</span>
+                            <span className="font-mono">{o.id}</span>
+                            <button
+                              className="text-xs text-indigo-600 hover:underline"
+                              onClick={() => copyToClipboard(o.id)}
+                            >复制</button>
+                          </div>
+                          <div className="mt-1 text-gray-500">支付方式：{o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {us === '未付款' && (
+                            <button onClick={() => setPayOrderId(o.id)} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700">
+                              {o.payment_status === 'failed' ? '重新付款' : '去付款'}
+                            </button>
+                          )}
+                          {us !== '未付款' && (
+                            <span className="text-sm text-gray-500">我们会尽快处理您的订单</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {isOpen && (
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
+                            <div className="divide-y divide-gray-100 border rounded-md">
+                              {o.items?.map((it) => (
+                                <div key={it.product_id + String(it.unit_price)} className="flex justify-between items-center px-3 py-2 text-sm">
+                                  <div className="truncate">
+                                    <div className="text-gray-900 truncate">{it.name}</div>
+                                    <div className="text-gray-500">x{it.quantity}</div>
+                                  </div>
+                                  <div className="text-gray-900">¥{it.subtotal}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 mb-2">收货信息</div>
+                            <div className="text-sm text-gray-600 space-y-1 border rounded-md px-3 py-2">
+                              <div>姓名：{o.shipping_info?.name}</div>
+                              <div>电话：{o.shipping_info?.phone}</div>
+                              <div>地址：{o.shipping_info?.full_address}</div>
+                              {o.note && <div>备注：{o.note}</div>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="mt-3 flex justify-between items-center">
-                    <div className="text-sm text-gray-600">支付状态：{PAYMENT_STATUS_TEXT[o.payment_status] || '未知'}</div>
-                    {(o.payment_status === 'pending' || o.payment_status === 'failed') && (
-                      <button onClick={() => setPayOrderId(o.id)} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700">
-                        {o.payment_status === 'failed' ? '重新付款' : '去付款'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </main>

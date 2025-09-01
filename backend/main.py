@@ -970,11 +970,12 @@ async def mark_order_paid_pending(order_id: str, request: Request):
 
 @app.patch("/admin/orders/{order_id}/payment-status")
 async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdateRequest, request: Request):
-    """管理员更新订单支付状态：processing/succeeded/failed"""
+    """管理员更新订单支付状态：pending/processing/succeeded/failed"""
     admin = get_current_admin_required_from_cookie(request)
     try:
         new_status = payload.payment_status
-        if new_status not in ["processing", "succeeded", "failed"]:
+        # 允许管理员将支付状态设置为 pending/processing/succeeded/failed
+        if new_status not in ["pending", "processing", "succeeded", "failed"]:
             return error_response("无效的支付状态", 400)
 
         order = OrderDB.get_order_by_id(order_id)
@@ -993,7 +994,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                 logger.warning(f"清空购物车失败: {e}")
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
 
-        # 失败或待验证：仅更新支付状态
+        # 失败、待验证或回退为未付款：仅更新支付状态
         ok = OrderDB.update_payment_status(order_id, new_status)
         if not ok:
             return error_response("更新支付状态失败", 500)

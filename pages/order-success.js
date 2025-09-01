@@ -6,11 +6,12 @@ import { useRouter } from 'next/router';
 export default function OrderSuccess() {
   const router = useRouter();
   const { order_id, payment_status } = router.query || {};
+  // 使用统一状态文案
   const statusText = payment_status === 'processing'
-    ? '已提交付款，待管理员验证'
+    ? '待确认'
     : payment_status === 'succeeded'
-    ? '支付完成'
-    : '订单已提交';
+    ? '待配送'
+    : '未付款';
   return (
     <>
       <Head>
