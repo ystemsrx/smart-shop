@@ -13,6 +13,7 @@ export BIGMODEL_API_KEY="${BIGMODEL_API_KEY:-your_api_key}"
 export BIGMODEL_API_URL="${BIGMODEL_API_URL:-https://open.bigmodel.cn/api/paas/v4/chat/completions}"
 
 
+export ENV="${ENV:-production}"
 
 # 创建虚拟环境（如果不存在）
 if [ ! -d "venv" ]; then
@@ -46,14 +47,14 @@ fi
 
 # 启动应用
 echo "启动宿舍智能小商城API..."
-echo "服务将运行在 http://0.0.0.0:8000"
-echo "API文档: http://0.0.0.0:8000/docs"
+echo "服务将运行在 http://0.0.0.0:9099"
+echo "API文档: http://0.0.0.0:9099/docs"
 
 # 生产环境启动（多进程）
 if [ "$ENV" = "production" ]; then
     echo "生产环境模式启动..."
-    uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info
+    nohup uvicorn main:app --host 0.0.0.0 --port 9099 --workers 4 --log-level info > logs/server.log 2>&1 &
 else
     echo "开发环境模式启动..."
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    nohup uvicorn main:app --host 0.0.0.0 --port 9099 --reload --log-level debug > logs/server.log 2>&1 &
 fi
