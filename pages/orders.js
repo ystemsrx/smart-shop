@@ -242,7 +242,7 @@ export default function Orders() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-60" onClick={() => setPayOrderId(null)}></div>
           <div className="relative bg-white rounded-lg shadow-xl p-6 w-96 z-10">
-            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请使用微信扫码付款</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请长按图片扫码付款</h3>
             <div className="w-full flex justify-center mb-4">
               <img src="/1_wx.png" alt="微信收款码" className="rounded-md w-64 h-64 object-contain border" />
             </div>

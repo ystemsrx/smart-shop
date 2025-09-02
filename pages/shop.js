@@ -4,6 +4,7 @@ import Head from 'next/head';
 import { useProducts, useCart, useAuth } from '../hooks/useAuth';
 import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
+import { getProductImage } from '../utils/urls';
 
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0, isLoading }) => {
@@ -26,6 +27,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
   const isInCart = cartQuantity > 0;
   // 是否缺货
   const isOutOfStock = product.stock === 0;
+  const imageSrc = getProductImage(product);
 
   return (
     <div className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all ${
@@ -34,9 +36,9 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
         : 'hover:shadow-md'
     }`}>
       <div className="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 relative">
-        {product.img_path ? (
+        {imageSrc ? (
           <RetryImage
-            src={`http://localhost:8000/${product.img_path}`}
+            src={imageSrc}
             alt={product.name}
             className={`h-48 w-full object-cover object-center ${
               isOutOfStock ? 'filter grayscale opacity-75' : ''

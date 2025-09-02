@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const RetryImage = ({ 
   src, 
@@ -47,6 +47,15 @@ const RetryImage = ({
     retryCountRef.current = 0;
     setRetryCount(0);
   };
+
+  // 当外部传入的 src 变化时，重置内部状态并使用新的地址
+  useEffect(() => {
+    setCurrentSrc(src);
+    setHasError(false);
+    setIsLoading(true);
+    retryCountRef.current = 0;
+    setRetryCount(0);
+  }, [src]);
 
   // 如果最终失败，显示默认占位符
   if (hasError) {
