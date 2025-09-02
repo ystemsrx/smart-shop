@@ -823,7 +823,7 @@ export default function ChatModern({ user }) {
   ), []);
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-white text-gray-900">
+    <div className="relative flex min-h-[calc(100vh-56px)] flex-col bg-white text-gray-900">
       {first ? (
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">

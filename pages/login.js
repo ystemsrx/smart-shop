@@ -61,7 +61,7 @@ export default function Login() {
             登录宿舍小商城
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            使用学号和密码登录；管理员请直接输入管理员账号
+            使用学号和密码登录
           </p>
         </div>
 
@@ -87,7 +87,7 @@ export default function Login() {
                     value={formData.student_id}
                     onChange={handleInputChange}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="请输入学号或管理员账号"
+                  placeholder="请输入学号"
                   />
                 </div>
               </div>
