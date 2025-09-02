@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
+// Link 不再使用，导航由通用组件处理
 import { useProducts, useCart, useAuth } from '../hooks/useAuth';
 import RetryImage from '../components/RetryImage';
+import Nav from '../components/Nav';
 
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0, isLoading }) => {
@@ -354,43 +355,10 @@ export default function Shop() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen bg-gray-50">
-        {/* 导航栏 */}
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <Link href="/" className="flex items-center">
-                  <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">L</span>
-                  </div>
-                  <span className="ml-2 text-xl font-bold text-gray-900">智能小商城</span>
-                </Link>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <Link href="/" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                  AI助手
-                </Link>
-                <Link href="/shop" className="bg-indigo-600 text-white px-3 py-2 rounded-md text-sm font-medium">
-                  商品商城
-                </Link>
-                {user ? (
-                  <div className="flex items-center space-x-2">
-                    <Link href="/cart" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">购物车</Link>
-                    <Link href="/orders" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">我的订单</Link>
-                    <span className="text-sm text-gray-600">{user.name}</span>
-                  </div>
-                ) : (
-                  <Link href="/login" className="bg-gray-600 text-white px-3 py-2 rounded-md text-sm font-medium">
-                    登录
-                  </Link>
-                )}
-              </div>
-            </div>
-          </div>
-        </nav>
+      {/* 顶部导航（移动端优化） */}
+      <Nav active="shop" />
 
+      <div className="min-h-screen bg-gray-50 pt-16">
         {/* 主要内容 */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
