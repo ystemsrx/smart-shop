@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAuth, useApi } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
+import { getProductImage } from '../utils/urls';
 
 // 内联库存控制组件
 const StockControl = ({ product, onUpdateStock }) => {
@@ -178,10 +179,10 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div className="flex-shrink-0 h-10 w-10">
-                      {product.img_path ? (
+                      {getProductImage(product) ? (
                         <RetryImage
                           className="h-10 w-10 rounded-md object-cover"
-                          src={`http://localhost:8000/${product.img_path}`}
+                          src={getProductImage(product)}
                           alt={product.name}
                           maxRetries={3}
                           onFinalError={() => {

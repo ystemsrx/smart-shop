@@ -9,6 +9,22 @@ const nextConfig = {
   // 允许外部CDN资源
   images: {
     domains: ['cdn.jsdelivr.net']
+  },
+  async rewrites() {
+    const base =
+      process.env.NEXT_PUBLIC_IMAGE_BASE_URL ||
+      process.env.NEXT_PUBLIC_FILE_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      (process.env.NODE_ENV === 'development'
+        ? 'http://localhost:9099'
+        : 'https://chatapi.your_domain.com');
+    const cleanBase = (base || '').replace(/\/$/, '');
+    return cleanBase
+      ? [
+          // 将前端同源的 /items/* 代理到后端文件服务，解决相对路径图片 404
+          { source: '/items/:path*', destination: `${cleanBase}/items/:path*` },
+        ]
+      : [];
   }
 }
 
