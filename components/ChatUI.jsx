@@ -185,6 +185,118 @@ const MarkdownRenderer = ({ content }) => {
     const dedentedContent = dedent(processedContent);
     containerRef.current.innerHTML = md.render(dedentedContent);
 
+    // 保留有序列表原始编号：
+    // - 不对数字进行重新格式化（避免 2. 被渲染为 1.）
+    // - 支持多级嵌套列表
+    // 实现方式：
+    // 1) 先从原始 Markdown 文本中按出现顺序提取每个有序列表的每一项的“原始编号+分隔符（. 或 )）”；
+    // 2) 再与渲染后的每个 <ol> 顺序对应，为其中的 <li> 写入 data-ol-num / data-ol-suffix 属性；
+    // 3) 由 CSS 使用 ::before 基于 data-ol-num 渲染前缀，实现视觉编号但不改动数字。
+    const extractOrderedLists = (text) => {
+      const lines = text.split('\n');
+      const lists = []; // 收集到的有序列表（按出现顺序）
+      const stack = []; // 嵌套栈：{ indent, type: 'ordered'|'bullet', items?: [{num, sep}] }
+
+      const detab = (s) => s.replace(/\t/g, '    ');
+      const getIndent = (s) => detab(s).match(/^\s*/)[0].length;
+
+      let inFence = false;
+      let fenceChar = '';
+      let fenceLen = 0;
+
+      const maybeCloseToIndent = (indent) => {
+        while (stack.length && indent < stack[stack.length - 1].indent) {
+          const top = stack.pop();
+          if (top.type === 'ordered' && top.items?.length) lists.push(top);
+        }
+      };
+
+      for (let rawLine of lines) {
+        const line = rawLine; // 已经 dedent，所以直接使用
+
+        // 代码围栏检测 ``` 或 ~~~
+        const fenceMatch = line.match(/^(\s*)(`{3,}|~{3,})/);
+        if (fenceMatch) {
+          const marker = fenceMatch[2][0];
+          const len = fenceMatch[2].length;
+          if (!inFence) {
+            inFence = true; fenceChar = marker; fenceLen = len; continue;
+          } else if (inFence && marker === fenceChar && line.trim().startsWith(fenceChar.repeat(fenceLen))) {
+            inFence = false; fenceChar = ''; fenceLen = 0; continue;
+          }
+        }
+        if (inFence) continue;
+
+        // 去除前缀引用符号 > ... 仅用于匹配，不作为缩进计算的一部分
+        const quoteStripped = line.replace(/^(?:\s*>\s*)+/, (m) => ''.padStart(m.length, ' '));
+
+        // 匹配 有序/无序 列表项
+        const mOrdered = quoteStripped.match(/^(\s*)(\d+)([\.)])\s+/);
+        const mBullet = quoteStripped.match(/^(\s*)([\-*+])\s+/);
+
+        if (mOrdered) {
+          const indent = getIndent(mOrdered[1]);
+          const num = mOrdered[2];
+          const sep = mOrdered[3] || '.';
+
+          maybeCloseToIndent(indent);
+
+          const top = stack[stack.length - 1];
+          if (!top || top.indent < indent || top.type !== 'ordered') {
+            // 新的有序列表层级
+            stack.push({ indent, type: 'ordered', items: [] });
+          } else if (top.indent > indent) {
+            // 已在 maybeCloseToIndent 处理
+          }
+          // 追加当前项
+          stack[stack.length - 1].items.push({ num, sep });
+          continue;
+        }
+
+        if (mBullet) {
+          const indent = getIndent(mBullet[1]);
+          maybeCloseToIndent(indent);
+          const top = stack[stack.length - 1];
+          if (!top || top.indent < indent || top.type !== 'bullet') {
+            stack.push({ indent, type: 'bullet' });
+          }
+          continue;
+        }
+
+        // 普通行：不立即关闭列表，等到下一个更小缩进或文末处理
+      }
+
+      // 关闭所有未收敛的层级
+      while (stack.length) {
+        const top = stack.pop();
+        if (top.type === 'ordered' && top.items?.length) lists.push(top);
+      }
+      return lists;
+    };
+
+    const orderedLists = extractOrderedLists(dedentedContent);
+
+    // 将原始编号写入渲染后的 DOM
+    try {
+      const ols = Array.from(containerRef.current.querySelectorAll('ol'));
+      let k = 0;
+      for (const ol of ols) {
+        const spec = orderedLists[k++];
+        if (!spec || !Array.isArray(spec.items)) continue;
+        const items = Array.from(ol.children).filter((n) => n.tagName === 'LI');
+        items.forEach((li, i) => {
+          const rec = spec.items[i];
+          if (!rec) return;
+          li.setAttribute('data-ol-num', String(rec.num));
+          li.setAttribute('data-ol-suffix', rec.sep || '.');
+        });
+        // 标记该 <ol> 已由自定义编号渲染
+        ol.classList.add('preserve-ol-number');
+      }
+    } catch (e) {
+      // 静默失败，避免影响其他渲染
+    }
+
     // 代码高亮和DOM操作
     const pres = Array.from(containerRef.current.querySelectorAll('pre'));
     pres.forEach(pre => {

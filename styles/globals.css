@@ -40,6 +40,36 @@ body {
   word-wrap: break-word;
 }
 
+/* 列表基础样式 */
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.6em; /* 统一缩进 */
+}
+.markdown-content li { margin: 0.25em 0; }
+
+/* 无序列表样式（支持多级） */
+.markdown-content ul { list-style: disc; }
+.markdown-content ul ul { list-style: circle; }
+.markdown-content ul ul ul { list-style: square; }
+
+/* 有序列表样式（未强制保留原始编号时的默认显示） */
+.markdown-content ol { list-style: decimal; }
+.markdown-content ol ol { list-style: lower-alpha; }
+.markdown-content ol ol ol { list-style: lower-roman; }
+
+/* 保留有序列表的原始编号（通过 data-ol-num/data-ol-suffix 渲染视觉编号） */
+.markdown-content ol.preserve-ol-number { list-style: none; padding-left: 1.8em; }
+.markdown-content ol.preserve-ol-number > li { position: relative; }
+.markdown-content ol.preserve-ol-number > li::before {
+  content: attr(data-ol-num) attr(data-ol-suffix) ' ';
+  position: absolute;
+  left: -1.8em;
+  width: 1.6em;
+  text-align: right;
+  color: #6b7280; /* slate-500 */
+}
+
 /* 表格 */
 .markdown-content table {
   width: 100%;
@@ -234,6 +264,9 @@ body {
   margin-right: 0.4em; 
   pointer-events: none !important; /* 禁用点击 */
 }
+/* 任务清单缩进与普通列表对齐 */
+.markdown-content ul.task-list { padding-left: 1.6em; }
+.markdown-content ul.task-list .task-list-item { list-style: none; }
 
 /* 斜体样式修复 - 确保斜体能正确显示 */
 .markdown-content em,
