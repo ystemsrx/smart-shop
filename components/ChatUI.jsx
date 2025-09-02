@@ -601,8 +601,8 @@ export default function ChatModern({ user }) {
     // 支持本地开发和生产环境
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 
       (process.env.NODE_ENV === 'development' 
-        ? "http://localhost:8000/ai/chat"
-        : "https://api.dormshop.com/ai/chat");
+        ? "http://localhost:9099/ai/chat"
+        : "https://chatapi.your_domain.com/ai/chat");
     
     const controller = new AbortController();
     abortControllerRef.current = controller;

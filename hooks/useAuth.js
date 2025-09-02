@@ -9,8 +9,8 @@ const isClient = typeof window !== 'undefined' && typeof document !== 'undefined
 // API基础URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
   (process.env.NODE_ENV === 'development' 
-    ? "http://localhost:8000"
-    : "https://api.dormshop.com");
+    ? "http://localhost:9099"
+  : "https://chatapi.your_domain.com");
 
 // 认证提供者组件
 export function AuthProvider({ children }) {
