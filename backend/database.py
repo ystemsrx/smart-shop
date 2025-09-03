@@ -595,17 +595,17 @@ class ProductDB:
             cursor = conn.cursor()
             
             try:
-                # 获取所有要删除的商品的分类，用于后续清理
+                # 获取所有要删除的商品的信息（包括图片路径）
                 placeholders = ','.join('?' * len(product_ids))
-                cursor.execute(f'SELECT DISTINCT category FROM products WHERE id IN ({placeholders})', product_ids)
-                categories_to_check = [row[0] for row in cursor.fetchall()]
+                cursor.execute(f'SELECT id, category, img_path FROM products WHERE id IN ({placeholders})', product_ids)
+                existing_products = cursor.fetchall()
                 
-                # 验证所有商品是否存在
-                cursor.execute(f'SELECT id FROM products WHERE id IN ({placeholders})', product_ids)
-                existing_ids = [row[0] for row in cursor.fetchall()]
-                
-                if not existing_ids:
+                if not existing_products:
                     return {"success": False, "deleted_count": 0, "message": "没有找到要删除的商品"}
+                
+                existing_ids = [row[0] for row in existing_products]
+                categories_to_check = list(set([row[1] for row in existing_products]))
+                img_paths = [row[2] for row in existing_products if row[2] and row[2].strip()]
                 
                 # 执行批量删除
                 cursor.execute(f'DELETE FROM products WHERE id IN ({placeholders})', existing_ids)
@@ -622,7 +622,8 @@ class ProductDB:
                     "deleted_count": deleted_count,
                     "message": f"成功删除 {deleted_count} 件商品",
                     "deleted_ids": existing_ids,
-                    "not_found_ids": list(set(product_ids) - set(existing_ids))
+                    "not_found_ids": list(set(product_ids) - set(existing_ids)),
+                    "deleted_img_paths": img_paths
                 }
                 
             except Exception as e:

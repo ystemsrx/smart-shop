@@ -996,6 +996,20 @@ async def delete_products(
             
             if result["success"]:
                 logger.info(f"批量删除成功: {result}")
+                
+                # 删除对应的图片文件
+                deleted_img_paths = result.get("deleted_img_paths", [])
+                if deleted_img_paths:
+                    for img_path in deleted_img_paths:
+                        try:
+                            img_file_path = os.path.join(os.path.dirname(__file__), img_path)
+                            if os.path.exists(img_file_path):
+                                os.remove(img_file_path)
+                                logger.info(f"成功删除商品图片: {img_file_path}")
+                        except Exception as e:
+                            # 删除图片失败不影响主要功能，只记录日志
+                            logger.warning(f"删除商品图片失败 {img_path}: {e}")
+                
                 return success_response(result["message"], {
                     "deleted_count": result["deleted_count"],
                     "deleted_ids": result["deleted_ids"],
@@ -1013,9 +1027,23 @@ async def delete_products(
             if not existing_product:
                 return error_response("商品不存在", 404)
             
+            # 保存图片路径用于删除
+            img_path = existing_product.get("img_path", "")
+            
             success = ProductDB.delete_product(product_id)
             if not success:
                 return error_response("删除商品失败", 500)
+            
+            # 删除成功后，删除对应的图片文件
+            if img_path and img_path.strip():
+                try:
+                    img_file_path = os.path.join(os.path.dirname(__file__), img_path)
+                    if os.path.exists(img_file_path):
+                        os.remove(img_file_path)
+                        logger.info(f"成功删除商品图片: {img_file_path}")
+                except Exception as e:
+                    # 删除图片失败不影响主要功能，只记录日志
+                    logger.warning(f"删除商品图片失败 {img_path}: {e}")
             
             return success_response("商品删除成功")
     
@@ -1038,6 +1066,9 @@ async def update_product_image(
         if not image:
             return error_response("未上传图片", 400)
 
+        # 保存原图片路径，用于后续删除
+        old_img_path = existing.get("img_path", "")
+
         # 使用商品分类作为目录
         category = existing.get("category", "misc") or "misc"
         category_dir = os.path.join(items_dir, category)
@@ -1055,7 +1086,25 @@ async def update_product_image(
         img_path = f"items/{category}/{filename}"
         ok = ProductDB.update_image_path(product_id, img_path)
         if not ok:
+            # 如果数据库更新失败，删除刚创建的新图片文件
+            try:
+                os.remove(file_path)
+            except:
+                pass
             return error_response("更新图片失败", 500)
+        
+        # 数据库更新成功后，删除原图片文件
+        if old_img_path and old_img_path.strip():
+            try:
+                # 构建原图片的完整文件路径
+                old_file_path = os.path.join(os.path.dirname(__file__), old_img_path)
+                if os.path.exists(old_file_path):
+                    os.remove(old_file_path)
+                    logger.info(f"成功删除原图片: {old_file_path}")
+            except Exception as e:
+                # 删除原图片失败不影响主要功能，只记录日志
+                logger.warning(f"删除原图片失败 {old_img_path}: {e}")
+        
         return success_response("图片更新成功", {"img_path": img_path})
     except Exception as e:
         logger.error(f"更新商品图片失败: {e}")
