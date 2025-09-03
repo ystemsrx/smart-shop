@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useAuth, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
+import RetryImage from '../components/RetryImage';
+import { getProductImage } from '../utils/urls';
 
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
@@ -18,9 +20,23 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
       <div className="flex items-center space-x-4">
-        {/* 商品图片占位 */}
-        <div className="flex-shrink-0 w-16 h-16 bg-gray-100 rounded-md flex items-center justify-center">
-          <span className="text-gray-400 text-xs">图片</span>
+        {/* 商品图片 */}
+        <div className="flex-shrink-0 w-16 h-16 bg-gray-100 rounded-md overflow-hidden">
+          {item.img_path ? (
+            <RetryImage
+              src={getProductImage(item)}
+              alt={item.name}
+              className="h-full w-full object-cover object-center"
+              maxRetries={3}
+              onFinalError={() => {
+                console.log(`购物车商品图片最终加载失败: ${item.name}`);
+              }}
+            />
+          ) : (
+            <div className="h-full w-full bg-gray-100 flex items-center justify-center">
+              <span className="text-gray-400 text-xs">暂无图片</span>
+            </div>
+          )}
         </div>
         
         {/* 商品信息 */}
