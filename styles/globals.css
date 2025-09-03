@@ -25,6 +25,64 @@ body {
   min-height: 100vh;
 }
 
+/* 购物车动效 - 飞球、抖动、角标弹跳 */
+.cart-fly-ball {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #4f46e5; /* indigo-600 */
+  box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate3d(0,0,0);
+}
+
+.cart-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ef4444; /* red-500 */
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  transform-origin: center;
+}
+
+@keyframes cart-shake-keyframes {
+  0% { transform: translate(0,0) rotate(0deg); }
+  20% { transform: translate(-2px,0) rotate(-8deg); }
+  40% { transform: translate(2px,0) rotate(8deg); }
+  60% { transform: translate(-2px,0) rotate(-6deg); }
+  80% { transform: translate(2px,0) rotate(6deg); }
+  100% { transform: translate(0,0) rotate(0deg); }
+}
+
+.cart-shake {
+  animation: cart-shake-keyframes 0.45s ease-in-out both;
+}
+
+@keyframes badge-bounce-keyframes {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.2); }
+  60% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+.badge-bounce {
+  animation: badge-bounce-keyframes 0.5s ease both;
+}
+
 #root {
   width: 100%;
   min-height: 100vh;

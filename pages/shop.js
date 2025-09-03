@@ -1,25 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 // Link 不再使用，导航由通用组件处理
 import { useProducts, useCart, useAuth } from '../hooks/useAuth';
 import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
+import FloatingCart from '../components/FloatingCart';
 
 // 商品卡片组件
-const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0, isLoading }) => {
+const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, cartQuantity = 0, isLoading }) => {
   const { user } = useAuth();
   
-  const handleAddToCart = () => {
+  const handleAddToCart = (e) => {
     if (!user) {
       alert('请先登录才能添加商品到购物车');
       return;
     }
+    // 触发飞入动画（从按钮位置）
+    onStartFly && onStartFly(e.currentTarget, product, { type: 'add' });
     onAddToCart(product.id);
   };
 
-  const handleQuantityChange = (newQuantity) => {
+  const handleQuantityChange = (newQuantity, e) => {
     if (!user) return;
+    // 仅在增加数量时触发飞入动画
+    if (e && newQuantity > cartQuantity) {
+      onStartFly && onStartFly(e.currentTarget, product, { type: 'increment' });
+    }
     onUpdateQuantity(product.id, newQuantity);
   };
 
@@ -135,7 +142,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
             // 购物车中商品的数量调整控件
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleQuantityChange(cartQuantity - 1)}
+                onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
                 disabled={isLoading}
                 className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -145,7 +152,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
                 {cartQuantity}
               </span>
               <button
-                onClick={() => handleQuantityChange(cartQuantity + 1)}
+                onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
                 disabled={isLoading || cartQuantity >= product.stock}
                 className="w-8 h-8 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -235,6 +242,7 @@ export default function Shop() {
   const { getProducts, searchProducts, getCategories } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
   
+  const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -244,6 +252,52 @@ export default function Shop() {
   const [error, setError] = useState('');
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [cartItemsMap, setCartItemsMap] = useState({}); // 商品ID到数量的映射
+  const [prevQty, setPrevQty] = useState(0);
+
+  // 飞入购物车动画（从元素飞到右下角悬浮购物车）
+  const flyToCart = (startEl) => {
+    if (typeof window === 'undefined') return;
+    if (!startEl || !cartWidgetRef.current?.getIconRect) return;
+    const startRect = startEl.getBoundingClientRect();
+    const endRect = cartWidgetRef.current.getIconRect();
+    if (!startRect || !endRect) return;
+
+    const startX = startRect.left + startRect.width / 2;
+    const startY = startRect.top + startRect.height / 2;
+    const endX = endRect.left + endRect.width / 2;
+    const endY = endRect.top + endRect.height / 2;
+
+    const ball = document.createElement('div');
+    ball.className = 'cart-fly-ball';
+    document.body.appendChild(ball);
+
+    const size = 12;
+    ball.style.width = `${size}px`;
+    ball.style.height = `${size}px`;
+
+    const duration = 600; // ms
+    const cpX = (startX + endX) / 2;
+    const cpY = Math.min(startY, endY) - 120; // 控制点，形成弧线
+    const startTime = performance.now();
+
+    const animate = (now) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const oneMinusT = 1 - t;
+      // 二次贝塞尔曲线公式
+      const x = oneMinusT * oneMinusT * startX + 2 * oneMinusT * t * cpX + t * t * endX;
+      const y = oneMinusT * oneMinusT * startY + 2 * oneMinusT * t * cpY + t * t * endY;
+      ball.style.transform = `translate3d(${x - size / 2}px, ${y - size / 2}px, 0)`;
+      ball.style.opacity = String(1 - t * 0.2);
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // 到达后触发购物车抖动
+        try { cartWidgetRef.current?.shake(); } catch (e) {}
+        document.body.removeChild(ball);
+      }
+    };
+    requestAnimationFrame(animate);
+  };
 
   // 加载购物车数据
   const loadCart = async () => {
@@ -389,6 +443,15 @@ export default function Shop() {
     loadCart();
   }, [user]);
 
+  // 购物车数量变化时，角标弹跳（仅在数量增加时）
+  useEffect(() => {
+    const qty = cart?.total_quantity ?? 0;
+    if (qty > prevQty) {
+      try { cartWidgetRef.current?.bounceBadge?.(); } catch (e) {}
+    }
+    setPrevQty(qty);
+  }, [cart?.total_quantity]);
+
   return (
     <>
       <Head>
@@ -458,6 +521,7 @@ export default function Shop() {
                       product={product}
                       onAddToCart={handleAddToCart}
                       onUpdateQuantity={handleUpdateQuantity}
+                      onStartFly={(el) => flyToCart(el)}
                       cartQuantity={cartItemsMap[product.id] || 0}
                       isLoading={cartLoading}
                     />
@@ -474,6 +538,9 @@ export default function Shop() {
             </>
           )}
         </main>
+
+        {/* 右下角悬浮购物车 */}
+        <FloatingCart ref={cartWidgetRef} count={cart?.total_quantity ?? 0} />
       </div>
     </>
   );
