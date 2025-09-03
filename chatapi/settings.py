@@ -6,6 +6,13 @@ BIGMODEL_API_URL = os.getenv("BIGMODEL_API_URL", "https://open.bigmodel.cn/api/p
 BIGMODEL_API_KEY = os.getenv("BIGMODEL_API_KEY", "")  # 必填：在 start_api.sh 中导出
 BIGMODEL_MODEL   = os.getenv("BIGMODEL_MODEL", "glm-4.5-flash")
 
+# 模型故障转移配置
+FALLBACK_MODELS = [
+    {"model": "glm-4.5-flash", "supports_thinking": True},
+    {"model": "glm-4-flash-250414", "supports_thinking": False},
+    {"model": "glm-4-flash", "supports_thinking": False}
+]
+
 # 监听地址/端口（与 Nginx 反代一致）
 BIND_HOST = os.getenv("BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.getenv("BIND_PORT", "9099"))

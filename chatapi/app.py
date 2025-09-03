@@ -16,7 +16,7 @@ except Exception:
     def dumps(obj): return json.dumps(obj, ensure_ascii=False)
 
 from settings import (
-    BIGMODEL_API_URL, BIGMODEL_API_KEY, BIGMODEL_MODEL,
+    BIGMODEL_API_URL, BIGMODEL_API_KEY, BIGMODEL_MODEL, FALLBACK_MODELS,
     BIND_HOST, BIND_PORT, CORS_ALLOW_ORIGINS,
     MAX_CONNECTIONS, MAX_KEEPALIVE, REDIS_URL, SESSION_TTL, SYSTEM_PROMPT
 )
@@ -54,6 +54,51 @@ limits = httpx.Limits(max_connections=MAX_CONNECTIONS, max_keepalive_connections
 client = httpx.AsyncClient(timeout=httpx.Timeout(300.0), limits=limits, transport=transport,
                            headers={"Authorization": f"Bearer {BIGMODEL_API_KEY}"})
 UPSTREAM_SSE_HEADERS = {"Accept":"text/event-stream","Accept-Encoding":"identity","Cache-Control":"no-cache"}
+
+# ===== 模型故障转移函数 =====
+
+async def make_request_with_fallback(messages, tools, stream=True):
+    """
+    使用故障转移机制调用模型API
+    按顺序尝试不同的模型，如果某个模型返回非200状态码则尝试下一个
+    """
+    for model_config in FALLBACK_MODELS:
+        model_name = model_config["model"]
+        supports_thinking = model_config["supports_thinking"]
+        
+        # 构建请求payload
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": stream,
+            "tools": tools
+        }
+        
+        # 只有支持thinking的模型才添加该参数
+        if supports_thinking:
+            payload["thinking"] = {"type": "disabled"}
+        
+        log.info(f"尝试使用模型: {model_name}")
+        
+        try:
+            if stream:
+                # 流式请求
+                response = client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS)
+                return response, model_name
+            else:
+                # 非流式请求
+                response = await client.post(BIGMODEL_API_URL, json=payload, headers={"Accept-Encoding":"identity"})
+                response.raise_for_status()
+                return response, model_name
+        except httpx.HTTPStatusError as e:
+            log.warning(f"模型 {model_name} 返回错误状态码 {e.response.status_code}, 尝试下一个模型")
+            continue
+        except Exception as e:
+            log.warning(f"模型 {model_name} 请求失败: {e}, 尝试下一个模型")
+            continue
+    
+    # 所有模型都失败了
+    raise Exception("所有模型都不可用")
 
 # ===== Lifespan =====
 @asynccontextmanager
@@ -201,21 +246,21 @@ async def _handle_tool_calls_and_continue(sid: str, base_messages: List[Dict[str
 
     # 添加系统提示词到消息列表
     messages_with_system = _add_system_prompt(base_messages)
-    payload = {"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": True,
-               "tools": TOOLS, "thinking": {"type":"disabled"}}
-    
-
     
     retries = 2
     for attempt in range(retries + 1):
         try:
-            async with client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS) as upstream:
-                upstream.raise_for_status()
+            # 使用故障转移机制
+            upstream, used_model = await make_request_with_fallback(messages_with_system, TOOLS, stream=True)
+            log.info(f"成功使用模型: {used_model}")
+            
+            async with upstream as upstream_response:
+                upstream_response.raise_for_status()
                 tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
                 assistant_text_parts: List[str] = []
                 finish_reason: Optional[str] = None
                 
-                async for line in upstream.aiter_lines():
+                async for line in upstream_response.aiter_lines():
                     if not line or not line.startswith("data: "): continue
                     data = line[6:].strip()
                     if data == "[DONE]": break
@@ -325,20 +370,22 @@ async def _stream_chat(request: Request, init_messages: List[Dict[str, Any]]) ->
 
             # 添加系统提示词到消息列表
             messages_with_system = _add_system_prompt(messages)
-            payload = {"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": True,
-                       "tools": TOOLS, "thinking": {"type":"disabled"}}
 
             retries = 2
             last_error: Optional[str] = None
             for attempt in range(retries + 1):
                 try:
-                    async with client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS) as upstream:
-                        upstream.raise_for_status()
+                    # 使用故障转移机制
+                    upstream, used_model = await make_request_with_fallback(messages_with_system, TOOLS, stream=True)
+                    log.info(f"成功使用模型: {used_model}")
+                    
+                    async with upstream as upstream_response:
+                        upstream_response.raise_for_status()
                         tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
                         assistant_text_parts: List[str] = []
                         finish_reason: Optional[str] = None
 
-                        async for line in upstream.aiter_lines():
+                        async for line in upstream_response.aiter_lines():
                             if not line or not line.startswith("data: "): continue
                             data = line[6:].strip()
                             if data == "[DONE]": break
@@ -444,9 +491,9 @@ async def chat_nostream(request: Request):
     try:
         # 添加系统提示词到消息列表
         messages_with_system = _add_system_prompt(sess["messages"])
-        r = await _post_json({"model": BIGMODEL_MODEL, "messages": messages_with_system, "stream": False,
-                              "tools": TOOLS, "thinking": {"type":"disabled"}})
-        r.raise_for_status()
+        # 使用故障转移机制（非流式）
+        r, used_model = await make_request_with_fallback(messages_with_system, TOOLS, stream=False)
+        log.info(f"成功使用模型: {used_model}")
         data = r.json()
     except httpx.HTTPError as e:
         return error_json("upstream_error", f"上游请求失败: {e}", 502)
@@ -478,9 +525,9 @@ async def chat_nostream(request: Request):
         try:
             # 添加系统提示词到消息列表（工具调用后的第二次请求）
             messages_with_system_2 = _add_system_prompt(sess["messages"])
-            r2 = await _post_json({"model": BIGMODEL_MODEL, "messages": messages_with_system_2, "stream": False,
-                                   "tools": TOOLS, "thinking": {"type":"disabled"}})
-            r2.raise_for_status()
+            # 使用故障转移机制（非流式，第二次请求）
+            r2, used_model2 = await make_request_with_fallback(messages_with_system_2, TOOLS, stream=False)
+            log.info(f"第二次请求成功使用模型: {used_model2}")
             data2 = r2.json()
         except httpx.HTTPError as e:
             return JSONResponse({"ok": True, "content": assistant_text,

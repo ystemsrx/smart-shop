@@ -23,6 +23,13 @@ BIGMODEL_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 BIGMODEL_API_KEY = "your_api_key"  # 实际使用时应从环境变量获取
 BIGMODEL_MODEL = "glm-4.5-flash"
 
+# 模型故障转移配置
+FALLBACK_MODELS = [
+    {"model": "glm-4.5-flash", "supports_thinking": True},
+    {"model": "glm-4-flash-250414", "supports_thinking": False},
+    {"model": "glm-4-flash", "supports_thinking": False}
+]
+
 # HTTP客户端配置
 transport = httpx.AsyncHTTPTransport(retries=0, http2=False)
 limits = httpx.Limits(max_connections=200, max_keepalive_connections=50)
@@ -38,6 +45,51 @@ UPSTREAM_SSE_HEADERS = {
     "Accept-Encoding": "identity", 
     "Cache-Control": "no-cache"
 }
+
+# ===== 模型故障转移函数 =====
+
+async def make_request_with_fallback(messages, tools, stream=True):
+    """
+    使用故障转移机制调用模型API
+    按顺序尝试不同的模型，如果某个模型返回非200状态码则尝试下一个
+    """
+    for model_config in FALLBACK_MODELS:
+        model_name = model_config["model"]
+        supports_thinking = model_config["supports_thinking"]
+        
+        # 构建请求payload
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": stream,
+            "tools": tools
+        }
+        
+        # 只有支持thinking的模型才添加该参数
+        if supports_thinking:
+            payload["thinking"] = {"type": "disabled"}
+        
+        logger.info(f"尝试使用模型: {model_name}")
+        
+        try:
+            if stream:
+                # 流式请求
+                response = client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS)
+                return response, model_name
+            else:
+                # 非流式请求
+                response = await client.post(BIGMODEL_API_URL, json=payload, headers={"Accept-Encoding":"identity"})
+                response.raise_for_status()
+                return response, model_name
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"模型 {model_name} 返回错误状态码 {e.response.status_code}, 尝试下一个模型")
+            continue
+        except Exception as e:
+            logger.warning(f"模型 {model_name} 请求失败: {e}, 尝试下一个模型")
+            continue
+    
+    # 所有模型都失败了
+    raise Exception("所有模型都不可用")
 
 # 系统提示词
 SYSTEM_PROMPT = """
@@ -510,24 +562,21 @@ async def handle_tool_calls_and_continue(
     # 继续对话
     messages_with_system = _add_system_prompt(base_messages)
     tools = get_available_tools(user_id)
-    payload = {
-        "model": BIGMODEL_MODEL,
-        "messages": messages_with_system,
-        "stream": True,
-        "tools": tools,
-        "thinking": {"type": "disabled"}
-    }
 
     retries = 2
     for attempt in range(retries + 1):
         try:
-            async with client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS) as upstream:
-                upstream.raise_for_status()
+            # 使用故障转移机制
+            upstream, used_model = await make_request_with_fallback(messages_with_system, tools, stream=True)
+            logger.info(f"成功使用模型: {used_model}")
+            
+            async with upstream as upstream_response:
+                upstream_response.raise_for_status()
                 tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
                 assistant_text_parts: List[str] = []
                 finish_reason: Optional[str] = None
 
-                async for line in upstream.aiter_lines():
+                async for line in upstream_response.aiter_lines():
                     if not line or not line.startswith("data: "):
                         continue
                     data = line[6:].strip()
@@ -624,24 +673,21 @@ async def stream_chat(user: Optional[Dict], init_messages: List[Dict[str, Any]])
             # 添加系统提示词
             messages_with_system = _add_system_prompt(init_messages)
             tools = get_available_tools(user_id)
-            payload = {
-                "model": BIGMODEL_MODEL,
-                "messages": messages_with_system,
-                "stream": True,
-                "tools": tools,
-                "thinking": {"type": "disabled"}
-            }
 
             retries = 2
             for attempt in range(retries + 1):
                 try:
-                    async with client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS) as upstream:
-                        upstream.raise_for_status()
+                    # 使用故障转移机制
+                    upstream, used_model = await make_request_with_fallback(messages_with_system, tools, stream=True)
+                    logger.info(f"成功使用模型: {used_model}")
+                    
+                    async with upstream as upstream_response:
+                        upstream_response.raise_for_status()
                         tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
                         assistant_text_parts: List[str] = []
                         finish_reason: Optional[str] = None
 
-                        async for line in upstream.aiter_lines():
+                        async for line in upstream_response.aiter_lines():
                             if not line or not line.startswith("data: "):
                                 continue
                             data = line[6:].strip()
