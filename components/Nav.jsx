@@ -34,10 +34,11 @@ export default function Nav({ active = 'home' }) {
 
           {/* 品牌/Logo */}
           <div className="flex items-center">
-            <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-bold text-sm">L</span>
-            </div>
-            <span className="ml-2 text-lg font-bold text-gray-900">AI助手</span>
+            <img 
+              src="/logo.png" 
+              alt="[商店名称]" 
+              className="h-12 w-auto object-contain"
+            />
           </div>
 
           {/* 桌面导航 */}

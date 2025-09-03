@@ -165,7 +165,7 @@ export default function Orders() {
   return (
     <>
       <Head>
-        <title>我的订单 - 宿舍智能小商城</title>
+        <title>我的订单 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 

@@ -260,7 +260,7 @@ export default function Checkout() {
   return (
     <>
       <Head>
-        <title>结算 - 宿舍智能小商城</title>
+        <title>结算 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -446,7 +446,7 @@ export default function Checkout() {
                     </div>
                     <div className="ml-3">
                       <span className="text-sm font-medium text-green-900">微信扫码支付</span>
-                      <p className="text-xs text-green-700 mt-1">创建支付后会弹出收款码，请使用微信扫码付款</p>
+                      <p className="text-xs text-green-700 mt-1">创建支付后会弹出收款码，请使用长按扫码付款</p>
                     </div>
                   </div>
                 </div>
@@ -516,7 +516,7 @@ export default function Checkout() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-60" onClick={() => setShowPayModal(false)}></div>
           <div className="relative bg-white rounded-lg shadow-xl p-6 w-96 z-10">
-            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请使用微信扫码付款</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请长按图片扫码付款</h3>
             <div className="w-full flex justify-center mb-4">
               <img src="/1_wx.png" alt="微信收款码" className="rounded-md w-64 h-64 object-contain border" />
             </div>

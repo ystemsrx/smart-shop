@@ -15,7 +15,7 @@ export default function OrderSuccess() {
   return (
     <>
       <Head>
-        <title>订单提交成功 - 宿舍智能小商城</title>
+        <title>订单提交成功 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -87,7 +87,7 @@ export default function OrderSuccess() {
                 href="/"
                 className="w-full flex justify-center py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                返回AI助手
+                返回首页
               </Link>
             </div>
           </div>

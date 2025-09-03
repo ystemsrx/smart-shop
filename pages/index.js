@@ -22,9 +22,9 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>{user ? `${user.name} - ` : ''}宿舍小超市</title>
+        <title>{user ? `${user.name} - ` : ''}[商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="description" content="宿舍智能小商城的AI购物助手，帮您搜索商品、管理购物车、提供购物建议" />
+        <meta name="description" content="[商店名称]的AI购物助手，帮您搜索商品、管理购物车、提供购物建议" />
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
       </Head>
       
@@ -87,10 +87,11 @@ function Nav({ user, logout }) {
           </button>
 
           <div className="flex items-center">
-            <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-bold text-sm">L</span>
-            </div>
-            <span className="ml-2 text-lg font-bold text-gray-900">AI助手</span>
+            <img 
+              src="/logo.png" 
+              alt="[商店名称]" 
+              className="h-12 w-auto object-contain"
+            />
           </div>
 
           {/* 桌面端导航 */}

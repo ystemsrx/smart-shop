@@ -46,7 +46,7 @@ export default function Login() {
   return (
     <>
       <Head>
-        <title>登录 - 宿舍智能小商城</title>
+        <title>登录 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       
@@ -58,7 +58,7 @@ export default function Login() {
             </div>
           </div>
           <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
-            登录宿舍小商城
+            登录LaZy
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             使用学号和密码登录
