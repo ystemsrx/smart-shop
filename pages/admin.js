@@ -1,10 +1,64 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useApi } from '../hooks/useAuth';
+import { useAuth, useApi, useAdminShop } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
+
+
+// 店铺状态卡片（打烊/营业）
+const ShopStatusCard = () => {
+  const { getStatus, updateStatus } = useAdminShop();
+  const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(true);
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getStatus();
+        setIsOpen(!!s.data?.is_open);
+        setNote(s.data?.note || '');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const toggle = async () => {
+    const next = !isOpen;
+    setIsOpen(next);
+    try { await updateStatus(next, note); } catch (e) {}
+  };
+
+  const saveNote = async () => {
+    try { await updateStatus(isOpen, note); alert('提示已更新'); } catch (e) {}
+  };
+
+  return (
+    <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
+      <div>
+        <div className="text-sm text-gray-600">店铺状态</div>
+        <div className="mt-1 text-lg font-semibold">{isOpen ? '营业中' : '打烊中'}</div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="打烊提示语（可选）"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
+          />
+          <button onClick={saveNote} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">保存提示</button>
+        </div>
+      </div>
+      <button
+        onClick={toggle}
+        className={isOpen ? 'px-4 py-2 rounded-md bg-red-600 text-white' : 'px-4 py-2 rounded-md bg-green-600 text-white'}
+      >{isOpen ? '设为打烊' : '设为营业'}</button>
+    </div>
+  );
+};
 
 // 内联库存控制组件
 const StockControl = ({ product, onUpdateStock }) => {
@@ -550,12 +604,77 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
           </button>
         </div>
       </form>
+
+      {/* 规格管理 */}
+      <VariantManager productId={product.id} />
     </div>
   );
 };
 
+// 规格管理（每个商品独立）
+const VariantManager = ({ productId }) => {
+  const { apiRequest } = useApi();
+  const [variants, setVariants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState('');
+  const [newStock, setNewStock] = useState(0);
 
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest(`/admin/products/${productId}/variants`);
+      setVariants(res?.data?.variants || []);
+    } finally { setLoading(false); }
+  };
 
+  useEffect(() => { load(); }, [productId]);
+
+  const addVariant = async () => {
+    if (!newName) return;
+    await apiRequest(`/admin/products/${productId}/variants`, { method: 'POST', body: JSON.stringify({ name: newName, stock: parseInt(newStock) || 0 })});
+    setNewName(''); setNewStock(0); load();
+  };
+  const updateVariant = async (id, patch) => {
+    await apiRequest(`/admin/variants/${id}`, { method: 'PUT', body: JSON.stringify(patch)});
+    load();
+  };
+  const removeVariant = async (id) => {
+    if (!confirm('确定删除该规格？')) return;
+    await apiRequest(`/admin/variants/${id}`, { method: 'DELETE' });
+    load();
+  };
+
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-4">
+      <h4 className="text-md font-medium text-gray-900 mb-3">商品规格</h4>
+      <div className="flex items-center gap-2 mb-3">
+        <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="规格名称（如：原味）" className="px-3 py-1.5 border rounded-md text-sm" />
+        <input type="number" value={newStock} min={0} onChange={e=>setNewStock(e.target.value)} placeholder="库存" className="w-24 px-3 py-1.5 border rounded-md text-sm" />
+        <button onClick={addVariant} className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm">添加规格</button>
+      </div>
+      {loading ? (
+        <div className="text-sm text-gray-500">加载中...</div>
+      ) : variants.length === 0 ? (
+        <div className="text-sm text-gray-500">暂无规格。添加规格后，总库存以各规格库存为准。</div>
+      ) : (
+        <div className="space-y-2">
+          {variants.map(v => (
+            <div key={v.id} className="flex items-center justify-between bg-gray-50 rounded-md p-2 border">
+              <div className="flex items-center gap-4">
+                <input className="px-2 py-1 border rounded text-sm" defaultValue={v.name} onBlur={(e)=>updateVariant(v.id,{name:e.target.value})} />
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-600">库存</span>
+                  <input type="number" min={0} className="w-20 px-2 py-1 border rounded text-sm" defaultValue={v.stock} onBlur={(e)=>updateVariant(v.id,{stock:parseInt(e.target.value)||0})} />
+                </div>
+              </div>
+              <button onClick={()=>removeVariant(v.id)} className="text-xs text-red-600 hover:text-red-700">删除</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 
 // 统一状态映射（显示）
@@ -585,6 +704,7 @@ const getUnifiedStatus = (order) => {
 
 // 订单表格组件
 const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders }) => {
+  const [expanded, setExpanded] = React.useState({});
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
     const colorClasses = {
@@ -603,8 +723,12 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
     );
   };
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString('zh-CN');
+  const formatDate = (val) => {
+    if (typeof val === 'number' && isFinite(val)) {
+      return new Date(val * 1000).toLocaleString('zh-CN');
+    }
+    const t = Date.parse(val);
+    return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN');
   };
 
   const allIds = orders.map(o => o.id);
@@ -662,7 +786,8 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.map((order) => (
-              <tr key={order.id} className={`hover:bg-gray-50 ${selectedOrders.includes(order.id) ? 'bg-blue-50' : ''}`}>
+              <React.Fragment key={order.id}>
+              <tr className={`hover:bg-gray-50 ${selectedOrders.includes(order.id) ? 'bg-blue-50' : ''}`}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
                     type="checkbox"
@@ -698,7 +823,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {order.items?.length || 0} 件
+                  {(order.items || []).reduce((sum, it) => sum + (parseInt(it.quantity) || 0), 0)} 件
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   ¥{order.total_amount}
@@ -707,21 +832,64 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   {getStatusBadge(getUnifiedStatus(order))}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {formatDate(order.created_at)}
+                  {formatDate(order.created_at_timestamp ?? order.created_at)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <select
-                    value={getUnifiedStatus(order)}
-                    onChange={(e) => onUpdateUnifiedStatus(order, e.target.value)}
-                    disabled={isLoading}
-                    className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
-                  >
-                    {UNIFIED_STATUS_ORDER.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={getUnifiedStatus(order)}
+                      onChange={(e) => onUpdateUnifiedStatus(order, e.target.value)}
+                      disabled={isLoading}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
+                    >
+                      {UNIFIED_STATUS_ORDER.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => setExpanded(prev => ({...prev, [order.id]: !prev[order.id]}))}
+                      className="text-sm text-indigo-600 hover:underline"
+                    >{expanded[order.id] ? '收起明细' : '查看明细'}</button>
+                  </div>
                 </td>
               </tr>
+              {expanded[order.id] && (
+                <tr key={order.id + '_details'} className="bg-gray-50">
+                  <td colSpan={8} className="px-6 py-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
+                        <div className="divide-y divide-gray-200 border rounded-md">
+                          {(order.items || []).map((it, idx) => (
+                            <div key={idx} className="flex justify-between items-center px-3 py-2 text-sm">
+                              <div className="truncate">
+                                <div className="text-gray-900 truncate">
+                                  {it.name}
+                                  {it.variant_name && (
+                                    <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
+                                  )}
+                                </div>
+                                <div className="text-gray-500">x{it.quantity} · 单价 ¥{it.unit_price}</div>
+                              </div>
+                              <div className="text-gray-900">¥{it.subtotal}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900 mb-2">收货信息</div>
+                        <div className="text-sm text-gray-600 space-y-1 border rounded-md px-3 py-2">
+                          <div>姓名：{order.shipping_info?.name}</div>
+                          <div>电话：{order.shipping_info?.phone}</div>
+                          <div>地址：{order.shipping_info?.full_address}</div>
+                          {order.note && <div>备注：{order.note}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1488,6 +1656,9 @@ export default function Admin() {
             <h1 className="text-2xl font-bold text-gray-900">管理后台</h1>
             <p className="text-gray-600 mt-1">管理商品和查看统计信息</p>
           </div>
+
+          {/* 店铺状态开关 */}
+          <ShopStatusCard />
 
 
 

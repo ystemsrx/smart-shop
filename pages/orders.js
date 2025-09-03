@@ -151,7 +151,13 @@ export default function Orders() {
 
   const filteredOrders = filter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === filter);
 
-  const formatDate = (dateString) => new Date(dateString).toLocaleString('zh-CN');
+  const formatDate = (val) => {
+    if (typeof val === 'number' && isFinite(val)) {
+      return new Date(val * 1000).toLocaleString('zh-CN');
+    }
+    const t = Date.parse(val);
+    return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN');
+  };
 
   const copyToClipboard = async (text) => {
     try {
@@ -216,7 +222,7 @@ export default function Orders() {
                     <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
                       <div className="flex items-center gap-3">
                         <StatusBadge status={us} />
-                        <div className="text-sm text-gray-500">下单时间：{formatDate(o.created_at)}</div>
+                        <div className="text-sm text-gray-500">下单时间：{formatDate(o.created_at_timestamp ?? o.created_at)}</div>
                         {showCountdown && (
                           <div className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
                             倒计时：{formatRemain(remainSec)}
@@ -264,11 +270,16 @@ export default function Orders() {
                           <div>
                             <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
                             <div className="divide-y divide-gray-100 border rounded-md">
-                              {o.items?.map((it) => (
-                                <div key={it.product_id + String(it.unit_price)} className="flex justify-between items-center px-3 py-2 text-sm">
+                              {o.items?.map((it, idx) => (
+                                <div key={(it.product_id + (it.variant_id || '')) + '_' + idx} className="flex justify-between items-center px-3 py-2 text-sm">
                                   <div className="truncate">
-                                    <div className="text-gray-900 truncate">{it.name}</div>
-                                    <div className="text-gray-500">x{it.quantity}</div>
+                                    <div className="text-gray-900 truncate">
+                                      {it.name}
+                                      {it.variant_name && (
+                                        <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
+                                      )}
+                                    </div>
+                                    <div className="text-gray-500">x{it.quantity} · 单价 ¥{it.unit_price}</div>
                                   </div>
                                   <div className="text-gray-900">¥{it.subtotal}</div>
                                 </div>

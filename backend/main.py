@@ -14,7 +14,8 @@ import uvicorn
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs,
-    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB
+    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
+    VariantDB, SettingsDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -160,6 +161,7 @@ class CartUpdateRequest(BaseModel):
     action: str  # add, update, remove, clear
     product_id: Optional[str] = None
     quantity: Optional[int] = None
+    variant_id: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str
@@ -381,7 +383,15 @@ async def get_products(category: Optional[str] = None):
             products = ProductDB.get_products_by_category(category)
         else:
             products = ProductDB.get_all_products()
-        
+        # 补充规格信息
+        product_ids = [p["id"] for p in products]
+        variants_map = VariantDB.get_for_products(product_ids)
+        for p in products:
+            vts = variants_map.get(p["id"], [])
+            p["variants"] = vts
+            p["has_variants"] = len(vts) > 0
+            if p["has_variants"]:
+                p["total_variant_stock"] = sum(v.get("stock", 0) for v in vts)
         return success_response("获取商品列表成功", {"products": products})
     
     except Exception as e:
@@ -393,6 +403,14 @@ async def search_products(q: str):
     """搜索商品"""
     try:
         products = ProductDB.search_products(q)
+        product_ids = [p["id"] for p in products]
+        variants_map = VariantDB.get_for_products(product_ids)
+        for p in products:
+            vts = variants_map.get(p["id"], [])
+            p["variants"] = vts
+            p["has_variants"] = len(vts) > 0
+            if p["has_variants"]:
+                p["total_variant_stock"] = sum(v.get("stock", 0) for v in vts)
         return success_response("搜索成功", {"products": products, "query": q})
     
     except Exception as e:
@@ -676,7 +694,12 @@ async def get_cart(request: Request):
         total_quantity = 0
         total_price = 0.0
         
-        for product_id, quantity in items_dict.items():
+        SEP = '@@'
+        for key, quantity in items_dict.items():
+            product_id = key
+            variant_id = None
+            if isinstance(key, str) and SEP in key:
+                product_id, variant_id = key.split(SEP, 1)
             if product_id in product_dict:
                 product = product_dict[product_id]
                 # 应用折扣（以折为单位，10为不打折）
@@ -686,7 +709,7 @@ async def get_cart(request: Request):
                 total_quantity += quantity
                 total_price += subtotal
                 
-                cart_items.append({
+                item = {
                     "product_id": product_id,
                     "name": product["name"],
                     "unit_price": round(unit_price, 2),
@@ -695,7 +718,14 @@ async def get_cart(request: Request):
                     "stock": product["stock"],
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", "")
-                })
+                }
+                if variant_id:
+                    variant = VariantDB.get_by_id(variant_id)
+                    if variant:
+                        item["variant_id"] = variant_id
+                        item["variant_name"] = variant.get("name")
+                        item["stock"] = variant.get("stock", 0)
+                cart_items.append(item)
                 
         logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
         
@@ -735,7 +765,10 @@ async def update_cart(
         if cart_request.action == "clear":
             items = {}
         elif cart_request.action == "remove" and cart_request.product_id:
-            items.pop(cart_request.product_id, None)
+            key = cart_request.product_id
+            if cart_request.variant_id:
+                key = f"{key}@@{cart_request.variant_id}"
+            items.pop(key, None)
         elif cart_request.action in ["add", "update"] and cart_request.product_id and cart_request.quantity is not None:
             # 验证商品是否存在并获取商品信息
             all_products = ProductDB.get_all_products()
@@ -745,30 +778,38 @@ async def update_cart(
                 logger.error(f"商品不存在: {cart_request.product_id}")
                 return error_response("商品不存在", 400)
             
+            # 处理规格键与库存
+            key = cart_request.product_id
+            limit_stock = product["stock"]
+            if cart_request.variant_id:
+                key = f"{key}@@{cart_request.variant_id}"
+                v = VariantDB.get_by_id(cart_request.variant_id)
+                if not v or v.get('product_id') != cart_request.product_id:
+                    return error_response("规格不存在", 400)
+                limit_stock = int(v.get('stock', 0))
+
             if cart_request.action == "add":
                 if cart_request.quantity <= 0:
                     logger.error(f"无效的数量: {cart_request.quantity}")
                     return error_response("数量必须大于0", 400)
                 
                 # 库存验证
-                current_quantity = items.get(cart_request.product_id, 0)
+                current_quantity = items.get(key, 0)
                 new_quantity = current_quantity + cart_request.quantity
-                
-                if new_quantity > product["stock"]:
-                    logger.error(f"库存不足 - 商品: {cart_request.product_id}, 当前购物车数量: {current_quantity}, 尝试添加: {cart_request.quantity}, 总库存: {product['stock']}")
-                    return error_response(f"库存不足，当前库存: {product['stock']}，购物车中已有: {current_quantity}", 400)
-                
-                items[cart_request.product_id] = new_quantity
+                if new_quantity > limit_stock:
+                    logger.error(f"库存不足 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 当前购物车数量: {current_quantity}, 尝试添加: {cart_request.quantity}, 库存: {limit_stock}")
+                    return error_response(f"库存不足，当前库存: {limit_stock}，购物车中已有: {current_quantity}", 400)
+                items[key] = new_quantity
                 logger.info(f"添加商品后的购物车: {items}")
             else:  # update
                 if cart_request.quantity > 0:
                     # 更新时也需要验证库存
-                    if cart_request.quantity > product["stock"]:
-                        logger.error(f"更新数量超过库存 - 商品: {cart_request.product_id}, 尝试设置: {cart_request.quantity}, 库存: {product['stock']}")
-                        return error_response(f"数量超过库存，最大可设置: {product['stock']}", 400)
-                    items[cart_request.product_id] = cart_request.quantity
+                    if cart_request.quantity > limit_stock:
+                        logger.error(f"更新数量超过库存 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 尝试设置: {cart_request.quantity}, 库存: {limit_stock}")
+                        return error_response(f"数量超过库存，最大可设置: {limit_stock}", 400)
+                    items[key] = cart_request.quantity
                 else:
-                    items.pop(cart_request.product_id, None)
+                    items.pop(key, None)
         else:
             # 如果没有匹配任何条件，记录错误日志
             logger.error(f"购物车更新条件不匹配 - 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}")
@@ -783,6 +824,91 @@ async def update_cart(
     except Exception as e:
         logger.error(f"更新购物车失败: {e}")
         return error_response("更新购物车失败", 500)
+
+# ==================== 商店状态（打烊） ====================
+
+@app.get("/shop/status")
+async def get_shop_status():
+    """获取店铺开关状态"""
+    try:
+        is_open = SettingsDB.get('shop_is_open', '1') != '0'
+        note = SettingsDB.get('shop_closed_note', '')
+        return success_response("获取店铺状态成功", {"is_open": is_open, "note": note})
+    except Exception as e:
+        logger.error(f"获取店铺状态失败: {e}")
+        return error_response("获取店铺状态失败", 500)
+
+class ShopStatusUpdate(BaseModel):
+    is_open: bool
+    note: Optional[str] = None
+
+@app.patch("/admin/shop/status")
+async def update_shop_status(payload: ShopStatusUpdate, request: Request):
+    """更新店铺开关（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        SettingsDB.set('shop_is_open', '1' if payload.is_open else '0')
+        if payload.note is not None:
+            SettingsDB.set('shop_closed_note', payload.note)
+        return success_response("店铺状态已更新", {"is_open": payload.is_open})
+    except Exception as e:
+        logger.error(f"更新店铺状态失败: {e}")
+        return error_response("更新店铺状态失败", 500)
+
+# ==================== 规格管理（管理员） ====================
+
+class VariantCreate(BaseModel):
+    name: str
+    stock: int
+
+class VariantUpdate(BaseModel):
+    name: Optional[str] = None
+    stock: Optional[int] = None
+
+@app.get("/admin/products/{product_id}/variants")
+async def list_variants(product_id: str, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        return success_response("获取规格成功", {"variants": VariantDB.get_by_product(product_id)})
+    except Exception as e:
+        logger.error(f"获取规格失败: {e}")
+        return error_response("获取规格失败", 500)
+
+@app.post("/admin/products/{product_id}/variants")
+async def create_variant(product_id: str, payload: VariantCreate, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if not ProductDB.get_product_by_id(product_id):
+            return error_response("商品不存在", 404)
+        vid = VariantDB.create_variant(product_id, payload.name, payload.stock)
+        return success_response("规格创建成功", {"variant_id": vid})
+    except Exception as e:
+        logger.error(f"规格创建失败: {e}")
+        return error_response("规格创建失败", 500)
+
+@app.put("/admin/variants/{variant_id}")
+async def update_variant(variant_id: str, payload: VariantUpdate, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        ok = VariantDB.update_variant(variant_id, payload.name, payload.stock)
+        if not ok:
+            return error_response("无有效更新项", 400)
+        return success_response("规格已更新")
+    except Exception as e:
+        logger.error(f"规格更新失败: {e}")
+        return error_response("规格更新失败", 500)
+
+@app.delete("/admin/variants/{variant_id}")
+async def delete_variant(variant_id: str, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        ok = VariantDB.delete_variant(variant_id)
+        if not ok:
+            return error_response("规格不存在", 404)
+        return success_response("规格已删除")
+    except Exception as e:
+        logger.error(f"规格删除失败: {e}")
+        return error_response("规格删除失败", 500)
 
 # ==================== 管理员路由 ====================
 
@@ -1231,20 +1357,35 @@ async def create_order(
         order_items = []
         total_amount = 0.0
         
-        for product_id, quantity in items_dict.items():
+        SEP = '@@'
+        for key, quantity in items_dict.items():
+            product_id = key
+            variant_id = None
+            if isinstance(key, str) and SEP in key:
+                product_id, variant_id = key.split(SEP, 1)
             if product_id in product_dict:
                 product = product_dict[product_id]
                 
-                # 检查库存
-                if quantity > product["stock"]:
-                    return error_response(f"商品 {product['name']} 库存不足", 400)
-                
+                # 折扣后单价
                 zhe = float(product.get("discount", 10.0) or 10.0)
                 unit_price = round(float(product["price"]) * (zhe / 10.0), 2)
+                
+                # 库存检查：有规格则检查规格库存，否则检查商品库存
+                if variant_id:
+                    from database import VariantDB
+                    variant = VariantDB.get_by_id(variant_id)
+                    if not variant or variant.get('product_id') != product_id:
+                        return error_response("规格不存在", 400)
+                    if quantity > int(variant.get('stock', 0)):
+                        return error_response(f"商品 {product['name']}（{variant.get('name')}）库存不足", 400)
+                else:
+                    if quantity > product.get("stock", 0):
+                        return error_response(f"商品 {product['name']} 库存不足", 400)
+                
                 subtotal = unit_price * quantity
                 total_amount += subtotal
                 
-                order_items.append({
+                item = {
                     "product_id": product_id,
                     "name": product["name"],
                     "unit_price": round(unit_price, 2),
@@ -1252,7 +1393,11 @@ async def create_order(
                     "subtotal": round(subtotal, 2),
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", "")
-                })
+                }
+                if variant_id:
+                    item["variant_id"] = variant_id
+                    item["variant_name"] = variant.get("name")
+                order_items.append(item)
         
         # 运费规则：不足10元收取1元，满10元免运费
         shipping_fee = 0.0 if total_amount >= 10.0 else (1.0 if total_amount > 0 else 0.0)

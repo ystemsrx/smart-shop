@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart } from '../hooks/useAuth';
+import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import RetryImage from '../components/RetryImage';
@@ -12,9 +13,13 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
   const [quantity, setQuantity] = useState(item.quantity);
 
   const handleQuantityChange = (newQuantity) => {
-    if (newQuantity < 1) return;
+    if (newQuantity < 1) {
+      setQuantity(0);
+      onUpdateQuantity(item.product_id, 0, item.variant_id || null);
+      return;
+    }
     setQuantity(newQuantity);
-    onUpdateQuantity(item.product_id, newQuantity);
+    onUpdateQuantity(item.product_id, newQuantity, item.variant_id || null);
   };
 
   return (
@@ -43,6 +48,9 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-gray-900 truncate">
             {item.name}
+            {item.variant_name && (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
+            )}
           </h3>
           <p className="text-sm text-gray-500 mt-1">
             单价: ¥{item.unit_price}
@@ -53,7 +61,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => handleQuantityChange(quantity - 1)}
-            disabled={isLoading || quantity <= 1}
+            disabled={isLoading}
             className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             -
@@ -68,18 +76,11 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
           </button>
         </div>
         
-        {/* 小计和删除 */}
+        {/* 小计 */}
         <div className="flex flex-col items-end space-y-2">
           <span className="text-sm font-medium text-gray-900">
             ¥{item.subtotal}
           </span>
-          <button
-            onClick={() => onRemove(item.product_id)}
-            disabled={isLoading}
-            className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-          >
-            删除
-          </button>
         </div>
       </div>
     </div>
@@ -87,7 +88,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed }) => {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">订单摘要</h3>
@@ -121,10 +122,10 @@ const OrderSummary = ({ cart, onCheckout, isLoading }) => {
       
       <button
         onClick={onCheckout}
-        disabled={isLoading || cart.total_quantity === 0}
+        disabled={isLoading || cart.total_quantity === 0 || isClosed}
         className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {isLoading ? '处理中...' : '去结算'}
+        {isLoading ? '处理中...' : (isClosed ? '打烊中 · 暂停结算' : '去结算')}
       </button>
     </div>
   );
@@ -134,11 +135,14 @@ export default function Cart() {
   const router = useRouter();
   const { user } = useAuth();
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
+  const { getShopStatus } = useProducts();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  const [shopOpen, setShopOpen] = useState(true);
+  const [shopNote, setShopNote] = useState('');
 
   // 检查登录状态
   useEffect(() => {
@@ -164,10 +168,10 @@ export default function Cart() {
   };
 
   // 更新商品数量
-  const handleUpdateQuantity = async (productId, quantity) => {
+  const handleUpdateQuantity = async (productId, quantity, variantId = null) => {
     setActionLoading(true);
     try {
-      await updateCart('update', productId, quantity);
+      await updateCart('update', productId, quantity, variantId);
       await loadCart(); // 重新加载购物车
     } catch (err) {
       alert(err.message || '更新失败');
@@ -177,12 +181,12 @@ export default function Cart() {
   };
 
   // 删除商品
-  const handleRemoveItem = async (productId) => {
+  const handleRemoveItem = async (productId, variantId = null) => {
     if (!confirm('确定要删除这个商品吗？')) return;
     
     setActionLoading(true);
     try {
-      await removeFromCart(productId);
+      await removeFromCart(productId, variantId);
       await loadCart(); // 重新加载购物车
     } catch (err) {
       alert(err.message || '删除失败');
@@ -208,6 +212,10 @@ export default function Cart() {
 
   // 去结算
   const handleCheckout = () => {
+    if (!shopOpen) {
+      alert(shopNote || '当前打烊，暂不支持结算，仅可加入购物车');
+      return;
+    }
     router.push('/checkout');
   };
 
@@ -217,6 +225,17 @@ export default function Cart() {
       loadCart();
     }
   }, [user]);
+
+  // 加载店铺状态
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getShopStatus();
+        setShopOpen(!!s.data?.is_open);
+        setShopNote(s.data?.note || '当前打烊，暂不支持结算，仅可加入购物车');
+      } catch (e) {}
+    })();
+  }, []);
 
   // 如果用户未登录，不渲染内容
   if (!user) {
@@ -300,6 +319,7 @@ export default function Cart() {
                       cart={cart}
                       onCheckout={handleCheckout}
                       isLoading={actionLoading}
+                      isClosed={!shopOpen}
                     />
                   </div>
                 </div>

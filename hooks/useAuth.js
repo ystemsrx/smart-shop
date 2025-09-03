@@ -212,10 +212,15 @@ export function useProducts() {
     return await apiRequest('/products/categories');
   };
 
+  const getShopStatus = async () => {
+    return await apiRequest('/shop/status');
+  };
+
   return {
     getProducts,
     searchProducts,
-    getCategories
+    getCategories,
+    getShopStatus
   };
 }
 
@@ -227,23 +232,24 @@ export function useCart() {
     return await apiRequest('/cart');
   };
 
-  const updateCart = async (action, productId = null, quantity = null) => {
+  const updateCart = async (action, productId = null, quantity = null, variantId = null) => {
     return await apiRequest('/cart/update', {
       method: 'POST',
       body: JSON.stringify({
         action,
         product_id: productId,
-        quantity
+        quantity,
+        variant_id: variantId || undefined
       })
     });
   };
 
-  const addToCart = async (productId, quantity = 1) => {
-    return await updateCart('add', productId, quantity);
+  const addToCart = async (productId, quantity = 1, variantId = null) => {
+    return await updateCart('add', productId, quantity, variantId);
   };
 
-  const removeFromCart = async (productId) => {
-    return await updateCart('remove', productId);
+  const removeFromCart = async (productId, variantId = null) => {
+    return await updateCart('remove', productId, null, variantId);
   };
 
   const clearCart = async () => {
@@ -257,4 +263,15 @@ export function useCart() {
     removeFromCart,
     clearCart
   };
+}
+
+// 管理端 - 店铺状态
+export function useAdminShop() {
+  const { apiRequest } = useApi();
+  const getStatus = async () => apiRequest('/shop/status');
+  const updateStatus = async (isOpen, note = '') => apiRequest('/admin/shop/status', {
+    method: 'PATCH',
+    body: JSON.stringify({ is_open: !!isOpen, note })
+  });
+  return { getStatus, updateStatus };
 }

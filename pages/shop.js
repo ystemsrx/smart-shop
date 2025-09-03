@@ -8,32 +8,46 @@ import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
 
 // 商品卡片组件
-const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, cartQuantity = 0, isLoading }) => {
+const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, itemsMap = {}, isLoading }) => {
   const { user } = useAuth();
+  const [showSpec, setShowSpec] = useState(false);
+  const [selectedVar, setSelectedVar] = useState(null);
   
   const handleAddToCart = (e) => {
     if (!user) {
       alert('请先登录才能添加商品到购物车');
       return;
     }
+    // 有规格时需先选择
+    if (product.has_variants && !selectedVar) {
+      setShowSpec(true);
+      return;
+    }
     // 触发飞入动画（从按钮位置）
     onStartFly && onStartFly(e.currentTarget, product, { type: 'add' });
-    onAddToCart(product.id);
+    onAddToCart(product.id, selectedVar || null);
   };
 
   const handleQuantityChange = (newQuantity, e) => {
     if (!user) return;
     // 仅在增加数量时触发飞入动画
-    if (e && newQuantity > cartQuantity) {
+    const currentQty = selectedVar ? (itemsMap[`${product.id}@@${selectedVar}`] || 0) : (itemsMap[`${product.id}`] || 0);
+    if (e && newQuantity > currentQty) {
       onStartFly && onStartFly(e.currentTarget, product, { type: 'increment' });
     }
-    onUpdateQuantity(product.id, newQuantity);
+    onUpdateQuantity(product.id, newQuantity, selectedVar || null);
   };
 
+  // 规格与数量
+  const isVariant = !!product.has_variants;
+  const selectedVariant = isVariant && selectedVar ? (product.variants || []).find(v => v.id === selectedVar) : null;
+  const cartQuantity = isVariant
+    ? (selectedVar ? (itemsMap[`${product.id}@@${selectedVar}`] || 0) : 0)
+    : (itemsMap[`${product.id}`] || 0);
   // 是否在购物车中
   const isInCart = cartQuantity > 0;
   // 是否缺货
-  const isOutOfStock = product.stock === 0;
+  const isOutOfStock = isVariant ? ((product.total_variant_stock || 0) === 0) : (product.stock === 0);
   const imageSrc = getProductImage(product);
   const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
   const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
@@ -106,20 +120,18 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, cartQ
         
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <div className="flex items-baseline gap-2">
-              <span className={`text-lg font-bold ${
-                isOutOfStock ? 'text-gray-500' : 'text-gray-900'
-              }`}>
-                ¥{finalPrice}
-              </span>
-              {hasDiscount && (
-                <span className="text-xs text-gray-400 line-through">¥{product.price}</span>
-              )}
-            </div>
+            {hasDiscount && (
+              <span className="text-xs text-gray-400 line-through">¥{product.price}</span>
+            )}
+            <span className={`text-lg font-bold ${
+              isOutOfStock ? 'text-gray-500' : 'text-gray-900'
+            }`}>
+              ¥{finalPrice}
+            </span>
             <span className={`text-xs ${
               isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
             }`}>
-              库存: {product.stock}
+              {isVariant ? (product.total_variant_stock !== undefined ? `库存: ${product.total_variant_stock}` : '多规格') : `库存: ${product.stock}`}
             </span>
           </div>
           
@@ -138,23 +150,35 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, cartQ
             >
               缺货
             </button>
+          ) : isVariant ? (
+            <button
+              onClick={() => setShowSpec(true)}
+              disabled={isLoading}
+              className="px-3 py-1.5 bg-white border border-indigo-600 text-indigo-600 text-sm font-medium rounded-full hover:bg-indigo-50"
+            >
+              选规格
+            </button>
           ) : isInCart ? (
             // 购物车中商品的数量调整控件
             <div className="flex items-center gap-2">
               <button
                 onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
                 disabled={isLoading}
-                className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-9 h-9 flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="减少"
               >
-                -
+                −
               </button>
-              <span className="w-8 text-center text-sm font-medium text-gray-900">
+              <span className="min-w-6 text-center text-sm font-medium text-gray-900">
                 {cartQuantity}
               </span>
               <button
                 onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
-                disabled={isLoading || cartQuantity >= product.stock}
-                className="w-8 h-8 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={
+                  isLoading || cartQuantity >= (isVariant ? (selectedVariant?.stock ?? 0) : product.stock)
+                }
+                className="w-9 h-9 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="增加"
               >
                 +
               </button>
@@ -164,12 +188,77 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, cartQ
             <button
               onClick={handleAddToCart}
               disabled={isLoading}
-              className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="加入购物车"
+              className="w-9 h-9 bg-indigo-600 text-white text-lg font-bold rounded-full hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? '添加中...' : '加入购物车'}
+              +
             </button>
           )}
         </div>
+        {/* 规格选择弹窗 */}
+        {isVariant && showSpec && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+            <div className="bg-white rounded-lg shadow-lg w-80 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium text-gray-900">选择规格</h4>
+                <button className="text-gray-500 hover:text-gray-700" onClick={() => setShowSpec(false)}>✕</button>
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {(product.variants || []).map(v => (
+                  <label key={v.id} className="flex items-center justify-between px-3 py-2 border rounded-md">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name={`spec_${product.id}`} value={v.id} checked={selectedVar === v.id}
+                        onChange={() => setSelectedVar(v.id)} />
+                      <span className="text-sm text-gray-800">{v.name}</span>
+                    </div>
+                    <span className="text-xs text-gray-500">库存 {v.stock}</span>
+                  </label>
+                ))}
+              </div>
+              {/* 动态操作区：未加入显示“加入购物车”，已加入显示数量调节 */}
+              <div className="mt-4">
+                {selectedVar ? (
+                  (() => {
+                    const qty = itemsMap[`${product.id}@@${selectedVar}`] || 0;
+                    const stock = (product.variants || []).find(v => v.id === selectedVar)?.stock ?? 0;
+                    if (qty > 0) {
+                      return (
+                        <div className="flex items-center justify-center gap-3">
+                          <button
+                            onClick={(e) => onUpdateQuantity(product.id, qty - 1, selectedVar) }
+                            className="w-9 h-9 flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-full"
+                            aria-label="减少"
+                          >
+                            −
+                          </button>
+                          <span className="min-w-6 text-center text-sm font-medium text-gray-900">{qty}</span>
+                          <button
+                            onClick={(e) => { onStartFly && onStartFly(e.currentTarget, product, { type: 'increment' }); onUpdateQuantity(product.id, qty + 1, selectedVar); } }
+                            disabled={qty >= stock}
+                            className="w-9 h-9 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-full disabled:opacity-50"
+                            aria-label="增加"
+                          >
+                            +
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex justify-center">
+                        <button
+                          onClick={(e) => { onStartFly && onStartFly(e.currentTarget, product, { type: 'add' }); onAddToCart(product.id, selectedVar); }}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700"
+                        >加入购物车</button>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="text-center text-xs text-gray-500">请选择一个规格</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -239,7 +328,7 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
 
 export default function Shop() {
   const { user } = useAuth();
-  const { getProducts, searchProducts, getCategories } = useProducts();
+  const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
   
   const cartWidgetRef = useRef(null);
@@ -253,6 +342,8 @@ export default function Shop() {
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [cartItemsMap, setCartItemsMap] = useState({}); // 商品ID到数量的映射
   const [prevQty, setPrevQty] = useState(0);
+  const [shopOpen, setShopOpen] = useState(true);
+  const [shopNote, setShopNote] = useState('');
 
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
   const flyToCart = (startEl) => {
@@ -312,10 +403,11 @@ export default function Shop() {
       const cartResult = cartData.data;
       setCart(cartResult);
       
-      // 创建商品ID到数量的映射
+      // 创建商品ID/规格 到 数量 的映射
       const itemsMap = {};
       cartResult.items.forEach(item => {
-        itemsMap[item.product_id] = item.quantity;
+        const key = item.variant_id ? `${item.product_id}@@${item.variant_id}` : `${item.product_id}`;
+        itemsMap[key] = item.quantity;
       });
       setCartItemsMap(itemsMap);
     } catch (err) {
@@ -396,12 +488,12 @@ export default function Shop() {
   };
 
   // 添加到购物车
-  const handleAddToCart = async (productId) => {
+  const handleAddToCart = async (productId, variantId = null) => {
     if (!user) return;
     
     setCartLoading(true);
     try {
-      await addToCart(productId, 1);
+      await addToCart(productId, 1, variantId);
       // 重新加载购物车数据
       await loadCart();
     } catch (err) {
@@ -412,17 +504,17 @@ export default function Shop() {
   };
 
   // 更新商品数量
-  const handleUpdateQuantity = async (productId, newQuantity) => {
+  const handleUpdateQuantity = async (productId, newQuantity, variantId = null) => {
     if (!user) return;
     
     setCartLoading(true);
     try {
       if (newQuantity <= 0) {
         // 数量为0时从购物车移除
-        await updateCart('remove', productId);
+        await updateCart('remove', productId, null, variantId);
       } else {
         // 更新数量
-        await updateCart('update', productId, newQuantity);
+        await updateCart('update', productId, newQuantity, variantId);
       }
       // 重新加载购物车数据
       await loadCart();
@@ -442,6 +534,19 @@ export default function Shop() {
   useEffect(() => {
     loadCart();
   }, [user]);
+
+  // 加载店铺状态（打烊提示）
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getShopStatus();
+        setShopOpen(!!res.data?.is_open);
+        setShopNote(res.data?.note || '当前打烊，暂不支持结算，仅可加入购物车');
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
 
   // 购物车数量变化时，角标弹跳（仅在数量增加时）
   useEffect(() => {
@@ -465,6 +570,11 @@ export default function Shop() {
       <div className="min-h-screen bg-gray-50 pt-16">
         {/* 主要内容 */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {!shopOpen && (
+            <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3">
+              {shopNote}
+            </div>
+          )}
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">[商店名称]</h1>
             <p className="text-gray-600">为您提供上门配送服务</p>
@@ -519,10 +629,10 @@ export default function Shop() {
                     <ProductCard
                       key={product.id}
                       product={product}
-                      onAddToCart={handleAddToCart}
-                      onUpdateQuantity={handleUpdateQuantity}
+                      onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
+                      onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
                       onStartFly={(el) => flyToCart(el)}
-                      cartQuantity={cartItemsMap[product.id] || 0}
+                      itemsMap={cartItemsMap}
                       isLoading={cartLoading}
                     />
                   ))}
