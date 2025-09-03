@@ -30,14 +30,30 @@ export default function Checkout() {
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   
-  // 稍后支付：清空购物车并跳转到我的订单
+  // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
   const handlePayLater = async () => {
     try {
-      await clearCart();
-    } catch (e) {
-      // 即使清空失败也继续跳转
-    } finally {
+      const shippingInfo = {
+        name: formData.name,
+        phone: formData.phone,
+        dormitory: formData.dormitory,
+        building: formData.building,
+        room: formData.room,
+        full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
+      };
+      const orderResponse = await apiRequest('/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          shipping_info: shippingInfo,
+          payment_method: 'wechat',
+          note: formData.note
+        })
+      });
+      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
+      try { await clearCart(); } catch (e) {}
       router.push('/orders');
+    } catch (e) {
+      alert(e.message || '创建订单失败');
     }
   };
 
@@ -144,7 +160,7 @@ export default function Checkout() {
     }
   };
 
-  // 创建订单并展示微信收款码
+  // 打开支付弹窗（不创建订单，直到点击按钮）
   const handleCreatePayment = async () => {
     // 验证必填字段
     if (!formData.name || !formData.phone || !formData.dormitory || !formData.building || !formData.room) {
@@ -161,9 +177,16 @@ export default function Checkout() {
 
     setIsCreatingPayment(true);
     setError('');
-
     try {
-      // 首先创建订单
+      setShowPayModal(true);
+    } finally {
+      setIsCreatingPayment(false);
+    }
+  };
+
+  // 用户点击“已付款”：创建订单并标记为待验证，清空购物车并跳转订单页
+  const handleMarkPaid = async () => {
+    try {
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
@@ -172,7 +195,6 @@ export default function Checkout() {
         room: formData.room,
         full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
       };
-
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -181,30 +203,10 @@ export default function Checkout() {
           note: formData.note
         })
       });
-
-      if (!orderResponse.success) {
-        throw new Error(orderResponse.message || '订单创建失败');
-      }
-
+      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
       const createdOrderId = orderResponse.data.order_id;
       setOrderId(createdOrderId);
-      // 显示微信收款码弹窗
-      setShowPayModal(true);
-
-    } catch (err) {
-      console.error('创建支付失败:', err);
-      setError(err.message || '创建支付失败，请重试');
-      alert(err.message || '创建支付失败，请重试');
-    } finally {
-      setIsCreatingPayment(false);
-    }
-  };
-
-  // 用户点击“已付款”后，标记为待验证，并清空购物车跳转订单页
-  const handleMarkPaid = async () => {
-    if (!orderId) return;
-    try {
-      const res = await apiRequest(`/orders/${orderId}/mark-paid`, { method: 'POST' });
+      const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
         router.push('/orders');
@@ -221,6 +223,25 @@ export default function Checkout() {
     if (user) {
       loadCart();
       loadAddresses();
+      // 读取最近一次成功付款的收货信息
+      (async () => {
+        try {
+          const res = await apiRequest('/profile/shipping');
+          const ship = res?.data?.shipping;
+          if (ship) {
+            setFormData(prev => ({
+              ...prev,
+              name: ship.name || prev.name,
+              phone: ship.phone || prev.phone,
+              dormitory: ship.dormitory || prev.dormitory,
+              building: ship.building || prev.building,
+              room: ship.room || prev.room,
+            }));
+          }
+        } catch (e) {
+          // 忽略
+        }
+      })();
     }
   }, [user]);
 
@@ -457,11 +478,11 @@ export default function Checkout() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">配送费</span>
-                      <span className="text-gray-900">免费</span>
+                      <span className="text-gray-900">{cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : '免费'}</span>
                     </div>
                     <div className="flex justify-between text-base font-medium border-t border-gray-200 pt-3">
                       <span className="text-gray-900">总计</span>
-                      <span className="text-gray-900">¥{cart.total_price}</span>
+                      <span className="text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
                     </div>
                   </div>
                   
@@ -477,7 +498,7 @@ export default function Checkout() {
                         创建支付中...
                       </div>
                     ) : (
-                      `创建支付 ¥${cart.total_price}`
+                      `创建支付 ¥${cart.payable_total ?? cart.total_price}`
                     )}
                   </button>
                   

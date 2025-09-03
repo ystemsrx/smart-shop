@@ -28,6 +28,9 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
   // 是否缺货
   const isOutOfStock = product.stock === 0;
   const imageSrc = getProductImage(product);
+  const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
+  const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
+  const finalPrice = hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
 
   return (
     <div className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all ${
@@ -36,6 +39,14 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
         : 'hover:shadow-md'
     }`}>
       <div className="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 relative">
+        {/* 折扣角标 */}
+        {hasDiscount && (
+          <div className="absolute left-2 top-2 z-10">
+            <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-600 text-white text-sm font-bold ring-4 ring-white shadow">
+              {discountZhe}折
+            </span>
+          </div>
+        )}
         {imageSrc ? (
           <RetryImage
             src={imageSrc}
@@ -88,11 +99,16 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
         
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <span className={`text-lg font-bold ${
-              isOutOfStock ? 'text-gray-500' : 'text-gray-900'
-            }`}>
-              ¥{product.price}
-            </span>
+            <div className="flex items-baseline gap-2">
+              <span className={`text-lg font-bold ${
+                isOutOfStock ? 'text-gray-500' : 'text-gray-900'
+              }`}>
+                ¥{finalPrice}
+              </span>
+              {hasDiscount && (
+                <span className="text-xs text-gray-400 line-through">¥{product.price}</span>
+              )}
+            </div>
             <span className={`text-xs ${
               isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
             }`}>

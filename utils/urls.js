@@ -14,15 +14,22 @@ export function resolveImageUrl(path) {
   // Already absolute or protocol-relative
   if (/^https?:\/\//i.test(path) || path.startsWith('//')) return path;
 
-  const base = DEFAULT_API_BASE;
+  // 在浏览器环境中，优先使用相对路径以利用Next.js的rewrites代理
+  if (typeof window !== 'undefined') {
+    // 确保路径以 / 开头
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return cleanPath;
+  }
 
+  // 服务端渲染时使用完整URL
+  const base = DEFAULT_API_BASE;
   if (base) {
     const cleanBase = base.replace(/\/+$|\/$/g, '');
     const cleanPath = path.replace(/^\/+/, '');
     return `${cleanBase}/${cleanPath}`;
   }
 
-  // Fallback to same-origin absolute path (should rarely happen now)
+  // Fallback to same-origin absolute path
   return path.startsWith('/') ? path : `/${path}`;
 }
 

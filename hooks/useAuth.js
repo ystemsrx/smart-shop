@@ -161,12 +161,11 @@ export function useApi() {
 
   const apiRequest = async (endpoint, options = {}) => {
     const url = `${API_BASE}${endpoint}`;
+    const isFormData = (options && options.body && typeof FormData !== 'undefined' && options.body instanceof FormData);
+    const headers = isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) };
     const config = {
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
       ...options,
     };
 

@@ -56,6 +56,7 @@ export default function Orders() {
   const [payOrderId, setPayOrderId] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [filter, setFilter] = useState('全部');
+  const [tick, setTick] = useState(0); // 用于每秒刷新倒计时
 
   useEffect(() => {
     if (!user) {
@@ -81,13 +82,63 @@ export default function Orders() {
     if (user) loadOrders();
   }, [user]);
 
+  // 每秒触发一次刷新用于倒计时显示
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const getRemainSeconds = (o) => {
+    // 直接使用后端返回的时间戳（秒）
+    const createdTimestamp = o.created_at_timestamp;
+    if (!createdTimestamp || typeof createdTimestamp !== 'number') {
+      console.error('订单创建时间戳无效:', createdTimestamp, '订单数据:', o);
+      return 0;
+    }
+    
+    // 计算过期时间（创建时间 + 15分钟）
+    const expireTimestamp = createdTimestamp + (15 * 60); // 15分钟，单位秒
+    
+    // 当前时间戳（秒）
+    const nowTimestamp = Math.floor(Date.now() / 1000);
+    
+    // 计算剩余秒数
+    const remainSeconds = Math.max(0, expireTimestamp - nowTimestamp);
+    
+    // 添加更详细的调试日志
+    const createdDate = new Date(createdTimestamp * 1000);
+    const expireDate = new Date(expireTimestamp * 1000);
+    const nowDate = new Date();
+    const ageMinutes = Math.floor((nowTimestamp - createdTimestamp) / 60);
+    
+    console.log(`订单 ${o.id} 倒计时详情:`, {
+      raw_timestamp: createdTimestamp,
+      created_time: createdDate.toLocaleString('zh-CN'),
+      expire_time: expireDate.toLocaleString('zh-CN'),
+      current_time: nowDate.toLocaleString('zh-CN'),
+      age_minutes: ageMinutes,
+      remain_seconds: remainSeconds,
+      remain_display: remainSeconds > 0 ? `${Math.floor(remainSeconds / 60)}:${String(remainSeconds % 60).padStart(2, '0')}` : '已过期'
+    });
+    
+    return remainSeconds;
+  };
+
+  const formatRemain = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const pad = (n) => (n < 10 ? `0${n}` : String(n));
+    return `${pad(m)}:${pad(s)}`;
+  };
+
   const handleMarkPaid = async (orderId) => {
     try {
       const res = await apiRequest(`/orders/${orderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
         setPayOrderId(null);
-        router.push('/orders');
+        // 重新加载订单数据以刷新页面状态
+        await loadOrders();
       } else {
         alert(res.message || '操作失败');
       }
@@ -157,6 +208,8 @@ export default function Orders() {
               {filteredOrders.map((o) => {
                 const us = getUnifiedStatus(o);
                 const isOpen = !!expanded[o.id];
+                const showCountdown = us === '未付款' && (o.payment_status === 'pending' || !o.payment_status);
+                const remainSec = showCountdown ? getRemainSeconds(o) : 0;
                 return (
                   <div key={o.id} className="bg-white rounded-lg shadow-sm border border-gray-200">
                     {/* header */}
@@ -164,6 +217,11 @@ export default function Orders() {
                       <div className="flex items-center gap-3">
                         <StatusBadge status={us} />
                         <div className="text-sm text-gray-500">下单时间：{formatDate(o.created_at)}</div>
+                        {showCountdown && (
+                          <div className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+                            倒计时：{formatRemain(remainSec)}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-sm text-gray-900 font-medium">总计 ¥{o.total_amount}</div>
