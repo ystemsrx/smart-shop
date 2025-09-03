@@ -244,16 +244,16 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
                 "shipping_fee": 0.0,
                 "total_price": 0.0
             }
-        
+
         items = cart_data.get("items", {})
         cart_items = []
         total_quantity = 0
         items_subtotal = 0.0
-        
+
         # 获取商品详情并计算总价
         all_products = ProductDB.get_all_products()
         product_dict = {p["id"]: p for p in all_products}
-        
+
         SEP = '@@'
         for key, quantity in items.items():
             product_id = key
@@ -282,7 +282,7 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
                         item["variant_id"] = variant_id
                         item["variant_name"] = variant.get("name")
                 cart_items.append(item)
-        
+
         # 运费规则：商品金额满10元免运费；不足10元收取1元配送费（购物车为空不收取）
         shipping_fee = 0.0 if total_quantity == 0 or items_subtotal >= 10.0 else 1.0
         return {
@@ -293,7 +293,7 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
             "shipping_fee": round(shipping_fee, 2),
             "total_price": round(items_subtotal + shipping_fee, 2)
         }
-        
+
     except Exception as e:
         logger.error(f"获取购物车失败: {e}")
         return {"ok": False, "error": f"获取购物车失败: {str(e)}"}
@@ -443,7 +443,7 @@ def update_cart_impl(user_id: str, action: str, product_id: Any = None, quantity
                 if qty < 0:
                     results.append(f"商品 {pid}: 数量不能为负数")
                     continue
-                
+
                 if qty > stock_limit:
                     qty = stock_limit
                 
@@ -462,9 +462,9 @@ def update_cart_impl(user_id: str, action: str, product_id: Any = None, quantity
                 
                 success_count += 1
         
-        # 更新数据库
+        # 更新数据库（不再进行下架清理，这已由管理员操作统一处理）
         CartDB.update_cart(user_id, items)
-        
+
         return {
             "ok": success_count > 0,
             "action": action,

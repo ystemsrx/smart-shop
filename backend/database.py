@@ -41,6 +41,7 @@ def init_database():
                 discount REAL DEFAULT 10.0, -- 折扣（以折为单位，10为不打折，0.5为五折）
                 img_path TEXT,  -- 图片路径 items/类别/商品名.扩展名
                 description TEXT,
+                is_active INTEGER DEFAULT 1, -- 是否上架（1 上架，0 下架）
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -179,6 +180,12 @@ def init_database():
         # 为老库添加商品折扣字段（以折为单位，10表示不打折）
         try:
             cursor.execute('ALTER TABLE products ADD COLUMN discount REAL DEFAULT 10.0')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+
+        # 商品上下架字段（1 上架，0 下架）
+        try:
+            cursor.execute('ALTER TABLE products ADD COLUMN is_active INTEGER DEFAULT 1')
         except sqlite3.OperationalError:
             pass  # 字段已存在
 
@@ -488,15 +495,22 @@ class ProductDB:
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
-    def search_products(query: str) -> List[Dict]:
-        """搜索商品"""
+    def search_products(query: str, active_only: bool = False) -> List[Dict]:
+        """搜索商品；当 active_only=True 时，仅返回上架商品"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM products 
-                WHERE name LIKE ? OR category LIKE ? OR description LIKE ?
-                ORDER BY created_at DESC
-            ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+            if active_only:
+                cursor.execute('''
+                    SELECT * FROM products 
+                    WHERE (name LIKE ? OR category LIKE ? OR description LIKE ?) AND (is_active = 1)
+                    ORDER BY created_at DESC
+                ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+            else:
+                cursor.execute('''
+                    SELECT * FROM products 
+                    WHERE name LIKE ? OR category LIKE ? OR description LIKE ?
+                    ORDER BY created_at DESC
+                ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
@@ -624,7 +638,7 @@ class SettingsDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
@@ -818,6 +832,48 @@ class CartDB:
                 logger.error(f"数据库操作失败 - 用户ID: {student_id}, 错误: {e}")
                 conn.rollback()
                 return False
+
+    @staticmethod
+    def remove_product_from_all_carts(product_id: str) -> int:
+        """从所有用户购物车中移除指定商品（包含其所有规格）。返回受影响的购物车数量。"""
+        removed_count = 0
+        SEP = '@@'
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT student_id, items FROM carts')
+                rows = cursor.fetchall()
+                for row in rows:
+                    student_id = row[0]
+                    try:
+                        items = json.loads(row[1]) if isinstance(row[1], (str, bytes)) else (row[1] or {})
+                    except Exception:
+                        items = {}
+                    if not isinstance(items, dict):
+                        items = {}
+
+                    # 过滤：剔除该商品及其规格项
+                    changed = False
+                    new_items = {}
+                    for key, qty in items.items():
+                        base_pid = key.split(SEP, 1)[0] if isinstance(key, str) else key
+                        if base_pid == product_id:
+                            changed = True
+                            continue
+                        new_items[key] = qty
+
+                    if changed:
+                        cursor.execute(
+                            'UPDATE carts SET items = ?, updated_at = CURRENT_TIMESTAMP WHERE student_id = ?',
+                            (json.dumps(new_items), student_id)
+                        )
+                        removed_count += 1
+
+                conn.commit()
+            except Exception as e:
+                logger.error(f"从所有购物车移除商品失败: {e}")
+                conn.rollback()
+        return removed_count
 
 # 聊天记录相关操作
 class ChatLogDB:

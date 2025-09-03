@@ -46,7 +46,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
     : (itemsMap[`${product.id}`] || 0);
   // 是否在购物车中
   const isInCart = cartQuantity > 0;
-  // 是否缺货
+  // 是否下架/缺货
+  const isDown = product.is_active === 0 || product.is_active === false;
   const isOutOfStock = isVariant ? ((product.total_variant_stock || 0) === 0) : (product.stock === 0);
   const imageSrc = getProductImage(product);
   const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
@@ -55,8 +56,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
 
   return (
     <div className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all ${
-      isOutOfStock 
-        ? 'opacity-60 grayscale hover:shadow-sm cursor-not-allowed' 
+      (isOutOfStock || isDown)
+        ? 'opacity-60 grayscale hover:shadow-sm cursor-not-allowed'
         : 'hover:shadow-md'
     }`}>
       <div className="aspect-square w-full overflow-hidden bg-gray-200 relative">
@@ -73,7 +74,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
             src={imageSrc}
             alt={product.name}
             className={`h-full w-full object-cover object-center ${
-              isOutOfStock ? 'filter grayscale opacity-75' : ''
+              (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
             onFinalError={() => {
@@ -82,37 +83,39 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
           />
         ) : (
           <div className={`h-full w-full bg-gray-100 flex items-center justify-center ${
-            isOutOfStock ? 'opacity-50' : ''
+            (isOutOfStock || isDown) ? 'opacity-50' : ''
           }`}>
             <span className="text-gray-400 text-sm">暂无图片</span>
           </div>
         )}
-        {/* 缺货遮罩 */}
-        {isOutOfStock && (
+        {/* 缺货/下架遮罩 */}
+        {(isOutOfStock || isDown) && (
           <div className="absolute inset-0 bg-gray-500 bg-opacity-40 flex items-center justify-center">
-            <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-              缺货
-            </span>
+            {isDown ? (
+              <span className="bg-gray-700 text-white px-3 py-1 rounded-full text-sm font-bold">暂时下架</span>
+            ) : (
+              <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold">缺货</span>
+            )}
           </div>
         )}
       </div>
       
       <div className="p-4">
         <h3 className={`text-sm font-medium mb-1 line-clamp-2 ${
-          isOutOfStock ? 'text-gray-500' : 'text-gray-900'
+          (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
         }`}>
           {product.name}
         </h3>
         
         <p className={`text-xs mb-2 ${
-          isOutOfStock ? 'text-gray-400' : 'text-gray-500'
+          (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-500'
         }`}>
           {product.category}
         </p>
         
         {product.description && (
           <p className={`text-xs mb-3 line-clamp-2 ${
-            isOutOfStock ? 'text-gray-400' : 'text-gray-600'
+            (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
           }`}>
             {product.description}
           </p>
@@ -124,15 +127,17 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
               <span className="text-xs text-gray-400 line-through">¥{product.price}</span>
             )}
             <span className={`text-lg font-bold ${
-              isOutOfStock ? 'text-gray-500' : 'text-gray-900'
+              (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
             }`}>
               ¥{finalPrice}
             </span>
-            <span className={`text-xs ${
-              isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
-            }`}>
-              {isVariant ? (product.total_variant_stock !== undefined ? `库存: ${product.total_variant_stock}` : '多规格') : `库存: ${product.stock}`}
-            </span>
+            {!isDown && (
+              <span className={`text-xs ${
+                isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
+              }`}>
+                {isVariant ? (product.total_variant_stock !== undefined ? `库存: ${product.total_variant_stock}` : '多规格') : `库存: ${product.stock}`}
+              </span>
+            )}
           </div>
           
           {/* 根据是否在购物车中显示不同的控件 */}
@@ -143,12 +148,12 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, items
             >
               需登录
             </button>
-          ) : isOutOfStock ? (
+          ) : (isOutOfStock || isDown) ? (
             <button
               disabled
-              className="px-3 py-1.5 bg-red-200 text-red-600 text-sm font-medium rounded-md cursor-not-allowed"
+              className={`px-3 py-1.5 text-sm font-medium rounded-md cursor-not-allowed ${isDown ? 'bg-gray-200 text-gray-600' : 'bg-red-200 text-red-600'}`}
             >
-              缺货
+              {isDown ? '暂时下架' : '缺货'}
             </button>
           ) : isVariant ? (
             <button
@@ -417,9 +422,15 @@ export default function Shop() {
     }
   };
 
-  // 商品排序函数 - 按价格升序
+  // 商品排序函数 - 上架优先，价格升序；下架统一移到最后
   const sortProductsByPrice = (products) => {
-    return products.sort((a, b) => {
+    const active = [];
+    const inactive = [];
+    products.forEach(p => {
+      (p.is_active === 0 || p.is_active === false) ? inactive.push(p) : active.push(p);
+    });
+
+    const sortAsc = (arr) => arr.sort((a, b) => {
       // 计算最终价格（考虑折扣）
       const getPriceWithDiscount = (product) => {
         const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
@@ -432,6 +443,8 @@ export default function Shop() {
       
       return priceA - priceB; // 升序排列
     });
+
+    return [...sortAsc(active), ...sortAsc(inactive)];
   };
 
   // 加载商品和分类
