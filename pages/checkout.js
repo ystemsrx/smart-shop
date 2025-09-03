@@ -476,26 +476,32 @@ export default function Checkout() {
                   
                   {/* 商品列表 */}
                   <div className="space-y-3 mb-6">
-                    {cart.items && cart.items.map((item) => (
-                      <div key={(item.product_id + (item.variant_id || ''))} className="flex justify-between text-sm">
-                        <div className="flex-1">
-                          <p className="text-gray-900 truncate">
-                            {item.name}
-                            {item.variant_name && (
-                              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
-                            )}
-                          </p>
-                          <p className="text-gray-500">x{item.quantity}</p>
+                    {cart.items && cart.items.map((item) => {
+                      const isDown = item.is_active === 0 || item.is_active === false;
+                      return (
+                        <div key={(item.product_id + (item.variant_id || ''))} className={`flex justify-between text-sm ${isDown ? 'opacity-60 grayscale' : ''}`}>
+                          <div className="flex-1">
+                            <p className={`truncate ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
+                              {item.name}
+                              {item.variant_name && (
+                                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
+                              )}
+                              {isDown && (
+                                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">暂时下架</span>
+                              )}
+                            </p>
+                            <p className="text-gray-500">x{item.quantity} {isDown && <span className="ml-1 text-xs">（不计入金额）</span>}</p>
+                          </div>
+                          <span className={`ml-2 ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>¥{item.subtotal}</span>
                         </div>
-                        <span className="text-gray-900 ml-2">¥{item.subtotal}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   
                   {/* 费用明细 */}
                   <div className="space-y-3 mb-6 border-t border-gray-200 pt-4">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">商品金额</span>
+                      <span className="text-gray-600">商品金额（仅上架商品）</span>
                       <span className="text-gray-900">¥{cart.total_price}</span>
                     </div>
                     <div className="flex justify-between text-sm">

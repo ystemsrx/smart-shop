@@ -163,7 +163,7 @@ const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 商品表格组件
-const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount }) => {
+const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount, onToggleActive, onOpenVariantStock }) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
 
@@ -266,7 +266,17 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   <div className="flex items-center gap-3">
-                    <span>¥{product.price}</span>
+                    {(() => {
+                      const z = (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
+                      const has = z && z > 0 && z < 10;
+                      const finalPrice = has ? (Math.round(product.price * (z / 10) * 100) / 100) : product.price;
+                      return (
+                        <div className="flex items-center gap-2">
+                          {has && (<span className="text-xs text-gray-400 line-through">¥{product.price}</span>)}
+                          <span className="font-semibold">¥{finalPrice}</span>
+                        </div>
+                      );
+                    })()}
                     <select
                       className="text-xs border border-gray-300 rounded px-1 py-0.5"
                       value={(typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10)}
@@ -284,10 +294,17 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  <StockControl 
-                    product={product} 
-                    onUpdateStock={(productId, newStock) => onUpdateStock(productId, newStock)}
-                  />
+                  {product.has_variants ? (
+                    <button
+                      onClick={() => onOpenVariantStock(product)}
+                      className="px-3 py-1.5 rounded-md border text-sm hover:bg-gray-50"
+                    >操作</button>
+                  ) : (
+                    <StockControl 
+                      product={product} 
+                      onUpdateStock={(productId, newStock) => onUpdateStock(productId, newStock)}
+                    />
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {new Date(product.created_at).toLocaleDateString()}
@@ -299,6 +316,12 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                       className="text-indigo-600 hover:text-indigo-900"
                     >
                       编辑
+                    </button>
+                    <button
+                      onClick={() => onToggleActive(product)}
+                      className={`${product.is_active === 0 ? 'text-green-600 hover:text-green-800' : 'text-gray-600 hover:text-gray-800'}`}
+                    >
+                      {product.is_active === 0 ? '上架' : '下架'}
                     </button>
                     <button
                       onClick={() => onDelete(product)}
@@ -672,6 +695,91 @@ const VariantManager = ({ productId }) => {
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// 规格库存编辑弹窗（仅库存增减与编辑）
+const VariantStockModal = ({ product, onClose }) => {
+  const { apiRequest } = useApi();
+  const [variants, setVariants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest(`/admin/products/${product.id}/variants`);
+      setVariants(res?.data?.variants || []);
+    } catch (e) {
+      alert(e.message || '加载规格失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [product?.id]);
+
+  const updateStock = async (variantId, newStock) => {
+    if (newStock < 0) newStock = 0;
+    setSaving(true);
+    try {
+      await apiRequest(`/admin/variants/${variantId}`, { method: 'PUT', body: JSON.stringify({ stock: parseInt(newStock) || 0 }) });
+      setVariants(prev => prev.map(v => v.id === variantId ? { ...v, stock: parseInt(newStock) || 0 } : v));
+    } catch (e) {
+      alert(e.message || '更新库存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-lg shadow-lg w-96 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-medium text-gray-900">规格库存 - {product?.name}</h4>
+          <button className="text-gray-500 hover:text-gray-700" onClick={onClose}>✕</button>
+        </div>
+        {loading ? (
+          <div className="text-sm text-gray-500">加载中...</div>
+        ) : (
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {(variants || []).map(v => (
+              <div key={v.id} className="flex items-center justify-between px-3 py-2 border rounded-md">
+                <div className="text-sm text-gray-800">{v.name}</div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => updateStock(v.id, (parseInt(v.stock) || 0) - 1)}
+                    disabled={saving || (parseInt(v.stock) || 0) <= 0}
+                    className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    title="减少库存"
+                  >-</button>
+                  <input
+                    type="number"
+                    className="w-16 px-1 py-0.5 text-center text-sm border border-gray-300 rounded"
+                    value={v.stock}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setVariants(prev => prev.map(x => x.id === v.id ? { ...x, stock: val } : x));
+                    }}
+                    onBlur={(e) => updateStock(v.id, parseInt(e.target.value) || 0)}
+                    min="0"
+                  />
+                  <button
+                    onClick={() => updateStock(v.id, (parseInt(v.stock) || 0) + 1)}
+                    disabled={saving}
+                    className="w-6 h-6 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    title="增加库存"
+                  >+</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-3 text-right">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md border text-sm hover:bg-gray-50">关闭</button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -1102,6 +1210,8 @@ export default function Admin() {
   const [error, setError] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
+  const [productCategoryFilter, setProductCategoryFilter] = useState('全部');
+  const [variantStockProduct, setVariantStockProduct] = useState(null);
   
   // 订单管理相关状态
   const [orders, setOrders] = useState([]);
@@ -1395,6 +1505,19 @@ export default function Admin() {
     }
   };
 
+  // 上/下架切换
+  const handleToggleActive = async (product) => {
+    // 当前是否上架
+    const currentActive = !(product.is_active === 0 || product.is_active === false);
+    const target = !currentActive; // 目标状态
+    try {
+      await apiRequest(`/admin/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
+      await loadData();
+    } catch (e) {
+      alert(e.message || '更新上下架状态失败');
+    }
+  };
+
   // 更新库存（内联版本）
   const handleUpdateStock = async (productId, newStock) => {
     try {
@@ -1443,10 +1566,10 @@ export default function Admin() {
     }
   };
 
-  // 全选/取消全选
+  // 全选/取消全选（对当前筛选后的可见商品生效）
   const handleSelectAll = (checked) => {
     if (checked) {
-      setSelectedProducts(products.map(product => product.id));
+      setSelectedProducts(visibleProducts.map(product => product.id));
     } else {
       setSelectedProducts([]);
     }
@@ -1612,6 +1735,9 @@ export default function Admin() {
     return null;
   }
 
+  // 按分类筛选后的产品（用于当前页面显示）
+  const visibleProducts = productCategoryFilter === '全部' ? products : products.filter(p => p.category === productCategoryFilter);
+
   return (
     <>
       <Head>
@@ -1765,6 +1891,21 @@ export default function Admin() {
                 </button>
               </div>
 
+              {/* 分类筛选器 */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => setProductCategoryFilter('全部')}
+                  className={`px-3 py-1 rounded-md text-sm border ${productCategoryFilter === '全部' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                >全部</button>
+                {(categories || []).map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setProductCategoryFilter(c.name)}
+                    className={`px-3 py-1 rounded-md text-sm border ${productCategoryFilter === c.name ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >{c.name}</button>
+                ))}
+              </div>
+
           {/* 添加商品表单 */}
           {showAddForm && (
             <div className="mb-6">
@@ -1807,7 +1948,7 @@ export default function Admin() {
             </div>
           ) : (
             <ProductTable 
-              products={products} 
+              products={visibleProducts} 
               onRefresh={loadData}
               onEdit={setEditingProduct}
               onDelete={handleDeleteProduct}
@@ -1817,6 +1958,8 @@ export default function Admin() {
               onSelectProduct={handleSelectProduct}
               onSelectAll={handleSelectAll}
               onUpdateDiscount={handleUpdateDiscount}
+              onToggleActive={handleToggleActive}
+              onOpenVariantStock={(p) => setVariantStockProduct(p)}
             />
           )}
             </>
@@ -2110,6 +2253,13 @@ export default function Admin() {
             </>
           )}
         </main>
+
+        {variantStockProduct && (
+          <VariantStockModal
+            product={variantStockProduct}
+            onClose={() => setVariantStockProduct(null)}
+          />
+        )}
       </div>
     </>
   );

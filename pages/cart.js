@@ -11,6 +11,7 @@ import { getProductImage } from '../utils/urls';
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
   const [quantity, setQuantity] = useState(item.quantity);
+  const isDown = item.is_active === 0 || item.is_active === false;
 
   const handleQuantityChange = (newQuantity) => {
     if (newQuantity < 1) {
@@ -23,7 +24,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+    <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 ${isDown ? 'opacity-60 grayscale' : ''}`}>
       <div className="flex items-center space-x-4">
         {/* 商品图片 */}
         <div className="flex-shrink-0 w-16 h-16 bg-gray-100 rounded-md overflow-hidden">
@@ -46,14 +47,17 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
         
         {/* 商品信息 */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-gray-900 truncate">
+          <h3 className={`text-sm font-medium truncate ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
             {item.name}
             {item.variant_name && (
               <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
             )}
+            {isDown && (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">暂时下架</span>
+            )}
           </h3>
           <p className="text-sm text-gray-500 mt-1">
-            单价: ¥{item.unit_price}
+            单价: ¥{item.unit_price} {isDown && <span className="ml-2 text-xs text-gray-400">（不计入金额）</span>}
           </p>
         </div>
         
@@ -61,7 +65,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => handleQuantityChange(quantity - 1)}
-            disabled={isLoading}
+            disabled={isLoading || isDown}
             className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             -
@@ -69,7 +73,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
           <span className="w-8 text-center text-sm font-medium">{quantity}</span>
           <button
             onClick={() => handleQuantityChange(quantity + 1)}
-            disabled={isLoading}
+            disabled={isLoading || isDown}
             className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             +
@@ -81,6 +85,13 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
           <span className="text-sm font-medium text-gray-900">
             ¥{item.subtotal}
           </span>
+          <button
+            onClick={() => onRemove(item.product_id, item.variant_id || null)}
+            disabled={isLoading}
+            className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+          >
+            移除
+          </button>
         </div>
       </div>
     </div>

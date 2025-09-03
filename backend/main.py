@@ -177,6 +177,7 @@ class ProductUpdateRequest(BaseModel):
     stock: Optional[int] = None
     discount: Optional[float] = None  # 折扣（以折为单位，10为不打折，0.5为五折）
     description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class StockUpdateRequest(BaseModel):
     stock: int
@@ -691,8 +692,8 @@ async def get_cart(request: Request):
         
         # 构建前端需要的购物车商品列表
         cart_items = []
-        total_quantity = 0
-        total_price = 0.0
+        total_quantity = 0  # 仅统计上架商品
+        total_price = 0.0   # 仅统计上架商品（折扣后小计之和）
         
         SEP = '@@'
         for key, quantity in items_dict.items():
@@ -702,13 +703,17 @@ async def get_cart(request: Request):
                 product_id, variant_id = key.split(SEP, 1)
             if product_id in product_dict:
                 product = product_dict[product_id]
+                is_active = 1 if int(product.get("is_active", 1) or 1) == 1 else 0
                 # 应用折扣（以折为单位，10为不打折）
                 zhe = float(product.get("discount", 10.0) or 10.0)
                 unit_price = round(float(product["price"]) * (zhe / 10.0), 2)
                 subtotal = unit_price * quantity
-                total_quantity += quantity
-                total_price += subtotal
-                
+
+                # 仅将上架商品计入总数量与总价
+                if is_active == 1:
+                    total_quantity += quantity
+                    total_price += subtotal
+
                 item = {
                     "product_id": product_id,
                     "name": product["name"],
@@ -717,7 +722,8 @@ async def get_cart(request: Request):
                     "subtotal": round(subtotal, 2),
                     "stock": product["stock"],
                     "category": product.get("category", ""),
-                    "img_path": product.get("img_path", "")
+                    "img_path": product.get("img_path", ""),
+                    "is_active": is_active
                 }
                 if variant_id:
                     variant = VariantDB.get_by_id(variant_id)
@@ -777,6 +783,14 @@ async def update_cart(
             if not product:
                 logger.error(f"商品不存在: {cart_request.product_id}")
                 return error_response("商品不存在", 400)
+
+            # 禁止对下架商品进行添加或正数更新（允许通过数量<=0来移除）
+            try:
+                is_active = 1 if int(product.get("is_active", 1) or 1) == 1 else 0
+            except Exception:
+                is_active = 1
+            if is_active != 1 and cart_request.quantity and cart_request.quantity > 0:
+                return error_response("该商品已下架，无法添加或更新数量", 400)
             
             # 处理规格键与库存
             key = cart_request.product_id
@@ -815,11 +829,25 @@ async def update_cart(
             logger.error(f"购物车更新条件不匹配 - 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}")
             return error_response("无效的购物车更新请求", 400)
         
+        # 额外清理一次：移除购物车内的已下架商品，防止残留
+        all_products = ProductDB.get_all_products()
+        product_dict = {p["id"]: p for p in all_products}
+        cleaned = {}
+        for k, v in items.items():
+            pid = k.split('@@', 1)[0] if isinstance(k, str) else k
+            p = product_dict.get(pid)
+            try:
+                active = 1 if int(p.get("is_active", 1) or 1) == 1 else 0
+            except Exception:
+                active = 1
+            if active == 1 and v > 0:
+                cleaned[k] = v
+
         # 更新数据库
-        update_result = CartDB.update_cart(user["id"], items)
+        update_result = CartDB.update_cart(user["id"], cleaned)
         logger.info(f"数据库更新结果: {update_result}, 最终购物车内容: {items}")
         
-        return success_response("购物车更新成功", {"action": cart_request.action, "items": items})
+        return success_response("购物车更新成功", {"action": cart_request.action, "items": cleaned})
     
     except Exception as e:
         logger.error(f"更新购物车失败: {e}")
@@ -1051,16 +1079,34 @@ async def update_product(
                 update_data['discount'] = d
             except Exception:
                 return error_response("无效的折扣", 400)
+        if product_data.is_active is not None:
+            update_data['is_active'] = 1 if product_data.is_active else 0
         
         if not update_data:
             return error_response("没有提供更新数据", 400)
         
         # 注意：分类会自动创建，不需要验证是否存在
         
-        success = ProductDB.update_product(product_id, update_data)
+        # 注意：分类会自动创建，不需要验证是否存在
+        # 使用数据库更新方法
+        from database import SettingsDB
+        success = SettingsDB.update_product(product_id, update_data)
         if not success:
             return error_response("更新商品失败", 500)
-        
+
+        # 如果设置为下架，则从所有购物车中移除此商品
+        try:
+            old_is_active = int(existing_product.get('is_active', 1) or 1)
+        except Exception:
+            old_is_active = 1
+        new_is_active = update_data.get('is_active', old_is_active)
+        if old_is_active == 1 and new_is_active == 0:
+            try:
+                removed = CartDB.remove_product_from_all_carts(product_id)
+                logger.info(f"商品 {product_id} 已下架，已从 {removed} 个购物车中移除")
+            except Exception as e:
+                logger.warning(f"下架后移除购物车商品失败: {e}")
+
         return success_response("商品更新成功")
     
     except Exception as e:
@@ -1122,6 +1168,16 @@ async def delete_products(
             
             if result["success"]:
                 logger.info(f"批量删除成功: {result}")
+                # 同步：从所有购物车移除这些商品
+                try:
+                    for pid in result.get("deleted_ids", []) or []:
+                        try:
+                            removed = CartDB.remove_product_from_all_carts(pid)
+                            logger.info(f"商品 {pid} 批量删除后，已从 {removed} 个购物车中移除")
+                        except Exception as er:
+                            logger.warning(f"批量删除后移除购物车商品失败 {pid}: {er}")
+                except Exception as e:
+                    logger.warning(f"批量移除购物车商品异常: {e}")
                 
                 # 删除对应的图片文件
                 deleted_img_paths = result.get("deleted_img_paths", [])
@@ -1159,6 +1215,12 @@ async def delete_products(
             success = ProductDB.delete_product(product_id)
             if not success:
                 return error_response("删除商品失败", 500)
+            # 同步：从所有购物车移除此商品
+            try:
+                removed = CartDB.remove_product_from_all_carts(product_id)
+                logger.info(f"商品 {product_id} 删除后，已从 {removed} 个购物车中移除")
+            except Exception as e:
+                logger.warning(f"删除后移除购物车商品失败: {e}")
             
             # 删除成功后，删除对应的图片文件
             if img_path and img_path.strip():
@@ -1365,6 +1427,9 @@ async def create_order(
                 product_id, variant_id = key.split(SEP, 1)
             if product_id in product_dict:
                 product = product_dict[product_id]
+                # 忽略下架商品
+                if int(product.get("is_active", 1) or 1) != 1:
+                    continue
                 
                 # 折扣后单价
                 zhe = float(product.get("discount", 10.0) or 10.0)
@@ -1399,9 +1464,12 @@ async def create_order(
                     item["variant_name"] = variant.get("name")
                 order_items.append(item)
         
-        # 运费规则：不足10元收取1元，满10元免运费
+        # 运费规则：不足10元收取1元，满10元免运费（仅计算上架商品金额）
         shipping_fee = 0.0 if total_amount >= 10.0 else (1.0 if total_amount > 0 else 0.0)
         total_amount = round(total_amount + shipping_fee, 2)
+
+        if not order_items:
+            return error_response("购物车中没有可结算的上架商品", 400)
 
         # 创建订单（暂不扣减库存，等待支付成功）
         order_id = OrderDB.create_order(
