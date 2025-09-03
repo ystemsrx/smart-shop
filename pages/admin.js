@@ -1521,11 +1521,9 @@ export default function Admin() {
   // 更新库存（内联版本）
   const handleUpdateStock = async (productId, newStock) => {
     try {
-      await apiRequest(`/admin/products/${productId}/stock`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      // 改用已验证可用的通用更新接口，以避免个别路由兼容问题
+      await apiRequest(`/admin/products/${productId}`, {
+        method: 'PUT',
         body: JSON.stringify({ stock: newStock })
       });
       
