@@ -7,13 +7,14 @@ from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 from pydantic import BaseModel
 import uvicorn
 
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs,
-    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB
+    UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -22,6 +23,46 @@ from auth import (
     get_current_user_required_from_cookie, success_response, error_response
 )
 
+
+def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) -> int:
+    """
+    将SQLite的CURRENT_TIMESTAMP字符串转换为Unix时间戳（秒）
+    SQLite返回的是UTC时间，需要正确处理时区
+    """
+    try:
+        from datetime import datetime, timezone
+        import time
+        
+        # SQLite的CURRENT_TIMESTAMP返回UTC时间，需要明确指定为UTC时区
+        if " " in created_at_str:
+            # SQLite格式：YYYY-MM-DD HH:MM:SS (UTC)
+            dt = datetime.strptime(created_at_str, "%Y-%m-%d %H:%M:%S")
+            # 明确指定为UTC时区
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            # ISO格式：YYYY-MM-DDTHH:MM:SS
+            dt = datetime.fromisoformat(created_at_str)
+            if dt.tzinfo is None:
+                # 如果没有时区信息，假设为UTC
+                dt = dt.replace(tzinfo=timezone.utc)
+        
+        # 转换为时间戳（秒）
+        timestamp = int(dt.timestamp())
+        
+        # 调试日志
+        current_timestamp = int(time.time())
+        age_minutes = (current_timestamp - timestamp) // 60
+        order_info = f"订单 {order_id}" if order_id else "时间"
+        logger.info(f"{order_info} 时间转换: {created_at_str} (UTC) -> {timestamp}, 创建于 {age_minutes} 分钟前")
+        
+        return timestamp
+        
+    except Exception as e:
+        order_info = f"订单 {order_id}" if order_id else "时间"
+        logger.warning(f"{order_info} 转换失败: {e}, 原始时间: {created_at_str}")
+        # 如果转换失败，使用当前时间戳减去1小时（确保倒计时能正常显示）
+        import time
+        return int(time.time() - 3600)
 
 # 配置日志
 import os
@@ -49,7 +90,7 @@ app = FastAPI(
 # CORS配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://shop.your_domain.com"],  # 生产环境应限制具体域名
+    allow_origins=["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"],  # 生产环境应限制具体域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,7 +99,46 @@ app.add_middleware(
 # 静态文件服务
 items_dir = os.path.join(os.path.dirname(__file__), "items")
 os.makedirs(items_dir, exist_ok=True)
-app.mount("/items", StaticFiles(directory=items_dir), name="items")
+
+class CachedStaticFiles(StaticFiles):
+    def __init__(self, *args, max_age: int = 60 * 60 * 24 * 30, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._max_age = max_age
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if hasattr(resp, 'headers') and resp.status_code == 200:
+            resp.headers["Cache-Control"] = f"public, max-age={self._max_age}, immutable"
+            # CORS for static assets (images) to allow cross-origin caching/fetch
+            try:
+                origin = None
+                for k, v in scope.get('headers', []):
+                    if k.decode().lower() == 'origin':
+                        origin = v.decode()
+                        break
+                allowed = ["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"]
+                if origin and origin in allowed:
+                    resp.headers["Access-Control-Allow-Origin"] = origin
+                    resp.headers["Vary"] = "Origin"
+                else:
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+                resp.headers["Access-Control-Allow-Headers"] = "*"
+            except Exception:
+                pass
+        return resp
+
+# Wrap static app with CORS to ensure ACAO header is set for images
+_static = CachedStaticFiles(directory=items_dir)
+_static_cors = CORSMiddleware(
+    _static,
+    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=True,
+    expose_headers=["Content-Length", "Content-Type"]
+)
+app.mount("/items", _static_cors, name="items")
 
 # Pydantic模型
 class LoginRequest(BaseModel):
@@ -93,6 +173,7 @@ class ProductUpdateRequest(BaseModel):
     category: Optional[str] = None
     price: Optional[float] = None
     stock: Optional[int] = None
+    discount: Optional[float] = None  # 折扣（以折为单位，10为不打折，0.5为五折）
     description: Optional[str] = None
 
 class StockUpdateRequest(BaseModel):
@@ -167,6 +248,8 @@ async def startup_event():
     
     # 启动定时清理任务
     asyncio.create_task(periodic_cleanup())
+    # 每分钟清理一次过期未付款订单
+    asyncio.create_task(expired_unpaid_cleanup())
     
     logger.info("宿舍智能小商城API启动完成")
 
@@ -184,6 +267,18 @@ async def periodic_cleanup():
                 logger.warning(f"定时清理空分类失败: {e}")
         except Exception as e:
             logger.error(f"定时清理任务失败: {e}")
+
+async def expired_unpaid_cleanup():
+    """清理超过15分钟未付款订单"""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            from database import OrderDB
+            deleted = OrderDB.purge_expired_unpaid_orders(15)
+            if deleted:
+                logger.info(f"清理过期未付款订单: 删除 {deleted} 笔")
+        except Exception as e:
+            logger.error(f"清理过期未付款订单任务失败: {e}")
 
 # ==================== 认证路由 ====================
 
@@ -584,14 +679,17 @@ async def get_cart(request: Request):
         for product_id, quantity in items_dict.items():
             if product_id in product_dict:
                 product = product_dict[product_id]
-                subtotal = product["price"] * quantity
+                # 应用折扣（以折为单位，10为不打折）
+                zhe = float(product.get("discount", 10.0) or 10.0)
+                unit_price = round(float(product["price"]) * (zhe / 10.0), 2)
+                subtotal = unit_price * quantity
                 total_quantity += quantity
                 total_price += subtotal
                 
                 cart_items.append({
                     "product_id": product_id,
                     "name": product["name"],
-                    "unit_price": product["price"],
+                    "unit_price": round(unit_price, 2),
                     "quantity": quantity,
                     "subtotal": round(subtotal, 2),
                     "stock": product["stock"],
@@ -601,10 +699,14 @@ async def get_cart(request: Request):
                 
         logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
         
+        # 运费：不足10元收1元，满10元免运费（购物车为空不收取）
+        shipping_fee = 0.0 if total_quantity == 0 or total_price >= 10.0 else 1.0
         cart_result = {
             "items": cart_items,
             "total_quantity": total_quantity,
-            "total_price": round(total_price, 2)
+            "total_price": round(total_price, 2),
+            "shipping_fee": round(shipping_fee, 2),
+            "payable_total": round(total_price + shipping_fee, 2)
         }
         
         return success_response("获取购物车成功", cart_result)
@@ -725,6 +827,7 @@ async def create_product(
             "category": category,
             "price": price,
             "stock": stock,
+            "discount": 10.0,
             "description": description,
             "img_path": img_path
         }
@@ -813,6 +916,15 @@ async def update_product(
             update_data['stock'] = product_data.stock
         if product_data.description is not None:
             update_data['description'] = product_data.description
+        if product_data.discount is not None:
+            # 约束范围：0.5 ~ 10（单位：折）
+            try:
+                d = float(product_data.discount)
+                if d < 0.5 or d > 10:
+                    return error_response("折扣范围应为0.5~10折", 400)
+                update_data['discount'] = d
+            except Exception:
+                return error_response("无效的折扣", 400)
         
         if not update_data:
             return error_response("没有提供更新数据", 400)
@@ -910,6 +1022,44 @@ async def delete_products(
     except Exception as e:
         logger.error(f"删除商品失败: {e}")
         return error_response("删除商品失败", 500)
+
+@app.post("/admin/products/{product_id}/image")
+async def update_product_image(
+    product_id: str,
+    request: Request,
+    image: Optional[UploadFile] = File(None)
+):
+    """更新商品图片（仅图片）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = ProductDB.get_product_by_id(product_id)
+        if not existing:
+            return error_response("商品不存在", 404)
+        if not image:
+            return error_response("未上传图片", 400)
+
+        # 使用商品分类作为目录
+        category = existing.get("category", "misc") or "misc"
+        category_dir = os.path.join(items_dir, category)
+        os.makedirs(category_dir, exist_ok=True)
+
+        timestamp = int(datetime.now().timestamp())
+        file_extension = os.path.splitext(image.filename or "")[1] or ".jpg"
+        filename = f"{existing.get('name','prod')}_{timestamp}{file_extension}"
+        file_path = os.path.join(category_dir, filename)
+
+        content = await image.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        img_path = f"items/{category}/{filename}"
+        ok = ProductDB.update_image_path(product_id, img_path)
+        if not ok:
+            return error_response("更新图片失败", 500)
+        return success_response("图片更新成功", {"img_path": img_path})
+    except Exception as e:
+        logger.error(f"更新商品图片失败: {e}")
+        return error_response("更新商品图片失败", 500)
 
 # ==================== 分类管理路由 ====================
 
@@ -1028,7 +1178,7 @@ async def create_order(
         all_products = ProductDB.get_all_products()
         product_dict = {p["id"]: p for p in all_products}
         
-        # 构建订单商品列表并计算总金额
+        # 构建订单商品列表并计算总金额（应用折扣）
         order_items = []
         total_amount = 0.0
         
@@ -1040,19 +1190,25 @@ async def create_order(
                 if quantity > product["stock"]:
                     return error_response(f"商品 {product['name']} 库存不足", 400)
                 
-                subtotal = product["price"] * quantity
+                zhe = float(product.get("discount", 10.0) or 10.0)
+                unit_price = round(float(product["price"]) * (zhe / 10.0), 2)
+                subtotal = unit_price * quantity
                 total_amount += subtotal
                 
                 order_items.append({
                     "product_id": product_id,
                     "name": product["name"],
-                    "unit_price": product["price"],
+                    "unit_price": round(unit_price, 2),
                     "quantity": quantity,
                     "subtotal": round(subtotal, 2),
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", "")
                 })
         
+        # 运费规则：不足10元收取1元，满10元免运费
+        shipping_fee = 0.0 if total_amount >= 10.0 else (1.0 if total_amount > 0 else 0.0)
+        total_amount = round(total_amount + shipping_fee, 2)
+
         # 创建订单（暂不扣减库存，等待支付成功）
         order_id = OrderDB.create_order(
             student_id=user["id"],
@@ -1062,6 +1218,13 @@ async def create_order(
             payment_method=order_request.payment_method,
             note=order_request.note
         )
+        
+        # 立即更新用户的最新收货信息，确保下次自动填写使用最新数据
+        try:
+            UserProfileDB.upsert_shipping(user["id"], order_request.shipping_info)
+            logger.info(f"已更新用户 {user['id']} 的最新收货信息")
+        except Exception as e:
+            logger.warning(f"更新用户收货信息失败: {e}")
         
         # 注意：库存扣减移到支付成功后处理
         # 购物车清空也移到支付成功后处理
@@ -1080,6 +1243,12 @@ async def get_my_orders(request: Request):
     
     try:
         orders = OrderDB.get_orders_by_student(user["id"])
+        
+        # 将创建时间转换为时间戳（秒），正确处理时区问题
+        for order in orders:
+            if order.get("created_at"):
+                order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
+        
         return success_response("获取订单列表成功", {"orders": orders})
     
     except Exception as e:
@@ -1101,6 +1270,10 @@ async def get_order_detail(order_id: str, request: Request):
         if order["student_id"] != user["id"] and user.get("type") != "admin":
             return error_response("无权查看此订单", 403)
         
+        # 添加时间戳转换（与订单列表接口保持一致）
+        if order.get("created_at"):
+            order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
+        
         return success_response("获取订单详情成功", {"order": order})
     
     except Exception as e:
@@ -1117,12 +1290,45 @@ async def get_all_orders(request: Request):
     
     try:
         orders = OrderDB.get_all_orders()
+        
+        # 为管理员订单列表也添加时间戳转换
+        for order in orders:
+            if order.get("created_at"):
+                order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
+        
         stats = OrderDB.get_order_stats()
         return success_response("获取订单列表成功", {"orders": orders, "stats": stats})
     
     except Exception as e:
         logger.error(f"获取订单列表失败: {e}")
         return error_response("获取订单列表失败", 500)
+
+class OrderDeleteRequest(BaseModel):
+    order_ids: Optional[List[str]] = None
+
+@app.delete("/admin/orders/{order_id}")
+async def admin_delete_orders(order_id: str, request: Request, delete_request: Optional[OrderDeleteRequest] = None):
+    """删除订单（支持单个或批量）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if delete_request and delete_request.order_ids:
+            ids = delete_request.order_ids
+            if len(ids) > 500:
+                return error_response("批量删除数量不能超过500笔订单", 400)
+            from database import OrderDB
+            result = OrderDB.batch_delete_orders(ids)
+            if not result.get("success"):
+                return error_response(result.get("message", "批量删除失败"), 400)
+            return success_response(result.get("message", "批量删除成功"), result)
+        else:
+            from database import OrderDB
+            ok = OrderDB.delete_order(order_id)
+            if not ok:
+                return error_response("删除订单失败或订单不存在", 400)
+            return success_response("订单删除成功")
+    except Exception as e:
+        logger.error(f"删除订单失败: {e}")
+        return error_response("删除订单失败", 500)
 
 @app.patch("/admin/orders/{order_id}/status")
 async def update_order_status(
@@ -1248,6 +1454,12 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
             try:
                 # 清空该用户购物车
                 CartDB.update_cart(order["student_id"], {})
+                # 缓存用户最近的收货信息
+                if isinstance(order.get("shipping_info"), dict):
+                    try:
+                        UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
+                    except Exception as e:
+                        logger.warning(f"缓存用户收货信息失败: {e}")
             except Exception as e:
                 logger.warning(f"清空购物车失败: {e}")
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
@@ -1265,6 +1477,18 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
 async def health_check():
     """健康检查"""
     return success_response("服务运行正常")
+
+# ============== 用户资料（收货信息缓存） ==============
+
+@app.get("/profile/shipping")
+async def get_profile_shipping(request: Request):
+    user = get_current_user_required_from_cookie(request)
+    try:
+        prof = UserProfileDB.get_shipping(user["id"])
+        return success_response("获取收货资料成功", {"shipping": prof})
+    except Exception as e:
+        logger.error(f"获取收货资料失败: {e}")
+        return error_response("获取收货资料失败", 500)
 
 if __name__ == "__main__":
     uvicorn.run(

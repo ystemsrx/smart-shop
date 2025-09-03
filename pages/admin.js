@@ -109,7 +109,7 @@ const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 商品表格组件
-const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, selectedProducts, onSelectProduct, onSelectAll }) => {
+const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount }) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
 
@@ -152,7 +152,7 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                 分类
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                价格
+                价格/折扣
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 库存
@@ -211,7 +211,23 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ¥{product.price}
+                  <div className="flex items-center gap-3">
+                    <span>¥{product.price}</span>
+                    <select
+                      className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                      value={(typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10)}
+                      onChange={(e) => onUpdateDiscount(product.id, parseFloat(e.target.value))}
+                      title="设置折扣（单位：折）"
+                    >
+                      {Array.from({ length: 20 }).map((_, i) => {
+                        const val = 10 - i * 0.5;
+                        const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                        return (
+                          <option key={v} value={v}>{v}折</option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   <StockControl 
@@ -568,7 +584,7 @@ const getUnifiedStatus = (order) => {
 };
 
 // 订单表格组件
-const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading }) => {
+const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders }) => {
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
     const colorClasses = {
@@ -591,16 +607,36 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading }) => {
     return new Date(dateString).toLocaleString('zh-CN');
   };
 
+  const allIds = orders.map(o => o.id);
+  const isAllSelected = allIds.length > 0 && allIds.every(id => selectedOrders.includes(id));
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
+      <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-lg font-medium text-gray-900">订单列表</h3>
+        {selectedOrders.length > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600">已选择 {selectedOrders.length} 笔订单</span>
+            <button
+              onClick={() => onBatchDeleteOrders(selectedOrders)}
+              className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
+            >批量删除</button>
+          </div>
+        )}
       </div>
       
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  checked={isAllSelected}
+                  onChange={(e) => onSelectAllOrders(e.target.checked, allIds)}
+                />
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 订单信息
               </th>
@@ -626,7 +662,15 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading }) => {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.map((order) => (
-              <tr key={order.id} className="hover:bg-gray-50">
+              <tr key={order.id} className={`hover:bg-gray-50 ${selectedOrders.includes(order.id) ? 'bg-blue-50' : ''}`}>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                    checked={selectedOrders.includes(order.id)}
+                    onChange={(e) => onSelectOrder(order.id, e.target.checked)}
+                  />
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
                     <div className="text-sm font-medium text-gray-900 font-mono">
@@ -889,6 +933,7 @@ export default function Admin() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [selectedOrders, setSelectedOrders] = useState([]);
   
   // 订单管理相关状态
   const [orders, setOrders] = useState([]);
@@ -1151,13 +1196,11 @@ export default function Admin() {
       if (productData.image) {
         const formData = new FormData();
         formData.append('image', productData.image);
-        
-        // 这里需要实现图片更新的API
-        // await apiRequest(`/admin/products/${editingProduct.id}/image`, {
-        //   method: 'PUT',
-        //   body: formData,
-        //   headers: {}
-        // });
+        await apiRequest(`/admin/products/${editingProduct.id}/image`, {
+          method: 'POST',
+          body: formData,
+          headers: {}
+        });
       }
       
       alert('商品更新成功！');
@@ -1168,6 +1211,19 @@ export default function Admin() {
       alert(err.message || '更新商品失败');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // 设置商品折扣
+  const handleUpdateDiscount = async (productId, zhe) => {
+    try {
+      await apiRequest(`/admin/products/${productId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ discount: zhe })
+      });
+      await loadData();
+    } catch (e) {
+      alert(e.message || '更新折扣失败');
     }
   };
 
@@ -1294,6 +1350,36 @@ export default function Admin() {
       await loadData();
     } catch (err) {
       alert(err.message || '更新支付状态失败');
+    }
+  };
+
+  // 选择订单
+  const handleSelectOrder = (orderId, checked) => {
+    if (checked) setSelectedOrders((prev) => [...prev, orderId]);
+    else setSelectedOrders((prev) => prev.filter((id) => id !== orderId));
+  };
+
+  // 全选/取消全选订单
+  const handleSelectAllOrders = (checked, ids) => {
+    if (checked) setSelectedOrders(ids);
+    else setSelectedOrders([]);
+  };
+
+  // 批量删除订单
+  const handleBatchDeleteOrders = async (orderIds) => {
+    if (!orderIds || orderIds.length === 0) { alert('请选择要删除的订单'); return; }
+    if (!confirm(`确定删除选中的 ${orderIds.length} 笔订单吗？此操作不可恢复。`)) return;
+    try {
+      await apiRequest('/admin/orders/0', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: orderIds })
+      });
+      setSelectedOrders([]);
+      await loadData();
+      alert('已删除所选订单');
+    } catch (e) {
+      alert(e.message || '批量删除订单失败');
     }
   };
 
@@ -1559,6 +1645,7 @@ export default function Admin() {
               selectedProducts={selectedProducts}
               onSelectProduct={handleSelectProduct}
               onSelectAll={handleSelectAll}
+              onUpdateDiscount={handleUpdateDiscount}
             />
           )}
             </>
@@ -1628,6 +1715,10 @@ export default function Admin() {
                     orders={(orderStatusFilter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === orderStatusFilter))}
                     onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
                     isLoading={isSubmitting}
+                    selectedOrders={selectedOrders}
+                    onSelectOrder={handleSelectOrder}
+                    onSelectAllOrders={handleSelectAllOrders}
+                    onBatchDeleteOrders={handleBatchDeleteOrders}
                   />
                 </>
               )}

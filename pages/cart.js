@@ -87,12 +87,18 @@ const OrderSummary = ({ cart, onCheckout, isLoading }) => {
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">配送费</span>
-          <span className="text-gray-900">免费</span>
+          <span className="text-gray-900">{cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : '免费'}</span>
         </div>
+        {cart.total_quantity > 0 && cart.total_price < 10 && (
+          <div className="text-xs text-amber-600">
+            还差 <span className="font-semibold">¥{(10 - cart.total_price).toFixed(2)}</span> 免运费。
+            <a href="/shop" className="ml-1 text-indigo-600 hover:underline">去凑单</a>
+          </div>
+        )}
         <div className="border-t border-gray-200 pt-3">
           <div className="flex justify-between text-base font-medium">
             <span className="text-gray-900">总计</span>
-            <span className="text-gray-900">¥{cart.total_price}</span>
+            <span className="text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
           </div>
         </div>
       </div>

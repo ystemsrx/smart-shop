@@ -38,6 +38,7 @@ def init_database():
                 category TEXT NOT NULL,
                 price REAL NOT NULL,
                 stock INTEGER DEFAULT 0,
+                discount REAL DEFAULT 10.0, -- 折扣（以折为单位，10为不打折，0.5为五折）
                 img_path TEXT,  -- 图片路径 items/类别/商品名.扩展名
                 description TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -109,6 +110,21 @@ def init_database():
             )
         ''')
 
+        # 用户资料表（缓存最近一次成功付款的收货信息）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                student_id TEXT PRIMARY KEY,
+                name TEXT,
+                phone TEXT,
+                dormitory TEXT,
+                building TEXT,
+                room TEXT,
+                full_address TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (student_id) REFERENCES users (id)
+            )
+        ''')
+
         # 地址（配送/宿舍区等选项）表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS addresses (
@@ -159,6 +175,12 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # 字段已存在
             
+
+        # 为老库添加商品折扣字段（以折为单位，10表示不打折）
+        try:
+            cursor.execute('ALTER TABLE products ADD COLUMN discount REAL DEFAULT 10.0')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
         
         conn.commit()
         logger.info("数据库表结构初始化成功")
@@ -403,14 +425,15 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, img_path, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
                 category_name,
                 product_data['price'],
                 product_data.get('stock', 0),
+                float(product_data.get('discount', 10.0)),
                 product_data.get('img_path', ''),
                 product_data.get('description', '')
             ))
@@ -485,7 +508,7 @@ class ProductDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'img_path', 'description']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
@@ -523,6 +546,20 @@ class ProductDB:
             success = cursor.rowcount > 0
             conn.commit()
             return success
+
+    @staticmethod
+    def update_image_path(product_id: str, new_img_path: str) -> bool:
+        """仅更新商品图片路径"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE products 
+                SET img_path = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (new_img_path, product_id))
+            ok = cursor.rowcount > 0
+            conn.commit()
+            return ok
     
     @staticmethod
     def delete_product(product_id: str) -> bool:
@@ -1262,6 +1299,62 @@ class OrderDB:
             success = cursor.rowcount > 0
             conn.commit()
             return success
+
+    @staticmethod
+    def delete_order(order_id: str) -> bool:
+        """删除单个订单"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM orders WHERE id = ?', (order_id,))
+            ok = cursor.rowcount > 0
+            conn.commit()
+            return ok
+
+    @staticmethod
+    def batch_delete_orders(order_ids: List[str]) -> Dict[str, Any]:
+        """批量删除订单"""
+        if not order_ids:
+            return {"success": False, "deleted_count": 0, "message": "没有提供要删除的订单ID"}
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                placeholders = ','.join('?' * len(order_ids))
+                cursor.execute(f'SELECT id FROM orders WHERE id IN ({placeholders})', order_ids)
+                existing_ids = [row[0] for row in cursor.fetchall()]
+                if not existing_ids:
+                    return {"success": False, "deleted_count": 0, "message": "没有找到要删除的订单"}
+                cursor.execute(f'DELETE FROM orders WHERE id IN ({placeholders})', existing_ids)
+                deleted_count = cursor.rowcount or 0
+                conn.commit()
+                return {
+                    "success": True,
+                    "deleted_count": deleted_count,
+                    "deleted_ids": existing_ids,
+                    "not_found_ids": list(set(order_ids) - set(existing_ids)),
+                    "message": f"成功删除 {deleted_count} 笔订单"
+                }
+            except Exception as e:
+                conn.rollback()
+                return {"success": False, "deleted_count": 0, "message": f"批量删除失败: {str(e)}"}
+
+    @staticmethod
+    def purge_expired_unpaid_orders(expire_minutes: int = 15) -> int:
+        """删除超过指定分钟仍未支付(支付状态pending)的订单，返回删除数量"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    DELETE FROM orders
+                    WHERE payment_status IN ('pending','failed')
+                      AND datetime(created_at) <= datetime('now', ?)
+                ''', (f'-{int(expire_minutes)} minutes',))
+                deleted = cursor.rowcount or 0
+                conn.commit()
+                return deleted
+            except Exception as e:
+                logger.error(f"清理过期未付款订单失败: {e}")
+                conn.rollback()
+                return 0
     
     @staticmethod
     def get_order_stats() -> Dict:
@@ -1298,6 +1391,42 @@ class OrderDB:
                 'today_orders': today_orders,
                 'total_revenue': round(total_revenue, 2)
             }
+
+# 用户资料缓存（收货信息）
+class UserProfileDB:
+    @staticmethod
+    def get_shipping(student_id: str) -> Optional[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_profiles WHERE student_id = ?', (student_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def upsert_shipping(student_id: str, shipping: Dict[str, Any]) -> bool:
+        name = shipping.get('name')
+        phone = shipping.get('phone')
+        dormitory = shipping.get('dormitory')
+        building = shipping.get('building')
+        room = shipping.get('room')
+        full_address = shipping.get('full_address')
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT student_id FROM user_profiles WHERE student_id = ?', (student_id,))
+            exists = cursor.fetchone() is not None
+            if exists:
+                cursor.execute('''
+                    UPDATE user_profiles
+                    SET name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE student_id = ?
+                ''', (name, phone, dormitory, building, room, full_address, student_id))
+            else:
+                cursor.execute('''
+                    INSERT INTO user_profiles (student_id, name, phone, dormitory, building, room, full_address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (student_id, name, phone, dormitory, building, room, full_address))
+            conn.commit()
+            return True
 
 if __name__ == "__main__":
     # 初始化数据库
