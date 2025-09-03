@@ -926,7 +926,11 @@ export default function ChatModern({ user }) {
     <header className="sticky top-0 z-20 w-full border-b border-gray-200 bg-white">
       <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
         <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-          <div className="h-6 w-6 rounded-full bg-indigo-500" />
+          <img 
+            src="/logo.png" 
+            alt="[商店名称]" 
+            className="h-8 w-auto object-contain"
+          />
           <span>AI Chat</span>
         </div>
         <button onClick={clear} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 shadow-sm hover:bg-gray-50">清空</button>
@@ -939,7 +943,7 @@ export default function ChatModern({ user }) {
       {first ? (
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">
-            <h1 className="text-center text-3xl font-semibold">准备好开始聊天</h1>
+            <h1 className="text-center text-3xl font-semibold">你需要什么？让我帮你查询</h1>
             <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
           </section>
         </main>

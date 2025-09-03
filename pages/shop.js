@@ -38,7 +38,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
         ? 'opacity-60 grayscale hover:shadow-sm cursor-not-allowed' 
         : 'hover:shadow-md'
     }`}>
-      <div className="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 relative">
+      <div className="aspect-square w-full overflow-hidden bg-gray-200 relative">
         {/* 折扣角标 */}
         {hasDiscount && (
           <div className="absolute left-2 top-2 z-10">
@@ -51,7 +51,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
           <RetryImage
             src={imageSrc}
             alt={product.name}
-            className={`h-48 w-full object-cover object-center ${
+            className={`h-full w-full object-cover object-center ${
               isOutOfStock ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
@@ -60,7 +60,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, cartQuantity = 0,
             }}
           />
         ) : (
-          <div className={`h-48 w-full bg-gray-100 flex items-center justify-center ${
+          <div className={`h-full w-full bg-gray-100 flex items-center justify-center ${
             isOutOfStock ? 'opacity-50' : ''
           }`}>
             <span className="text-gray-400 text-sm">暂无图片</span>
@@ -271,6 +271,23 @@ export default function Shop() {
     }
   };
 
+  // 商品排序函数 - 按价格升序
+  const sortProductsByPrice = (products) => {
+    return products.sort((a, b) => {
+      // 计算最终价格（考虑折扣）
+      const getPriceWithDiscount = (product) => {
+        const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
+        const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
+        return hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
+      };
+      
+      const priceA = getPriceWithDiscount(a);
+      const priceB = getPriceWithDiscount(b);
+      
+      return priceA - priceB; // 升序排列
+    });
+  };
+
   // 加载商品和分类
   const loadData = async () => {
     setIsLoading(true);
@@ -282,7 +299,10 @@ export default function Shop() {
         getCategories()
       ]);
       
-      setProducts(productsData.data.products || []);
+      const products = productsData.data.products || [];
+      const sortedProducts = sortProductsByPrice([...products]);
+      
+      setProducts(sortedProducts);
       setCategories(categoriesData.data.categories || []);
     } catch (err) {
       setError(err.message || '加载数据失败');
@@ -303,7 +323,10 @@ export default function Shop() {
     
     try {
       const data = await searchProducts(searchQuery);
-      setProducts(data.data.products || []);
+      const products = data.data.products || [];
+      const sortedProducts = sortProductsByPrice([...products]);
+      
+      setProducts(sortedProducts);
       setSelectedCategory(null); // 清除分类过滤
     } catch (err) {
       setError(err.message || '搜索失败');
@@ -369,7 +392,7 @@ export default function Shop() {
   return (
     <>
       <Head>
-        <title>商品商城 - 宿舍智能小商城</title>
+        <title>[商店名称] - 宿舍智能小超市</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -380,8 +403,8 @@ export default function Shop() {
         {/* 主要内容 */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">商品商城</h1>
-            <p className="text-gray-600">发现适合宿舍生活的精选商品</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">[商店名称]</h1>
+            <p className="text-gray-600">为您提供上门配送服务</p>
           </div>
 
           {/* 搜索栏 */}
@@ -409,10 +432,10 @@ export default function Shop() {
 
           {/* 加载状态 */}
           {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="h-48 bg-gray-200 animate-pulse"></div>
+                  <div className="aspect-square bg-gray-200 animate-pulse"></div>
                   <div className="p-4">
                     <div className="h-4 bg-gray-200 rounded animate-pulse mb-2"></div>
                     <div className="h-3 bg-gray-200 rounded animate-pulse mb-3 w-2/3"></div>
@@ -428,7 +451,7 @@ export default function Shop() {
             <>
               {/* 商品列表 */}
               {products.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                   {products.map((product) => (
                     <ProductCard
                       key={product.id}

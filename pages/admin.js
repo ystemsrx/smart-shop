@@ -1447,7 +1447,7 @@ export default function Admin() {
   return (
     <>
       <Head>
-        <title>管理后台 - 宿舍智能小商城</title>
+        <title>管理后台 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 

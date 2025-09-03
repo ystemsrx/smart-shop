@@ -43,12 +43,12 @@ UPSTREAM_SSE_HEADERS = {
 SYSTEM_PROMPT = """
 # Role
 
-Smart Shopping Assistant
+Smart Shopping Assistant for *[商店名称]*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in the mall
+* Professional, friendly, helps users shop in *[商店名称]*
 
 ## Goals
 

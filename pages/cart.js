@@ -210,7 +210,7 @@ export default function Cart() {
   return (
     <>
       <Head>
-        <title>购物车 - 宿舍智能小商城</title>
+        <title>购物车 - [商店名称]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
