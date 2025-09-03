@@ -407,10 +407,14 @@ def _search_single_query(query: str, limit: int = 10) -> Dict[str, Any]:
         for matched_text, score, pid in scored:
             if score >= 60:
                 p = CATALOG[pid]
+                # 返回打折后价格
+                zhe = float(p.get("discount", 10.0) or 10.0)
+                final_price = round(float(p["price"]) * (zhe / 10.0), 2)
                 items.append({
                     "product_id": pid,
                     "name": p["name"], "brand": p["brand"], "category": p["category"],
-                    "price": p["price"], "stock": p["stock"], "in_stock": p["stock"] > 0,
+                    "price": final_price, "original_price": p["price"], "discount": zhe,
+                    "stock": p["stock"], "in_stock": p["stock"] > 0,
                     "relevance_score": score
                 })
                 if len(items) >= int(limit or 10):
@@ -421,10 +425,13 @@ def _search_single_query(query: str, limit: int = 10) -> Dict[str, Any]:
         for pid, text in candidates.items():
             if q in text:
                 p = CATALOG[pid]
+                zhe = float(p.get("discount", 10.0) or 10.0)
+                final_price = round(float(p["price"]) * (zhe / 10.0), 2)
                 items.append({
                     "product_id": pid,
                     "name": p["name"], "brand": p["brand"], "category": p["category"],
-                    "price": p["price"], "stock": p["stock"], "in_stock": p["stock"] > 0,
+                    "price": final_price, "original_price": p["price"], "discount": zhe,
+                    "stock": p["stock"], "in_stock": p["stock"] > 0,
                     "relevance_score": 100 if q == text else 60
                 })
         items = sorted(items, key=lambda x: x["relevance_score"], reverse=True)[: int(limit or 10)]

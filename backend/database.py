@@ -181,6 +181,34 @@ def init_database():
             cursor.execute('ALTER TABLE products ADD COLUMN discount REAL DEFAULT 10.0')
         except sqlite3.OperationalError:
             pass  # 字段已存在
+
+        # 商品规格（变体）表：独立库存
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS product_variants (
+                    id TEXT PRIMARY KEY,
+                    product_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    stock INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (product_id) REFERENCES products(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_id)')
+        except Exception:
+            pass
+
+        # 商店设置表（比如打烊状态）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
+        except Exception:
+            pass
         
         conn.commit()
         logger.info("数据库表结构初始化成功")
@@ -479,6 +507,94 @@ class ProductDB:
             cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+class VariantDB:
+    @staticmethod
+    def get_by_product(product_id: str) -> List[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM product_variants WHERE product_id = ? ORDER BY created_at ASC', (product_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_for_products(product_ids: List[str]) -> Dict[str, List[Dict]]:
+        if not product_ids:
+            return {}
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(product_ids))
+            cursor.execute(f'SELECT * FROM product_variants WHERE product_id IN ({placeholders})', product_ids)
+            rows = [dict(r) for r in cursor.fetchall()]
+            mp: Dict[str, List[Dict]] = {}
+            for r in rows:
+                mp.setdefault(r['product_id'], []).append(r)
+            return mp
+
+    @staticmethod
+    def get_by_id(variant_id: str) -> Optional[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM product_variants WHERE id = ?', (variant_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def create_variant(product_id: str, name: str, stock: int) -> str:
+        vid = f"var_{int(datetime.now().timestamp()*1000)}"
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO product_variants (id, product_id, name, stock)
+                VALUES (?, ?, ?, ?)
+            ''', (vid, product_id, name, int(stock or 0)))
+            conn.commit()
+            return vid
+
+    @staticmethod
+    def update_variant(variant_id: str, name: Optional[str] = None, stock: Optional[int] = None) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            fields = []
+            vals: List[Any] = []
+            if name is not None:
+                fields.append('name = ?')
+                vals.append(name)
+            if stock is not None:
+                fields.append('stock = ?')
+                vals.append(int(stock))
+            if not fields:
+                return False
+            fields.append('updated_at = CURRENT_TIMESTAMP')
+            vals.append(variant_id)
+            sql = f"UPDATE product_variants SET {', '.join(fields)} WHERE id = ?"
+            cursor.execute(sql, vals)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def delete_variant(variant_id: str) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM product_variants WHERE id = ?', (variant_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+class SettingsDB:
+    @staticmethod
+    def get(key: str, default: Optional[str] = None) -> Optional[str]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
+            row = cursor.fetchone()
+            return row[0] if row else default
+
+    @staticmethod
+    def set(key: str, value: str) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, value))
+            conn.commit()
+            return True
     
     @staticmethod
     def update_product(product_id: str, product_data: Dict) -> bool:
@@ -1184,23 +1300,34 @@ class OrderDB:
             # 检查库存是否足够并扣减库存
             for item in items:
                 product_id = item['product_id']
-                quantity = item['quantity']
-                
-                # 获取当前库存
-                cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
-                product_row = cursor.fetchone()
-                if not product_row:
-                    conn.rollback()
-                    return False
-                    
-                current_stock = product_row[0]
-                if current_stock < quantity:
-                    conn.rollback()
-                    return False  # 库存不足
-                    
-                # 扣减库存
-                new_stock = current_stock - quantity
-                cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
+                quantity = int(item['quantity'])
+                variant_id = item.get('variant_id')
+                if variant_id:
+                    # 扣减规格库存
+                    cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (variant_id,))
+                    var_row = cursor.fetchone()
+                    if not var_row:
+                        conn.rollback()
+                        return False
+                    current_stock = int(var_row[0])
+                    if current_stock < quantity:
+                        conn.rollback()
+                        return False
+                    new_stock = current_stock - quantity
+                    cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, variant_id))
+                else:
+                    # 扣减商品库存
+                    cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
+                    product_row = cursor.fetchone()
+                    if not product_row:
+                        conn.rollback()
+                        return False
+                    current_stock = int(product_row[0])
+                    if current_stock < quantity:
+                        conn.rollback()
+                        return False  # 库存不足
+                    new_stock = current_stock - quantity
+                    cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
             
             # 更新支付状态为成功
             cursor.execute('''

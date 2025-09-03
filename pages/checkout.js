@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
+import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 
 export default function Checkout() {
@@ -9,6 +10,7 @@ export default function Checkout() {
   const { user } = useAuth();
   const { getCart, clearCart } = useCart();
   const { apiRequest } = useApi();
+  const { getShopStatus } = useProducts();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -29,6 +31,8 @@ export default function Checkout() {
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [shopOpen, setShopOpen] = useState(true);
+  const [shopNote, setShopNote] = useState('');
   
   // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
   const handlePayLater = async () => {
@@ -63,6 +67,14 @@ export default function Checkout() {
       router.push('/login');
       return;
     }
+    // 同步店铺状态
+    (async () => {
+      try {
+        const s = await getShopStatus();
+        setShopOpen(!!s.data?.is_open);
+        setShopNote(s.data?.note || '当前打烊，暂不支持结算');
+      } catch (e) {}
+    })();
   }, [user, router]);
 
   // 加载购物车数据
@@ -112,7 +124,7 @@ export default function Checkout() {
   const handleSubmit = (e) => {
     e.preventDefault(); // 防止默认表单提交行为
     // 当用户按回车或点击提交时，触发支付创建
-    if (!isCreatingPayment) handleCreatePayment();
+    if (!isCreatingPayment && shopOpen) handleCreatePayment();
   };
 
   // 加载可选地址（宿舍区）
@@ -297,6 +309,11 @@ export default function Checkout() {
             <h1 className="text-2xl font-bold text-gray-900">确认订单</h1>
             <p className="text-gray-600 mt-1">请确认您的订单信息和收货地址</p>
           </div>
+          {!shopOpen && (
+            <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3">
+              {shopNote}
+            </div>
+          )}
 
           {/* 错误提示 */}
           {error && (
@@ -460,9 +477,14 @@ export default function Checkout() {
                   {/* 商品列表 */}
                   <div className="space-y-3 mb-6">
                     {cart.items && cart.items.map((item) => (
-                      <div key={item.product_id} className="flex justify-between text-sm">
+                      <div key={(item.product_id + (item.variant_id || ''))} className="flex justify-between text-sm">
                         <div className="flex-1">
-                          <p className="text-gray-900 truncate">{item.name}</p>
+                          <p className="text-gray-900 truncate">
+                            {item.name}
+                            {item.variant_name && (
+                              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
+                            )}
+                          </p>
                           <p className="text-gray-500">x{item.quantity}</p>
                         </div>
                         <span className="text-gray-900 ml-2">¥{item.subtotal}</span>
@@ -489,7 +511,7 @@ export default function Checkout() {
                   {/* 支付按钮 */}
                   <button
                     onClick={handleCreatePayment}
-                    disabled={isCreatingPayment}
+                    disabled={isCreatingPayment || !shopOpen}
                     className="w-full bg-indigo-600 text-white py-3 px-4 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {isCreatingPayment ? (
@@ -498,7 +520,7 @@ export default function Checkout() {
                         创建支付中...
                       </div>
                     ) : (
-                      `创建支付 ¥${cart.payable_total ?? cart.total_price}`
+                      (shopOpen ? `创建支付 ¥${cart.payable_total ?? cart.total_price}` : '打烊中 · 暂停结算')
                     )}
                   </button>
                   
