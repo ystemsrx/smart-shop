@@ -470,9 +470,41 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
     });
   };
 
-  const handleImageChange = (e) => {
+  const compressImage = (file, { maxSize = 1280, quality = 0.8 } = {}) => new Promise((resolve, reject) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const scale = Math.min(1, maxSize / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) return reject(new Error('图片压缩失败'));
+          const newFile = new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+          resolve(newFile);
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = URL.createObjectURL(file);
+    } catch (err) { reject(err); }
+  });
+
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    setImageFile(file);
+    if (!file) return;
+    try {
+      // 压缩到最长边 <= 1280，质量 0.8，避免上传过大导致 413
+      const compressed = await compressImage(file, { maxSize: 1280, quality: 0.8 });
+      setImageFile(compressed);
+    } catch (err) {
+      // 退回原文件
+      setImageFile(file);
+    }
   };
 
   const handleSubmit = (e) => {
@@ -1030,9 +1062,39 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
     });
   };
 
-  const handleImageChange = (e) => {
+  const compressImage = (file, { maxSize = 1280, quality = 0.8 } = {}) => new Promise((resolve, reject) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const scale = Math.min(1, maxSize / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) return reject(new Error('图片压缩失败'));
+          const newFile = new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+          resolve(newFile);
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = URL.createObjectURL(file);
+    } catch (err) { reject(err); }
+  });
+
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    setImageFile(file);
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file, { maxSize: 1280, quality: 0.8 });
+      setImageFile(compressed);
+    } catch (err) {
+      setImageFile(file);
+    }
   };
 
   const handleSubmit = (e) => {
