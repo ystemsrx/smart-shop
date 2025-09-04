@@ -410,7 +410,14 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
     const loadCategories = async () => {
       try {
         const response = await apiRequest('/products/categories');
-        setCategories(response.data.categories || []);
+        const cats = response.data.categories || [];
+        try {
+          const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
+          cats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+        } catch (e) {
+          cats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        }
+        setCategories(cats);
       } catch (error) {
         console.error('获取分类失败:', error);
       }
@@ -1359,7 +1366,15 @@ export default function Admin() {
       const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
       setStats(mergedStats);
       setProducts(productsData.data.products || []);
-      setCategories(categoriesData.data.categories || []);
+      // 管理端分类按拼音排序
+      const adminCats = categoriesData.data.categories || [];
+      try {
+        const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
+        adminCats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+      } catch (e) {
+        adminCats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      }
+      setCategories(adminCats);
       setOrders(ordersData.data.orders || []);
       setOrderStats(ordersData.data.stats || {
         total_orders: 0,
