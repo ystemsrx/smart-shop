@@ -674,9 +674,13 @@ class SettingsDB:
             
             success = cursor.rowcount > 0
             
-            # 如果更新成功且更改了分类，检查是否需要清理旧分类
+            # 如果更新成功且更改了分类，统一清理空分类
             if success and 'category' in product_data and product_data['category'] != old_category:
-                ProductDB._cleanup_empty_category(cursor, old_category)
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
             
             conn.commit()
             return success
@@ -727,9 +731,13 @@ class SettingsDB:
             cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
             success = cursor.rowcount > 0
             
-            # 如果删除成功，检查是否需要清理分类
+            # 如果删除成功，统一清理空分类
             if success:
-                ProductDB._cleanup_empty_category(cursor, category_name)
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
             
             conn.commit()
             return success
@@ -760,9 +768,12 @@ class SettingsDB:
                 cursor.execute(f'DELETE FROM products WHERE id IN ({placeholders})', existing_ids)
                 deleted_count = cursor.rowcount
                 
-                # 清理可能为空的分类
-                for category_name in categories_to_check:
-                    ProductDB._cleanup_empty_category(cursor, category_name)
+                # 统一清理空分类（删除后再全量清理）
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
                 
                 conn.commit()
                 
@@ -780,17 +791,7 @@ class SettingsDB:
                 return {"success": False, "deleted_count": 0, "message": f"批量删除失败: {str(e)}"}
     
     
-    @staticmethod
-    def _cleanup_empty_category(cursor, category_name: str):
-        """清理没有商品的分类"""
-        # 检查该分类下是否还有商品
-        cursor.execute('SELECT COUNT(*) FROM products WHERE category = ?', (category_name,))
-        product_count = cursor.fetchone()[0]
-        
-        # 如果没有商品，删除该分类
-        if product_count == 0:
-            cursor.execute('DELETE FROM categories WHERE name = ?', (category_name,))
-            logger.info(f"自动删除空分类: {category_name}")
+    # 旧的分类清理方法已废弃，统一使用 CategoryDB.cleanup_orphan_categories()
 
 # 购物车相关操作
 class CartDB:

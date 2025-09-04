@@ -1346,13 +1346,18 @@ async def update_product_image(
             return error_response("更新图片失败", 500)
         
         # 数据库更新成功后，删除原图片文件
-        if old_img_path and old_img_path.strip():
+        if old_img_path and str(old_img_path).strip():
             try:
-                # 构建原图片的完整文件路径
-                old_file_path = os.path.join(os.path.dirname(__file__), old_img_path)
-                if os.path.exists(old_file_path):
+                # 规范化旧图路径，防止前导斜杠影响 join
+                rel_path = str(old_img_path).lstrip('/\\')
+                # 只允许删除 items 目录下的文件
+                old_file_path = os.path.normpath(os.path.join(os.path.dirname(__file__), rel_path))
+                items_root = os.path.normpath(items_dir)
+                if old_file_path.startswith(items_root) and os.path.exists(old_file_path):
                     os.remove(old_file_path)
                     logger.info(f"成功删除原图片: {old_file_path}")
+                else:
+                    logger.warning(f"跳过删除原图片（路径不安全或不存在）: {old_img_path} -> {old_file_path}")
             except Exception as e:
                 # 删除原图片失败不影响主要功能，只记录日志
                 logger.warning(f"删除原图片失败 {old_img_path}: {e}")
@@ -1371,6 +1376,11 @@ async def get_admin_categories(request: Request):
     admin = get_current_admin_required_from_cookie(request)
     
     try:
+        # 返回前清理无商品的空分类，保持分类表干净
+        try:
+            CategoryDB.cleanup_orphan_categories()
+        except Exception:
+            pass
         categories = CategoryDB.get_all_categories()
         return success_response("获取分类成功", {"categories": categories})
     
