@@ -422,12 +422,27 @@ export default function Shop() {
     }
   };
 
-  // 商品排序函数 - 上架优先，价格升序；下架统一移到最后
+  // 商品排序函数 - 可购(上架且有货)优先按价格升序；“下架”或“无货”统一放到最后并按价格升序
   const sortProductsByPrice = (products) => {
-    const active = [];
-    const inactive = [];
+    const available = [];
+    const deferred = [];
+
+    const isDown = (p) => (p.is_active === 0 || p.is_active === false);
+    const isOut = (p) => {
+      const isVariant = !!p.has_variants;
+      if (isVariant) {
+        const tvs = (p.total_variant_stock !== undefined && p.total_variant_stock !== null) ? p.total_variant_stock : null;
+        return tvs !== null ? (tvs === 0) : false;
+      }
+      return (p.stock === 0);
+    };
+
     products.forEach(p => {
-      (p.is_active === 0 || p.is_active === false) ? inactive.push(p) : active.push(p);
+      if (isDown(p) || isOut(p)) {
+        deferred.push(p);
+      } else {
+        available.push(p);
+      }
     });
 
     const sortAsc = (arr) => arr.sort((a, b) => {
@@ -444,7 +459,7 @@ export default function Shop() {
       return priceA - priceB; // 升序排列
     });
 
-    return [...sortAsc(active), ...sortAsc(inactive)];
+    return [...sortAsc(available), ...sortAsc(deferred)];
   };
 
   // 加载商品和分类
