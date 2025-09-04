@@ -134,6 +134,56 @@ Smart Shopping Assistant for *[商店名称]铺*
 def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) -> Dict[str, Any]:
     """搜索商品实现（支持匿名和登录用户）"""
     try:
+        def _relevance_score(prod: Dict[str, Any], q: str, discount_label: Optional[str]) -> int:
+            """根据关键词与商品字段的匹配程度计算相关性（0~100）。"""
+            try:
+                ql = (q or "").strip().lower()
+                if not ql:
+                    return 50
+                name = str(prod.get("name", ""))
+                cat = str(prod.get("category", ""))
+                desc = str(prod.get("description", ""))
+                nl = name.lower()
+                cl = cat.lower()
+                dl = desc.lower()
+
+                score = 0
+                matched = False
+
+                # 名称匹配权重最高
+                if ql in nl and len(nl) > 0:
+                    matched = True
+                    ratio = min(1.0, len(ql) / max(1, len(nl)))
+                    score += 60 + int(40 * ratio)  # 60~100
+
+                # 分类匹配
+                if ql in cl and len(cl) > 0:
+                    matched = True
+                    ratio = min(1.0, len(ql) / max(1, len(cl)))
+                    score += int(20 * ratio)  # 0~20
+
+                # 描述匹配
+                if ql in dl:
+                    matched = True
+                    score += 10  # 固定加成
+
+                # 其它微调：有货/有折扣轻微提升
+                try:
+                    if int(prod.get("stock", 0)) > 0:
+                        score += 5
+                except Exception:
+                    pass
+                if discount_label:
+                    score += 3
+
+                # 如果完全未匹配，给个很低的基线
+                if not matched:
+                    score = max(score, 5)
+
+                return int(min(100, max(0, score)))
+            except Exception:
+                return 50
+
         if isinstance(query, list):
             # 多查询搜索
             all_results = {}
@@ -153,21 +203,28 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) 
                         # 应用折扣：以折为单位（10表示不打折）
                         zhe = float(product.get("discount", 10.0) or 10.0)
                         final_price = round(float(product["price"]) * (zhe / 10.0), 2)
+                        # 折扣字段格式化：10折表示无折扣 -> None；否则返回中文如“9折/9.5折”
+                        discount_label = None
+                        if zhe > 0 and zhe < 10:
+                            z_str = str(zhe)
+                            if z_str.endswith('.0'):
+                                z_str = z_str[:-2]
+                            discount_label = f"{z_str}折"
                         variants = [
                             {"id": v.get("id"), "name": v.get("name"), "stock": v.get("stock", 0)}
                             for v in (vmap.get(product["id"], []) or [])
                         ]
+                        rel = _relevance_score(product, q_str, discount_label)
                         items.append({
                             "product_id": product["id"],
                             "name": product["name"],
-                            "brand": "商店",  # 简化品牌信息
                             "category": product["category"],
                             "price": final_price,  # 返回打折后的价格
                             "original_price": product["price"],
-                            "discount": zhe,
+                            "discount": discount_label,
                             "stock": product["stock"],
                             "in_stock": product["stock"] > 0,
-                            "relevance_score": 100,  # 简化相关性评分
+                            "relevance_score": rel,
                             "description": product.get("description", ""),
                             "img_path": product.get("img_path", ""),
                             "variants": variants,
@@ -204,21 +261,27 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) 
             for product in products:
                 zhe = float(product.get("discount", 10.0) or 10.0)
                 final_price = round(float(product["price"]) * (zhe / 10.0), 2)
+                discount_label = None
+                if zhe > 0 and zhe < 10:
+                    z_str = str(zhe)
+                    if z_str.endswith('.0'):
+                        z_str = z_str[:-2]
+                    discount_label = f"{z_str}折"
                 variants = [
                     {"id": v.get("id"), "name": v.get("name"), "stock": v.get("stock", 0)}
                     for v in (vmap.get(product["id"], []) or [])
                 ]
+                rel = _relevance_score(product, q, discount_label)
                 items.append({
                     "product_id": product["id"],
                     "name": product["name"],
-                    "brand": "商店",
                     "category": product["category"],
                     "price": final_price,
                     "original_price": product["price"],
-                    "discount": zhe,
+                    "discount": discount_label,
                     "stock": product["stock"],
                     "in_stock": product["stock"] > 0,
-                    "relevance_score": 100,
+                    "relevance_score": rel,
                     "description": product.get("description", ""),
                     "img_path": product.get("img_path", ""),
                     "variants": variants,
