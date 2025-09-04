@@ -475,13 +475,70 @@ export default function Shop() {
       
       const products = productsData.data.products || [];
       const sortedProducts = sortProductsByPrice([...products]);
-      // 分类按拼音排序
+      // 分类按拼音/英文排序：基于首个有效字母（忽略数字与符号）决定分桶。
+      // 规则：按 a..z 桶整体排序；同桶时，英文字母优先于中文拼音；仅有数字或无字母中文的放最后。
       const cats = categoriesData.data.categories || [];
+      const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
+      const firstSigChar = (s) => {
+        const str = String(s || '');
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (/[A-Za-z\u4e00-\u9fff]/.test(ch)) return ch;
+        }
+        return '';
+      };
+      const typeRank = (s) => {
+        const ch = firstSigChar(s);
+        if (!ch) return 2; // others/digits-only
+        return /[A-Za-z]/.test(ch) ? 0 : 1; // 0: english, 1: chinese
+      };
+      const bucket = (s, collator) => {
+        const name = String(s || '');
+        // if no letter/chinese at all -> last bucket 26
+        if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
+        // Find bucket i where name in [letters[i], letters[i+1]) under collator
+        let b = 25;
+        for (let i = 0; i < 26; i++) {
+          const cur = letters[i];
+          const next = i < 25 ? letters[i + 1] : null;
+          if (collator.compare(name, cur) < 0) { b = 0; break; }
+          if (!next || (collator.compare(name, cur) >= 0 && collator.compare(name, next) < 0)) { b = i; break; }
+        }
+        return b;
+      };
       try {
-        const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
-        cats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+        const collator = new Intl.Collator(
+          ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
+          { sensitivity: 'base', numeric: true }
+        );
+        cats.sort((a, b) => {
+          const aName = String(a.name || '');
+          const bName = String(b.name || '');
+          const ab = bucket(aName, collator);
+          const bb = bucket(bName, collator);
+          if (ab !== bb) return ab - bb; // a..z 分桶优先
+          const ar = typeRank(aName);
+          const br = typeRank(bName);
+          if (ar !== br) return ar - br; // 同字母桶时：英文优先于中文
+          return collator.compare(aName, bName);
+        });
       } catch (e) {
-        cats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        cats.sort((a, b) => {
+          const aName = String(a.name || '');
+          const bName = String(b.name || '');
+          // 简化回退：英文桶按首字母，其它放最后
+          const aCh = firstSigChar(aName).toLowerCase();
+          const bCh = firstSigChar(bName).toLowerCase();
+          const aIsEn = /^[a-z]$/.test(aCh);
+          const bIsEn = /^[a-z]$/.test(bCh);
+          const ab = aIsEn ? (aCh.charCodeAt(0) - 97) : 26;
+          const bb = bIsEn ? (bCh.charCodeAt(0) - 97) : 26;
+          if (ab !== bb) return ab - bb;
+          const ar = aIsEn ? 0 : 1;
+          const br = bIsEn ? 0 : 1;
+          if (ar !== br) return ar - br;
+          return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
+        });
       }
       setProducts(sortedProducts);
       setCategories(cats);

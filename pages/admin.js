@@ -411,11 +411,64 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
       try {
         const response = await apiRequest('/products/categories');
         const cats = response.data.categories || [];
+        const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
+        const firstSigChar = (s) => {
+          const str = String(s || '');
+          for (let i = 0; i < str.length; i++) {
+            const ch = str[i];
+            if (/[A-Za-z\u4e00-\u9fff]/.test(ch)) return ch;
+          }
+          return '';
+        };
+        const typeRank = (s) => {
+          const ch = firstSigChar(s);
+          if (!ch) return 2; // others/digits-only
+          return /[A-Za-z]/.test(ch) ? 0 : 1; // 0: english, 1: chinese
+        };
+        const bucket = (s, collator) => {
+          const name = String(s || '');
+          if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
+          let b = 25;
+          for (let i = 0; i < 26; i++) {
+            const cur = letters[i];
+            const next = i < 25 ? letters[i + 1] : null;
+            if (collator.compare(name, cur) < 0) { b = 0; break; }
+            if (!next || (collator.compare(name, cur) >= 0 && collator.compare(name, next) < 0)) { b = i; break; }
+          }
+          return b;
+        };
         try {
-          const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
-          cats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+          const collator = new Intl.Collator(
+            ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
+            { sensitivity: 'base', numeric: true }
+          );
+          cats.sort((a, b) => {
+            const aName = String(a.name || '');
+            const bName = String(b.name || '');
+            const ab = bucket(aName, collator);
+            const bb = bucket(bName, collator);
+            if (ab !== bb) return ab - bb;
+            const ar = typeRank(aName);
+            const br = typeRank(bName);
+            if (ar !== br) return ar - br;
+            return collator.compare(aName, bName);
+          });
         } catch (e) {
-          cats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+          cats.sort((a, b) => {
+            const aName = String(a.name || '');
+            const bName = String(b.name || '');
+            const aCh = firstSigChar(aName).toLowerCase();
+            const bCh = firstSigChar(bName).toLowerCase();
+            const aIsEn = /^[a-z]$/.test(aCh);
+            const bIsEn = /^[a-z]$/.test(bCh);
+            const ab = aIsEn ? (aCh.charCodeAt(0) - 97) : 26;
+            const bb = bIsEn ? (bCh.charCodeAt(0) - 97) : 26;
+            if (ab !== bb) return ab - bb;
+            const ar = aIsEn ? 0 : 1;
+            const br = bIsEn ? 0 : 1;
+            if (ar !== br) return ar - br;
+            return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
+          });
         }
         setCategories(cats);
       } catch (error) {
@@ -1366,13 +1419,66 @@ export default function Admin() {
       const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
       setStats(mergedStats);
       setProducts(productsData.data.products || []);
-      // 管理端分类按拼音排序
+      // 管理端分类按拼音/英文排序（A-Z > 0-9 > 中文 > 其他）
       const adminCats = categoriesData.data.categories || [];
+      const letters2 = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
+      const firstSigChar2 = (s) => {
+        const str = String(s || '');
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (/[A-Za-z\u4e00-\u9fff]/.test(ch)) return ch;
+        }
+        return '';
+      };
+      const typeRank2 = (s) => {
+        const ch = firstSigChar2(s);
+        if (!ch) return 2;
+        return /[A-Za-z]/.test(ch) ? 0 : 1;
+      };
+      const bucket2 = (s, collator) => {
+        const name = String(s || '');
+        if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
+        let b = 25;
+        for (let i = 0; i < 26; i++) {
+          const cur = letters2[i];
+          const next = i < 25 ? letters2[i + 1] : null;
+          if (collator.compare(name, cur) < 0) { b = 0; break; }
+          if (!next || (collator.compare(name, cur) >= 0 && collator.compare(name, next) < 0)) { b = i; break; }
+        }
+        return b;
+      };
       try {
-        const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
-        adminCats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+        const collator = new Intl.Collator(
+          ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
+          { sensitivity: 'base', numeric: true }
+        );
+        adminCats.sort((a, b) => {
+          const aName = String(a.name || '');
+          const bName = String(b.name || '');
+          const ab = bucket2(aName, collator);
+          const bb = bucket2(bName, collator);
+          if (ab !== bb) return ab - bb;
+          const ar = typeRank2(aName);
+          const br = typeRank2(bName);
+          if (ar !== br) return ar - br;
+          return collator.compare(aName, bName);
+        });
       } catch (e) {
-        adminCats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        adminCats.sort((a, b) => {
+          const aName = String(a.name || '');
+          const bName = String(b.name || '');
+          const aCh = firstSigChar2(aName).toLowerCase();
+          const bCh = firstSigChar2(bName).toLowerCase();
+          const aIsEn = /^[a-z]$/.test(aCh);
+          const bIsEn = /^[a-z]$/.test(bCh);
+          const ab = aIsEn ? (aCh.charCodeAt(0) - 97) : 26;
+          const bb = bIsEn ? (bCh.charCodeAt(0) - 97) : 26;
+          if (ab !== bb) return ab - bb;
+          const ar = aIsEn ? 0 : 1;
+          const br = bIsEn ? 0 : 1;
+          if (ar !== br) return ar - br;
+          return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
+        });
       }
       setCategories(adminCats);
       setOrders(ordersData.data.orders || []);
