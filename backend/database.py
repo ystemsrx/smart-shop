@@ -438,6 +438,25 @@ class UserDB:
                 logger.error(f"更新用户姓名失败: {e}")
                 return False
 
+    @staticmethod
+    def count_users() -> int:
+        """统计注册用户数量（严格按照 users 表中的学号数量）"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT COUNT(id) AS count FROM users')
+                row = cursor.fetchone()
+                if not row:
+                    return 0
+                try:
+                    # sqlite3.Row 支持键访问
+                    return int(row["count"]) if hasattr(row, 'keys') and ("count" in row.keys()) else int(row[0])
+                except Exception:
+                    return int(row[0])
+            except Exception as e:
+                logger.error(f"统计用户数量失败: {e}")
+                return 0
+
 # 商品相关操作
 class ProductDB:
     @staticmethod

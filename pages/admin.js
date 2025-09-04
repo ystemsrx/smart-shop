@@ -1347,15 +1347,17 @@ export default function Admin() {
     setError('');
     
     try {
-      const [statsData, productsData, categoriesData, ordersData, addressesData] = await Promise.all([
+      const [statsData, usersCountData, productsData, categoriesData, ordersData, addressesData] = await Promise.all([
         apiRequest('/admin/stats'),
+        apiRequest('/admin/users/count'),
         apiRequest('/products'),
         apiRequest('/admin/categories'),
         apiRequest('/admin/orders'),
         apiRequest('/admin/addresses')
       ]);
       
-      setStats(statsData.data);
+      const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
+      setStats(mergedStats);
       setProducts(productsData.data.products || []);
       setCategories(categoriesData.data.categories || []);
       setOrders(ordersData.data.orders || []);
@@ -1900,7 +1902,7 @@ export default function Admin() {
 
           {/* 统计卡片 */}
           {!isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
               <StatsCard
                 title="商品总数"
                 value={stats.total_products}
@@ -1930,6 +1932,12 @@ export default function Admin() {
                 value={`¥${orderStats.total_revenue}`}
                 icon="💰"
                 color="indigo"
+              />
+              <StatsCard
+                title="注册人数"
+                value={stats.users_count}
+                icon="🧑‍💻"
+                color="green"
               />
             </div>
           )}

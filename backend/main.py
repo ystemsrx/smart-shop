@@ -1015,12 +1015,18 @@ async def get_admin_stats(request: Request):
         except Exception:
             pass
         categories = CategoryDB.get_all_categories()
+        # 注册人数
+        try:
+            users_count = UserDB.count_users()
+        except Exception:
+            users_count = 0
         
         stats = {
             "total_products": len(products),
             "categories": len(categories),
             "total_stock": sum(p['stock'] for p in products),
-            "recent_products": products[:5]  # 最近5个商品
+            "recent_products": products[:5],  # 最近5个商品
+            "users_count": users_count
         }
         
         return success_response("获取统计信息成功", stats)
@@ -1028,6 +1034,17 @@ async def get_admin_stats(request: Request):
     except Exception as e:
         logger.error(f"获取统计信息失败: {e}")
         return error_response("获取统计信息失败", 500)
+
+@app.get("/admin/users/count")
+async def get_users_count(request: Request):
+    """获取注册人数（users 表中的学号数量）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        cnt = UserDB.count_users()
+        return success_response("获取注册人数成功", {"count": cnt})
+    except Exception as e:
+        logger.error(f"获取注册人数失败: {e}")
+        return error_response("获取注册人数失败", 500)
 
 @app.get("/admin/products/{product_id}")
 async def get_product_details(product_id: str, request: Request):
