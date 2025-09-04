@@ -1272,7 +1272,8 @@ async def update_product_image(
             f.write(content)
 
         img_path = f"items/{category}/{filename}"
-        ok = ProductDB.update_image_path(product_id, img_path)
+        from database import SettingsDB as _DB
+        ok = _DB.update_image_path(product_id, img_path)
         if not ok:
             # 如果数据库更新失败，删除刚创建的新图片文件
             try:
