@@ -475,9 +475,16 @@ export default function Shop() {
       
       const products = productsData.data.products || [];
       const sortedProducts = sortProductsByPrice([...products]);
-      
+      // 分类按拼音排序
+      const cats = categoriesData.data.categories || [];
+      try {
+        const collator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh'], { sensitivity: 'base', numeric: true });
+        cats.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+      } catch (e) {
+        cats.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      }
       setProducts(sortedProducts);
-      setCategories(categoriesData.data.categories || []);
+      setCategories(cats);
     } catch (err) {
       setError(err.message || '加载数据失败');
     } finally {
