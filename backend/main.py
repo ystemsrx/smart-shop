@@ -193,6 +193,10 @@ class CategoryUpdateRequest(BaseModel):
 class ProductDeleteRequest(BaseModel):
     product_ids: List[str]
 
+class BulkProductUpdateRequest(BaseModel):
+    product_ids: List[str]
+    discount: Optional[float] = None
+
 class OrderCreateRequest(BaseModel):
     shipping_info: Dict[str, str]
     payment_method: str = 'wechat'
@@ -1112,6 +1116,48 @@ async def update_product(
     except Exception as e:
         logger.error(f"更新商品失败: {e}")
         return error_response("更新商品失败", 500)
+
+@app.put("/admin/products/0")
+async def bulk_update_products(payload: BulkProductUpdateRequest, request: Request):
+    """批量更新商品（目前支持批量折扣）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if not payload.product_ids:
+            return error_response("未提供商品ID", 400)
+
+        update_fields: Dict[str, Any] = {}
+        # 仅支持折扣批量更新
+        if payload.discount is not None:
+            try:
+                d = float(payload.discount)
+                if d < 0.5 or d > 10:
+                    return error_response("折扣范围应为0.5~10折", 400)
+                update_fields['discount'] = d
+            except Exception:
+                return error_response("无效的折扣", 400)
+
+        if not update_fields:
+            return error_response("没有可更新的字段", 400)
+
+        updated = 0
+        not_found: List[str] = []
+        for pid in payload.product_ids:
+            p = ProductDB.get_product_by_id(pid)
+            if not p:
+                not_found.append(pid)
+                continue
+            ok = SettingsDB.update_product(pid, update_fields)
+            if ok:
+                updated += 1
+        return success_response("批量更新完成", {"updated": updated, "not_found": not_found})
+    except Exception as e:
+        logger.error(f"批量更新商品失败: {e}")
+        return error_response("批量更新商品失败", 500)
+
+# 兼容：支持直接 PUT /admin/products 进行批量更新（避免某些环境对路径"/0"的特殊处理）
+@app.put("/admin/products")
+async def bulk_update_products_alt(payload: BulkProductUpdateRequest, request: Request):
+    return await bulk_update_products(payload, request)
 
 @app.patch("/admin/products/{product_id}/stock")
 async def update_product_stock(

@@ -163,9 +163,10 @@ const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 商品表格组件
-const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount, onToggleActive, onOpenVariantStock }) => {
+const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, onBatchUpdateDiscount, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount, onToggleActive, onOpenVariantStock }) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
+  const [bulkZhe, setBulkZhe] = React.useState('');
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -174,6 +175,32 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
         {selectedProducts.length > 0 && (
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">已选择 {selectedProducts.length} 件商品</span>
+            {/* 批量折扣设置 */}
+            <div className="flex items-center space-x-2">
+              <select
+                className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                value={bulkZhe}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBulkZhe(val);
+                  if (val === '') return; // 空白，不执行
+                  const v = parseFloat(val);
+                  onBatchUpdateDiscount(selectedProducts, v);
+                  // 重置为空，便于再次选择相同折扣（例如10折恢复）
+                  setBulkZhe('');
+                }}
+                title="批量设置折扣（单位：折）"
+              >
+                <option value=""></option>
+                {Array.from({ length: 20 }).map((_, i) => {
+                  const val = 10 - i * 0.5;
+                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                  return (
+                    <option key={v} value={String(v)}>{v}折</option>
+                  );
+                })}
+              </select>
+            </div>
             <button
               onClick={() => onBatchDelete(selectedProducts)}
               className="bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
@@ -1567,6 +1594,22 @@ export default function Admin() {
     }
   };
 
+  // 批量设置折扣
+  const handleBatchUpdateDiscount = async (productIds, zhe) => {
+    if (!productIds || productIds.length === 0) { alert('请选择要设置折扣的商品'); return; }
+    try {
+      await apiRequest('/admin/products', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_ids: productIds, discount: zhe })
+      });
+      // 无提示，静默刷新
+      await loadData();
+    } catch (e) {
+      alert(e.message || '批量设置折扣失败');
+    }
+  };
+
   // 上/下架切换
   const handleToggleActive = async (product) => {
     // 当前是否上架
@@ -2007,18 +2050,19 @@ export default function Admin() {
               </div>
             </div>
           ) : (
-            <ProductTable 
-              products={visibleProducts} 
-              onRefresh={loadData}
-              onEdit={setEditingProduct}
-              onDelete={handleDeleteProduct}
-              onUpdateStock={handleUpdateStock}
-              onBatchDelete={handleBatchDelete}
-              selectedProducts={selectedProducts}
-              onSelectProduct={handleSelectProduct}
-              onSelectAll={handleSelectAll}
-              onUpdateDiscount={handleUpdateDiscount}
-              onToggleActive={handleToggleActive}
+                 <ProductTable 
+                  products={visibleProducts} 
+                  onRefresh={loadData}
+                  onEdit={setEditingProduct}
+                  onDelete={handleDeleteProduct}
+                  onUpdateStock={handleUpdateStock}
+                  onBatchDelete={handleBatchDelete}
+                  onBatchUpdateDiscount={handleBatchUpdateDiscount}
+                  selectedProducts={selectedProducts}
+                  onSelectProduct={handleSelectProduct}
+                  onSelectAll={handleSelectAll}
+                  onUpdateDiscount={handleUpdateDiscount}
+                  onToggleActive={handleToggleActive}
               onOpenVariantStock={(p) => setVariantStockProduct(p)}
             />
           )}
