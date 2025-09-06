@@ -19,7 +19,7 @@ const getUnifiedStatus = (order) => {
 const UNIFIED_STATUS_MAP = {
   '未付款': { color: 'gray' },
   '待确认': { color: 'yellow' },
-  '待配送': { color: 'blue' },
+  '待配送': { color: 'cyan' },
   '配送中': { color: 'purple' },
   '已完成': { color: 'green' },
 };
@@ -28,7 +28,7 @@ const UNIFIED_STATUS_ORDER = ['全部', '未付款', '待确认', '待配送', '
 
 const colorClasses = {
   yellow: 'bg-yellow-100 text-yellow-800',
-  blue: 'bg-blue-100 text-blue-800',
+  cyan: 'bg-cyan-100 text-cyan-800',
   purple: 'bg-purple-100 text-purple-800',
   green: 'bg-green-100 text-green-800',
   red: 'bg-red-100 text-red-800',
@@ -37,9 +37,33 @@ const colorClasses = {
 
 function StatusBadge({ status }) {
   const meta = UNIFIED_STATUS_MAP[status] || { color: 'gray' };
+  
+  const getStatusIcon = (status) => {
+    switch(status) {
+      case '未付款': return 'fas fa-credit-card';
+      case '待确认': return 'fas fa-clock';
+      case '待配送': return 'fas fa-box';
+      case '配送中': return 'fas fa-truck';
+      case '已完成': return 'fas fa-check-circle';
+      default: return 'fas fa-question-circle';
+    }
+  };
+
+  const getStatusGradient = (status) => {
+    switch(status) {
+      case '未付款': return 'bg-gradient-to-r from-gray-500 to-gray-600';
+      case '待确认': return 'bg-gradient-to-r from-yellow-500 to-orange-500';
+      case '待配送': return 'bg-gradient-to-r from-cyan-500 to-cyan-600';
+      case '配送中': return 'bg-gradient-to-r from-purple-500 to-purple-600';
+      case '已完成': return 'bg-gradient-to-r from-green-500 to-green-600';
+      default: return 'bg-gradient-to-r from-gray-500 to-gray-600';
+    }
+  };
+
   return (
-    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${colorClasses[meta.color]}`}>
-      {status}
+    <span className={`px-3 py-1 inline-flex items-center gap-1 text-xs font-semibold rounded-full text-white ${getStatusGradient(status)} shadow-sm`}>
+      <i className={getStatusIcon(status)}></i>
+      <span>{status}</span>
     </span>
   );
 }
@@ -178,11 +202,33 @@ export default function Orders() {
       {/* 顶部导航（移动端优化） */}
       <Nav active="orders" />
 
-      <div className="min-h-screen bg-gray-50 pt-16">
-        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">我的订单</h1>
-            <p className="text-gray-600 mt-1">查看订单状态</p>
+      <div className="min-h-screen pt-16" style={{
+        background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)'
+      }}>
+        {/* 背景装饰 */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-orange-400/10 blur-3xl"></div>
+          <div className="absolute top-60 -left-40 w-96 h-96 rounded-full bg-cyan-400/10 blur-3xl"></div>
+          <div className="absolute bottom-40 right-20 w-64 h-64 rounded-full bg-pink-400/10 blur-3xl"></div>
+        </div>
+
+        <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* 页面标题 */}
+          <div className="text-center mb-12 animate-apple-fade-in">
+            <div className="flex justify-center mb-6">
+              <div className="relative">
+                <div className="absolute -inset-4 bg-gradient-to-r from-amber-500 to-orange-600 rounded-3xl blur-2xl opacity-30"></div>
+                <div className="relative w-20 h-20 bg-gradient-to-br from-amber-500 via-orange-600 to-red-500 rounded-3xl flex items-center justify-center shadow-2xl">
+                  <i className="fas fa-receipt text-white text-2xl"></i>
+                </div>
+              </div>
+            </div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-3">
+              我的订单
+            </h1>
+            <p className="text-lg text-gray-600">
+              查看订单状态和物流信息
+            </p>
           </div>
 
           {error && (
@@ -190,109 +236,271 @@ export default function Orders() {
           )}
 
           {loading ? (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">加载中...</div>
+            <div className="text-center py-20 animate-apple-fade-in">
+              <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <div className="loading-dots text-white"></div>
+              </div>
+              <p className="text-gray-600 text-lg">加载订单中...</p>
+            </div>
           ) : orders.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500">您还没有订单</p>
-              <Link href="/shop" className="inline-flex mt-4 items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700">去购物</Link>
+            <div className="text-center py-20 animate-apple-fade-in">
+              <div className="max-w-md mx-auto">
+                <div className="w-24 h-24 bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                  <i className="fas fa-receipt text-gray-400 text-3xl"></i>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">暂无订单</h3>
+                <p className="text-gray-600 mb-6">您还没有任何订单，快去商城选购喜欢的商品吧！</p>
+                <Link 
+                  href="/shop" 
+                  className="btn-primary inline-flex items-center gap-2 transform hover:scale-105 transition-all duration-300"
+                >
+                  <i className="fas fa-shopping-bag"></i>
+                  <span>立即购物</span>
+                </Link>
+              </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* 筛选器 */}
-              <div className="flex flex-wrap gap-2 mb-2">
-                {UNIFIED_STATUS_ORDER.map((label) => (
-                  <button
-                    key={label}
-                    onClick={() => setFilter(label)}
-                    className={`px-3 py-1 rounded-md text-sm border ${filter === label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="animate-apple-slide-up animate-delay-200">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+                    <i className="fas fa-filter text-white text-sm"></i>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">订单筛选</h3>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {UNIFIED_STATUS_ORDER.map((label, index) => (
+                    <button
+                      key={label}
+                      onClick={() => setFilter(label)}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
+                         filter === label 
+                           ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white shadow-lg' 
+                           : 'card-modern text-gray-700 hover:shadow-md border border-gray-200'
+                      }`}
+                      style={{ animationDelay: `${index * 0.05}s` }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <i className={`fas ${
+                          label === '全部' ? 'fa-th-list' :
+                          label === '未付款' ? 'fa-credit-card' :
+                          label === '待确认' ? 'fa-clock' :
+                          label === '待配送' ? 'fa-box' :
+                          label === '配送中' ? 'fa-truck' :
+                          'fa-check-circle'
+                        }`}></i>
+                        <span>{label}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {filteredOrders.map((o) => {
+              {filteredOrders.map((o, index) => {
                 const us = getUnifiedStatus(o);
                 const isOpen = !!expanded[o.id];
                 const showCountdown = us === '未付款' && (o.payment_status === 'pending' || !o.payment_status);
                 const remainSec = showCountdown ? getRemainSeconds(o) : 0;
                 return (
-                  <div key={o.id} className="bg-white rounded-lg shadow-sm border border-gray-200">
+                  <div 
+                    key={o.id} 
+                    className="card-modern overflow-hidden transform transition-all duration-300 ease-out animate-apple-fade-in hover:scale-102"
+                    style={{ animationDelay: `${index * 0.1}s` }}
+                  >
                     {/* header */}
-                    <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
-                      <div className="flex items-center gap-3">
-                        <StatusBadge status={us} />
-                        <div className="text-sm text-gray-500">下单时间：{formatDate(o.created_at_timestamp ?? o.created_at)}</div>
-                        {showCountdown && (
-                          <div className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
-                            倒计时：{formatRemain(remainSec)}
+                    <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <StatusBadge status={us} />
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <i className="fas fa-calendar-alt"></i>
+                            <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
                           </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm text-gray-900 font-medium">总计 ¥{o.total_amount}</div>
-                        <button
-                          onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
-                          className="text-sm text-indigo-600 hover:underline"
-                        >{isOpen ? '收起' : '查看详情'}</button>
+                          {showCountdown && (
+                            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200">
+                              <i className="fas fa-stopwatch text-red-500"></i>
+                              <span className="text-xs font-semibold">
+                                倒计时：{formatRemain(remainSec)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-gray-900">¥{o.total_amount}</p>
+                            <p className="text-xs text-gray-500">订单总额</p>
+                          </div>
+                          <button
+                            onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
+                            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                          >
+                            <i className={`fas ${isOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`}></i>
+                            <span>{isOpen ? '收起详情' : '查看详情'}</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
 
                     {/* body */}
-                    <div className="px-4 py-3">
-                      <div className="flex flex-wrap justify-between items-start gap-4">
-                        <div className="text-sm text-gray-600">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">订单号：</span>
-                            <span className="font-mono">{o.id}</span>
-                            <button
-                              className="text-xs text-indigo-600 hover:underline"
-                              onClick={() => copyToClipboard(o.id)}
-                            >复制</button>
+                    <div className="px-6 py-4">
+                      <div className="flex flex-wrap justify-between items-start gap-6">
+                        <div className="flex-1 min-w-0">
+                          <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                                  <i className="fas fa-hashtag text-emerald-600 text-sm"></i>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 mb-1">订单号码</p>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-sm text-gray-900">{o.id}</span>
+                                    <button
+                                      className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-600 text-xs rounded-md transition-colors"
+                                      onClick={() => copyToClipboard(o.id)}
+                                    >
+                                      <i className="fas fa-copy mr-1"></i>复制
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                  <i className="fas fa-credit-card text-green-600 text-sm"></i>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 mb-1">支付方式</p>
+                                  <div className="flex items-center gap-2">
+                                    {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500"></i>}
+                                    <span className="text-sm text-gray-900">
+                                      {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-1 text-gray-500">支付方式：{o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}</div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-3">
                           {us === '未付款' && (
-                            <button onClick={() => setPayOrderId(o.id)} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700">
-                              {o.payment_status === 'failed' ? '重新付款' : '去付款'}
+                            <button 
+                              onClick={() => setPayOrderId(o.id)} 
+                              className="btn-primary px-6 py-2 text-sm flex items-center gap-2 transform hover:scale-105 transition-all duration-300"
+                            >
+                              <i className="fas fa-credit-card"></i>
+                              <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
                             </button>
                           )}
                           {us !== '未付款' && (
-                            <span className="text-sm text-gray-500">我们会尽快处理您的订单</span>
+                            <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-3">
+                              <div className="flex items-center gap-2 text-cyan-700">
+                                <i className="fas fa-info-circle"></i>
+                                <span className="text-sm font-medium">处理中</span>
+                              </div>
+                              <p className="text-xs text-cyan-600 mt-1">我们会尽快处理您的订单</p>
+                            </div>
                           )}
                         </div>
                       </div>
 
                       {isOpen && (
-                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 animate-apple-slide-up">
+                          {/* 商品明细 */}
                           <div>
-                            <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
-                            <div className="divide-y divide-gray-100 border rounded-md">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="w-6 h-6 bg-orange-100 rounded-lg flex items-center justify-center">
+                                <i className="fas fa-shopping-basket text-orange-600 text-xs"></i>
+                              </div>
+                              <h4 className="text-sm font-semibold text-gray-900">商品明细</h4>
+                            </div>
+                            <div className="space-y-3">
                               {o.items?.map((it, idx) => (
-                                <div key={(it.product_id + (it.variant_id || '')) + '_' + idx} className="flex justify-between items-center px-3 py-2 text-sm">
-                                  <div className="truncate">
-                                    <div className="text-gray-900 truncate">
-                                      {it.name}
+                                <div 
+                                  key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
+                                  className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow"
+                                >
+                                  <div className="flex justify-between items-start gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <h5 className="font-medium text-gray-900 truncate text-sm">
+                                        {it.name}
+                                      </h5>
                                       {it.variant_name && (
-                                        <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
+                                        <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-xs rounded-full border border-cyan-200">
+                                          {it.variant_name}
+                                        </span>
                                       )}
+                                      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                                        <span className="flex items-center gap-1">
+                                          <i className="fas fa-cubes"></i>
+                                          数量: {it.quantity}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <i className="fas fa-tag"></i>
+                                          单价: ¥{it.unit_price}
+                                        </span>
+                                      </div>
                                     </div>
-                                    <div className="text-gray-500">x{it.quantity} · 单价 ¥{it.unit_price}</div>
+                                    <div className="text-right">
+                                      <p className="font-semibold text-gray-900">¥{it.subtotal}</p>
+                                      <p className="text-xs text-gray-500">小计</p>
+                                    </div>
                                   </div>
-                                  <div className="text-gray-900">¥{it.subtotal}</div>
                                 </div>
                               ))}
                             </div>
                           </div>
+                          
+                          {/* 收货信息 */}
                           <div>
-                            <div className="text-sm font-medium text-gray-900 mb-2">收货信息</div>
-                            <div className="text-sm text-gray-600 space-y-1 border rounded-md px-3 py-2">
-                              <div>姓名：{o.shipping_info?.name}</div>
-                              <div>电话：{o.shipping_info?.phone}</div>
-                              <div>地址：{o.shipping_info?.full_address}</div>
-                              {o.note && <div>备注：{o.note}</div>}
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="w-6 h-6 bg-green-100 rounded-lg flex items-center justify-center">
+                                <i className="fas fa-map-marker-alt text-green-600 text-xs"></i>
+                              </div>
+                              <h4 className="text-sm font-semibold text-gray-900">收货信息</h4>
+                            </div>
+                            <div className="bg-white border border-gray-200 rounded-xl p-4">
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                                    <i className="fas fa-user text-emerald-600 text-sm"></i>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500">收件人</p>
+                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.name}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                    <i className="fas fa-phone text-green-600 text-sm"></i>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500">联系电话</p>
+                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.phone}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-start gap-3">
+                                  <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">
+                                    <i className="fas fa-home text-cyan-600 text-sm"></i>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500">收货地址</p>
+                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.full_address}</p>
+                                  </div>
+                                </div>
+                                {o.note && (
+                                  <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                                      <i className="fas fa-comment text-orange-600 text-sm"></i>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-gray-500">订单备注</p>
+                                      <p className="text-sm font-medium text-gray-900">{o.note}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -308,18 +516,53 @@ export default function Orders() {
 
       {/* 微信收款码弹窗 */}
       {payOrderId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black bg-opacity-60" onClick={() => setPayOrderId(null)}></div>
-          <div className="relative bg-white rounded-lg shadow-xl p-6 w-96 z-10">
-            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请长按图片扫码付款</h3>
-            <div className="w-full flex justify-center mb-4">
-              <img src="/1_wx.png" alt="微信收款码" className="rounded-md w-64 h-64 object-contain border" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
+          <div className="absolute inset-0" onClick={() => setPayOrderId(null)}></div>
+          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
+            {/* 弹窗标题 */}
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <i className="fab fa-weixin text-white text-2xl"></i>
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-2">微信扫码支付</h3>
+              <p className="text-white/80 text-sm">请使用微信扫描下方二维码完成支付</p>
             </div>
-            <p className="text-sm text-gray-600 mb-4 text-center">付款完成后点击下方“已付款”按钮，我们会尽快核验。</p>
-            <div className="flex gap-3">
-              <button onClick={() => handleMarkPaid(payOrderId)} className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700">已付款</button>
-              <button onClick={() => setPayOrderId(null)} className="flex-1 bg-gray-100 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-200">稍后支付</button>
+
+            {/* 二维码区域 */}
+            <div className="bg-white rounded-2xl p-4 mb-6 shadow-lg">
+              <img 
+                src="/1_wx.png" 
+                alt="微信收款码" 
+                className="w-full h-64 object-contain rounded-xl" 
+              />
             </div>
+
+            {/* 操作按钮 */}
+            <div className="space-y-3">
+              <button
+                onClick={() => handleMarkPaid(payOrderId)}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-check-circle"></i>
+                <span>我已完成付款</span>
+              </button>
+              
+              <button
+                onClick={() => setPayOrderId(null)}
+                className="w-full bg-white/20 backdrop-blur-sm text-white py-3 px-4 rounded-xl font-medium hover:bg-white/30 border border-white/30 transition-all duration-300 flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-clock"></i>
+                <span>稍后支付</span>
+              </button>
+            </div>
+
+            {/* 关闭按钮 */}
+            <button
+              onClick={() => setPayOrderId(null)}
+              className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white/80 hover:text-white transition-all duration-200"
+            >
+              <i className="fas fa-times"></i>
+            </button>
           </div>
         </div>
       )}

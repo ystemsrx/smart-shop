@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
+import Nav from '../components/Nav';
 
 export default function Checkout() {
   const router = useRouter();
@@ -276,42 +277,47 @@ export default function Checkout() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen bg-gray-50">
-        {/* 导航栏 */}
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <Link 
-                  href="/"
-                  className="flex items-center"
-                >
-                  <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">L</span>
-                  </div>
-                  <span className="ml-2 text-xl font-bold text-gray-900">智能小商城</span>
-                </Link>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <Link href="/shop" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">商品商城</Link>
-                <Link href="/cart" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">购物车</Link>
-                <Link href="/orders" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">我的订单</Link>
-                <span className="text-sm text-gray-600">{user.name}</span>
-              </div>
-            </div>
-          </div>
-        </nav>
+       <div className="min-h-screen" style={{
+         background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(236, 72, 153, 0.12) 25%, rgba(168, 85, 247, 0.1) 50%, rgba(6, 182, 212, 0.12) 75%, rgba(16, 185, 129, 0.15) 100%), #fafafa'
+       }}>
+        {/* 背景装饰 */}
+         <div className="absolute inset-0 overflow-hidden">
+           <div className="absolute -top-20 -left-20 w-80 h-80 rounded-full bg-orange-400/8 backdrop-blur-3xl animate-pulse"></div>
+           <div className="absolute top-40 -right-32 w-96 h-96 rounded-full bg-pink-400/6 backdrop-blur-3xl"></div>
+           <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 w-72 h-72 rounded-full bg-cyan-400/8 backdrop-blur-3xl"></div>
+           <div className="absolute bottom-32 right-1/4 w-56 h-56 rounded-full bg-emerald-400/6 backdrop-blur-3xl"></div>
+         </div>
+
+        {/* 统一导航栏 */}
+        <Nav active="checkout" />
 
         {/* 主要内容 */}
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">确认订单</h1>
-            <p className="text-gray-600 mt-1">请确认您的订单信息和收货地址</p>
+        <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
+          {/* 页面标题 */}
+          <div className="text-center mb-12 animate-apple-fade-in">
+            <div className="flex justify-center mb-6">
+              <div className="relative">
+                <div className="absolute -inset-2 bg-gradient-to-r from-purple-500 to-pink-600 rounded-2xl blur opacity-60"></div>
+                <div className="relative w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-2xl">
+                  <i className="fas fa-credit-card text-white text-xl"></i>
+                </div>
+              </div>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">确认订单</h1>
+            <p className="text-gray-700">请确认您的订单信息和收货地址</p>
           </div>
+          
           {!shopOpen && (
-            <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3">
-              {shopNote}
+            <div className="mb-6 card-glass p-4 border border-orange-200/50 text-orange-100 animate-apple-fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-orange-500/20 rounded-full flex items-center justify-center">
+                  <i className="fas fa-exclamation-triangle text-orange-300"></i>
+                </div>
+                <div>
+                  <p className="font-medium text-orange-200">店铺提醒</p>
+                  <p className="text-sm text-orange-300">{shopNote}</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -336,18 +342,23 @@ export default function Checkout() {
               </div>
             </div>
           ) : (
-            <div className="lg:grid lg:grid-cols-3 lg:gap-8">
+            <div className="lg:grid lg:grid-cols-3 lg:gap-8 animate-apple-fade-in animate-delay-200">
               {/* 订单表单 */}
-              <div className="lg:col-span-2 space-y-6">
+              <div className="lg:col-span-2 space-y-8">
                 {/* 收货信息 */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-lg font-medium text-gray-900 mb-4">收货信息</h2>
+                <div className="card-glass p-8 border border-white/30 animate-apple-slide-up">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-xl flex items-center justify-center">
+                      <i className="fas fa-map-marker-alt text-white"></i>
+                    </div>
+                    <h2 className="text-xl font-semibold text-gray-900">收货信息</h2>
+                  </div>
                   
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       <div>
-                        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                          姓名 *
+                        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="fas fa-user mr-2"></i>姓名 *
                         </label>
                         <input
                           type="text"
@@ -356,14 +367,14 @@ export default function Checkout() {
                           required
                           value={formData.name}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="请输入姓名"
+                          className="input-glass w-full text-gray-900 placeholder-gray-500"
+                          placeholder="请输入您的姓名"
                         />
                       </div>
                       
                       <div>
-                        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                          手机号 *
+                        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="fas fa-phone mr-2"></i>手机号 *
                         </label>
                         <input
                           type="tel"
@@ -372,16 +383,16 @@ export default function Checkout() {
                           required
                           value={formData.phone}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="请输入手机号"
+                          className="input-glass w-full text-gray-900 placeholder-gray-500"
+                          placeholder="请输入手机号码"
                         />
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div>
-                        <label htmlFor="dormitory" className="block text-sm font-medium text-gray-700 mb-1">
-                          宿舍区 *
+                        <label htmlFor="dormitory" className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="fas fa-building mr-2"></i>宿舍区 *
                         </label>
                         <select
                           id="dormitory"
@@ -389,18 +400,18 @@ export default function Checkout() {
                           required
                           value={formData.dormitory}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          className="input-glass w-full text-gray-900"
                         >
-                          <option value="">{addrLoading ? '加载中...' : '请选择'}</option>
+                          <option value="" className="text-gray-900">{addrLoading ? '加载中...' : '请选择'}</option>
                           {addressOptions.map(a => (
-                            <option key={a.id || a.name} value={a.name}>{a.name}</option>
+                            <option key={a.id || a.name} value={a.name} className="text-gray-900">{a.name}</option>
                           ))}
                         </select>
                       </div>
                       
                       <div>
-                        <label htmlFor="building" className="block text-sm font-medium text-gray-700 mb-1">
-                          楼栋 *
+                        <label htmlFor="building" className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="fas fa-home mr-2"></i>楼栋 *
                         </label>
                         <select
                           id="building"
@@ -408,18 +419,18 @@ export default function Checkout() {
                           required
                           value={formData.building}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          className="input-glass w-full text-gray-900"
                         >
-                          <option value="">{bldLoading ? '加载中...' : '请选择'}</option>
+                          <option value="" className="text-gray-900">{bldLoading ? '加载中...' : '请选择'}</option>
                           {buildingOptions.map(b => (
-                            <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                            <option key={b.id || b.name} value={b.name} className="text-gray-900">{b.name}</option>
                           ))}
                         </select>
                       </div>
                       
                       <div>
-                        <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-1">
-                          房间号 *
+                        <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="fas fa-door-open mr-2"></i>房间号 *
                         </label>
                         <input
                           type="text"
@@ -428,15 +439,15 @@ export default function Checkout() {
                           required
                           value={formData.room}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          className="input-glass w-full text-gray-900 placeholder-gray-500"
                           placeholder="如：101"
                         />
                       </div>
                     </div>
                     
                     <div>
-                      <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-1">
-                        备注信息
+                      <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
+                        <i className="fas fa-comment mr-2"></i>备注信息
                       </label>
                       <textarea
                         id="note"
@@ -444,7 +455,7 @@ export default function Checkout() {
                         rows={3}
                         value={formData.note}
                         onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        className="input-glass w-full text-gray-900 placeholder-gray-500 resize-none"
                         placeholder="有什么特别要求可以在这里说明..."
                       />
                     </div>
@@ -452,18 +463,28 @@ export default function Checkout() {
                 </div>
 
                 {/* 支付方式说明 */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-lg font-medium text-gray-900 mb-4">支付方式</h2>
-
-                  <div className="flex items-center p-3 border-2 border-green-200 bg-green-50 rounded-lg">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
+                <div className="card-glass p-6 border border-white/30 animate-apple-slide-up animate-delay-100">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                      <i className="fas fa-credit-card text-white"></i>
                     </div>
-                    <div className="ml-3">
-                      <span className="text-sm font-medium text-green-900">微信扫码支付</span>
-                      <p className="text-xs text-green-700 mt-1">创建支付后会弹出收款码，请使用长按扫码付款</p>
+                    <h2 className="text-xl font-semibold text-gray-900">支付方式</h2>
+                  </div>
+
+                  <div className="bg-green-500/20 border border-green-400/30 backdrop-blur-sm rounded-xl p-4">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                          <i className="fas fa-check text-white text-sm"></i>
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <i className="fab fa-weixin text-green-400 text-lg"></i>
+                          <span className="text-sm font-medium text-gray-900">微信扫码支付</span>
+                        </div>
+                        <p className="text-xs text-gray-700">创建支付后会弹出收款码，请使用微信长按扫码付款</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -471,46 +492,84 @@ export default function Checkout() {
 
               {/* 订单摘要 */}
               <div className="lg:col-span-1">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 sticky top-8">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">订单摘要</h3>
+                <div className="card-glass p-6 border border-white/30 sticky top-8 animate-apple-scale-in animate-delay-300">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
+                      <i className="fas fa-file-invoice-dollar text-white"></i>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-900">订单摘要</h3>
+                  </div>
                   
                   {/* 商品列表 */}
-                  <div className="space-y-3 mb-6">
-                    {cart.items && cart.items.map((item) => {
+                  <div className="space-y-4 mb-6">
+                    {cart.items && cart.items.map((item, index) => {
                       const isDown = item.is_active === 0 || item.is_active === false;
                       return (
-                        <div key={(item.product_id + (item.variant_id || ''))} className={`flex justify-between text-sm ${isDown ? 'opacity-60 grayscale' : ''}`}>
-                          <div className="flex-1">
-                            <p className={`truncate ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
-                              {item.name}
-                              {item.variant_name && (
-                                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{item.variant_name}</span>
-                              )}
-                              {isDown && (
-                                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">暂时下架</span>
-                              )}
-                            </p>
-                            <p className="text-gray-500">x{item.quantity} {isDown && <span className="ml-1 text-xs">（不计入金额）</span>}</p>
+                        <div 
+                          key={(item.product_id + (item.variant_id || ''))} 
+                          className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 animate-apple-fade-in ${isDown ? 'opacity-60 grayscale' : ''}`}
+                          style={{ animationDelay: `${index * 0.1}s` }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 min-w-0">
+                              <p className={`truncate text-sm font-medium ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
+                                {item.name}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                {item.variant_name && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                                    {item.variant_name}
+                                  </span>
+                                )}
+                                {isDown && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                    暂时下架
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-gray-600 text-xs mt-1">
+                                数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
+                              </p>
+                            </div>
+                            <div className="text-right ml-3">
+                              <span className={`text-sm font-semibold ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
+                                ¥{item.subtotal}
+                              </span>
+                            </div>
                           </div>
-                          <span className={`ml-2 ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>¥{item.subtotal}</span>
                         </div>
                       );
                     })}
                   </div>
                   
                   {/* 费用明细 */}
-                  <div className="space-y-3 mb-6 border-t border-gray-200 pt-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">商品金额（仅上架商品）</span>
-                      <span className="text-gray-900">¥{cart.total_price}</span>
+                  <div className="space-y-4 mb-6 border-t border-white/20 pt-4">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 flex items-center gap-2">
+                        <i className="fas fa-shopping-bag"></i>
+                        商品金额
+                      </span>
+                      <span className="text-gray-900 font-medium">¥{cart.total_price}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">配送费</span>
-                      <span className="text-gray-900">{cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : '免费'}</span>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 flex items-center gap-2">
+                        <i className="fas fa-truck"></i>
+                        配送费
+                      </span>
+                      <span className="text-gray-900 font-medium">
+                        {cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : (
+                          <span className="text-green-400">免费</span>
+                        )}
+                      </span>
                     </div>
-                    <div className="flex justify-between text-base font-medium border-t border-gray-200 pt-3">
-                      <span className="text-gray-900">总计</span>
-                      <span className="text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-900 font-semibold flex items-center gap-2">
+                          <i className="fas fa-calculator"></i>
+                          总计
+                        </span>
+                        <span className="text-xl font-bold text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
+                      </div>
                     </div>
                   </div>
                   
@@ -518,21 +577,29 @@ export default function Checkout() {
                   <button
                     onClick={handleCreatePayment}
                     disabled={isCreatingPayment || !shopOpen}
-                    className="w-full bg-indigo-600 text-white py-3 px-4 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transform hover:scale-105 transition-all duration-300 text-white shadow-2xl flex items-center justify-center gap-2"
                   >
                     {isCreatingPayment ? (
-                      <div className="flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                        创建支付中...
-                      </div>
+                      <>
+                        <div className="loading-dots text-white"></div>
+                        <span>创建支付中...</span>
+                      </>
                     ) : (
-                      (shopOpen ? `创建支付 ¥${cart.payable_total ?? cart.total_price}` : '打烊中 · 暂停结算')
+                      <>
+                        <i className="fas fa-credit-card"></i>
+                        <span>
+                          {shopOpen ? `立即支付 ¥${cart.payable_total ?? cart.total_price}` : '打烊中 · 暂停结算'}
+                        </span>
+                      </>
                     )}
                   </button>
                   
-                  <p className="text-xs text-gray-500 text-center mt-3">
-                    点击支付即表示您同意我们的服务条款
-                  </p>
+                  <div className="mt-4 text-center">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      点击支付即表示您同意我们的
+                      <span className="text-gray-700 underline cursor-pointer"> 服务条款</span>
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -541,27 +608,64 @@ export default function Checkout() {
       </div>
       {/* 微信收款码弹窗 */}
       {showPayModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black bg-opacity-60" onClick={() => setShowPayModal(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-xl p-6 w-96 z-10">
-            <h3 className="text-lg font-medium text-gray-900 mb-4 text-center">请长按图片扫码付款</h3>
-            <div className="w-full flex justify-center mb-4">
-              <img src="/1_wx.png" alt="微信收款码" className="rounded-md w-64 h-64 object-contain border" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
+          <div className="absolute inset-0" onClick={() => setShowPayModal(false)}></div>
+          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
+            {/* 弹窗标题 */}
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <i className="fab fa-weixin text-white text-2xl"></i>
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">长按图片扫描二维码支付</h4>
             </div>
-            <p className="text-sm text-gray-600 mb-4 text-center">付款完成后点击下方“已付款”按钮，我们会尽快核验。</p>
+
+            {/* 二维码区域 */}
+            <div className="mb-6 text-center">
+              <img 
+                src="/1_wx.png" 
+                alt="微信收款码" 
+                className="mx-auto w-64 h-64 object-contain" 
+              />
+            </div>
+
+
+            {/* 操作按钮 */}
             <div className="flex gap-3">
               <button
                 onClick={handleMarkPaid}
-                className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700"
-              >已付款</button>
+                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm"
+              >
+                <i className="fas fa-check-circle"></i>
+                <span>我已完成付款</span>
+              </button>
+              
               <button
                 onClick={handlePayLater}
-                className="flex-1 bg-gray-100 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-200"
-              >稍后支付</button>
+                className="flex-1 bg-gray-100 text-gray-900 py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+              >
+                <i className="fas fa-clock"></i>
+                <span>稍后支付</span>
+              </button>
             </div>
-            <div className="mt-3 text-center text-sm">
-              <Link href="/orders" className="text-indigo-600 hover:underline">查看我的订单状态</Link>
+
+            {/* 底部链接 */}
+            <div className="mt-6 text-center">
+              <Link 
+                href="/orders" 
+                className="text-gray-600 hover:text-gray-900 text-sm underline transition-colors flex items-center justify-center gap-1"
+              >
+                <i className="fas fa-external-link-alt"></i>
+                <span>查看我的订单状态</span>
+              </Link>
             </div>
+
+            {/* 关闭按钮 */}
+            <button
+              onClick={() => setShowPayModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 transition-all duration-200"
+            >
+              <i className="fas fa-times"></i>
+            </button>
           </div>
         </div>
       )}

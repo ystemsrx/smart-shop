@@ -1109,7 +1109,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                           <div>姓名：{order.shipping_info?.name}</div>
                           <div>电话：{order.shipping_info?.phone}</div>
                           <div>地址：{order.shipping_info?.full_address}</div>
-                          {order.note && <div>备注：{order.note}</div>}
+                          {order.note && <div>备注：<span className="text-red-600">{order.note}</span></div>}
                         </div>
                       </div>
                     </div>
