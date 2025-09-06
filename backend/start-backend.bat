@@ -91,10 +91,10 @@ if "%DB_RESET%"=="1" (
 REM --- 启动 FastAPI 应用 ---
 echo ==================================================
 echo [SUCCESS] Starting Dorm Shop API...
-echo [INFO] Service will run at: http://0.0.0.0:8000
-echo [INFO] API Documentation: http://0.0.0.0:8000/docs
+echo [INFO] Service will run at: http://0.0.0.0:9099
+echo [INFO] API Documentation: http://0.0.0.0:9099/docs
 echo ==================================================
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+uvicorn main:app --host 0.0.0.0 --port 9099 --reload --log-level debug
 
 REM --- 脚本结束后的清理 ---
 popd
