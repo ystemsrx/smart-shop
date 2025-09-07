@@ -63,9 +63,9 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           <div className="absolute left-3 top-3 z-20">
             <div className="relative">
               {/* 模糊背景层 */}
-              <div className="absolute inset-0 bg-gradient-to-br from-red-500 to-pink-600 rounded-2xl blur opacity-30"></div>
+              <div className="absolute inset-0 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl blur opacity-30"></div>
               {/* 主要角标 */}
-              <div className="relative z-10 w-16 h-16 bg-gradient-to-br from-red-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-xl transform rotate-12 group-hover:rotate-6 transition-transform duration-300">
+              <div className="relative z-10 w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center shadow-xl transform rotate-12 group-hover:rotate-6 transition-transform duration-300">
                 <div className="text-center relative z-10">
                   <div className="text-white text-xs font-bold drop-shadow-sm">{discountZhe}折</div>
                   <div className="text-white text-xs font-medium drop-shadow-sm">特惠</div>
