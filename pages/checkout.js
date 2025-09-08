@@ -34,6 +34,13 @@ export default function Checkout() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [eligibleRewards, setEligibleRewards] = useState([]);
+  // 抽奖弹窗
+  const [lotteryOpen, setLotteryOpen] = useState(false);
+  const [lotteryNames, setLotteryNames] = useState([]);
+  const [lotteryResult, setLotteryResult] = useState('');
+  const [lotteryDisplay, setLotteryDisplay] = useState('');
+  const [spinning, setSpinning] = useState(false);
   
   // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
   const handlePayLater = async () => {
@@ -86,6 +93,13 @@ export default function Checkout() {
     try {
       const data = await getCart();
       setCart(data.data);
+      // 加载可用抽奖奖品
+      try {
+        const rw = await apiRequest('/rewards/eligible');
+        setEligibleRewards(rw?.data?.rewards || []);
+      } catch (e) {
+        setEligibleRewards([]);
+      }
       
       // 如果购物车为空，跳转到购物车页面
       if (!data.data.items || data.data.items.length === 0) {
@@ -222,7 +236,34 @@ export default function Checkout() {
       const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
-        router.push('/orders');
+        // 触发抽奖动画
+        try {
+          const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
+          if (draw.success) {
+            const names = (draw.data?.names && draw.data.names.length > 0)
+              ? draw.data.names
+              : [draw.data?.prize_name];
+            setLotteryNames(names);
+            setLotteryResult(draw.data?.prize_name || '');
+            setLotteryDisplay(names[0] || '');
+            setLotteryOpen(true);
+            setSpinning(true);
+            const duration = 2000;
+            const interval = 80;
+            let idx = 0;
+            const timer = setInterval(() => {
+              idx = (idx + 1) % names.length;
+              setLotteryDisplay(names[idx]);
+            }, interval);
+            setTimeout(() => {
+              clearInterval(timer);
+              setSpinning(false);
+              setLotteryDisplay(draw.data?.prize_name || names[0]);
+            }, duration);
+          }
+        } catch (e) {
+          // 忽略
+        }
       } else {
         alert(res.message || '操作失败');
       }
@@ -572,6 +613,26 @@ export default function Checkout() {
                       </div>
                     </div>
                   </div>
+                  {/* 抽奖奖品（仅展示，不计入金额；达标则自动随单配送）*/}
+                  {eligibleRewards && eligibleRewards.length > 0 && (
+                    <div className="mb-6 border-t border-white/20 pt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <i className="fas fa-gift text-pink-500"></i>
+                        <span className="text-sm font-medium text-gray-900">抽奖奖品</span>
+                      </div>
+                      <div className="space-y-1">
+                        {eligibleRewards.map((r) => (
+                          <div key={r.id} className={`flex justify-between text-sm ${cart.total_price >= 10 ? 'text-gray-900' : 'text-gray-400'}`}>
+                            <span>{r.prize_name} × {r.prize_quantity || 1}</span>
+                            <span>¥0.00</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className={`mt-2 text-xs ${cart.total_price >= 10 ? 'text-green-600' : 'text-gray-500'}`}>
+                        {cart.total_price >= 10 ? '本单满10元，将自动随单配送抽奖奖品（免费）' : '订单满10元将自动随下单配送抽奖奖品（免费）'}
+                      </p>
+                    </div>
+                  )}
                   
                   {/* 支付按钮 */}
                   <button
@@ -666,6 +727,30 @@ export default function Checkout() {
             >
               <i className="fas fa-times"></i>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 抽奖弹窗 */}
+      {lotteryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); router.push('/orders'); }}></div>
+          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-semibold">抽奖中</h3>
+              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+            </div>
+            <div className="h-20 flex items-center justify-center mb-4">
+              <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
+            </div>
+            {!spinning && (
+              <div className="text-center mb-4">
+                <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button onClick={() => { setLotteryOpen(false); router.push('/orders'); }} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
+            </div>
           </div>
         </div>
       )}

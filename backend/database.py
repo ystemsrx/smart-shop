@@ -216,6 +216,46 @@ def init_database():
             ''')
         except Exception:
             pass
+
+        # 抽奖记录表（每个订单仅允许一次抽奖）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lottery_draws (
+                    id TEXT PRIMARY KEY,
+                    order_id TEXT NOT NULL,
+                    student_id TEXT NOT NULL,
+                    prize_name TEXT NOT NULL,
+                    prize_product_id TEXT,
+                    prize_quantity INTEGER DEFAULT 1,
+                    drawn_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_order ON lottery_draws(order_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_student ON lottery_draws(student_id)')
+        except Exception:
+            pass
+
+        # 待配送奖品（从成功订单产生；可累积；下次满10自动配送）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_rewards (
+                    id TEXT PRIMARY KEY,
+                    student_id TEXT NOT NULL,
+                    prize_name TEXT NOT NULL,
+                    prize_product_id TEXT,
+                    prize_quantity INTEGER DEFAULT 1,
+                    source_order_id TEXT NOT NULL,
+                    status TEXT DEFAULT 'eligible', -- eligible, consumed, cancelled
+                    consumed_order_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_rewards_student ON user_rewards(student_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_rewards_status ON user_rewards(status)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_rewards_source_order ON user_rewards(source_order_id)')
+        except Exception:
+            pass
         
         conn.commit()
         logger.info("数据库表结构初始化成功")
@@ -1375,6 +1415,12 @@ class OrderDB:
             
             # 检查库存是否足够并扣减库存
             for item in items:
+                # 抽奖赠品不计入库存扣减（避免不存在商品导致失败）
+                try:
+                    if isinstance(item, dict) and item.get('is_lottery'):
+                        continue
+                except Exception:
+                    pass
                 product_id = item['product_id']
                 quantity = int(item['quantity'])
                 variant_id = item.get('variant_id')
@@ -1396,6 +1442,9 @@ class OrderDB:
                     cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
                     product_row = cursor.fetchone()
                     if not product_row:
+                        # 若为赠品且无对应商品，跳过扣减
+                        if isinstance(item, dict) and item.get('is_lottery'):
+                            continue
                         conn.rollback()
                         return False
                     current_stock = int(product_row[0])
@@ -1439,7 +1488,7 @@ class OrderDB:
     
     @staticmethod
     def get_all_orders() -> List[Dict]:
-        """获取所有订单（管理员用）"""
+        """获取所有订单（管理员用）——已废弃，请使用 get_orders_paginated。仍保留供兼容。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -1455,6 +1504,68 @@ class OrderDB:
                 order['items'] = json.loads(order['items'])
                 orders.append(order)
             return orders
+
+    @staticmethod
+    def get_orders_paginated(order_id: Optional[str] = None, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+        """
+        获取订单（管理员用），支持按订单ID精确查询与分页。
+        返回 { 'orders': [...], 'total': int }
+        """
+        # 保护性限制，避免一次性取太多
+        try:
+            limit = int(limit)
+        except Exception:
+            limit = 20
+        if limit <= 0:
+            limit = 20
+        if limit > 100:
+            limit = 100
+        try:
+            offset = int(offset)
+        except Exception:
+            offset = 0
+        if offset < 0:
+            offset = 0
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            params: list = []
+            where_sql = []
+            if order_id:
+                where_sql.append('o.id = ?')
+                params.append(order_id)
+            where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
+
+            # 统计总数
+            cursor.execute(f'''SELECT COUNT(*) FROM orders o{where_clause}''', params)
+            total = cursor.fetchone()[0] or 0
+
+            # 查询分页结果
+            query_sql = f'''
+                SELECT o.*, u.name as customer_name
+                FROM orders o
+                LEFT JOIN users u ON o.student_id = u.id
+                {where_clause}
+                ORDER BY o.created_at DESC
+                LIMIT ? OFFSET ?
+            '''
+            q_params = params + [limit, offset]
+            cursor.execute(query_sql, q_params)
+            orders: List[Dict[str, Any]] = []
+            for row in cursor.fetchall():
+                order = dict(row)
+                try:
+                    order['shipping_info'] = json.loads(order['shipping_info'])
+                except Exception:
+                    pass
+                try:
+                    order['items'] = json.loads(order['items'])
+                except Exception:
+                    pass
+                orders.append(order)
+
+            return { 'orders': orders, 'total': total }
     
     @staticmethod
     def get_orders_by_student(student_id: str) -> List[Dict]:
@@ -1631,6 +1742,96 @@ class UserProfileDB:
                 ''', (student_id, name, phone, dormitory, building, room, full_address))
             conn.commit()
             return True
+
+# 抽奖与奖品相关操作
+class LotteryDB:
+    @staticmethod
+    def get_draw_by_order(order_id: str) -> Optional[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM lottery_draws WHERE order_id = ?', (order_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def create_draw(order_id: str, student_id: str, prize_name: str, prize_product_id: Optional[str] = None, prize_quantity: int = 1) -> str:
+        draw_id = f"lot_{int(datetime.now().timestamp()*1000)}"
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO lottery_draws (id, order_id, student_id, prize_name, prize_product_id, prize_quantity)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (draw_id, order_id, student_id, prize_name, prize_product_id, int(prize_quantity or 1)))
+            conn.commit()
+            return draw_id
+
+class RewardDB:
+    @staticmethod
+    def add_reward_from_order(student_id: str, prize_name: str, prize_product_id: Optional[str], quantity: int, source_order_id: str) -> Optional[str]:
+        """从成功订单生成可用奖品；同一订单只会生成一次。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 防止重复
+            cursor.execute('SELECT id FROM user_rewards WHERE source_order_id = ?', (source_order_id,))
+            exists = cursor.fetchone()
+            if exists:
+                return None
+            rid = f"rwd_{int(datetime.now().timestamp()*1000)}"
+            cursor.execute('''
+                INSERT INTO user_rewards (id, student_id, prize_name, prize_product_id, prize_quantity, source_order_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'eligible')
+            ''', (rid, student_id, prize_name, prize_product_id, int(quantity or 1), source_order_id))
+            conn.commit()
+            return rid
+
+    @staticmethod
+    def get_eligible_rewards(student_id: str) -> List[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_rewards WHERE student_id = ? AND status = \"eligible\" ORDER BY created_at ASC', (student_id,))
+            return [dict(r) for r in cursor.fetchall()]
+
+    @staticmethod
+    def consume_rewards(student_id: str, reward_ids: List[str], consumed_order_id: str) -> int:
+        if not reward_ids:
+            return 0
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(reward_ids))
+            try:
+                cursor.execute(f'''UPDATE user_rewards
+                                   SET status = 'consumed', consumed_order_id = ?, updated_at = CURRENT_TIMESTAMP
+                                   WHERE id IN ({placeholders}) AND student_id = ? AND status = 'eligible' ''',
+                               [consumed_order_id, *reward_ids, student_id])
+                affected = cursor.rowcount or 0
+                conn.commit()
+                return affected
+            except Exception as e:
+                logger.error(f"消费奖品失败: {e}")
+                conn.rollback()
+                return 0
+
+    @staticmethod
+    def cancel_rewards_by_orders(order_ids: List[str]) -> int:
+        """当订单被删除时，关联未消费的奖励可以取消（预防性清理）。"""
+        if not order_ids:
+            return 0
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(order_ids))
+            try:
+                cursor.execute(f"""
+                    UPDATE user_rewards
+                    SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+                    WHERE source_order_id IN ({placeholders}) AND status = 'eligible'
+                """, order_ids)
+                cnt = cursor.rowcount or 0
+                conn.commit()
+                return cnt
+            except Exception as e:
+                logger.error(f"取消关联奖励失败: {e}")
+                conn.rollback()
+                return 0
 
 if __name__ == "__main__":
     # 初始化数据库
