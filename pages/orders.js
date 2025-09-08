@@ -81,6 +81,11 @@ export default function Orders() {
   const [expanded, setExpanded] = useState({});
   const [filter, setFilter] = useState('全部');
   const [tick, setTick] = useState(0); // 用于每秒刷新倒计时
+  const [lotteryOpen, setLotteryOpen] = useState(false);
+  const [lotteryNames, setLotteryNames] = useState([]);
+  const [lotteryResult, setLotteryResult] = useState('');
+  const [lotteryDisplay, setLotteryDisplay] = useState('');
+  const [spinning, setSpinning] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -155,6 +160,37 @@ export default function Orders() {
     return `${pad(m)}:${pad(s)}`;
   };
 
+  const startLottery = async (orderId) => {
+    try {
+      const resp = await apiRequest(`/orders/${orderId}/lottery/draw`, { method: 'POST' });
+      if (resp.success) {
+        const names = (resp.data?.names && resp.data.names.length > 0)
+          ? resp.data.names
+          : [resp.data?.prize_name];
+        setLotteryNames(names);
+        setLotteryResult(resp.data?.prize_name || '');
+        setLotteryDisplay(names[0] || '');
+        setLotteryOpen(true);
+        // 简单滚动动画：2秒内循环高亮，最终停留在结果
+        setSpinning(true);
+        const duration = 2000;
+        const interval = 80;
+        let idx = 0;
+        const timer = setInterval(() => {
+          idx = (idx + 1) % names.length;
+          setLotteryDisplay(names[idx]);
+        }, interval);
+        setTimeout(() => {
+          clearInterval(timer);
+          setSpinning(false);
+          setLotteryDisplay(resp.data?.prize_name || names[0]);
+        }, duration);
+      }
+    } catch (e) {
+      // 安静失败
+    }
+  };
+
   const handleMarkPaid = async (orderId) => {
     try {
       const res = await apiRequest(`/orders/${orderId}/mark-paid`, { method: 'POST' });
@@ -168,6 +204,9 @@ export default function Orders() {
       }
     } catch (err) {
       alert(err.message || '操作失败');
+    } finally {
+      // 无论支付状态如何，均尝试触发抽奖
+      startLottery(orderId);
     }
   };
 
@@ -393,15 +432,58 @@ export default function Orders() {
                               <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
                             </button>
                           )}
-                          {us !== '未付款' && (
-                            <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-3">
-                              <div className="flex items-center gap-2 text-cyan-700">
-                                <i className="fas fa-info-circle"></i>
-                                <span className="text-sm font-medium">处理中</span>
+                          {us !== '未付款' && (() => {
+                            const meta = {
+                              '待确认': {
+                                box: 'bg-amber-50 border-amber-200',
+                                text: 'text-amber-700',
+                                sub: 'text-amber-600',
+                                icon: 'fas fa-clock',
+                                title: '待确认',
+                                desc: '已提交付款，正在核验，请耐心等待'
+                              },
+                              '待配送': {
+                                box: 'bg-cyan-50 border-cyan-200',
+                                text: 'text-cyan-700',
+                                sub: 'text-cyan-600',
+                                icon: 'fas fa-box',
+                                title: '待配送',
+                                desc: '付款已确认，正在备货与安排配送'
+                              },
+                              '配送中': {
+                                box: 'bg-purple-50 border-purple-200',
+                                text: 'text-purple-700',
+                                sub: 'text-purple-600',
+                                icon: 'fas fa-truck',
+                                title: '配送中',
+                                desc: '配送员正在路上，请保持手机畅通'
+                              },
+                              '已完成': {
+                                box: 'bg-green-50 border-green-200',
+                                text: 'text-green-700',
+                                sub: 'text-green-600',
+                                icon: 'fas fa-check-circle',
+                                title: '已完成',
+                                desc: '订单已送达，感谢您的购买'
+                              }
+                            }[us] || {
+                              box: 'bg-gray-50 border-gray-200',
+                              text: 'text-gray-700',
+                              sub: 'text-gray-600',
+                              icon: 'fas fa-info-circle',
+                              title: us || '状态更新',
+                              desc: '订单状态已更新'
+                            };
+                            return (
+                              <div className={`${meta.box} rounded-xl p-3 border`}>
+                                <div className={`flex items-center gap-2 ${meta.text}`}>
+                                  <i className={meta.icon}></i>
+                                  <span className="text-sm font-medium">{meta.title}</span>
+                                </div>
+                                <p className={`text-xs mt-1 ${meta.sub}`}>{meta.desc}</p>
                               </div>
-                              <p className="text-xs text-cyan-600 mt-1">我们会尽快处理您的订单</p>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -423,8 +505,11 @@ export default function Orders() {
                                 >
                                   <div className="flex justify-between items-start gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <h5 className="font-medium text-gray-900 truncate text-sm">
+                                      <h5 className="font-medium text-gray-900 truncate text-sm flex items-center gap-2">
                                         {it.name}
+                                        {it.is_lottery && (
+                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
+                                        )}
                                       </h5>
                                       {it.variant_name && (
                                         <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-xs rounded-full border border-cyan-200">
@@ -563,6 +648,30 @@ export default function Orders() {
             >
               <i className="fas fa-times"></i>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 抽奖弹窗 */}
+      {lotteryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => setLotteryOpen(false)}></div>
+          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-semibold">抽奖中</h3>
+              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+            </div>
+            <div className="h-20 flex items-center justify-center mb-4">
+              <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
+            </div>
+            {!spinning && (
+              <div className="text-center mb-4">
+                <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button onClick={() => setLotteryOpen(false)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
+            </div>
           </div>
         </div>
       )}

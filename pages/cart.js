@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useCart } from '../hooks/useAuth';
+import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
@@ -132,7 +132,10 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed }) => {
         
         {cart.total_quantity > 0 && cart.total_price < 10 && (
           <div className="bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700">
-            还差 <span className="font-semibold text-gray-900">¥{(10 - cart.total_price).toFixed(2)}</span> 免运费
+            还差 <span className="font-semibold text-gray-900">¥{(10 - cart.total_price).toFixed(2)}</span> 
+            <span className="font-semibold text-red-500"> 免运费</span>
+            和
+            <span className="font-semibold text-red-500">抽奖资格</span>
             <a href="/shop" className="ml-2 text-gray-900 underline hover:no-underline">去凑单</a>
           </div>
         )}
@@ -161,6 +164,7 @@ export default function Cart() {
   const { user } = useAuth();
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
   const { getShopStatus } = useProducts();
+  const { apiRequest } = useApi();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -168,6 +172,7 @@ export default function Cart() {
   const [error, setError] = useState('');
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [eligibleRewards, setEligibleRewards] = useState([]);
 
   // 检查登录状态
   useEffect(() => {
@@ -185,6 +190,13 @@ export default function Cart() {
     try {
       const data = await getCart();
       setCart(data.data);
+      // 加载可用抽奖奖品
+      try {
+        const rw = await apiRequest('/rewards/eligible');
+        setEligibleRewards(rw?.data?.rewards || []);
+      } catch (e) {
+        setEligibleRewards([]);
+      }
     } catch (err) {
       setError(err.message || '加载购物车失败');
     } finally {
@@ -339,6 +351,47 @@ export default function Cart() {
                         isLoading={actionLoading}
                       />
                     ))}
+
+                    {/* 抽奖奖品展示（不计入金额，满10自动附带）*/}
+                    {eligibleRewards.length > 0 && (
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center gap-2">
+                          <div className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center">
+                            <i className="fas fa-gift text-amber-600 text-xs"></i>
+                          </div>
+                          <h3 className="text-sm font-semibold text-gray-900">我的抽奖奖品</h3>
+                        </div>
+
+                        {eligibleRewards.map((r) => {
+                          const meet = (cart?.total_price ?? 0) >= 10;
+                          return (
+                            <div
+                              key={r.id}
+                              className={`border p-4 mb-3 ${meet ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200 opacity-80'}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${meet ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>
+                                      抽奖奖品
+                                    </span>
+                                    <span className={`text-sm font-medium ${meet ? 'text-emerald-800' : 'text-gray-700'}`}>{r.prize_name || '奖品'}</span>
+                                    <span className={`text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>× {r.prize_quantity || 1}</span>
+                                  </div>
+                                  <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
+                                    {meet ? '已满足满10，本单将自动附带并随单配送' : '未达满10，本单结算不会附带；满10自动附带并配送'}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`text-sm font-semibold ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>¥0.00</span>
+                                  <p className={`text-xs ${meet ? 'text-emerald-600' : 'text-gray-500'}`}>赠品</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   
                   {/* 订单摘要 */}

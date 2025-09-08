@@ -60,6 +60,193 @@ const ShopStatusCard = () => {
   );
 };
 
+// 抽奖配置编辑面板（内联编辑、自动保存）
+const LotteryConfigPanel = () => {
+  const { apiRequest } = useApi();
+  const [config, setConfig] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingKey, setEditingKey] = useState(null); // { type: 'name'|'weight', name: string }
+  const [newName, setNewName] = useState('');
+  const [newWeight, setNewWeight] = useState('');
+
+  const loadConfig = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest('/admin/lottery-config');
+      setConfig(res?.data?.config || {});
+    } catch (e) {
+      // 若文件不存在或其他问题，允许作为空配置继续
+      setConfig({});
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveConfig = async (next) => {
+    setSaving(true);
+    try {
+      await apiRequest('/admin/lottery-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: next })
+      });
+      setConfig(next);
+    } catch (e) {
+      alert(e.message || '保存抽奖配置失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => { loadConfig(); }, []);
+
+  const handleRename = async (oldName, newName) => {
+    const name = String(newName || '').trim();
+    if (!name || name === oldName) { setEditingKey(null); return; }
+    if (config.hasOwnProperty(name)) {
+      alert('已存在同名奖项');
+      setEditingKey(null);
+      return;
+    }
+    const next = { ...config };
+    next[name] = next[oldName];
+    delete next[oldName];
+    await saveConfig(next);
+    setEditingKey(null);
+  };
+
+  const handleUpdateWeight = async (name, value) => {
+    let v = parseFloat(value);
+    if (isNaN(v)) { v = 0; }
+    const next = { ...config, [name]: v };
+    await saveConfig(next);
+    setEditingKey(null);
+  };
+
+  const entries = Object.entries(config || {});
+  // 计算合计与“谢谢参与”百分比（兼容 0.05=5% 与 5=5% 两种写法）
+  const sumRaw = entries.reduce((acc, [_, w]) => {
+    const v = parseFloat(w);
+    return acc + (isNaN(v) ? 0 : Math.max(0, v));
+  }, 0);
+  const isFraction = sumRaw <= 1.000001;
+  const totalPercent = (isFraction ? sumRaw * 100 : sumRaw);
+  const thanksPercent = Math.max(0, 100 - totalPercent);
+  const handleAdd = async () => {
+    const name = String(newName || '').trim();
+    let w = parseFloat(String(newWeight).trim());
+    if (!name) { alert('请输入奖项名称'); return; }
+    if (isNaN(w)) { alert('请输入有效权重'); return; }
+    if (config.hasOwnProperty(name)) { alert('已存在同名奖项'); return; }
+    const next = { ...config, [name]: w };
+    await saveConfig(next);
+    setNewName('');
+    setNewWeight('');
+  };
+  const handleDelete = async (name) => {
+    const next = { ...config };
+    delete next[name];
+    await saveConfig(next);
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+        <h3 className="text-lg font-medium text-gray-900">抽奖配置</h3>
+        <div className="text-sm text-gray-600">
+          <span className="mr-4">合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
+          <span className={`${totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}`}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
+        </div>
+      </div>
+      {loading ? (
+        <div className="px-6 py-4 text-sm text-gray-500">加载中...</div>
+      ) : (
+        <div className="divide-y">
+          {entries.length === 0 && (
+            <div className="px-6 py-8 text-center text-gray-500">暂无配置</div>
+          )}
+          {entries.map(([name, weight]) => (
+            <div key={name} className="px-6 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {editingKey && editingKey.type === 'name' && editingKey.name === name ? (
+                  <input
+                    type="text"
+                    defaultValue={name}
+                    onBlur={(e) => handleRename(name, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className="px-2 py-1 border rounded"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className="text-sm font-medium text-gray-900 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded"
+                    onClick={() => setEditingKey({ type: 'name', name })}
+                    title="点击编辑名称"
+                  >{name}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {editingKey && editingKey.type === 'weight' && editingKey.name === name ? (
+                  <input
+                    type="number"
+                    step="0.01"
+                    defaultValue={weight}
+                    onBlur={(e) => handleUpdateWeight(name, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className="w-24 px-2 py-1 border rounded text-right"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className="text-sm text-gray-700 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded"
+                    onClick={() => setEditingKey({ type: 'weight', name })}
+                    title="点击编辑权重"
+                  >权重：{String(weight)}</span>
+                )}
+                <button
+                  onClick={() => handleDelete(name)}
+                  className="text-red-600 hover:text-red-800 text-xs ml-2"
+                  title="删除该奖项"
+                >删除</button>
+              </div>
+            </div>
+          ))}
+          {/* 新增行 */}
+          <div className="px-6 py-3 flex items-center justify-between bg-gray-50">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="奖项名称"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+                className="px-2 py-1 border rounded w-48"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step="0.01"
+                placeholder="权重"
+                value={newWeight}
+                onChange={(e) => setNewWeight(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+                className="w-24 px-2 py-1 border rounded text-right"
+              />
+              <button
+                onClick={handleAdd}
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm"
+              >添加</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {saving && <div className="px-6 py-2 text-xs text-gray-400">正在保存...</div>}
+    </div>
+  );
+};
+
 // 内联库存控制组件
 const StockControl = ({ product, onUpdateStock }) => {
   const [stock, setStock] = useState(product.stock);
@@ -930,7 +1117,7 @@ const getUnifiedStatus = (order) => {
 };
 
 // 订单表格组件
-const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders }) => {
+const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders, onRefresh, searchValue, onSearchChange, onSearchSubmit, page = 0, hasMore = false, onPrevPage, onNextPage }) => {
   const [expanded, setExpanded] = React.useState({});
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
@@ -965,15 +1152,27 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-lg font-medium text-gray-900">订单列表</h3>
-        {selectedOrders.length > 0 && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600">已选择 {selectedOrders.length} 笔订单</span>
-            <button
-              onClick={() => onBatchDeleteOrders(selectedOrders)}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
-            >批量删除</button>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="通过订单号搜索"
+            value={searchValue}
+            onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && onSearchSubmit) onSearchSubmit(); }}
+            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-56"
+          />
+          <button onClick={onSearchSubmit} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">搜索</button>
+          <button onClick={onRefresh} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">刷新</button>
+          {selectedOrders.length > 0 && (
+            <>
+              <span className="text-sm text-gray-600">已选择 {selectedOrders.length} 笔</span>
+              <button
+                onClick={() => onBatchDeleteOrders(selectedOrders)}
+                className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
+              >批量删除</button>
+            </>
+          )}
+        </div>
       </div>
       
       <div className="overflow-x-auto">
@@ -1120,6 +1319,15 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* 分页控制 */}
+      <div className="px-6 py-3 border-t flex items-center justify-between">
+        <div className="text-sm text-gray-500">第 {Math.floor((page || 0) + 1)} 页</div>
+        <div className="flex items-center gap-2">
+          <button onClick={onPrevPage} disabled={!(page > 0)} className="px-3 py-1.5 border rounded disabled:opacity-50">上一页</button>
+          <button onClick={onNextPage} disabled={!hasMore} className="px-3 py-1.5 border rounded disabled:opacity-50">下一页</button>
+        </div>
       </div>
       
       {orders.length === 0 && (
@@ -1372,6 +1580,12 @@ export default function Admin() {
   });
   const [orderStatusFilter, setOrderStatusFilter] = useState('全部'); // 全部/未付款/待确认/待配送/配送中/已完成
   const [activeTab, setActiveTab] = useState('products'); // products, orders, addresses
+  // 订单分页/搜索
+  const [orderPage, setOrderPage] = useState(0);
+  const [orderHasMore, setOrderHasMore] = useState(false);
+  const [orderTotal, setOrderTotal] = useState(0);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderLoading, setOrderLoading] = useState(false);
 
   // 地址管理相关状态
   const [addresses, setAddresses] = useState([]);
@@ -1407,12 +1621,12 @@ export default function Admin() {
     setError('');
     
     try {
-      const [statsData, usersCountData, productsData, categoriesData, ordersData, addressesData] = await Promise.all([
+      const [statsData, usersCountData, productsData, categoriesData, orderStatsData, addressesData] = await Promise.all([
         apiRequest('/admin/stats'),
         apiRequest('/admin/users/count'),
         apiRequest('/products'),
         apiRequest('/admin/categories'),
-        apiRequest('/admin/orders'),
+        apiRequest('/admin/order-stats'),
         apiRequest('/admin/addresses')
       ]);
       
@@ -1481,8 +1695,7 @@ export default function Admin() {
         });
       }
       setCategories(adminCats);
-      setOrders(ordersData.data.orders || []);
-      setOrderStats(ordersData.data.stats || {
+      setOrderStats(orderStatsData.data || {
         total_orders: 0,
         status_counts: {},
         today_orders: 0,
@@ -1490,11 +1703,57 @@ export default function Admin() {
       });
       setAddresses(addressesData.data.addresses || []);
       setSelectedProducts([]); // 重新加载数据时清空选择
+      // 初始加载订单第一页（分页，默认每页20）
+      await loadOrders(0, orderSearch);
     } catch (err) {
       setError(err.message || '加载数据失败');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const buildOrdersQuery = (page = 0, search = '') => {
+    const params = new URLSearchParams();
+    params.set('limit', '20');
+    const p = parseInt(page) || 0;
+    params.set('offset', String(p * 20));
+    const q = String(search || '').trim();
+    if (q) params.set('order_id', q);
+    return '/admin/orders?' + params.toString();
+  };
+
+  const loadOrders = async (page = orderPage, search = orderSearch) => {
+    setOrderLoading(true);
+    try {
+      const url = buildOrdersQuery(page, search);
+      const res = await apiRequest(url);
+      const data = res?.data || {};
+      setOrders(data.orders || []);
+      setOrderHasMore(!!data.has_more);
+      setOrderTotal(parseInt(data.total || 0));
+      setOrderPage(parseInt(page) || 0);
+    } catch (e) {
+      alert(e.message || '加载订单失败');
+    } finally {
+      setOrderLoading(false);
+    }
+  };
+
+  // 刷新/搜索/翻页（订单）
+  const handleOrderRefresh = async () => {
+    await loadOrders(orderPage, orderSearch);
+  };
+  const handleOrderSearchSubmit = async () => {
+    await loadOrders(0, orderSearch);
+  };
+  const handlePrevPage = async () => {
+    const next = Math.max(0, (orderPage || 0) - 1);
+    await loadOrders(next, orderSearch);
+  };
+  const handleNextPage = async () => {
+    if (!orderHasMore) return;
+    const next = (orderPage || 0) + 1;
+    await loadOrders(next, orderSearch);
   };
 
   // 地址操作
@@ -1849,9 +2108,8 @@ export default function Admin() {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus })
       });
-      
-      // 重新加载订单数据
-      await loadData();
+      // 重新加载当前页订单数据
+      await loadOrders(orderPage, orderSearch);
     } catch (err) {
       alert(err.message || '更新订单状态失败');
     }
@@ -1864,7 +2122,7 @@ export default function Admin() {
         method: 'PATCH',
         body: JSON.stringify({ payment_status: newPaymentStatus })
       });
-      await loadData();
+      await loadOrders(orderPage, orderSearch);
     } catch (err) {
       alert(err.message || '更新支付状态失败');
     }
@@ -1893,7 +2151,7 @@ export default function Admin() {
         body: JSON.stringify({ order_ids: orderIds })
       });
       setSelectedOrders([]);
-      await loadData();
+      await loadOrders(orderPage, orderSearch);
       alert('已删除所选订单');
     } catch (e) {
       alert(e.message || '批量删除订单失败');
@@ -2106,6 +2364,16 @@ export default function Admin() {
                 >
                   地址管理
                 </button>
+                <button
+                  onClick={() => setActiveTab('lottery')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'lottery'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  抽奖配置
+                </button>
               </nav>
             </div>
           </div>
@@ -2261,11 +2529,19 @@ export default function Admin() {
                   <OrderTable 
                     orders={(orderStatusFilter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === orderStatusFilter))}
                     onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
-                    isLoading={isSubmitting}
+                    isLoading={isSubmitting || orderLoading}
                     selectedOrders={selectedOrders}
                     onSelectOrder={handleSelectOrder}
                     onSelectAllOrders={handleSelectAllOrders}
                     onBatchDeleteOrders={handleBatchDeleteOrders}
+                    onRefresh={() => handleOrderRefresh()}
+                    searchValue={orderSearch}
+                    onSearchChange={setOrderSearch}
+                    onSearchSubmit={() => handleOrderSearchSubmit()}
+                    page={orderPage}
+                    hasMore={orderHasMore}
+                    onPrevPage={() => handlePrevPage()}
+                    onNextPage={() => handleNextPage()}
                   />
                 </>
               )}
@@ -2483,6 +2759,17 @@ export default function Admin() {
               </div>
 
               {/* 合并视图：楼栋已嵌入各地址下方 */}
+            </>
+          )}
+
+          {/* 抽奖配置 */}
+          {activeTab === 'lottery' && (
+            <>
+              <div className="mb-6">
+                <h2 className="text-lg font-medium text-gray-900">抽奖配置</h2>
+                <p className="text-sm text-gray-600 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
+              </div>
+              <LotteryConfigPanel />
             </>
           )}
         </main>

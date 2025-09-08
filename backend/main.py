@@ -10,12 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from pydantic import BaseModel
 import uvicorn
+import json
+import random
 
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -1538,9 +1540,34 @@ async def create_order(
                     item["variant_name"] = variant.get("name")
                 order_items.append(item)
         
+        # 保存商品金额小计（不含运费），用于满额判断
+        items_subtotal = round(total_amount, 2)
+
+        # 若已达满10门槛，则自动附加可用抽奖奖品（不计入总价）
+        rewards_attached_ids: List[str] = []
+        if items_subtotal >= 10.0:
+            try:
+                rewards = RewardDB.get_eligible_rewards(user["id"]) or []
+                for r in rewards:
+                    qty = int(r.get("prize_quantity") or 1)
+                    prize_name = r.get("prize_name") or "抽奖奖品"
+                    prize_pid = r.get("prize_product_id") or f"prize_{int(datetime.now().timestamp())}"
+                    order_items.append({
+                        "product_id": prize_pid,
+                        "name": prize_name,
+                        "unit_price": 0.0,
+                        "quantity": qty,
+                        "subtotal": 0.0,
+                        "category": "抽奖",
+                        "is_lottery": True
+                    })
+                    rewards_attached_ids.append(r.get("id"))
+            except Exception as e:
+                logger.warning(f"附加抽奖奖品失败: {e}")
+
         # 运费规则：不足10元收取1元，满10元免运费（仅计算上架商品金额）
-        shipping_fee = 0.0 if total_amount >= 10.0 else (1.0 if total_amount > 0 else 0.0)
-        total_amount = round(total_amount + shipping_fee, 2)
+        shipping_fee = 0.0 if items_subtotal >= 10.0 else (1.0 if items_subtotal > 0 else 0.0)
+        total_amount = round(items_subtotal + shipping_fee, 2)
 
         if not order_items:
             return error_response("购物车中没有可结算的上架商品", 400)
@@ -1554,6 +1581,12 @@ async def create_order(
             payment_method=order_request.payment_method,
             note=order_request.note
         )
+        # 标记已附加的奖品为已消费（绑定到本订单）
+        if rewards_attached_ids:
+            try:
+                RewardDB.consume_rewards(user["id"], rewards_attached_ids, order_id)
+            except Exception as e:
+                logger.warning(f"标记抽奖奖品消费失败: {e}")
         
         # 立即更新用户的最新收货信息，确保下次自动填写使用最新数据
         try:
@@ -1619,13 +1652,33 @@ async def get_order_detail(order_id: str, request: Request):
 # ==================== 管理员订单路由 ====================
 
 @app.get("/admin/orders")
-async def get_all_orders(request: Request):
-    """获取所有订单（管理员）"""
+async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Optional[int] = 0, order_id: Optional[str] = None):
+    """获取订单（管理员）——支持分页与按订单ID精确搜索。
+    默认每次最多返回20条，通过翻页继续获取，避免一次拿全表。
+    """
     # 验证管理员权限
     admin = get_current_admin_required_from_cookie(request)
     
     try:
-        orders = OrderDB.get_all_orders()
+        # 后端兜底保护，强制限制最大单次返回数量
+        try:
+            limit_val = int(limit or 20)
+        except Exception:
+            limit_val = 20
+        if limit_val <= 0:
+            limit_val = 20
+        if limit_val > 100:
+            limit_val = 100
+        try:
+            offset_val = int(offset or 0)
+        except Exception:
+            offset_val = 0
+        if offset_val < 0:
+            offset_val = 0
+
+        page_data = OrderDB.get_orders_paginated(order_id=order_id, limit=limit_val, offset=offset_val)
+        orders = page_data.get("orders", [])
+        total = int(page_data.get("total", 0))
         
         # 为管理员订单列表也添加时间戳转换
         for order in orders:
@@ -1633,11 +1686,62 @@ async def get_all_orders(request: Request):
                 order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
         
         stats = OrderDB.get_order_stats()
-        return success_response("获取订单列表成功", {"orders": orders, "stats": stats})
+        has_more = (offset_val + len(orders)) < total
+        return success_response("获取订单列表成功", {
+            "orders": orders,
+            "stats": stats,
+            "total": total,
+            "limit": limit_val,
+            "offset": offset_val,
+            "has_more": has_more
+        })
     
     except Exception as e:
         logger.error(f"获取订单列表失败: {e}")
         return error_response("获取订单列表失败", 500)
+
+@app.get("/admin/lottery-config")
+async def admin_get_lottery_config(request: Request):
+    """读取抽奖配置（管理员）。若文件不存在，返回空对象，便于前端直接创建。"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
+        if not os.path.exists(cfg_path):
+            return success_response("获取抽奖配置成功", {"config": {}})
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            return error_response("抽奖配置格式无效", 500)
+        return success_response("获取抽奖配置成功", {"config": cfg})
+    except Exception as e:
+        logger.error(f"读取抽奖配置失败: {e}")
+        return error_response("读取抽奖配置失败", 500)
+
+class LotteryConfigUpdateRequest(BaseModel):
+    config: Dict[str, Any]
+
+@app.put("/admin/lottery-config")
+async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request):
+    """覆盖写入抽奖配置（管理员）。前端可在任一字段编辑后整体提交保存。"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        cfg = payload.config or {}
+        if not isinstance(cfg, dict):
+            return error_response("配置格式应为对象", 400)
+        # 归一化权重为浮点
+        norm_cfg = {}
+        for k, v in cfg.items():
+            try:
+                norm_cfg[str(k)] = float(v)
+            except Exception:
+                return error_response(f"权重无效: {k}", 400)
+        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(norm_cfg, f, ensure_ascii=False, indent=2)
+        return success_response("抽奖配置已更新", {"config": norm_cfg})
+    except Exception as e:
+        logger.error(f"更新抽奖配置失败: {e}")
+        return error_response("更新抽奖配置失败", 500)
 
 class OrderDeleteRequest(BaseModel):
     order_ids: Optional[List[str]] = None
@@ -1768,6 +1872,117 @@ async def mark_order_paid_pending(order_id: str, request: Request):
         logger.error(f"用户标记订单待验证失败: {e}")
         return error_response("操作失败", 500)
 
+# ==================== 抽奖功能 ====================
+
+@app.post("/orders/{order_id}/lottery/draw")
+async def draw_lottery(order_id: str, request: Request):
+    """订单点击“已付款”后触发抽奖（订单商品金额满10元；每单一次）。"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        order = OrderDB.get_order_by_id(order_id)
+        if not order:
+            return error_response("订单不存在", 404)
+        if order["student_id"] != user["id"]:
+            return error_response("无权操作此订单", 403)
+
+        # 仅计算非抽奖项的小计（老订单不会有 is_lottery 字段，默认参与计算）
+        items = order.get("items") or []
+        items_subtotal = 0.0
+        for it in items:
+            if isinstance(it, dict) and it.get("is_lottery"):
+                continue
+            try:
+                items_subtotal += float(it.get("subtotal", 0) or 0)
+            except Exception:
+                pass
+        if items_subtotal < 10.0:
+            return error_response("本单商品金额未满10元，不参与抽奖", 400)
+
+        # 每个订单仅允许一次抽奖
+        existing = LotteryDB.get_draw_by_order(order_id)
+        if existing:
+            return success_response("抽奖已完成", {
+                "prize_name": existing.get("prize_name"),
+                "already_drawn": True,
+                "names": []
+            })
+
+        # 读取抽奖配置（每次读取）
+        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            return error_response("抽奖配置无效", 500)
+        # 允许空配置，此时100%为“谢谢参与”
+        names = list(cfg.keys())
+        # 过滤负值，转为非负数
+        weights = [max(0.0, float(cfg.get(k, 0))) for k in names]
+        sum_w = sum(weights)
+        # 自动识别权重单位：
+        # - 若总和 <= 1.000001，则视为小数形式（0.05=5%）
+        # - 否则视为百分制（5=5% 或 50=50%）
+        is_fraction = sum_w <= 1.000001
+        scale = 1.0 if is_fraction else 100.0
+        # 剩余“谢谢参与”概率
+        leftover = max(0.0, scale - sum_w)
+        total_w = sum_w + leftover
+        if total_w <= 0:
+            return error_response("抽奖配置权重无效", 500)
+        # 随机抽取，包括“谢谢参与”（若leftover>0）
+        rnd = random.random() * total_w
+        acc = 0.0
+        selected = None
+        # 先在配置项中抽取
+        for n, w in zip(names, weights):
+            if w <= 0:
+                continue
+            acc += w
+            if rnd <= acc:
+                selected = n
+                break
+        # 若未命中且有剩余概率，则判定为“谢谢参与”
+        if selected is None:
+            selected = "谢谢参与"
+
+        # 映射为商品ID（如果存在对应在售商品）；“谢谢参与”不映射
+        prize_pid = None
+        if selected != "谢谢参与":
+            try:
+                candidates = ProductDB.search_products(selected, active_only=True)
+                exact = next((p for p in candidates if p.get("name") == selected), None)
+                if exact:
+                    prize_pid = exact.get("id")
+                elif candidates:
+                    prize_pid = candidates[0].get("id")
+            except Exception:
+                prize_pid = None
+
+        # 记录抽奖结果
+        LotteryDB.create_draw(order_id, user["id"], selected, prize_pid, 1)
+
+        # 统一以百分比返回“谢谢参与”概率，便于调试/展示
+        thanks_prob_percent = (leftover / scale) * 100.0 if total_w > 0 else 0.0
+        return success_response("抽奖完成", {
+            "prize_name": selected,
+            "already_drawn": False,
+            "names": names,
+            "thanks_probability": round(thanks_prob_percent, 2)
+        })
+    except Exception as e:
+        logger.error(f"抽奖失败: {e}")
+        return error_response("抽奖失败", 500)
+
+@app.get("/rewards/eligible")
+async def get_eligible_rewards(request: Request):
+    """获取当前用户可用（未消费）的抽奖奖品列表"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        rewards = RewardDB.get_eligible_rewards(user["id"]) or []
+        return success_response("获取奖品成功", {"rewards": rewards})
+    except Exception as e:
+        logger.error(f"获取奖品失败: {e}")
+        return error_response("获取奖品失败", 500)
+
 @app.patch("/admin/orders/{order_id}/payment-status")
 async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdateRequest, request: Request):
     """管理员更新订单支付状态：pending/processing/succeeded/failed"""
@@ -1796,6 +2011,19 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                         UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
                     except Exception as e:
                         logger.warning(f"缓存用户收货信息失败: {e}")
+                # 若该订单曾进行抽奖，确认成功后生成可用奖品
+                try:
+                    draw = LotteryDB.get_draw_by_order(order_id)
+                    if draw:
+                        RewardDB.add_reward_from_order(
+                            student_id=order["student_id"],
+                            prize_name=draw.get("prize_name"),
+                            prize_product_id=draw.get("prize_product_id"),
+                            quantity=int(draw.get("prize_quantity") or 1),
+                            source_order_id=order_id
+                        )
+                except Exception as e:
+                    logger.warning(f"生成抽奖奖品失败: {e}")
             except Exception as e:
                 logger.warning(f"清空购物车失败: {e}")
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
