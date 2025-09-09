@@ -302,8 +302,7 @@ export default function Checkout() {
               clearInterval(timer);
               setSpinning(false);
               setLotteryDisplay(draw.data?.prize_name || names[0]);
-              // 动画结束后自动跳转
-              router.push('/orders');
+              // 不再自动跳转，让用户看到抽奖结果
             }, duration + 200);
           }
         } catch (e) {
@@ -876,13 +875,15 @@ export default function Checkout() {
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
             </div>
             {!spinning && (
-              <div className="text-center mb-4">
-                <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
-              </div>
+              <>
+                <div className="text-center mb-4">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
+                </div>
+                <div className="flex">
+                  <button onClick={() => { setLotteryOpen(false); router.push('/orders'); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
+                </div>
+              </>
             )}
-            <div className="flex gap-3">
-              <button onClick={() => { setLotteryOpen(false); router.push('/orders'); }} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
-            </div>
           </div>
         </div>
       )}
