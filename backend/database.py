@@ -189,6 +189,25 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # 字段已存在
 
+        # 订单表增加优惠相关字段（若不存在）
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0.0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN coupon_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        # 优惠券锁字段（用于订单未确认/未付款时占用该券）
+        try:
+            cursor.execute('ALTER TABLE coupons ADD COLUMN locked_order_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_locked ON coupons(locked_order_id)')
+        except Exception:
+            pass
+
         # 商品规格（变体）表：独立库存
         try:
             cursor.execute('''
@@ -214,6 +233,26 @@ def init_database():
                     value TEXT
                 )
             ''')
+        except Exception:
+            pass
+
+        # 优惠券表（未使用的券保留为 active；撤回标记为 revoked；使用后直接删除）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS coupons (
+                    id TEXT PRIMARY KEY,
+                    student_id TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    expires_at TIMESTAMP NULL,
+                    status TEXT DEFAULT 'active', -- active, revoked
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES users(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_student ON coupons(student_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_status ON coupons(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_expires ON coupons(expires_at)')
         except Exception:
             pass
 
@@ -1345,7 +1384,7 @@ class AdminDB:
 # 订单相关操作
 class OrderDB:
     @staticmethod
-    def create_order(student_id: str, total_amount: float, shipping_info: dict, items: list, payment_method: str = 'wechat', note: str = '') -> str:
+    def create_order(student_id: str, total_amount: float, shipping_info: dict, items: list, payment_method: str = 'wechat', note: str = '', discount_amount: float = 0.0, coupon_id: Optional[str] = None) -> str:
         """创建新订单（但不扣减库存，等待支付成功）"""
         order_id = f"order_{int(datetime.now().timestamp())}"
         
@@ -1353,8 +1392,8 @@ class OrderDB:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO orders 
-                (id, student_id, total_amount, shipping_info, items, payment_method, note, payment_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 order_id,
                 student_id,
@@ -1363,7 +1402,9 @@ class OrderDB:
                 json.dumps(items),
                 payment_method,
                 note,
-                'pending'
+                'pending',
+                float(discount_amount or 0.0),
+                coupon_id
             ))
             conn.commit()
             return order_id
@@ -1658,6 +1699,15 @@ class OrderDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
+                # 先查询将要删除的订单（用于返还被锁定的优惠券）
+                cursor.execute('''
+                    SELECT id, coupon_id, discount_amount FROM orders
+                    WHERE payment_status IN ('pending','failed')
+                      AND datetime(created_at) <= datetime('now', ?)
+                ''', (f'-{int(expire_minutes)} minutes',))
+                rows = cursor.fetchall() or []
+                ids = [r[0] for r in rows]
+                # 执行删除
                 cursor.execute('''
                     DELETE FROM orders
                     WHERE payment_status IN ('pending','failed')
@@ -1665,6 +1715,19 @@ class OrderDB:
                 ''', (f'-{int(expire_minutes)} minutes',))
                 deleted = cursor.rowcount or 0
                 conn.commit()
+                # 返还优惠券
+                try:
+                    for r in rows:
+                        try:
+                            oid = r[0]
+                            cid = r[1]
+                            damt = float(r[2] or 0)
+                            if cid and damt > 0:
+                                CouponDB.unlock_for_order(cid, oid)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.warning(f"返还过期订单优惠券失败: {e}")
                 return deleted
             except Exception as e:
                 logger.error(f"清理过期未付款订单失败: {e}")
@@ -1832,6 +1895,189 @@ class RewardDB:
                 logger.error(f"取消关联奖励失败: {e}")
                 conn.rollback()
                 return 0
+
+# 优惠券相关操作
+class CouponDB:
+    @staticmethod
+    def issue_coupons(student_id: str, amount: float, quantity: int = 1, expires_at: Optional[str] = None) -> List[str]:
+        """发放优惠券（返回生成的优惠券ID列表）。学号必须存在于 users 表。"""
+        if quantity <= 0:
+            return []
+        ids: List[str] = []
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 确认用户存在
+            cursor.execute('SELECT id FROM users WHERE id = ?', (student_id,))
+            if not cursor.fetchone():
+                return []
+            for i in range(quantity):
+                cid = f"cpn_{int(datetime.now().timestamp()*1000)}_{i}"
+                try:
+                    cursor.execute('''
+                        INSERT INTO coupons (id, student_id, amount, expires_at, status)
+                        VALUES (?, ?, ?, ?, 'active')
+                    ''', (cid, student_id, float(amount), expires_at))
+                    ids.append(cid)
+                except Exception:
+                    # 跳过单条失败，继续
+                    pass
+            conn.commit()
+        return ids
+
+    @staticmethod
+    def list_all(student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """列出所有优惠券（管理员查看），包含 active/revoked；不包含已使用（因为已删除）。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if student_id:
+                cursor.execute('SELECT * FROM coupons WHERE student_id = ? ORDER BY created_at DESC', (student_id,))
+            else:
+                cursor.execute('SELECT * FROM coupons ORDER BY created_at DESC')
+            rows = cursor.fetchall() or []
+            items = [dict(r) for r in rows]
+            # 计算是否过期
+            now = datetime.now()
+            for it in items:
+                exp = it.get('expires_at')
+                it['expired'] = False
+                try:
+                    if exp:
+                        # SQLite 存的文本时间按 fromisoformat 尝试
+                        dt = datetime.fromisoformat(exp) if isinstance(exp, str) else exp
+                        if isinstance(dt, str):
+                            # 某些情况是 'YYYY-MM-DD HH:MM:SS'
+                            try:
+                                from datetime import datetime as _dt
+                                dt = _dt.strptime(dt, "%Y-%m-%d %H:%M:%S")
+                            except Exception:
+                                dt = None
+                        if dt and dt < now:
+                            it['expired'] = True
+                except Exception:
+                    it['expired'] = False
+            return items
+
+    @staticmethod
+    def get_active_for_student(student_id: str) -> List[Dict[str, Any]]:
+        """获取用户当前可用的优惠券（active 且未过期）。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM coupons WHERE student_id = ? AND status = \"active\" AND (locked_order_id IS NULL OR TRIM(locked_order_id) = \"\") ORDER BY created_at DESC', (student_id,))
+            items = [dict(r) for r in cursor.fetchall()]
+            # 过滤过期
+            now = datetime.now()
+            filtered: List[Dict[str, Any]] = []
+            for it in items:
+                exp = it.get('expires_at')
+                if not exp:
+                    filtered.append(it)
+                    continue
+                dt = None
+                try:
+                    dt = datetime.fromisoformat(exp) if isinstance(exp, str) else exp
+                except Exception:
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.strptime(exp, "%Y-%m-%d %H:%M:%S") if isinstance(exp, str) else None
+                    except Exception:
+                        dt = None
+                if (dt is None) or (dt >= now):
+                    filtered.append(it)
+            return filtered
+
+    @staticmethod
+    def get_by_id(coupon_id: str) -> Optional[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM coupons WHERE id = ?', (coupon_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def revoke(coupon_id: str) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE coupons SET status = \"revoked\", updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = \"active\"', (coupon_id,))
+            ok = cursor.rowcount > 0
+            conn.commit()
+            return ok
+
+    @staticmethod
+    def delete_coupon(coupon_id: str) -> bool:
+        """删除优惠券（用于消费）。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM coupons WHERE id = ?', (coupon_id,))
+            ok = cursor.rowcount > 0
+            conn.commit()
+            return ok
+
+    @staticmethod
+    def check_valid_for_student(coupon_id: str, student_id: str) -> Optional[Dict[str, Any]]:
+        """校验优惠券是否可用（归属、状态、未过期）。返回券信息或None。"""
+        c = CouponDB.get_by_id(coupon_id)
+        if not c:
+            return None
+        if c.get('student_id') != student_id:
+            return None
+        if (c.get('status') or 'active') != 'active':
+            return None
+        # 被其他订单锁定则不可用
+        try:
+            locked = c.get('locked_order_id')
+            if locked and str(locked).strip() != '':
+                return None
+        except Exception:
+            pass
+        exp = c.get('expires_at')
+        if exp:
+            try:
+                dt = datetime.fromisoformat(exp) if isinstance(exp, str) else exp
+            except Exception:
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.strptime(exp, "%Y-%m-%d %H:%M:%S") if isinstance(exp, str) else None
+                except Exception:
+                    dt = None
+            if dt and dt < datetime.now():
+                return None
+        return c
+
+    @staticmethod
+    def lock_for_order(coupon_id: str, order_id: str) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    UPDATE coupons
+                    SET locked_order_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND status = 'active' AND (locked_order_id IS NULL OR TRIM(locked_order_id) = '')
+                ''', (order_id, coupon_id))
+                ok = cursor.rowcount > 0
+                conn.commit()
+                return ok
+            except Exception as e:
+                logger.error(f"锁定优惠券失败: {e}")
+                conn.rollback()
+                return False
+
+    @staticmethod
+    def unlock_for_order(coupon_id: str, order_id: str) -> bool:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    UPDATE coupons
+                    SET locked_order_id = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND locked_order_id = ? AND status = 'active'
+                ''', (coupon_id, order_id))
+                ok = cursor.rowcount > 0
+                conn.commit()
+                return ok
+            except Exception as e:
+                logger.error(f"解锁优惠券失败: {e}")
+                conn.rollback()
+                return False
 
 if __name__ == "__main__":
     # 初始化数据库

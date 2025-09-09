@@ -5,6 +5,7 @@ import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
+import AnimatedPrice from '../components/AnimatedPrice';
 
 export default function Checkout() {
   const router = useRouter();
@@ -35,6 +36,9 @@ export default function Checkout() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [eligibleRewards, setEligibleRewards] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [selectedCouponId, setSelectedCouponId] = useState(null);
+  const [applyCoupon, setApplyCoupon] = useState(false);
   // 抽奖弹窗
   const [lotteryOpen, setLotteryOpen] = useState(false);
   const [lotteryNames, setLotteryNames] = useState([]);
@@ -58,7 +62,9 @@ export default function Checkout() {
         body: JSON.stringify({
           shipping_info: shippingInfo,
           payment_method: 'wechat',
-          note: formData.note
+          note: formData.note,
+          coupon_id: applyCoupon ? (selectedCouponId || null) : null,
+          apply_coupon: !!applyCoupon
         })
       });
       if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
@@ -99,6 +105,39 @@ export default function Checkout() {
         setEligibleRewards(rw?.data?.rewards || []);
       } catch (e) {
         setEligibleRewards([]);
+      }
+      // 加载我的优惠券并默认选择
+      try {
+        const resp = await apiRequest('/coupons/my');
+        const list = resp?.data?.coupons || [];
+        setCoupons(list);
+        const sub = data?.data?.total_price || 0;
+        const fromQuery = (router?.query?.coupon_id || '').toString();
+        const applyParam = (router?.query?.apply || router?.query?.apply_coupon || '').toString().toLowerCase();
+        if (applyParam === '0' || applyParam === 'false') {
+          // 用户在购物车未勾选使用券：保持不勾选
+          setSelectedCouponId(null);
+          setApplyCoupon(false);
+        } else if (fromQuery && list.some(x => x.id === fromQuery) && sub > (parseFloat(list.find(x => x.id === fromQuery).amount) || 0)) {
+          // 明确指定了券并选择使用
+          setSelectedCouponId(fromQuery);
+          setApplyCoupon(true);
+        } else {
+          // 未指定，则默认选择最高可用（保留原有体验）
+          const applicable = list.filter(x => sub > (parseFloat(x.amount) || 0));
+          if (applicable.length > 0) {
+            applicable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+            setSelectedCouponId(applicable[0].id);
+            setApplyCoupon(true);
+          } else {
+            setSelectedCouponId(null);
+            setApplyCoupon(false);
+          }
+        }
+      } catch (e) {
+        setCoupons([]);
+        setSelectedCouponId(null);
+        setApplyCoupon(false);
       }
       
       // 如果购物车为空，跳转到购物车页面
@@ -227,7 +266,9 @@ export default function Checkout() {
         body: JSON.stringify({
           shipping_info: shippingInfo,
           payment_method: 'wechat',
-          note: formData.note
+          note: formData.note,
+          coupon_id: applyCoupon ? (selectedCouponId || null) : null,
+          apply_coupon: !!applyCoupon
         })
       });
       if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
@@ -236,7 +277,8 @@ export default function Checkout() {
       const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
-        // 触发抽奖动画
+        // 触发抽奖动画并自动跳转到订单页
+        let willRedirect = false;
         try {
           const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
           if (draw.success) {
@@ -248,6 +290,7 @@ export default function Checkout() {
             setLotteryDisplay(names[0] || '');
             setLotteryOpen(true);
             setSpinning(true);
+            willRedirect = true;
             const duration = 2000;
             const interval = 80;
             let idx = 0;
@@ -259,10 +302,15 @@ export default function Checkout() {
               clearInterval(timer);
               setSpinning(false);
               setLotteryDisplay(draw.data?.prize_name || names[0]);
-            }, duration);
+              // 动画结束后自动跳转
+              router.push('/orders');
+            }, duration + 200);
           }
         } catch (e) {
           // 忽略
+        }
+        if (!willRedirect) {
+          router.push('/orders');
         }
       } else {
         alert(res.message || '操作失败');
@@ -305,6 +353,22 @@ export default function Checkout() {
     const addr = addressOptions.find(a => a.name === formData.dormitory);
     loadBuildings(formData.dormitory, addr?.id);
   }, [formData.dormitory, addressOptions]);
+
+  // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
+  useEffect(() => {
+    const sub = cart?.total_price || 0;
+    const usable = (coupons || []).filter(c => sub > (parseFloat(c.amount) || 0));
+    if (applyCoupon) {
+      if (!selectedCouponId || !usable.some(x => x.id === selectedCouponId)) {
+        if (usable.length > 0) {
+          usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+          setSelectedCouponId(usable[0].id);
+        } else {
+          setSelectedCouponId(null);
+        }
+      }
+    }
+  }, [applyCoupon, coupons, cart?.total_price]);
 
   // 如果用户未登录，不渲染内容
   if (!user) {
@@ -603,13 +667,75 @@ export default function Checkout() {
                         )}
                       </span>
                     </div>
+                    {/* 优惠券选择（结算区域） */}
+                    <div className="flex items-center justify-between text-sm">
+                      <label className="flex items-center gap-2">
+                        <input 
+                          type="checkbox" 
+                          checked={applyCoupon} 
+                          disabled={(() => {
+                            const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                            return usable.length === 0;
+                          })()} 
+                          onChange={(e) => {
+                            const checked = !!e.target.checked;
+                            setApplyCoupon(checked);
+                            if (checked && !selectedCouponId) {
+                              // 如果勾选使用优惠券但没有选中券，自动选择最佳券
+                              const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                              if (usable.length > 0) {
+                                usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+                                setSelectedCouponId(usable[0].id);
+                              }
+                            }
+                          }} 
+                        />
+                        <span className="text-gray-900">使用优惠券</span>
+                      </label>
+                      <span className="text-gray-900 font-medium">
+                        {applyCoupon && selectedCouponId ? (() => {
+                          const c = coupons.find(x => x.id === selectedCouponId);
+                          return c ? `-¥${(parseFloat(c.amount) || 0).toFixed(2)}` : '—';
+                        })() : '—'}
+                      </span>
+                    </div>
+                    {(() => {
+                      const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                      if (usable.length === 0) return null;
+                      return (
+                        <div className="text-xs text-gray-700">
+                          <select
+                            className="w-full border border-white/30 bg-white/40 px-2 py-1 rounded"
+                            value={selectedCouponId || (usable[0]?.id || '')}
+                            onChange={(e) => setSelectedCouponId(e.target.value || null)}
+                          >
+                            {usable
+                              .slice()
+                              .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
+                              .map(c => {
+                                const amt = parseFloat(c.amount) || 0;
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {`¥${amt.toFixed(2)}${c.expires_at ? ` · 截止 ${new Date(c.expires_at).toLocaleDateString('zh-CN')}` : ' · 永久'}`}
+                                  </option>
+                                );
+                              })}
+                          </select>
+                        </div>
+                      );
+                    })()}
                     <div className="bg-white/10 rounded-xl p-4 border border-white/20">
                       <div className="flex justify-between items-center">
                         <span className="text-gray-900 font-semibold flex items-center gap-2">
                           <i className="fas fa-calculator"></i>
                           总计
                         </span>
-                        <span className="text-xl font-bold text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
+                        {(() => {
+                          const base = (cart?.payable_total ?? cart.total_price) || 0;
+                          const disc = (applyCoupon && selectedCouponId) ? (parseFloat((coupons.find(x => x.id === selectedCouponId)?.amount) || 0)) : 0;
+                          const total = Math.max(0, base - disc);
+                          return <AnimatedPrice value={total} className="text-2xl font-bold text-gray-900" />;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -649,7 +775,13 @@ export default function Checkout() {
                       <>
                         <i className="fas fa-credit-card"></i>
                         <span>
-                          {shopOpen ? `立即支付 ¥${cart.payable_total ?? cart.total_price}` : '打烊中 · 暂停结算'}
+                          {(() => {
+                            if (!shopOpen) return '打烊中 · 暂停结算';
+                            const base = (cart?.payable_total ?? cart.total_price) || 0;
+                            const disc = (applyCoupon && selectedCouponId) ? (parseFloat((coupons.find(x => x.id === selectedCouponId)?.amount) || 0)) : 0;
+                            const total = Math.max(0, base - disc);
+                            return `立即支付 ¥${total.toFixed(2)}`;
+                          })()}
                         </span>
                       </>
                     )}

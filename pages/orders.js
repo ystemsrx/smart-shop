@@ -368,6 +368,9 @@ export default function Orders() {
                         <div className="flex items-center gap-4">
                           <div className="text-right">
                             <p className="text-lg font-bold text-gray-900">¥{o.total_amount}</p>
+                            {o.discount_amount > 0 && (
+                              <p className="text-xs text-pink-600">已用优惠券 -¥{Number(o.discount_amount).toFixed(2)}</p>
+                            )}
                             <p className="text-xs text-gray-500">订单总额</p>
                           </div>
                           <button

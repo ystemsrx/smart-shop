@@ -5,6 +5,7 @@ import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
+import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
 
@@ -111,7 +112,11 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon }) => {
+  const selected = coupons.find(c => c.id === selectedCouponId);
+  const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
+  const base = (cart?.payable_total ?? cart.total_price) || 0;
+  const total = Math.max(0, base - discount);
   return (
     <div className="bg-white border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-6 pb-3 border-b border-gray-100">订单摘要</h3>
@@ -139,11 +144,66 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed }) => {
             <a href="/shop" className="ml-2 text-gray-900 underline hover:no-underline">去凑单</a>
           </div>
         )}
+        {/* 优惠券选择（靠近结算按钮） */}
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-gray-900 font-medium">
+              <input
+                type="checkbox"
+                checked={!!applyCoupon}
+                disabled={(() => {
+                  const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                  return usable.length === 0;
+                })()}
+                onChange={(e) => {
+                  const checked = !!e.target.checked;
+                  setApplyCoupon && setApplyCoupon(checked);
+                  if (checked && !selectedCouponId && setSelectedCouponId) {
+                    // 如果勾选使用优惠券但没有选中券，自动选择最佳券
+                    const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                    if (usable.length > 0) {
+                      usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+                      setSelectedCouponId(usable[0].id);
+                    }
+                  }
+                }}
+              />
+              <span>使用优惠券</span>
+            </label>
+            <span className="text-sm text-gray-600">{applyCoupon && selected ? `-¥${(parseFloat(selected.amount)||0).toFixed(2)}` : '—'}</span>
+          </div>
+          {/* 简单选择列表（若有多张） */}
+          {(() => {
+            const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+            if (usable.length === 0) return null;
+            return (
+            <div className="mt-2 text-sm">
+              <select
+                className="w-full border border-gray-300 px-2 py-1 text-gray-900"
+                value={selectedCouponId || (usable[0]?.id || '')}
+                onChange={(e) => setSelectedCouponId && setSelectedCouponId(e.target.value || null)}
+              >
+                {usable
+                  .slice()
+                  .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
+                  .map(c => {
+                    const amt = parseFloat(c.amount) || 0;
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {`¥${amt.toFixed(2)}${c.expires_at ? ` · 截止 ${new Date(c.expires_at).toLocaleDateString('zh-CN')}` : ' · 永久'}`}
+                      </option>
+                    );
+                  })}
+              </select>
+            </div>
+            );
+          })()}
+        </div>
         
         <div className="border-t border-gray-200 pt-4 mt-4">
           <div className="flex justify-between items-center">
             <span className="text-lg font-medium text-gray-900">总计</span>
-            <span className="text-xl font-medium text-gray-900">¥{cart.payable_total ?? cart.total_price}</span>
+            <AnimatedPrice value={total} className="text-2xl font-semibold text-gray-900" />
           </div>
         </div>
       </div>
@@ -173,6 +233,10 @@ export default function Cart() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [eligibleRewards, setEligibleRewards] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [couponExpanded, setCouponExpanded] = useState(false);
+  const [selectedCouponId, setSelectedCouponId] = useState(null);
+  const [applyCoupon, setApplyCoupon] = useState(false);
 
   // 检查登录状态
   useEffect(() => {
@@ -196,6 +260,26 @@ export default function Cart() {
         setEligibleRewards(rw?.data?.rewards || []);
       } catch (e) {
         setEligibleRewards([]);
+      }
+      // 加载我的优惠券 + 默认选择规则
+      try {
+        const resp = await apiRequest('/coupons/my');
+        const list = resp?.data?.coupons || [];
+        setCoupons(list);
+        const sub = data?.data?.total_price || 0;
+        const applicable = list.filter(x => sub > (parseFloat(x.amount) || 0));
+        if (applicable.length > 0) {
+          applicable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+          setSelectedCouponId(applicable[0].id);
+          setApplyCoupon(true);
+        } else {
+          setSelectedCouponId(null);
+          setApplyCoupon(false);
+        }
+      } catch (e) {
+        setCoupons([]);
+        setSelectedCouponId(null);
+        setApplyCoupon(false);
       }
     } catch (err) {
       setError(err.message || '加载购物车失败');
@@ -262,6 +346,22 @@ export default function Cart() {
       loadCart();
     }
   }, [user]);
+
+  // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
+  useEffect(() => {
+    const sub = cart?.total_price || 0;
+    const usable = (coupons || []).filter(c => sub > (parseFloat(c.amount) || 0));
+    if (applyCoupon) {
+      if (!selectedCouponId || !usable.some(x => x.id === selectedCouponId)) {
+        if (usable.length > 0) {
+          usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+          setSelectedCouponId(usable[0].id);
+        } else {
+          setSelectedCouponId(null);
+        }
+      }
+    }
+  }, [applyCoupon, coupons, cart?.total_price]);
 
   // 加载店铺状态
   useEffect(() => {
@@ -338,6 +438,54 @@ export default function Cart() {
             </div>
           ) : (
             <>
+              {/* 优惠券概览（空购物车也显示；无券则不显示）*/}
+              {coupons && coupons.length > 0 && (
+                <div className="mb-4 border border-gray-200">
+                  <button
+                    className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50"
+                    onClick={() => setCouponExpanded(!couponExpanded)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <i className="fas fa-ticket-alt text-pink-500"></i>
+                      <span className="font-medium text-gray-900">我的优惠券</span>
+                      <span className="text-sm text-gray-500">（{coupons.length} 张）</span>
+                    </div>
+                    <i className={`fas ${couponExpanded ? 'fa-chevron-up' : 'fa-chevron-down'} text-gray-500`}></i>
+                  </button>
+                  {couponExpanded && (() => {
+                    const sub = cart?.total_price || 0;
+                    const groups = {};
+                    for (const c of coupons) {
+                      const k = `${parseFloat(c.amount) || 0}|${c.expires_at || 'forever'}`;
+                      if (!groups[k]) groups[k] = { list: [], amount: parseFloat(c.amount) || 0, expires_at: c.expires_at || null };
+                      groups[k].list.push(c);
+                    }
+                    const keys = Object.keys(groups).sort((a, b) => (groups[b].amount - groups[a].amount));
+                    return (
+                      <div className="bg-gray-50 px-4 py-3">
+                        {keys.map(k => {
+                          const g = groups[k];
+                          const usable = sub > g.amount;
+                          return (
+                            <div key={k} className={`flex items-center justify-between border bg-white px-3 py-2 mb-2 ${usable ? 'border-pink-200' : 'border-gray-200 opacity-70'}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded bg-pink-100 text-pink-600 flex items-center justify-center font-bold">¥{g.amount}</div>
+                                <div>
+                                  <div className="text-sm text-gray-900">{usable ? '可用' : '不可用（需大于券额）'}</div>
+                                  <div className="text-xs text-gray-500">{g.expires_at ? `到期：${new Date(g.expires_at).toLocaleString('zh-CN')}` : '永久有效'}</div>
+                                  <div className="text-xs text-gray-500">满{g.amount}可用</div>
+                                </div>
+                              </div>
+                              <div className="text-sm text-gray-700">×{g.list.length}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {cart.items && cart.items.length > 0 ? (
                 <div className="lg:grid lg:grid-cols-3 lg:gap-8">
                   {/* 购物车商品列表 */}
@@ -399,9 +547,21 @@ export default function Cart() {
                     <div className="lg:sticky lg:top-24">
                       <OrderSummary
                         cart={cart}
-                        onCheckout={handleCheckout}
+                        onCheckout={() => {
+                          // 保持用户在订单摘要中的“使用优惠券”勾选状态
+                          if (applyCoupon && selectedCouponId) {
+                            router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+                          } else {
+                            router.push('/checkout?apply=0');
+                          }
+                        }}
                         isLoading={actionLoading}
                         isClosed={!shopOpen}
+                        coupons={coupons}
+                        selectedCouponId={selectedCouponId}
+                        setSelectedCouponId={setSelectedCouponId}
+                        applyCoupon={applyCoupon}
+                        setApplyCoupon={setApplyCoupon}
                       />
                     </div>
                   </div>
