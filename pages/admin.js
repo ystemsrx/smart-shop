@@ -1252,7 +1252,10 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   {(order.items || []).reduce((sum, it) => sum + (parseInt(it.quantity) || 0), 0)} 件
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ¥{order.total_amount}
+                  <div className="text-gray-900">¥{order.total_amount}</div>
+                  {order.discount_amount > 0 && (
+                    <div className="text-xs text-pink-600">券抵扣 -¥{Number(order.discount_amount).toFixed(2)}</div>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {getStatusBadge(getUnifiedStatus(order))}
@@ -1546,6 +1549,290 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
   );
 };
 
+// 优惠券管理面板
+const CouponsPanel = () => {
+  const { apiRequest } = useApi();
+  const [q, setQ] = React.useState('');
+  const [suggests, setSuggests] = React.useState([]);
+  const [selected, setSelected] = React.useState('');
+  const [amount, setAmount] = React.useState('');
+  const [quantity, setQuantity] = React.useState(1);
+  const [expiresAt, setExpiresAt] = React.useState(''); // datetime-local
+  const [list, setList] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [issuing, setIssuing] = React.useState(false);
+  const [expandedStudents, setExpandedStudents] = React.useState(new Set());
+
+  // 实时查询学号（只有输入至少一个字符时才搜索）
+  React.useEffect(() => {
+    if (q.trim().length === 0) {
+      setSuggests([]);
+      return;
+    }
+    
+    let mounted = true;
+    (async () => {
+      try {
+        const r = await apiRequest(`/admin/students/search?q=${encodeURIComponent(q)}`);
+        if (!mounted) return;
+        setSuggests(r?.data?.students || []);
+      } catch (e) {
+        if (!mounted) return;
+        setSuggests([]);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [q, apiRequest]);
+
+  const loadList = async () => {
+    setLoading(true);
+    try {
+      const url = selected ? `/admin/coupons?student_id=${encodeURIComponent(selected)}` : '/admin/coupons';
+      const r = await apiRequest(url);
+      setList(r?.data?.coupons || []);
+    } catch (e) {
+      setList([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { loadList(); }, [selected]);
+
+  const handleIssue = async () => {
+    const sid = selected || (suggests[0]?.id || '');
+    if (!sid) { alert('请选择学号'); return; }
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) { alert('请输入正确金额'); return; }
+    let expires = null;
+    if (expiresAt) {
+      const t = new Date(expiresAt);
+      if (!isNaN(t.getTime())) {
+        const pad = (n) => n.toString().padStart(2, '0');
+        expires = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}:00`;
+      }
+    }
+    setIssuing(true);
+    try {
+      await apiRequest('/admin/coupons/issue', {
+        method: 'POST',
+        body: JSON.stringify({ student_id: sid, amount: amt, quantity: parseInt(quantity)||1, expires_at: expires })
+      });
+      setAmount('');
+      setQuantity(1);
+      await loadList();
+      alert('发放成功');
+    } catch (e) {
+      alert(e.message || '发放失败');
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const handleRevoke = async (id) => {
+    if (!confirm('确定撤回该优惠券？')) return;
+    try {
+      await apiRequest(`/admin/coupons/${id}/revoke`, { method: 'PATCH' });
+      await loadList();
+    } catch (e) {
+      alert(e.message || '撤回失败');
+    }
+  };
+
+  const toggleStudentExpanded = (studentId) => {
+    const newExpanded = new Set(expandedStudents);
+    if (newExpanded.has(studentId)) {
+      newExpanded.delete(studentId);
+    } else {
+      newExpanded.add(studentId);
+    }
+    setExpandedStudents(newExpanded);
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-lg font-medium text-gray-900">优惠券管理</h2>
+        <p className="text-sm text-gray-600 mt-1">基于已有学号发放与管理优惠券</p>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="relative">
+            <label className="block text-sm text-gray-700 mb-1">搜索/选择学号</label>
+            <input 
+              className="w-full px-3 py-2 border rounded" 
+              placeholder="输入学号前缀..." 
+              value={q} 
+              onChange={(e) => setQ(e.target.value)}
+              onFocus={() => {
+                if (q.length > 0 && suggests.length > 0) {
+                  document.getElementById('suggest-dropdown').style.display = 'block';
+                }
+              }}
+              onBlur={() => {
+                // 延迟隐藏，允许点击选项
+                setTimeout(() => {
+                  const dropdown = document.getElementById('suggest-dropdown');
+                  if (dropdown) dropdown.style.display = 'none';
+                }, 200);
+              }}
+            />
+            {q.length > 0 && suggests.length > 0 && (
+              <div 
+                id="suggest-dropdown"
+                className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto"
+              >
+                {suggests.map(s => (
+                  <div 
+                    key={s.id} 
+                    className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                    onClick={() => {
+                      setSelected(s.id);
+                      setQ(s.id + (s.name ? ` · ${s.name}` : ''));
+                      document.getElementById('suggest-dropdown').style.display = 'none';
+                    }}
+                  >
+                    <div className="text-sm text-gray-900">{s.id}</div>
+                    {s.name && <div className="text-xs text-gray-500">{s.name}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">金额（元）</label>
+            <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full px-3 py-2 border rounded" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">数量</label>
+            <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value)||1)} className="w-full px-3 py-2 border rounded" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">过期时间（可选）</label>
+            <input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-full px-3 py-2 border rounded" />
+          </div>
+        </div>
+        <div className="mt-4">
+          <button onClick={handleIssue} disabled={issuing} className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-50">{issuing ? '发放中...' : '发放优惠券'}</button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-md font-medium text-gray-900">当前优惠券</h3>
+          <button onClick={loadList} className="text-sm px-3 py-1.5 bg-gray-100 rounded border">刷新</button>
+        </div>
+        {loading ? (
+          <div className="text-sm text-gray-500">加载中...</div>
+        ) : (
+          <div className="space-y-2">
+            {list.length === 0 && (
+              <div className="text-gray-500 text-center py-8">暂无数据</div>
+            )}
+            {(() => {
+              // 按学号分组
+              const groupedByStudent = {};
+              list.forEach(c => {
+                if (!groupedByStudent[c.student_id]) {
+                  groupedByStudent[c.student_id] = [];
+                }
+                groupedByStudent[c.student_id].push(c);
+              });
+
+              const studentIds = Object.keys(groupedByStudent).sort();
+              
+              return studentIds.map(studentId => {
+                const coupons = groupedByStudent[studentId];
+                const isExpanded = expandedStudents.has(studentId);
+                const activeCoupons = coupons.filter(c => c.status === 'active' && !c.expired);
+                const totalCount = coupons.length;
+                const activeCount = activeCoupons.length;
+                
+                return (
+                  <div key={studentId} className="border border-gray-200 rounded-lg overflow-hidden">
+                    {/* 学号头部 - 可点击展开/折叠 */}
+                    <div 
+                      className="px-4 py-3 bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => toggleStudentExpanded(studentId)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <i className={`fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-gray-500 transition-transform`}></i>
+                          <span className="font-medium text-gray-900">{studentId}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                              总共 {totalCount} 张
+                            </span>
+                            {activeCount > 0 && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                                可用 {activeCount} 张
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          点击{isExpanded ? '收起' : '展开'}详情
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* 优惠券详情 - 展开时显示 */}
+                    {isExpanded && (
+                      <div className="bg-white">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left text-gray-500">金额</th>
+                                <th className="px-4 py-2 text-left text-gray-500">到期时间</th>
+                                <th className="px-4 py-2 text-left text-gray-500">状态</th>
+                                <th className="px-4 py-2 text-left text-gray-500">操作</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {coupons.map(c => {
+                                const amt = parseFloat(c.amount) || 0;
+                                const expired = !!c.expired;
+                                const statusText = c.status === 'revoked' ? '已撤回' : (expired ? '已过期' : '未使用');
+                                const statusColor = c.status === 'revoked' ? 'text-red-600' : (expired ? 'text-gray-500' : 'text-green-600');
+                                
+                                return (
+                                  <tr key={c.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-2 font-medium">¥{amt.toFixed(2)}</td>
+                                    <td className="px-4 py-2">{c.expires_at ? new Date(c.expires_at).toLocaleString('zh-CN') : '永久'}</td>
+                                    <td className={`px-4 py-2 ${statusColor}`}>{statusText}</td>
+                                    <td className="px-4 py-2">
+                                      {c.status === 'active' && !expired ? (
+                                        <button 
+                                          onClick={() => handleRevoke(c.id)} 
+                                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors"
+                                        >
+                                          撤回
+                                        </button>
+                                      ) : (
+                                        <span className="text-gray-400 text-xs">—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function Admin() {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -1579,7 +1866,7 @@ export default function Admin() {
     total_revenue: 0
   });
   const [orderStatusFilter, setOrderStatusFilter] = useState('全部'); // 全部/未付款/待确认/待配送/配送中/已完成
-  const [activeTab, setActiveTab] = useState('products'); // products, orders, addresses
+  const [activeTab, setActiveTab] = useState('products'); // products, orders, addresses, lottery, coupons
   // 订单分页/搜索
   const [orderPage, setOrderPage] = useState(0);
   const [orderHasMore, setOrderHasMore] = useState(false);
@@ -2374,6 +2661,16 @@ export default function Admin() {
                 >
                   抽奖配置
                 </button>
+                <button
+                  onClick={() => setActiveTab('coupons')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'coupons'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  优惠券管理
+                </button>
               </nav>
             </div>
           </div>
@@ -2546,6 +2843,11 @@ export default function Admin() {
                 </>
               )}
             </>
+          )}
+
+          {/* 优惠券管理 */}
+          {activeTab === 'coupons' && (
+            <CouponsPanel />
           )}
 
           {/* 地址管理 */}

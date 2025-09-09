@@ -11,3 +11,4 @@ venv/
 chatapi/
 AGENTS.md
 lottery_config.json
+tencent*.txt

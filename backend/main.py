@@ -17,7 +17,7 @@ import random
 from database import (
     init_database, cleanup_old_chat_logs,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB, LotteryDB, RewardDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -203,6 +203,8 @@ class OrderCreateRequest(BaseModel):
     shipping_info: Dict[str, str]
     payment_method: str = 'wechat'
     note: str = ''
+    coupon_id: Optional[str] = None  # 选用的优惠券ID（可选）
+    apply_coupon: Optional[bool] = True  # 是否应用优惠券（默认应用）
 
 class OrderStatusUpdateRequest(BaseModel):
     status: str
@@ -240,6 +242,14 @@ class AddressReorderRequest(BaseModel):
 class BuildingReorderRequest(BaseModel):
     address_id: str
     order: List[str]
+
+# 优惠券模型
+class CouponIssueRequest(BaseModel):
+    student_id: str
+    amount: float
+    quantity: int = 1
+    # ISO字符串或 'YYYY-MM-DD HH:MM:SS'，为空代表永久
+    expires_at: Optional[str] = None
 
 # 启动事件
 @app.on_event("startup")
@@ -379,6 +389,89 @@ async def refresh_token(request: Request, response: Response):
         return success_response("管理员令牌刷新成功", {"access_token": new_token})
     
     return error_response("令牌无效", 401)
+
+# ==================== 学号搜索（管理员） ====================
+
+@app.get("/admin/students/search")
+async def admin_search_students(request: Request, q: str = ""):
+    """按学号模糊搜索（基于已存在的学号）。每输入1个字符就查询。"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        like = f"%{q.strip()}%" if q else "%"
+        from database import get_db_connection
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT id, name FROM users WHERE id LIKE ? ORDER BY id ASC LIMIT 20', (like,))
+            rows = cur.fetchall() or []
+            items = [{"id": r[0], "name": r[1]} for r in rows]
+        return success_response("搜索成功", {"students": items})
+    except Exception as e:
+        logger.error(f"搜索学号失败: {e}")
+        return error_response("搜索失败", 500)
+
+# ==================== 优惠券（用户/管理员） ====================
+
+@app.get("/coupons/my")
+async def my_coupons(request: Request):
+    user = get_current_user_required_from_cookie(request)
+    try:
+        coupons = CouponDB.get_active_for_student(user["id"]) or []
+        return success_response("获取优惠券成功", {"coupons": coupons})
+    except Exception as e:
+        logger.error(f"获取优惠券失败: {e}")
+        return error_response("获取优惠券失败", 500)
+
+@app.get("/admin/coupons")
+async def admin_list_coupons(request: Request, student_id: Optional[str] = None):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        items = CouponDB.list_all(student_id)
+        return success_response("获取优惠券列表成功", {"coupons": items})
+    except Exception as e:
+        logger.error(f"管理员获取优惠券失败: {e}")
+        return error_response("获取优惠券失败", 500)
+
+@app.post("/admin/coupons/issue")
+async def admin_issue_coupons(payload: CouponIssueRequest, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        amt = float(payload.amount)
+        if amt <= 0:
+            return error_response("金额必须大于0", 400)
+        qty = int(payload.quantity or 1)
+        if qty <= 0 or qty > 200:
+            return error_response("发放数量需为 1-200", 400)
+        # 规范化时间格式
+        expires_at = None
+        if payload.expires_at:
+            try:
+                from datetime import datetime as _dt
+                try:
+                    dt = _dt.fromisoformat(payload.expires_at)
+                except Exception:
+                    dt = _dt.strptime(payload.expires_at, "%Y-%m-%d %H:%M:%S")
+                expires_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return error_response("无效的过期时间格式", 400)
+        ids = CouponDB.issue_coupons(payload.student_id, amt, qty, expires_at)
+        if not ids:
+            return error_response("发放失败，学号不存在或其他错误", 400)
+        return success_response("发放成功", {"issued": len(ids), "coupon_ids": ids})
+    except Exception as e:
+        logger.error(f"发放优惠券失败: {e}")
+        return error_response("发放优惠券失败", 500)
+
+@app.patch("/admin/coupons/{coupon_id}/revoke")
+async def admin_revoke_coupon(coupon_id: str, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        ok = CouponDB.revoke(coupon_id)
+        if not ok:
+            return error_response("撤回失败或已撤回/不存在", 400)
+        return success_response("已撤回")
+    except Exception as e:
+        logger.error(f"撤回优惠券失败: {e}")
+        return error_response("撤回失败", 500)
 
 # ==================== 商品路由 ====================
 
@@ -1567,7 +1660,26 @@ async def create_order(
 
         # 运费规则：不足10元收取1元，满10元免运费（仅计算上架商品金额）
         shipping_fee = 0.0 if items_subtotal >= 10.0 else (1.0 if items_subtotal > 0 else 0.0)
-        total_amount = round(items_subtotal + shipping_fee, 2)
+
+        # 处理优惠券（每单最多1张；仅当商品金额严格大于券额时可用）
+        discount_amount = 0.0
+        used_coupon_id = None
+        if order_request.apply_coupon and order_request.coupon_id:
+            try:
+                coupon = CouponDB.check_valid_for_student(order_request.coupon_id, user["id"])  # 校验归属、状态、未过期
+                if coupon:
+                    try:
+                        amt = float(coupon.get('amount') or 0)
+                    except Exception:
+                        amt = 0.0
+                    if items_subtotal > amt and amt > 0:
+                        discount_amount = round(amt, 2)
+                        used_coupon_id = coupon.get('id')
+            except Exception as e:
+                logger.warning(f"校验优惠券失败: {e}")
+
+        # 订单总金额 = 商品小计 - 优惠 + 运费（不为负）
+        total_amount = round(max(0.0, items_subtotal - discount_amount) + shipping_fee, 2)
 
         if not order_items:
             return error_response("购物车中没有可结算的上架商品", 400)
@@ -1579,8 +1691,16 @@ async def create_order(
             shipping_info=order_request.shipping_info,
             items=order_items,
             payment_method=order_request.payment_method,
-            note=order_request.note
+            note=order_request.note,
+            discount_amount=discount_amount,
+            coupon_id=used_coupon_id
         )
+        # 锁定优惠券，防止未付款或待确认期间被重复使用
+        if used_coupon_id and discount_amount > 0:
+            try:
+                CouponDB.lock_for_order(used_coupon_id, order_id)
+            except Exception as e:
+                logger.warning(f"锁定优惠券失败: {e}")
         # 标记已附加的奖品为已消费（绑定到本订单）
         if rewards_attached_ids:
             try:
@@ -1598,7 +1718,7 @@ async def create_order(
         # 注意：库存扣减移到支付成功后处理
         # 购物车清空也移到支付成功后处理
         
-        return success_response("订单创建成功", {"order_id": order_id, "total_amount": round(total_amount, 2)})
+        return success_response("订单创建成功", {"order_id": order_id, "total_amount": round(total_amount, 2), "discount_amount": round(discount_amount, 2), "coupon_id": used_coupon_id})
     
     except Exception as e:
         logger.error(f"创建订单失败: {e}")
@@ -1756,12 +1876,42 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
             if len(ids) > 500:
                 return error_response("批量删除数量不能超过500笔订单", 400)
             from database import OrderDB
+            # 预取订单，用于返还锁定的优惠券
+            try:
+                orders_before = [OrderDB.get_order_by_id(i) for i in ids]
+            except Exception:
+                orders_before = []
             result = OrderDB.batch_delete_orders(ids)
             if not result.get("success"):
                 return error_response(result.get("message", "批量删除失败"), 400)
+            # 返还相关优惠券（仅对未支付订单）
+            try:
+                for od in (orders_before or []):
+                    if not od:
+                        continue
+                    try:
+                        if (od.get("payment_status") or "pending") != "succeeded":
+                            c_id = od.get("coupon_id")
+                            d_amt = float(od.get("discount_amount") or 0)
+                            if c_id and d_amt > 0:
+                                CouponDB.unlock_for_order(c_id, od.get("id"))
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"批量删除返还优惠券失败: {e}")
             return success_response(result.get("message", "批量删除成功"), result)
         else:
             from database import OrderDB
+            # 单笔：删除前返还优惠券（仅未支付）
+            try:
+                od = OrderDB.get_order_by_id(order_id)
+                if od and (od.get("payment_status") or "pending") != "succeeded":
+                    c_id = od.get("coupon_id")
+                    d_amt = float(od.get("discount_amount") or 0)
+                    if c_id and d_amt > 0:
+                        CouponDB.unlock_for_order(c_id, order_id)
+            except Exception as e:
+                logger.warning(f"单笔删除返还优惠券失败: {e}")
             ok = OrderDB.delete_order(order_id)
             if not ok:
                 return error_response("删除订单失败或订单不存在", 400)
@@ -2024,6 +2174,14 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                         )
                 except Exception as e:
                     logger.warning(f"生成抽奖奖品失败: {e}")
+                # 若本单使用了优惠券，支付成功后删除该券（已使用不再显示）
+                try:
+                    c_id = order.get("coupon_id")
+                    d_amt = float(order.get("discount_amount") or 0)
+                    if c_id and d_amt > 0:
+                        CouponDB.delete_coupon(c_id)
+                except Exception as e:
+                    logger.warning(f"删除已用优惠券失败: {e}")
             except Exception as e:
                 logger.warning(f"清空购物车失败: {e}")
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
@@ -2032,6 +2190,15 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
         ok = OrderDB.update_payment_status(order_id, new_status)
         if not ok:
             return error_response("更新支付状态失败", 500)
+        # 若标记为未付款或失败，返还被锁定的优惠券
+        try:
+            if new_status in ["pending", "failed"]:
+                c_id = order.get("coupon_id")
+                d_amt = float(order.get("discount_amount") or 0)
+                if c_id and d_amt > 0:
+                    CouponDB.unlock_for_order(c_id, order_id)
+        except Exception as e:
+            logger.warning(f"返还优惠券失败: {e}")
         return success_response("支付状态已更新", {"order_id": order_id, "payment_status": new_status})
     except Exception as e:
         logger.error(f"管理员更新支付状态失败: {e}")
