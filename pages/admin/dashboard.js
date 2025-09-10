@@ -3,6 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
+import Nav from '../../components/Nav';
 
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
@@ -73,17 +74,17 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
   const maxValue = Math.max(...data.map(d => d.value || d.sold || 0));
   
   return (
-    <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100 backdrop-blur-sm relative overflow-hidden">
+    <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100 backdrop-blur-sm relative overflow-hidden h-full flex flex-col">
       {/* 背景装饰 */}
       <div className="absolute top-0 left-0 w-24 h-24 bg-gradient-to-br from-purple-100/30 to-transparent rounded-full transform -translate-x-8 -translate-y-8"></div>
       
-      <div className="relative z-10">
+      <div className="relative z-10 flex flex-col h-full">
         <h3 className="text-xl font-bold text-gray-900 mb-8 flex items-center gap-3">
           <div className="w-2 h-8 bg-gradient-to-b from-purple-500 to-pink-600 rounded-full"></div>
           {title}
         </h3>
         
-        <div className="space-y-5 max-h-96 overflow-y-auto custom-scrollbar">
+        <div className="space-y-5 flex-1 overflow-y-auto custom-scrollbar">
           {data.map((item, index) => {
             const value = item.value || item.sold || 0;
             const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
@@ -166,15 +167,17 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
 const SalesTrendChart = ({ data, title, period }) => {
   if (!data || data.length === 0) {
     return (
-      <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100 backdrop-blur-sm">
+      <div className="bg-gradient-to-br from-white via-slate-50/30 to-blue-50/50 rounded-3xl p-8 shadow-xl border border-gray-100/50 backdrop-blur-md">
         <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 to-purple-600 rounded-full"></div>
+          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 via-indigo-500 to-purple-600 rounded-full shadow-lg"></div>
           {title}
         </h3>
         <div className="flex items-center justify-center h-64 text-gray-500">
           <div className="text-center">
-            <i className="fas fa-chart-line text-4xl mb-4 opacity-30"></i>
-            <p className="text-lg">暂无数据</p>
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-blue-200 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+              <i className="fas fa-chart-line text-blue-400 text-2xl"></i>
+            </div>
+            <p className="text-lg font-medium">暂无数据</p>
           </div>
         </div>
       </div>
@@ -185,9 +188,9 @@ const SalesTrendChart = ({ data, title, period }) => {
   const maxOrders = Math.max(...data.map(d => d.orders || 0));
   const chartData = data.slice(-7);
   
-  // SVG 图表参数
-  const svgWidth = 400;
-  const svgHeight = 200;
+  // SVG 图表参数 - 调整以撑满卡片
+  const svgWidth = 600;
+  const svgHeight = 320;
   const padding = 40;
   const chartWidth = svgWidth - (padding * 2);
   const chartHeight = svgHeight - (padding * 2);
@@ -204,26 +207,72 @@ const SalesTrendChart = ({ data, title, period }) => {
   const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), maxRevenue);
   const ordersPoints = getPoints(chartData.map(d => d.orders || 0), maxOrders);
   
-  // 生成路径
-  const createPath = (points) => {
+  // 生成平滑曲线路径
+  const createSmoothPath = (points) => {
     if (points.length === 0) return '';
-    const [first, ...rest] = points;
-    const d = [`M ${first.x} ${first.y}`];
-    rest.forEach(point => d.push(`L ${point.x} ${point.y}`));
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    
+    let d = [`M ${points[0].x} ${points[0].y}`];
+    
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+      
+      // 计算控制点
+      const tension = 0.3;
+      let cp1x = prev.x + (curr.x - prev.x) * tension;
+      let cp1y = prev.y;
+      let cp2x = curr.x - (next ? (next.x - prev.x) * tension : (curr.x - prev.x) * tension);
+      let cp2y = curr.y;
+      
+      if (i === 1) {
+        d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`);
+      } else {
+        d.push(`S ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`);
+      }
+    }
+    
     return d.join(' ');
   };
   
-  const revenuePath = createPath(revenuePoints);
-  const ordersPath = createPath(ordersPoints);
+  const revenuePath = createSmoothPath(revenuePoints);
+  const ordersPath = createSmoothPath(ordersPoints);
+  
+  // 智能标签位置计算 - 根据线条相对位置决定上下布局
+  const getSmartLabelPosition = (point, index, points, type) => {
+    const labelOffset = 12;
+    
+    // 获取对应位置的两条线的点
+    const revenuePoint = revenuePoints[index];
+    const orderPoint = ordersPoints[index];
+    
+    if (!revenuePoint || !orderPoint) {
+      // 如果只有一条线，按默认位置
+      return type === 'revenue' ? point.y - labelOffset : point.y + labelOffset;
+    }
+    
+    // 比较两条线的Y坐标（Y坐标越小越靠上）
+    const revenueIsAbove = revenuePoint.y <= orderPoint.y;
+    
+    if (type === 'revenue') {
+      // 蓝线（销售额）标签：如果蓝线在上面，标签放在上面；否则放在下面
+      return revenueIsAbove ? point.y - labelOffset : point.y + labelOffset;
+    } else {
+      // 绿线（订单数）标签：如果蓝线在上面，绿线标签放在下面；否则放在上面
+      return revenueIsAbove ? point.y + labelOffset : point.y - labelOffset;
+    }
+  };
   
   return (
-    <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100 backdrop-blur-sm overflow-hidden relative">
+    <div className="bg-gradient-to-br from-white via-slate-50/30 to-blue-50/50 rounded-3xl p-8 shadow-xl border border-gray-100/50 backdrop-blur-md overflow-hidden relative">
       {/* 背景装饰 */}
-      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-100/30 to-transparent rounded-full transform translate-x-16 -translate-y-16"></div>
+      <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-blue-100/20 via-indigo-100/10 to-transparent rounded-full transform translate-x-20 -translate-y-20"></div>
+      <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-purple-100/15 to-transparent rounded-full transform -translate-x-16 translate-y-16"></div>
       
       <div className="relative z-10">
         <h3 className="text-xl font-bold text-gray-900 mb-8 flex items-center gap-3">
-          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 to-purple-600 rounded-full"></div>
+          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 via-indigo-500 to-purple-600 rounded-full shadow-lg"></div>
           {title}
         </h3>
         
@@ -232,11 +281,11 @@ const SalesTrendChart = ({ data, title, period }) => {
           <div className="space-y-6">
             {/* 图例 */}
             <div className="space-y-3">
-              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-blue-100/50 rounded-xl">
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50/80 to-blue-100/60 rounded-xl border border-blue-200/30 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="w-4 h-4 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg"></div>
                 <span className="text-sm font-medium text-gray-700">销售额</span>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-50 to-emerald-100/50 rounded-xl">
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-50/80 to-emerald-100/60 rounded-xl border border-emerald-200/30 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="w-4 h-4 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 shadow-lg"></div>
                 <span className="text-sm font-medium text-gray-700">订单数</span>
               </div>
@@ -244,37 +293,65 @@ const SalesTrendChart = ({ data, title, period }) => {
             
             {/* 当前数据汇总 */}
             <div className="space-y-3">
-              <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/70 rounded-xl border border-blue-200/50">
+              <div className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/70 rounded-xl border border-blue-200/40 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="text-xs text-blue-600 font-medium uppercase tracking-wide">最新销售额</div>
                 <div className="text-2xl font-bold text-blue-700 mt-1">¥{chartData[chartData.length - 1]?.revenue || 0}</div>
+                <div className="w-full h-1 bg-blue-200/50 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full w-3/4 transition-all duration-1000"></div>
+                </div>
               </div>
-              <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/70 rounded-xl border border-emerald-200/50">
+              <div className="p-4 bg-gradient-to-br from-emerald-50/80 to-emerald-100/70 rounded-xl border border-emerald-200/40 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">最新订单</div>
                 <div className="text-2xl font-bold text-emerald-700 mt-1">{chartData[chartData.length - 1]?.orders || 0}</div>
+                <div className="w-full h-1 bg-emerald-200/50 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full w-2/3 transition-all duration-1000"></div>
+                </div>
               </div>
             </div>
           </div>
           
           {/* 折线图 */}
           <div className="lg:col-span-2">
-            <div className="bg-white/70 rounded-2xl p-6 border border-gray-200/50 backdrop-blur-sm">
+            <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner">
               <svg 
                 width="100%" 
-                height="250" 
+                height="360" 
                 viewBox={`0 0 ${svgWidth} ${svgHeight}`}
                 className="overflow-visible"
               >
-                {/* 网格线 */}
                 <defs>
-                  <linearGradient id="revenueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3"/>
+                  {/* 渐变定义 */}
+                  <linearGradient id="revenueAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2"/>
+                    <stop offset="50%" stopColor="#3b82f6" stopOpacity="0.1"/>
                     <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
                   </linearGradient>
-                  <linearGradient id="ordersGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.3"/>
+                  <linearGradient id="ordersAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.2"/>
+                    <stop offset="50%" stopColor="#10b981" stopOpacity="0.1"/>
                     <stop offset="100%" stopColor="#10b981" stopOpacity="0"/>
                   </linearGradient>
+                  
+                  {/* 阴影滤镜 */}
+                  <filter id="dropShadow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#000" floodOpacity="0.1"/>
+                  </filter>
+                  
+                  {/* 发光效果 */}
+                  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                    <feMerge> 
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
                 </defs>
+                
+                {/* 背景网格 */}
+                <pattern id="grid" width="40" height="30" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 30" fill="none" stroke="#f1f5f9" strokeWidth="0.5" opacity="0.5"/>
+                </pattern>
+                <rect width="100%" height="100%" fill="url(#grid)" />
                 
                 {/* 水平网格线 */}
                 {[0, 0.25, 0.5, 0.75, 1].map(ratio => (
@@ -284,18 +361,32 @@ const SalesTrendChart = ({ data, title, period }) => {
                     y1={padding + chartHeight * ratio}
                     x2={padding + chartWidth}
                     y2={padding + chartHeight * ratio}
-                    stroke="#e5e7eb"
+                    stroke="#e2e8f0"
                     strokeWidth="1"
-                    strokeDasharray="2,2"
-                    opacity="0.5"
+                    strokeDasharray="3,3"
+                    opacity="0.6"
                   />
+                ))}
+                
+                {/* Y轴标签 */}
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => (
+                  <text
+                    key={ratio}
+                    x={padding - 10}
+                    y={padding + chartHeight * ratio + 4}
+                    textAnchor="end"
+                    className="text-xs fill-gray-400 font-medium"
+                  >
+                    {Math.round(maxRevenue * (1 - ratio))}
+                  </text>
                 ))}
                 
                 {/* 销售额面积 */}
                 {revenuePoints.length > 1 && (
                   <path
                     d={`${revenuePath} L ${revenuePoints[revenuePoints.length - 1].x} ${padding + chartHeight} L ${revenuePoints[0].x} ${padding + chartHeight} Z`}
-                    fill="url(#revenueGradient)"
+                    fill="url(#revenueAreaGradient)"
+                    className="transition-all duration-1000"
                   />
                 )}
                 
@@ -303,7 +394,8 @@ const SalesTrendChart = ({ data, title, period }) => {
                 {ordersPoints.length > 1 && (
                   <path
                     d={`${ordersPath} L ${ordersPoints[ordersPoints.length - 1].x} ${padding + chartHeight} L ${ordersPoints[0].x} ${padding + chartHeight} Z`}
-                    fill="url(#ordersGradient)"
+                    fill="url(#ordersAreaGradient)"
+                    className="transition-all duration-1000"
                   />
                 )}
                 
@@ -312,11 +404,12 @@ const SalesTrendChart = ({ data, title, period }) => {
                   <path
                     d={revenuePath}
                     fill="none"
-                    stroke="#3b82f6"
-                    strokeWidth="3"
+                    stroke="url(#revenueLineGradient)"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="drop-shadow-sm"
+                    filter="url(#dropShadow)"
+                    className="transition-all duration-1000"
                   />
                 )}
                 
@@ -325,72 +418,120 @@ const SalesTrendChart = ({ data, title, period }) => {
                   <path
                     d={ordersPath}
                     fill="none"
-                    stroke="#10b981"
-                    strokeWidth="3"
+                    stroke="url(#ordersLineGradient)"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="drop-shadow-sm"
+                    filter="url(#dropShadow)"
+                    className="transition-all duration-1000"
                   />
                 )}
                 
-                {/* 数据点 */}
-                {revenuePoints.map((point, index) => (
-                  <g key={`revenue-${index}`}>
-                    <circle
-                      cx={point.x}
-                      cy={point.y}
-                      r="5"
-                      fill="white"
-                      stroke="#3b82f6"
-                      strokeWidth="3"
-                      className="drop-shadow-sm hover:r-7 transition-all cursor-pointer"
-                    />
-                    <text
-                      x={point.x}
-                      y={point.y - 12}
-                      textAnchor="middle"
-                      className="text-xs font-medium fill-blue-600"
-                    >
-                      ¥{point.value}
-                    </text>
-                  </g>
-                ))}
+                {/* 线条渐变定义 */}
+                <defs>
+                  <linearGradient id="revenueLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#60a5fa"/>
+                    <stop offset="50%" stopColor="#3b82f6"/>
+                    <stop offset="100%" stopColor="#2563eb"/>
+                  </linearGradient>
+                  <linearGradient id="ordersLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#34d399"/>
+                    <stop offset="50%" stopColor="#10b981"/>
+                    <stop offset="100%" stopColor="#059669"/>
+                  </linearGradient>
+                </defs>
                 
-                {ordersPoints.map((point, index) => (
-                  <g key={`orders-${index}`}>
-                    <circle
-                      cx={point.x}
-                      cy={point.y}
-                      r="5"
-                      fill="white"
-                      stroke="#10b981"
-                      strokeWidth="3"
-                      className="drop-shadow-sm hover:r-7 transition-all cursor-pointer"
-                    />
-                    <text
-                      x={point.x}
-                      y={point.y + 18}
-                      textAnchor="middle"
-                      className="text-xs font-medium fill-emerald-600"
-                    >
-                      {point.value}
-                    </text>
-                  </g>
-                ))}
+                {/* 数据点和标签 - 销售额 */}
+                {revenuePoints.map((point, index) => {
+                  const labelY = getSmartLabelPosition(point, index, revenuePoints, 'revenue');
+                  
+                  return (
+                    <g key={`revenue-${index}`} className="transition-all duration-300">
+                      {/* 数据点 */}
+                      <circle
+                        cx={point.x}
+                        cy={point.y}
+                        r="2"
+                        fill="#3b82f6"
+                        className="hover:r-3 transition-all cursor-pointer filter drop-shadow-sm"
+                      />
+                      {/* 标签文字 */}
+                      <text
+                        x={point.x}
+                        y={labelY}
+                        textAnchor="middle"
+                        className="text-xs font-semibold fill-blue-600 pointer-events-none filter drop-shadow-sm"
+                        style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                      >
+                        ¥{point.value}
+                      </text>
+                    </g>
+                  );
+                })}
+                
+                {/* 数据点和标签 - 订单数 */}
+                {ordersPoints.map((point, index) => {
+                  const labelY = getSmartLabelPosition(point, index, ordersPoints, 'orders');
+                  
+                  return (
+                    <g key={`orders-${index}`} className="transition-all duration-300">
+                      {/* 数据点 */}
+                      <circle
+                        cx={point.x}
+                        cy={point.y}
+                        r="2"
+                        fill="#10b981"
+                        className="hover:r-3 transition-all cursor-pointer filter drop-shadow-sm"
+                      />
+                      {/* 标签文字 */}
+                      <text
+                        x={point.x}
+                        y={labelY}
+                        textAnchor="middle"
+                        className="text-xs font-semibold fill-emerald-600 pointer-events-none filter drop-shadow-sm"
+                        style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                      >
+                        {point.value}
+                      </text>
+                    </g>
+                  );
+                })}
                 
                 {/* X轴标签 */}
                 {chartData.map((item, index) => {
                   const x = padding + (index / (chartData.length - 1)) * chartWidth;
+                  // 格式化日期，去掉年份
+                  const formatPeriod = (period) => {
+                    try {
+                      // 如果是日期格式，尝试解析并重新格式化
+                      if (period && (period.includes('-') || period.includes('/'))) {
+                        const date = new Date(period);
+                        if (!isNaN(date.getTime())) {
+                          return date.toLocaleDateString('zh-CN', {
+                            month: 'short',
+                            day: 'numeric'
+                          });
+                        }
+                      }
+                      return period;
+                    } catch (error) {
+                      return period;
+                    }
+                  };
+                  
                   return (
-                    <text
-                      key={index}
-                      x={x}
-                      y={svgHeight - 10}
-                      textAnchor="middle"
-                      className="text-xs fill-gray-500 font-medium"
-                    >
-                      {item.period}
-                    </text>
+                    <g key={index}>
+                      {/* X轴标签文字 */}
+                      <text
+                        x={x}
+                        y={svgHeight - 10}
+                        textAnchor="middle"
+                        className="text-xs fill-gray-500 font-medium filter drop-shadow-sm"
+                        style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                      >
+                        {formatPeriod(item.period)}
+                      </text>
+                    </g>
                   );
                 })}
               </svg>
@@ -506,10 +647,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-    router.push('/login');
-  };
 
   // 如果不是管理员，不渲染内容
   if (!user || user.type !== 'admin') {
@@ -557,72 +694,10 @@ export default function AdminDashboard() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50">
-        {/* 导航栏 */}
-        <nav className="bg-white/80 backdrop-blur-xl shadow-lg border-b border-gray-200/50 sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-18">
-              {/* 左侧 Logo 和导航 */}
-              <div className="flex items-center space-x-8">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <img 
-                      src="/logo.png" 
-                      alt="[商店名称]" 
-                      className="h-6 w-auto object-contain"
-                    />
-                  </div>
-                  <span className="ml-3 text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">[商店名称]</span>
-                </div>
-                
-                {/* 主导航 */}
-                <div className="hidden md:flex items-center space-x-2">
-                  <Link 
-                    href="/shop"
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-white/70 hover:shadow-sm transition-all duration-300 border border-transparent hover:border-gray-200/50"
-                  >
-                    <i className="fas fa-store mr-2 text-gray-500"></i>
-                    商品商城
-                  </Link>
-                  <Link 
-                    href="/admin/dashboard"
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg border border-blue-200/50 hover:shadow-xl hover:scale-105 transition-all duration-300"
-                  >
-                    <i className="fas fa-chart-line mr-2"></i>
-                    仪表盘
-                  </Link>
-                  <Link 
-                    href="/admin"
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-white/70 hover:shadow-sm transition-all duration-300 border border-transparent hover:border-gray-200/50"
-                  >
-                    <i className="fas fa-cog mr-2 text-gray-500"></i>
-                    管理后台
-                  </Link>
-                </div>
-              </div>
-              
-              {/* 右侧用户信息 */}
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-3 px-4 py-3 rounded-xl bg-gradient-to-r from-red-50 to-orange-50 border border-red-200/50 shadow-sm">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-lg">
-                    <i className="fas fa-crown text-white text-sm"></i>
-                  </div>
-                  <div className="text-sm">
-                    <div className="font-semibold text-gray-900">{user.name}</div>
-                    <div className="text-xs text-red-600 font-medium">管理员</div>
-                  </div>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="text-gray-600 hover:text-gray-900 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 hover:bg-white/70 hover:shadow-sm border border-transparent hover:border-gray-200/50"
-                >
-                  <i className="fas fa-sign-out-alt mr-2"></i>
-                  退出
-                </button>
-              </div>
-            </div>
-          </div>
-        </nav>
+      {/* 通用导航栏 */}
+      <Nav active="dashboard" />
+
+      <div className="min-h-screen pt-16 bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50">
 
         {/* 主要内容 */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -668,7 +743,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* 销售趋势和商品统计 */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12 min-h-[600px]">
             {/* 销售趋势 */}
             <div className="bg-gradient-to-br from-white to-blue-50/30 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
               {/* 背景装饰 */}
