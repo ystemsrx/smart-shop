@@ -1839,11 +1839,11 @@ class OrderDB:
             if prev_orders > 0:
                 orders_growth = round(((current_orders - prev_orders) / prev_orders) * 100, 1)
             
-            # 最热门商品统计（从订单JSON中解析）
-            cursor.execute('''
+            # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围
+            cursor.execute(f'''
                 SELECT o.items, o.created_at
                 FROM orders o 
-                WHERE o.created_at >= date('now', '-30 days')
+                WHERE {time_filter}
                 AND o.payment_status = 'succeeded'
             ''')
             
