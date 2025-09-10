@@ -575,6 +575,13 @@ export default function AdminDashboard() {
     recentOrders: []
   });
   const [timePeriod, setTimePeriod] = useState('week');
+  const [customersData, setCustomersData] = useState({
+    customers: [],
+    total: 0,
+    currentPage: 0,
+    hasMore: false
+  });
+  const [customersLoading, setCustomersLoading] = useState(false);
 
   // 验证管理员权限
   useEffect(() => {
@@ -584,6 +591,7 @@ export default function AdminDashboard() {
     }
     if (user && user.type === 'admin') {
       loadDashboardData();
+      loadCustomersData(0);
     }
   }, [user, router]);
 
@@ -644,6 +652,41 @@ export default function AdminDashboard() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCustomersData = async (page = 0) => {
+    setCustomersLoading(true);
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
+        (process.env.NODE_ENV === 'development' 
+          ? "http://localhost:9099"
+          : "https://chatapi.your_domain.com");
+
+      const offset = page * 5;
+      const customersRes = await fetch(`${API_BASE}/admin/customers?limit=5&offset=${offset}`, {
+        credentials: 'include'
+      });
+      const customersData = await customersRes.json();
+
+      if (customersData.success) {
+        setCustomersData({
+          customers: customersData.data?.customers || [],
+          total: customersData.data?.total || 0,
+          currentPage: page,
+          hasMore: customersData.data?.has_more || false
+        });
+      }
+    } catch (error) {
+      console.error('加载客户数据失败:', error);
+      setCustomersData({
+        customers: [],
+        total: 0,
+        currentPage: 0,
+        hasMore: false
+      });
+    } finally {
+      setCustomersLoading(false);
     }
   };
 
@@ -846,8 +889,10 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* 最近订单 */}
-          <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
+          {/* 最近订单和客户信息 */}
+          <div className="grid grid-cols-1 gap-8 mb-12">
+            {/* 最近订单 */}
+            <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
             {/* 背景装饰 */}
             <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-tr from-indigo-100/20 to-transparent rounded-full transform -translate-x-20 translate-y-20"></div>
             
@@ -969,6 +1014,112 @@ export default function AdminDashboard() {
                   <p className="text-sm text-gray-400">订单数据将在这里显示</p>
                 </div>
               )}
+            </div>
+            </div>
+
+            {/* 客户信息卡片 */}
+            <div className="bg-gradient-to-br from-white to-cyan-50/30 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
+            {/* 背景装饰 */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-cyan-100/20 to-transparent rounded-full transform translate-x-16 -translate-y-16"></div>
+            
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                  <div className="w-2 h-8 bg-gradient-to-b from-cyan-500 to-blue-600 rounded-full"></div>
+                  优质客户
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">共 {customersData.total} 位客户</span>
+                </div>
+              </div>
+
+              {customersLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">正在加载客户数据...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {customersData.customers?.map((customer, index) => (
+                      <div key={customer.id} className="bg-white/60 rounded-2xl p-6 border border-gray-200/50 hover:bg-white/80 transition-all duration-200 group">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            {/* 排名徽章 */}
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg ${
+                              index === 0 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                              index === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                              index === 2 ? 'bg-gradient-to-r from-amber-600 to-amber-700' :
+                              'bg-gradient-to-r from-cyan-400 to-cyan-500'
+                            }`}>
+                              {customersData.currentPage * 5 + index + 1}
+                            </div>
+                            
+                            {/* 客户信息 */}
+                            <div>
+                              <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                <span>{customer.name}</span>
+                                <span className="text-sm text-gray-500 font-mono">({customer.id})</span>
+                              </div>
+                              <div className="text-sm text-gray-600 mt-1">
+                                共 {customer.order_count} 笔订单 · 平均 ¥{customer.avg_order_amount}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* 总消费 */}
+                          <div className="text-right">
+                            <div className="text-2xl font-bold text-cyan-600">
+                              ¥{customer.total_spent}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              总消费
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 分页控制 */}
+                  {customersData.total > 5 && (
+                    <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200/50">
+                      <button
+                        onClick={() => loadCustomersData(customersData.currentPage - 1)}
+                        disabled={customersData.currentPage === 0}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-cyan-600 hover:text-cyan-700 bg-cyan-50/50 hover:bg-cyan-100/50 border border-cyan-200/50 hover:border-cyan-300/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <i className="fas fa-chevron-left text-xs"></i>
+                        上一页
+                      </button>
+                      
+                      <div className="text-sm text-gray-600">
+                        第 {customersData.currentPage + 1} 页，共 {Math.ceil(customersData.total / 5)} 页
+                      </div>
+                      
+                      <button
+                        onClick={() => loadCustomersData(customersData.currentPage + 1)}
+                        disabled={!customersData.hasMore}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-cyan-600 hover:text-cyan-700 bg-cyan-50/50 hover:bg-cyan-100/50 border border-cyan-200/50 hover:border-cyan-300/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                        <i className="fas fa-chevron-right text-xs"></i>
+                      </button>
+                    </div>
+                  )}
+
+                  {(!customersData.customers || customersData.customers.length === 0) && (
+                    <div className="text-center py-16">
+                      <div className="w-16 h-16 bg-gradient-to-br from-cyan-100 to-cyan-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <i className="fas fa-users text-cyan-500 text-xl"></i>
+                      </div>
+                      <p className="text-lg font-medium text-gray-500 mb-2">暂无客户数据</p>
+                      <p className="text-sm text-gray-400">客户数据将在这里显示</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
             </div>
           </div>
         </div>
