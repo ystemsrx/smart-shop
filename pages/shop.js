@@ -895,25 +895,40 @@ export default function Shop() {
               {(specModalProduct.variants || []).map((variant, index) => (
                 <label 
                   key={variant.id} 
-                  className={`block cursor-pointer transform transition-all duration-200 hover:scale-105 animate-apple-slide-up`}
+                  className={`block transform transition-all duration-200 animate-apple-slide-up ${
+                    variant.stock === 0 
+                      ? 'cursor-not-allowed opacity-50' 
+                      : 'cursor-pointer hover:scale-105'
+                  }`}
                   style={{ animationDelay: `${index * 0.1}s` }}
                 >
                   <div className={`p-4 rounded-xl border-2 transition-all duration-200 ${
-                    selectedVariant === variant.id 
+                    variant.stock === 0
+                      ? 'border-gray-200 bg-gray-50'
+                      : selectedVariant === variant.id 
                       ? 'border-blue-500 bg-blue-50 shadow-md' 
                       : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                   }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedVariant === variant.id ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
+                          variant.stock === 0
+                            ? 'border-gray-300 bg-gray-100'
+                            : selectedVariant === variant.id 
+                            ? 'border-blue-500 bg-blue-500' 
+                            : 'border-gray-300'
                         }`}>
-                          {selectedVariant === variant.id && (
+                          {selectedVariant === variant.id && variant.stock > 0 && (
                             <i className="fas fa-check text-white text-xs"></i>
+                          )}
+                          {variant.stock === 0 && (
+                            <i className="fas fa-times text-gray-400 text-xs"></i>
                           )}
                         </div>
                         <div>
-                          <span className="text-sm font-medium text-gray-900">{variant.name}</span>
+                          <span className={`text-sm font-medium ${
+                            variant.stock === 0 ? 'text-gray-500' : 'text-gray-900'
+                          }`}>{variant.name}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-xs flex items-center gap-1 ${
                               variant.stock > 0 ? 'text-green-600' : 'text-red-500'
@@ -921,6 +936,9 @@ export default function Shop() {
                               <i className="fas fa-box-open"></i>
                               库存 {variant.stock}
                             </span>
+                            {variant.stock === 0 && (
+                              <span className="text-xs text-red-500 font-medium">已售罄</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -930,7 +948,8 @@ export default function Shop() {
                       name={`spec_${specModalProduct.id}`} 
                       value={variant.id} 
                       checked={selectedVariant === variant.id}
-                      onChange={() => setSelectedVariant(variant.id)}
+                      onChange={() => variant.stock > 0 && setSelectedVariant(variant.id)}
+                      disabled={variant.stock === 0}
                       className="sr-only"
                     />
                   </div>
@@ -971,7 +990,13 @@ export default function Shop() {
                   return (
                     <button
                       onClick={(e) => { flyToCart(e.currentTarget); handleAddToCart(specModalProduct.id, selectedVariant); }}
-                      className="w-10 h-10 rounded-full btn-primary flex items-center justify-center mx-auto transform hover:scale-105 transition-all duration-200"
+                      disabled={stock === 0}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto transition-all duration-200 ${
+                        stock === 0
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'btn-primary transform hover:scale-105'
+                      }`}
+                      title={stock === 0 ? '库存不足' : '添加到购物车'}
                     >
                       <i className="fas fa-plus"></i>
                     </button>
