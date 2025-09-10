@@ -873,11 +873,97 @@ export default function AdminDashboard() {
             </div>
 
             {/* 热门商品排行 */}
-            <SimpleBarChart 
-              data={dashboardStats.top_products || []}
-              title="热门商品销量排行 (近30天)"
-              type="quantity"
-            />
+            <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100 backdrop-blur-sm relative overflow-hidden h-full flex flex-col">
+              {/* 背景装饰 */}
+              <div className="absolute top-0 left-0 w-24 h-24 bg-gradient-to-br from-purple-100/30 to-transparent rounded-full transform -translate-x-8 -translate-y-8"></div>
+              
+              <div className="relative z-10 flex flex-col h-full">
+                <h3 className="text-xl font-bold text-gray-900 mb-8 flex items-center gap-3">
+                  <div className="w-2 h-8 bg-gradient-to-b from-purple-500 to-pink-600 rounded-full"></div>
+                  热门商品销量排行 ({
+                    timePeriod === 'day' ? '今日' :
+                    timePeriod === 'week' ? '近7天' : '近30天'
+                  })
+                </h3>
+                
+                {/* 简化的商品排行内容 */}
+                {(!dashboardStats.top_products || dashboardStats.top_products.length === 0) ? (
+                  <div className="flex items-center justify-center h-48 text-gray-500 flex-1">
+                    <div className="text-center">
+                      <i className="fas fa-chart-bar text-4xl mb-4 opacity-30"></i>
+                      <p className="text-lg">暂无数据</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-5 flex-1 overflow-y-auto custom-scrollbar">
+                    {dashboardStats.top_products.map((item, index) => {
+                      const maxValue = Math.max(...dashboardStats.top_products.map(d => d.sold || 0));
+                      const percentage = maxValue > 0 ? (item.sold / maxValue) * 100 : 0;
+                      
+                      return (
+                        <div key={index} className="group">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-lg ${
+                                index === 0 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                                index === 1 ? 'bg-gradient-to-r from-blue-400 to-purple-500' :
+                                index === 2 ? 'bg-gradient-to-r from-emerald-400 to-teal-500' :
+                                'bg-gradient-to-r from-gray-400 to-gray-500'
+                              }`}>
+                                {index + 1}
+                              </div>
+                              <div className="text-sm font-medium text-gray-700 max-w-32 truncate" title={item.name}>
+                                {item.name}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-sm font-bold text-gray-900">
+                                {item.sold}
+                              </div>
+                              {item.revenue && (
+                                <div className="text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded-lg">
+                                  ¥{item.revenue}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="relative">
+                            <div className="flex-1 bg-gradient-to-r from-gray-100 to-gray-200 rounded-xl h-4 relative overflow-hidden shadow-inner">
+                              <div 
+                                className={`h-full rounded-xl transition-all duration-1000 ease-out shadow-lg ${
+                                  index === 0 ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-red-500' :
+                                  index === 1 ? 'bg-gradient-to-r from-blue-400 via-purple-500 to-indigo-600' :
+                                  index === 2 ? 'bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600' :
+                                  index === 3 ? 'bg-gradient-to-r from-pink-400 via-rose-500 to-red-500' :
+                                  'bg-gradient-to-r from-violet-400 via-purple-500 to-indigo-600'
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              >
+                                <div className="h-full bg-white/20 rounded-xl"></div>
+                              </div>
+                            </div>
+                            
+                            {/* 排名徽章 */}
+                            {index < 3 && (
+                              <div className={`absolute right-2 top-1/2 transform -translate-y-1/2 ${
+                                index === 0 ? 'text-amber-600' :
+                                index === 1 ? 'text-blue-600' :
+                                'text-emerald-600'
+                              }`}>
+                                {index === 0 && <i className="fas fa-crown text-xs"></i>}
+                                {index === 1 && <i className="fas fa-medal text-xs"></i>}
+                                {index === 2 && <i className="fas fa-award text-xs"></i>}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* 详细趋势图 */}
