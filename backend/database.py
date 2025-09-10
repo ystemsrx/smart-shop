@@ -1549,7 +1549,7 @@ class OrderDB:
     @staticmethod
     def get_orders_paginated(order_id: Optional[str] = None, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
         """
-        获取订单（管理员用），支持按订单ID精确查询与分页。
+        获取订单（管理员用），支持按订单ID模糊查询与分页。
         返回 { 'orders': [...], 'total': int }
         """
         # 保护性限制，避免一次性取太多
@@ -1574,8 +1574,8 @@ class OrderDB:
             params: list = []
             where_sql = []
             if order_id:
-                where_sql.append('o.id = ?')
-                params.append(order_id)
+                where_sql.append('o.id LIKE ?')
+                params.append(f'%{order_id}%')
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
@@ -1908,6 +1908,53 @@ class OrderDB:
                     'total': total_users,
                     'new_this_week': new_users_week
                 }
+            }
+
+    @staticmethod  
+    def get_customers_with_purchases(limit: int = 5, offset: int = 0) -> Dict[str, Any]:
+        """获取所有至少购买过一次的用户信息，按总购买金额降序排列"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 查询购买过商品的用户统计
+            cursor.execute('''
+                SELECT 
+                    u.id,
+                    u.name,
+                    COUNT(DISTINCT o.id) as order_count,
+                    COALESCE(SUM(o.total_amount), 0) as total_spent,
+                    MAX(o.created_at) as last_order_date,
+                    MIN(o.created_at) as first_order_date
+                FROM users u
+                INNER JOIN orders o ON u.id = o.student_id
+                WHERE o.payment_status = 'succeeded'
+                GROUP BY u.id, u.name
+                ORDER BY total_spent DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, offset))
+            
+            customers = []
+            for row in cursor.fetchall():
+                customer = dict(row)
+                # 计算平均订单金额
+                customer['avg_order_amount'] = round(customer['total_spent'] / customer['order_count'], 2) if customer['order_count'] > 0 else 0
+                customers.append(customer)
+            
+            # 统计总数
+            cursor.execute('''
+                SELECT COUNT(DISTINCT u.id)
+                FROM users u
+                INNER JOIN orders o ON u.id = o.student_id
+                WHERE o.payment_status = 'succeeded'
+            ''')
+            total = cursor.fetchone()[0] or 0
+            
+            return {
+                'customers': customers,
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'has_more': (offset + len(customers)) < total
             }
 
 # 用户资料缓存（收货信息）

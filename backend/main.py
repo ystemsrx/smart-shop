@@ -1983,6 +1983,37 @@ async def get_dashboard_statistics(request: Request, period: str = 'week'):
         logger.error(f"获取仪表盘统计失败: {e}")
         return error_response("获取仪表盘统计失败", 500)
 
+@app.get("/admin/customers")
+async def get_customers_with_purchases(request: Request, limit: Optional[int] = 5, offset: Optional[int] = 0):
+    """获取购买过商品的客户列表（管理员）"""
+    # 验证管理员权限
+    admin = get_current_admin_required_from_cookie(request)
+    
+    try:
+        # 参数验证和限制
+        try:
+            limit_val = int(limit or 5)
+        except Exception:
+            limit_val = 5
+        if limit_val <= 0:
+            limit_val = 5
+        if limit_val > 50:  # 限制单次最多返回50个
+            limit_val = 50
+            
+        try:
+            offset_val = int(offset or 0)
+        except Exception:
+            offset_val = 0
+        if offset_val < 0:
+            offset_val = 0
+        
+        customers_data = OrderDB.get_customers_with_purchases(limit=limit_val, offset=offset_val)
+        return success_response("获取客户列表成功", customers_data)
+    
+    except Exception as e:
+        logger.error(f"获取客户列表失败: {e}")
+        return error_response("获取客户列表失败", 500)
+
 # ==================== AI聊天路由 ====================
 
 from ai_chat import stream_chat
