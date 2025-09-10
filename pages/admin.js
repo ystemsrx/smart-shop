@@ -5,6 +5,7 @@ import { useAuth, useApi, useAdminShop } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
+import Nav from '../components/Nav';
 
 
 // 店铺状态卡片（打烊/营业）
@@ -2517,38 +2518,11 @@ export default function Admin() {
       </Head>
 
       <div className="min-h-screen bg-gray-50">
-        {/* 导航栏 */}
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <div className="h-8 w-8 bg-red-600 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">A</span>
-                </div>
-                <span className="ml-2 text-xl font-bold text-gray-900">管理后台</span>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <Link 
-                  href="/"
-                  className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  前台首页
-                </Link>
-                <span className="text-sm text-gray-600">{user.name}</span>
-                <button
-                  onClick={handleLogout}
-                  className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  退出
-                </button>
-              </div>
-            </div>
-          </div>
-        </nav>
-
+        {/* 统一导航栏 */}
+        <Nav active="admin" />
+        
         {/* 主要内容 */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-gray-900">管理后台</h1>
             <p className="text-gray-600 mt-1">管理商品和查看统计信息</p>

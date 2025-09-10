@@ -1,12 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import ChatModern from '../components/ChatUI'
 import { useAuth } from '../hooks/useAuth'
 import Nav from '../components/Nav'
 
 export default function Home() {
   const { user, logout, isInitialized } = useAuth()
+  const router = useRouter()
 
   // 等待认证状态初始化
   if (!isInitialized) {
@@ -19,6 +21,13 @@ export default function Home() {
       </div>
     )
   }
+
+  // 如果是管理员访问聊天页面，重定向到仪表盘
+  useEffect(() => {
+    if (user && user.type === 'admin') {
+      router.push('/admin/dashboard');
+    }
+  }, [user, router]);
 
   return (
     <>

@@ -1770,6 +1770,146 @@ class OrderDB:
                 'total_revenue': round(total_revenue, 2)
             }
 
+    @staticmethod
+    def get_dashboard_stats(period: str = 'week') -> Dict:
+        """获取仪表盘详细统计信息"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 基础统计
+            basic_stats = OrderDB.get_order_stats()
+            
+            # 按时间段统计销售额
+            if period == 'day':
+                time_filter = "date(created_at) = date('now')"
+                prev_time_filter = "date(created_at) = date('now', '-1 day')"
+                group_by = "strftime('%H', created_at)"
+                date_format = "今日各小时"
+            elif period == 'week':
+                time_filter = "date(created_at) >= date('now', '-7 days')"
+                prev_time_filter = "date(created_at) >= date('now', '-14 days') AND date(created_at) < date('now', '-7 days')"
+                group_by = "date(created_at)"
+                date_format = "近7天"
+            else:  # month
+                time_filter = "date(created_at) >= date('now', '-30 days')"
+                prev_time_filter = "date(created_at) >= date('now', '-60 days') AND date(created_at) < date('now', '-30 days')"
+                group_by = "date(created_at)"
+                date_format = "近30天"
+            
+            # 当前时间段销售额
+            cursor.execute(f'''
+                SELECT {group_by} as period, 
+                       COALESCE(SUM(total_amount), 0) as revenue,
+                       COUNT(*) as orders
+                FROM orders 
+                WHERE {time_filter}
+                GROUP BY {group_by}
+                ORDER BY period
+            ''')
+            current_period_data = [
+                {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
+                for row in cursor.fetchall()
+            ]
+            
+            # 对比时间段销售额
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
+                FROM orders 
+                WHERE {prev_time_filter}
+            ''')
+            prev_data = cursor.fetchone()
+            prev_revenue = round(prev_data[0], 2) if prev_data else 0
+            prev_orders = prev_data[1] if prev_data else 0
+            
+            # 当前时间段总计
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
+                FROM orders 
+                WHERE {time_filter}
+            ''')
+            current_data = cursor.fetchone()
+            current_revenue = round(current_data[0], 2) if current_data else 0
+            current_orders = current_data[1] if current_data else 0
+            
+            # 计算增长率
+            revenue_growth = 0
+            orders_growth = 0
+            if prev_revenue > 0:
+                revenue_growth = round(((current_revenue - prev_revenue) / prev_revenue) * 100, 1)
+            if prev_orders > 0:
+                orders_growth = round(((current_orders - prev_orders) / prev_orders) * 100, 1)
+            
+            # 最热门商品统计（从订单JSON中解析）
+            cursor.execute('''
+                SELECT o.items, o.created_at
+                FROM orders o 
+                WHERE o.created_at >= date('now', '-30 days')
+                AND o.payment_status = 'succeeded'
+            ''')
+            
+            # 统计商品销量
+            product_stats = {}
+            for row in cursor.fetchall():
+                try:
+                    items_json = json.loads(row[0])
+                    for item in items_json:
+                        product_id = item.get('product_id')
+                        product_name = item.get('name', '未知商品')
+                        quantity = int(item.get('quantity', 0))
+                        price = float(item.get('price', 0))
+                        
+                        if product_id not in product_stats:
+                            product_stats[product_id] = {
+                                'name': product_name,
+                                'sold': 0,
+                                'revenue': 0
+                            }
+                        
+                        product_stats[product_id]['sold'] += quantity
+                        product_stats[product_id]['revenue'] += quantity * price
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            
+            # 按销量排序，取前10
+            top_products = sorted(
+                [{'name': stats['name'], 'sold': stats['sold'], 'revenue': round(stats['revenue'], 2)} 
+                 for stats in product_stats.values()],
+                key=lambda x: x['sold'],
+                reverse=True
+            )[:10]
+            
+            # 用户增长统计
+            cursor.execute('SELECT COUNT(*) FROM users')
+            total_users = cursor.fetchone()[0] or 0
+            
+            cursor.execute('''
+                SELECT COUNT(*) FROM users 
+                WHERE date(created_at) >= date('now', '-7 days')
+            ''')
+            new_users_week = cursor.fetchone()[0] or 0
+            
+            return {
+                **basic_stats,
+                'period': period,
+                'period_name': date_format,
+                'current_period': {
+                    'revenue': current_revenue,
+                    'orders': current_orders,
+                    'data': current_period_data
+                },
+                'comparison': {
+                    'prev_revenue': prev_revenue,
+                    'prev_orders': prev_orders,
+                    'revenue_growth': revenue_growth,
+                    'orders_growth': orders_growth
+                },
+                'top_products': top_products,
+                'users': {
+                    'total': total_users,
+                    'new_this_week': new_users_week
+                }
+            }
+
 # 用户资料缓存（收货信息）
 class UserProfileDB:
     @staticmethod
