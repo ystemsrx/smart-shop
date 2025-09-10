@@ -27,7 +27,7 @@ export default function Login() {
       
       // 根据用户类型跳转到不同页面
       if (isAdmin) {
-        router.push('/admin');
+        router.push('/admin/dashboard');
       } else {
         router.push('/');
       }

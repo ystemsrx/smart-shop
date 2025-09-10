@@ -66,25 +66,46 @@ export default function Nav({ active = 'home' }) {
 
               {/* 桌面导航菜单 */}
               <div className="hidden md:flex items-center space-x-2">
-                <Link href="/" className={linkCls('home')}>
-                  <i className="fas fa-comments"></i>
-                  <span>商城助手</span>
-                </Link>
-                <Link href="/shop" className={linkCls('shop')}>
-                  <i className="fas fa-store"></i>
-                  <span>商品商城</span>
-                </Link>
-                {user && user.type !== 'admin' && (
-                  <Link href="/cart" className={linkCls('cart')}>
-                    <i className="fas fa-shopping-cart"></i>
-                    <span>购物车</span>
-                  </Link>
-                )}
-                {user && user.type !== 'admin' && (
-                  <Link href="/orders" className={linkCls('orders')}>
-                    <i className="fas fa-receipt"></i>
-                    <span>我的订单</span>
-                  </Link>
+                {/* 管理员专用导航 */}
+                {user && user.type === 'admin' ? (
+                  <>
+                    <Link href="/shop" className={linkCls('shop')}>
+                      <i className="fas fa-store"></i>
+                      <span>商品商城</span>
+                    </Link>
+                    <Link href="/admin/dashboard" className={linkCls('dashboard')}>
+                      <i className="fas fa-chart-line"></i>
+                      <span>仪表盘</span>
+                    </Link>
+                    <Link href="/admin" className={linkCls('admin')}>
+                      <i className="fas fa-cog"></i>
+                      <span>管理后台</span>
+                    </Link>
+                  </>
+                ) : (
+                  /* 普通用户导航 */
+                  <>
+                    <Link href="/" className={linkCls('home')}>
+                      <i className="fas fa-comments"></i>
+                      <span>商城助手</span>
+                    </Link>
+                    <Link href="/shop" className={linkCls('shop')}>
+                      <i className="fas fa-store"></i>
+                      <span>商品商城</span>
+                    </Link>
+                    {user && (
+                      <Link href="/cart" className={linkCls('cart')}>
+                        <i className="fas fa-shopping-cart"></i>
+                        <span>购物车</span>
+                      </Link>
+                    )}
+                    {user && (
+                      <Link href="/orders" className={linkCls('orders')}>
+                        <i className="fas fa-receipt"></i>
+                        <span>我的订单</span>
+                      </Link>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -109,16 +130,7 @@ export default function Nav({ active = 'home' }) {
                     </div>
                   </div>
 
-                  {/* 管理后台按钮 */}
-                  {user.type === 'admin' && (
-                    <Link 
-                      href="/admin" 
-                       className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-medium hover:from-amber-600 hover:to-orange-600 transform hover:scale-105 transition-all duration-300 shadow-lg"
-                    >
-                      <i className="fas fa-cog"></i>
-                      <span>管理后台</span>
-                    </Link>
-                  )}
+                  {/* 管理员不需要额外按钮，因为导航栏已包含所有菜单 */}
 
                   {/* 退出按钮 */}
                   <button
@@ -177,31 +189,46 @@ export default function Nav({ active = 'home' }) {
 
             {/* 导航菜单 */}
             <div className="space-y-2">
-               <Link href="/" onClick={closeMenu} className={`${active === 'home' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                <i className="fas fa-comments w-5"></i>
-                <span className="font-medium">商城助手</span>
-              </Link>
-              <Link href="/shop" onClick={closeMenu} className={`${active === 'shop' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                <i className="fas fa-store w-5"></i>
-                <span className="font-medium">商品商城</span>
-              </Link>
-              {user && user.type !== 'admin' && (
+              {/* 管理员专用菜单 */}
+              {user && user.type === 'admin' ? (
                 <>
-                   <Link href="/cart" onClick={closeMenu} className={`${active === 'cart' ? 'bg-cyan-50 text-cyan-600 border-cyan-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                    <i className="fas fa-shopping-cart w-5"></i>
-                    <span className="font-medium">购物车</span>
+                  <Link href="/shop" onClick={closeMenu} className={`${active === 'shop' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-store w-5"></i>
+                    <span className="font-medium">商品商城</span>
                   </Link>
-                  <Link href="/orders" onClick={closeMenu} className={`${active === 'orders' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                    <i className="fas fa-receipt w-5"></i>
-                    <span className="font-medium">我的订单</span>
+                  <Link href="/admin/dashboard" onClick={closeMenu} className={`${active === 'dashboard' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-chart-line w-5"></i>
+                    <span className="font-medium">仪表盘</span>
+                  </Link>
+                  <Link href="/admin" onClick={closeMenu} className={`${active === 'admin' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-cog w-5"></i>
+                    <span className="font-medium">管理后台</span>
                   </Link>
                 </>
-              )}
-              {user?.type === 'admin' && (
-                 <Link href="/admin" onClick={closeMenu} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium transition-all duration-200">
-                  <i className="fas fa-cog w-5"></i>
-                  <span>管理后台</span>
-                </Link>
+              ) : (
+                /* 普通用户菜单 */
+                <>
+                  <Link href="/" onClick={closeMenu} className={`${active === 'home' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-comments w-5"></i>
+                    <span className="font-medium">商城助手</span>
+                  </Link>
+                  <Link href="/shop" onClick={closeMenu} className={`${active === 'shop' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-store w-5"></i>
+                    <span className="font-medium">商品商城</span>
+                  </Link>
+                  {user && (
+                    <Link href="/cart" onClick={closeMenu} className={`${active === 'cart' ? 'bg-cyan-50 text-cyan-600 border-cyan-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                      <i className="fas fa-shopping-cart w-5"></i>
+                      <span className="font-medium">购物车</span>
+                    </Link>
+                  )}
+                  {user && (
+                    <Link href="/orders" onClick={closeMenu} className={`${active === 'orders' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                      <i className="fas fa-receipt w-5"></i>
+                      <span className="font-medium">我的订单</span>
+                    </Link>
+                  )}
+                </>
               )}
             </div>
 

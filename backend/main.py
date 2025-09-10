@@ -1966,6 +1966,23 @@ async def get_order_statistics(request: Request):
         logger.error(f"获取订单统计失败: {e}")
         return error_response("获取订单统计失败", 500)
 
+@app.get("/admin/dashboard-stats")
+async def get_dashboard_statistics(request: Request, period: str = 'week'):
+    """获取仪表盘详细统计信息（管理员）"""
+    # 验证管理员权限
+    admin = get_current_admin_required_from_cookie(request)
+    
+    try:
+        if period not in ['day', 'week', 'month']:
+            period = 'week'
+        
+        stats = OrderDB.get_dashboard_stats(period)
+        return success_response("获取仪表盘统计成功", stats)
+    
+    except Exception as e:
+        logger.error(f"获取仪表盘统计失败: {e}")
+        return error_response("获取仪表盘统计失败", 500)
+
 # ==================== AI聊天路由 ====================
 
 from ai_chat import stream_chat
