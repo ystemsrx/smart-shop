@@ -180,6 +180,7 @@ class ProductUpdateRequest(BaseModel):
     discount: Optional[float] = None  # 折扣（以折为单位，10为不打折，0.5为五折）
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    cost: Optional[float] = None  # 商品成本
 
 class StockUpdateRequest(BaseModel):
     stock: int
@@ -1047,6 +1048,7 @@ async def create_product(
     price: float = Form(...),
     stock: int = Form(0),
     description: str = Form(""),
+    cost: float = Form(0.0),
     image: Optional[UploadFile] = File(None)
 ):
     """管理员创建商品"""
@@ -1082,7 +1084,8 @@ async def create_product(
             "stock": stock,
             "discount": 10.0,
             "description": description,
-            "img_path": img_path
+            "img_path": img_path,
+            "cost": cost
         }
         
         product_id = ProductDB.create_product(product_data)
@@ -1197,6 +1200,10 @@ async def update_product(
                 return error_response("无效的折扣", 400)
         if product_data.is_active is not None:
             update_data['is_active'] = 1 if product_data.is_active else 0
+        if product_data.cost is not None:
+            if product_data.cost < 0:
+                return error_response("商品成本不能为负数", 400)
+            update_data['cost'] = product_data.cost
         
         if not update_data:
             return error_response("没有提供更新数据", 400)
