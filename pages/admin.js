@@ -734,7 +734,8 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
     category: product.category || '',
     price: product.price || '',
     stock: product.stock || '',
-    description: product.description || ''
+    description: product.description || '',
+    cost: product.cost || ''
   });
   const [imageFile, setImageFile] = useState(null);
 
@@ -854,7 +855,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               价格 *
@@ -870,6 +871,23 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="0.00"
             />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              成本
+            </label>
+            <input
+              type="number"
+              name="cost"
+              min="0"
+              step="0.01"
+              value={formData.cost}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="0.00"
+            />
+            <p className="text-xs text-gray-500 mt-1">用于计算净利润，选填</p>
           </div>
           
           <div>
@@ -1350,7 +1368,8 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
     category: '',
     price: '',
     stock: '',
-    description: ''
+    description: '',
+    cost: ''
   });
   const [imageFile, setImageFile] = useState(null);
 
@@ -1468,7 +1487,7 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               价格 *
@@ -1484,6 +1503,23 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="0.00"
             />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              成本
+            </label>
+            <input
+              type="number"
+              name="cost"
+              min="0"
+              step="0.01"
+              value={formData.cost}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="0.00"
+            />
+            <p className="text-xs text-gray-500 mt-1">用于计算净利润，选填</p>
           </div>
           
           <div>
@@ -2186,6 +2222,7 @@ export default function Admin() {
       formData.append('price', productData.price);
       formData.append('stock', productData.stock);
       formData.append('description', productData.description);
+      formData.append('cost', productData.cost || '0');
       
       if (productData.image) {
         formData.append('image', productData.image);
@@ -2218,7 +2255,8 @@ export default function Admin() {
         category: productData.category,
         price: productData.price,
         stock: productData.stock,
-        description: productData.description
+        description: productData.description,
+        cost: productData.cost || 0
       };
       
       await apiRequest(`/admin/products/${editingProduct.id}`, {

@@ -163,6 +163,7 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
   );
 };
 
+
 // 现代化的折线图组件
 const SalesTrendChart = ({ data, title, period }) => {
   if (!data || data.length === 0) {
@@ -185,12 +186,16 @@ const SalesTrendChart = ({ data, title, period }) => {
   }
 
   const maxRevenue = Math.max(...data.map(d => d.revenue || 0));
+  const maxProfit = Math.max(...data.map(d => d.profit || 0));
   const maxOrders = Math.max(...data.map(d => d.orders || 0));
   const chartData = data.slice(-7);
   
+  // 销售额和净利润共用左侧Y轴，取两者的最大值
+  const maxLeftAxis = Math.max(maxRevenue, maxProfit);
+  
   // SVG 图表参数 - 调整以撑满卡片
   const svgWidth = 600;
-  const svgHeight = 320;
+  const svgHeight = 400;
   const padding = 40;
   const chartWidth = svgWidth - (padding * 2);
   const chartHeight = svgHeight - (padding * 2);
@@ -204,7 +209,8 @@ const SalesTrendChart = ({ data, title, period }) => {
     });
   };
   
-  const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), maxRevenue);
+  const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), maxLeftAxis);
+  const profitPoints = getPoints(chartData.map(d => d.profit || 0), maxLeftAxis);
   const ordersPoints = getPoints(chartData.map(d => d.orders || 0), maxOrders);
   
   // 生成平滑曲线路径
@@ -237,30 +243,34 @@ const SalesTrendChart = ({ data, title, period }) => {
   };
   
   const revenuePath = createSmoothPath(revenuePoints);
+  const profitPath = createSmoothPath(profitPoints);
   const ordersPath = createSmoothPath(ordersPoints);
   
-  // 智能标签位置计算 - 根据线条相对位置决定上下布局
+  // 智能标签位置计算 - 净利润标签固定在下方，其他线条自动调整
   const getSmartLabelPosition = (point, index, points, type) => {
     const labelOffset = 12;
     
-    // 获取对应位置的两条线的点
-    const revenuePoint = revenuePoints[index];
-    const orderPoint = ordersPoints[index];
-    
-    if (!revenuePoint || !orderPoint) {
-      // 如果只有一条线，按默认位置
-      return type === 'revenue' ? point.y - labelOffset : point.y + labelOffset;
+    if (type === 'profit') {
+      // 净利润标签总是在线下方
+      return point.y + labelOffset;
     }
     
-    // 比较两条线的Y坐标（Y坐标越小越靠上）
-    const revenueIsAbove = revenuePoint.y <= orderPoint.y;
+    // 获取对应位置的三条线的点
+    const revenuePoint = revenuePoints[index];
+    const profitPoint = profitPoints[index];
+    const orderPoint = ordersPoints[index];
     
     if (type === 'revenue') {
-      // 蓝线（销售额）标签：如果蓝线在上面，标签放在上面；否则放在下面
-      return revenueIsAbove ? point.y - labelOffset : point.y + labelOffset;
+      // 销售额标签：根据与净利润线的距离决定位置
+      if (revenuePoint && profitPoint) {
+        const gap = Math.abs(revenuePoint.y - profitPoint.y);
+        // 如果距离净利润线太近，标签放在上方；否则放在下方
+        return gap < 30 ? point.y - labelOffset : point.y + labelOffset;
+      }
+      return point.y - labelOffset;
     } else {
-      // 绿线（订单数）标签：如果蓝线在上面，绿线标签放在下面；否则放在上面
-      return revenueIsAbove ? point.y + labelOffset : point.y - labelOffset;
+      // 订单数标签：使用右轴，根据与其他线的位置决定
+      return point.y - labelOffset;
     }
   };
   
@@ -276,7 +286,7 @@ const SalesTrendChart = ({ data, title, period }) => {
           {title}
         </h3>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* 图例和汇总 */}
           <div className="space-y-6">
             {/* 图例 */}
@@ -284,6 +294,10 @@ const SalesTrendChart = ({ data, title, period }) => {
               <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50/80 to-blue-100/60 rounded-xl border border-blue-200/30 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="w-4 h-4 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg"></div>
                 <span className="text-sm font-medium text-gray-700">销售额</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-amber-50/80 to-amber-100/60 rounded-xl border border-amber-200/30 shadow-sm hover:shadow-md transition-all duration-300">
+                <div className="w-4 h-4 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 shadow-lg"></div>
+                <span className="text-sm font-medium text-gray-700">净利润</span>
               </div>
               <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-50/80 to-emerald-100/60 rounded-xl border border-emerald-200/30 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="w-4 h-4 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 shadow-lg"></div>
@@ -300,6 +314,13 @@ const SalesTrendChart = ({ data, title, period }) => {
                   <div className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full w-3/4 transition-all duration-1000"></div>
                 </div>
               </div>
+              <div className="p-4 bg-gradient-to-br from-amber-50/80 to-amber-100/70 rounded-xl border border-amber-200/40 shadow-sm hover:shadow-md transition-all duration-300">
+                <div className="text-xs text-amber-600 font-medium uppercase tracking-wide">最新净利润</div>
+                <div className="text-2xl font-bold text-amber-700 mt-1">¥{chartData[chartData.length - 1]?.profit || 0}</div>
+                <div className="w-full h-1 bg-amber-200/50 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-amber-400 to-orange-600 rounded-full w-2/3 transition-all duration-1000"></div>
+                </div>
+              </div>
               <div className="p-4 bg-gradient-to-br from-emerald-50/80 to-emerald-100/70 rounded-xl border border-emerald-200/40 shadow-sm hover:shadow-md transition-all duration-300">
                 <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">最新订单</div>
                 <div className="text-2xl font-bold text-emerald-700 mt-1">{chartData[chartData.length - 1]?.orders || 0}</div>
@@ -312,10 +333,10 @@ const SalesTrendChart = ({ data, title, period }) => {
           
           {/* 折线图 */}
           <div className="lg:col-span-2">
-            <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner">
+            <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner h-full">
               <svg 
                 width="100%" 
-                height="360" 
+                height="480" 
                 viewBox={`0 0 ${svgWidth} ${svgHeight}`}
                 className="overflow-visible"
               >
@@ -325,6 +346,11 @@ const SalesTrendChart = ({ data, title, period }) => {
                     <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2"/>
                     <stop offset="50%" stopColor="#3b82f6" stopOpacity="0.1"/>
                     <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
+                  </linearGradient>
+                  <linearGradient id="profitAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2"/>
+                    <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.1"/>
+                    <stop offset="100%" stopColor="#f59e0b" stopOpacity="0"/>
                   </linearGradient>
                   <linearGradient id="ordersAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
                     <stop offset="0%" stopColor="#10b981" stopOpacity="0.2"/>
@@ -377,7 +403,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                     textAnchor="end"
                     className="text-xs fill-gray-400 font-medium"
                   >
-                    {Math.round(maxRevenue * (1 - ratio))}
+                    {Math.round(maxLeftAxis * (1 - ratio))}
                   </text>
                 ))}
                 
@@ -386,6 +412,15 @@ const SalesTrendChart = ({ data, title, period }) => {
                   <path
                     d={`${revenuePath} L ${revenuePoints[revenuePoints.length - 1].x} ${padding + chartHeight} L ${revenuePoints[0].x} ${padding + chartHeight} Z`}
                     fill="url(#revenueAreaGradient)"
+                    className="transition-all duration-1000"
+                  />
+                )}
+                
+                {/* 净利润面积 */}
+                {profitPoints.length > 1 && (
+                  <path
+                    d={`${profitPath} L ${profitPoints[profitPoints.length - 1].x} ${padding + chartHeight} L ${profitPoints[0].x} ${padding + chartHeight} Z`}
+                    fill="url(#profitAreaGradient)"
                     className="transition-all duration-1000"
                   />
                 )}
@@ -405,6 +440,20 @@ const SalesTrendChart = ({ data, title, period }) => {
                     d={revenuePath}
                     fill="none"
                     stroke="url(#revenueLineGradient)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    filter="url(#dropShadow)"
+                    className="transition-all duration-1000"
+                  />
+                )}
+                
+                {/* 净利润折线 */}
+                {profitPoints.length > 1 && (
+                  <path
+                    d={profitPath}
+                    fill="none"
+                    stroke="url(#profitLineGradient)"
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -434,6 +483,11 @@ const SalesTrendChart = ({ data, title, period }) => {
                     <stop offset="50%" stopColor="#3b82f6"/>
                     <stop offset="100%" stopColor="#2563eb"/>
                   </linearGradient>
+                  <linearGradient id="profitLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#fbbf24"/>
+                    <stop offset="50%" stopColor="#f59e0b"/>
+                    <stop offset="100%" stopColor="#d97706"/>
+                  </linearGradient>
                   <linearGradient id="ordersLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#34d399"/>
                     <stop offset="50%" stopColor="#10b981"/>
@@ -461,6 +515,34 @@ const SalesTrendChart = ({ data, title, period }) => {
                         y={labelY}
                         textAnchor="middle"
                         className="text-xs font-semibold fill-blue-600 pointer-events-none filter drop-shadow-sm"
+                        style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                      >
+                        ¥{point.value}
+                      </text>
+                    </g>
+                  );
+                })}
+                
+                {/* 数据点和标签 - 净利润 */}
+                {profitPoints.map((point, index) => {
+                  const labelY = getSmartLabelPosition(point, index, profitPoints, 'profit');
+                  
+                  return (
+                    <g key={`profit-${index}`} className="transition-all duration-300">
+                      {/* 数据点 */}
+                      <circle
+                        cx={point.x}
+                        cy={point.y}
+                        r="2"
+                        fill="#f59e0b"
+                        className="hover:r-3 transition-all cursor-pointer filter drop-shadow-sm"
+                      />
+                      {/* 标签文字 */}
+                      <text
+                        x={point.x}
+                        y={labelY}
+                        textAnchor="middle"
+                        className="text-xs font-semibold fill-amber-600 pointer-events-none filter drop-shadow-sm"
                         style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
                       >
                         ¥{point.value}
@@ -503,18 +585,39 @@ const SalesTrendChart = ({ data, title, period }) => {
                   // 格式化日期，去掉年份
                   const formatPeriod = (period) => {
                     try {
-                      // 如果是日期格式，尝试解析并重新格式化
-                      if (period && (period.includes('-') || period.includes('/'))) {
-                        const date = new Date(period);
-                        if (!isNaN(date.getTime())) {
-                          return date.toLocaleDateString('zh-CN', {
-                            month: 'short',
-                            day: 'numeric'
-                          });
+                      if (!period) return '';
+                      
+                      // 检查是否是时间戳格式 "YYYY-MM-DD HH:00:00"
+                      if (period.includes(':')) {
+                        // 提取小时部分
+                        const timePart = period.split(' ')[1];
+                        if (timePart) {
+                          const hour = timePart.split(':')[0];
+                          return `${hour}时`;
                         }
                       }
+                      
+                      // 检查是否是日期格式 "YYYY-MM-DD"
+                      if (period.includes('-') && !period.includes(':')) {
+                        const dateParts = period.split('-');
+                        if (dateParts.length === 3) {
+                          const year = parseInt(dateParts[0]);
+                          const month = parseInt(dateParts[1]) - 1;
+                          const day = parseInt(dateParts[2]);
+                          const date = new Date(year, month, day);
+                          
+                          if (!isNaN(date.getTime())) {
+                            return date.toLocaleDateString('zh-CN', {
+                              month: 'short',
+                              day: 'numeric'
+                            });
+                          }
+                        }
+                      }
+                      
                       return period;
                     } catch (error) {
+                      console.error('Format period error:', error);
                       return period;
                     }
                   };
@@ -754,7 +857,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* 统计卡片 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-12">
             <StatCard
               title="总订单数"
               value={dashboardStats.total_orders || 0}
@@ -770,6 +873,14 @@ export default function AdminDashboard() {
               changeType={getChangeType(dashboardStats.comparison?.revenue_growth)}
               subtitle={`${dashboardStats.period_name || '本期'}销售额: ¥${dashboardStats.current_period?.revenue || 0}`}
               icon={{ class: "fas fa-dollar-sign", bg: "bg-gradient-to-br from-emerald-500 to-emerald-600" }}
+            />
+            <StatCard
+              title="净利润"
+              value={`¥${dashboardStats.profit_stats?.total_profit || 0}`}
+              change={formatChange(dashboardStats.comparison?.profit_growth)}
+              changeType={getChangeType(dashboardStats.comparison?.profit_growth)}
+              subtitle={`今日净利润: ¥${dashboardStats.profit_stats?.today_profit || 0}`}
+              icon={{ class: "fas fa-chart-line", bg: "bg-gradient-to-br from-amber-500 to-amber-600" }}
             />
             <StatCard
               title="商品总数"

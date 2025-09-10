@@ -189,6 +189,12 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # 字段已存在
 
+        # 商品成本字段（用于计算净利润）
+        try:
+            cursor.execute('ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0.0')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+
         # 订单表增加优惠相关字段（若不存在）
         try:
             cursor.execute('ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0.0')
@@ -558,8 +564,8 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description, cost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -568,7 +574,8 @@ class ProductDB:
                 product_data.get('stock', 0),
                 float(product_data.get('discount', 10.0)),
                 product_data.get('img_path', ''),
-                product_data.get('description', '')
+                product_data.get('description', ''),
+                float(product_data.get('cost', 0.0))
             ))
             conn.commit()
             return product_id
@@ -736,7 +743,7 @@ class SettingsDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
@@ -1781,19 +1788,19 @@ class OrderDB:
             
             # 按时间段统计销售额
             if period == 'day':
-                time_filter = "date(created_at) = date('now')"
-                prev_time_filter = "date(created_at) = date('now', '-1 day')"
-                group_by = "strftime('%H', created_at)"
+                time_filter = "date(created_at, 'localtime') = date('now', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') = date('now', '-1 day', 'localtime')"
+                group_by = "strftime('%Y-%m-%d %H:00:00', created_at, 'localtime')"
                 date_format = "今日各小时"
             elif period == 'week':
-                time_filter = "date(created_at) >= date('now', '-7 days')"
-                prev_time_filter = "date(created_at) >= date('now', '-14 days') AND date(created_at) < date('now', '-7 days')"
-                group_by = "date(created_at)"
+                time_filter = "date(created_at, 'localtime') >= date('now', '-7 days', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-14 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-7 days', 'localtime')"
+                group_by = "date(created_at, 'localtime')"
                 date_format = "近7天"
             else:  # month
-                time_filter = "date(created_at) >= date('now', '-30 days')"
-                prev_time_filter = "date(created_at) >= date('now', '-60 days') AND date(created_at) < date('now', '-30 days')"
-                group_by = "date(created_at)"
+                time_filter = "date(created_at, 'localtime') >= date('now', '-30 days', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-60 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-30 days', 'localtime')"
+                group_by = "date(created_at, 'localtime')"
                 date_format = "近30天"
             
             # 当前时间段销售额
@@ -1810,8 +1817,106 @@ class OrderDB:
                 {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
                 for row in cursor.fetchall()
             ]
+
+            # 计算净利润数据 - 使用新算法：订单总额减去成本总和
+            def calculate_profit_for_period(time_filter_clause):
+                cursor.execute(f'''
+                    SELECT o.items, o.created_at, o.total_amount
+                    FROM orders o 
+                    WHERE {time_filter_clause}
+                    AND o.payment_status = 'succeeded'
+                ''')
+                
+                total_profit = 0.0
+                profit_by_period = {}
+                
+                for row in cursor.fetchall():
+                    try:
+                        items_json = json.loads(row[0])
+                        created_at = row[1]
+                        order_total_amount = float(row[2]) if row[2] else 0.0
+                        
+                        total_cost = 0.0  # 商品成本总和
+                        gift_count = 0    # 赠品数量
+                        
+                        for item in items_json:
+                            product_id = item.get('product_id')
+                            quantity = int(item.get('quantity', 0))
+                            is_lottery = item.get('is_lottery', False)
+                            
+                            if is_lottery:
+                                # 赠品：每个赠品成本计为1元
+                                gift_count += quantity
+                                continue
+                                
+                            # 获取商品成本，如果没有设置成本则默认为0
+                            cursor.execute('SELECT cost FROM products WHERE id = ?', (product_id,))
+                            cost_row = cursor.fetchone()
+                            cost = 0.0
+                            if cost_row and cost_row[0] is not None and cost_row[0] != '':
+                                try:
+                                    cost = float(cost_row[0])
+                                except (ValueError, TypeError):
+                                    cost = 0.0
+                            
+                            # 累计商品成本：成本 × 数量
+                            total_cost += cost * quantity
+                        
+                        # 新算法：净利润 = 订单总额 - 商品成本总和 - 赠品数量×1
+                        final_order_profit = order_total_amount - total_cost - gift_count
+                        total_profit += final_order_profit
+                        
+                        # 按时间段分组，使用与销售额查询一致的SQLite本地时间转换
+                        if period == 'day':
+                            # 使用SQLite的localtime转换，确保与销售额查询的period格式一致
+                            created_at = row[1]
+                            if created_at:
+                                # 查询SQLite转换后的本地时间格式，与销售额查询保持一致
+                                cursor.execute('''
+                                    SELECT strftime('%Y-%m-%d %H:00:00', ?, 'localtime')
+                                ''', (created_at,))
+                                sqlite_result = cursor.fetchone()
+                                period_key = sqlite_result[0] if sqlite_result else ''
+                            else:
+                                period_key = ''
+                        else:
+                            # 对于周/月，使用SQLite的日期转换
+                            created_at = row[1]
+                            if created_at:
+                                cursor.execute('''
+                                    SELECT date(?, 'localtime')
+                                ''', (created_at,))
+                                sqlite_result = cursor.fetchone()
+                                period_key = sqlite_result[0] if sqlite_result else ''
+                            else:
+                                period_key = ''
+                        
+                        if period_key:
+                            profit_by_period[period_key] = profit_by_period.get(period_key, 0) + final_order_profit
+                            
+                    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        continue
+                
+                return total_profit, profit_by_period
+
+            # 计算当前时间段净利润
+            current_profit, current_profit_by_period = calculate_profit_for_period(time_filter)
             
-            # 对比时间段销售额
+            # 为current_period_data添加净利润数据
+            for data_point in current_period_data:
+                period_value = data_point['period']
+                
+                # 处理时间格式转换，确保与calculate_profit_for_period中的格式一致
+                if period == 'day':
+                    # period_value格式是 "YYYY-MM-DD HH:00:00"，直接使用完整格式匹配
+                    period_key = str(period_value)
+                else:
+                    # 对于日期数据，直接使用period值
+                    period_key = str(period_value)
+                
+                data_point['profit'] = round(current_profit_by_period.get(period_key, 0), 2)
+            
+            # 对比时间段销售额和净利润
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
                 FROM orders 
@@ -1820,6 +1925,9 @@ class OrderDB:
             prev_data = cursor.fetchone()
             prev_revenue = round(prev_data[0], 2) if prev_data else 0
             prev_orders = prev_data[1] if prev_data else 0
+            
+            # 计算对比时间段净利润
+            prev_profit, _ = calculate_profit_for_period(prev_time_filter)
             
             # 当前时间段总计
             cursor.execute(f'''
@@ -1834,10 +1942,13 @@ class OrderDB:
             # 计算增长率
             revenue_growth = 0
             orders_growth = 0
+            profit_growth = 0
             if prev_revenue > 0:
                 revenue_growth = round(((current_revenue - prev_revenue) / prev_revenue) * 100, 1)
             if prev_orders > 0:
                 orders_growth = round(((current_orders - prev_orders) / prev_orders) * 100, 1)
+            if prev_profit > 0:
+                profit_growth = round(((current_profit - prev_profit) / prev_profit) * 100, 1)
             
             # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围
             cursor.execute(f'''
@@ -1888,6 +1999,10 @@ class OrderDB:
             ''')
             new_users_week = cursor.fetchone()[0] or 0
             
+            # 计算总净利润和今日净利润
+            total_profit, _ = calculate_profit_for_period("o.payment_status = 'succeeded'")
+            today_profit, _ = calculate_profit_for_period("date(created_at, 'localtime') = date('now', 'localtime') AND o.payment_status = 'succeeded'")
+            
             return {
                 **basic_stats,
                 'period': period,
@@ -1895,13 +2010,21 @@ class OrderDB:
                 'current_period': {
                     'revenue': current_revenue,
                     'orders': current_orders,
+                    'profit': round(current_profit, 2),
                     'data': current_period_data
                 },
                 'comparison': {
                     'prev_revenue': prev_revenue,
                     'prev_orders': prev_orders,
+                    'prev_profit': round(prev_profit, 2),
                     'revenue_growth': revenue_growth,
-                    'orders_growth': orders_growth
+                    'orders_growth': orders_growth,
+                    'profit_growth': profit_growth
+                },
+                'profit_stats': {
+                    'total_profit': round(total_profit, 2),
+                    'today_profit': round(today_profit, 2),
+                    'current_period_profit': round(current_profit, 2)
                 },
                 'top_products': top_products,
                 'users': {
