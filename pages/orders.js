@@ -619,7 +619,7 @@ export default function Orders() {
             {/* 二维码区域 */}
             <div className="bg-white rounded-2xl p-4 mb-6 shadow-lg">
               <img 
-                src="/1_wx.png" 
+                src={Math.random() < 0.5 ? "/1_wx.png" : "/2_wx.png"} 
                 alt="微信收款码" 
                 className="w-full h-64 object-contain rounded-xl" 
               />
