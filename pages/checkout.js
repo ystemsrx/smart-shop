@@ -814,7 +814,7 @@ export default function Checkout() {
             {/* 二维码区域 */}
             <div className="mb-6 text-center">
               <img 
-                src="/1_wx.png" 
+                src={Math.random() < 0.5 ? "/1_wx.png" : "/2_wx.png"} 
                 alt="微信收款码" 
                 className="mx-auto w-64 h-64 object-contain" 
               />
