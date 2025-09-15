@@ -193,18 +193,21 @@ const SalesTrendChart = ({ data, title, period }) => {
   // 销售额和净利润共用左侧Y轴，取两者的最大值
   const maxLeftAxis = Math.max(maxRevenue, maxProfit);
   
-  // SVG 图表参数 - 调整以撑满卡片
+  // SVG 图表参数 - 调整以撑满卡片，为右侧Y轴预留空间
   const svgWidth = 600;
   const svgHeight = 400;
-  const padding = 40;
-  const chartWidth = svgWidth - (padding * 2);
-  const chartHeight = svgHeight - (padding * 2);
+  const leftPadding = 40;
+  const rightPadding = 40; // 为右侧Y轴预留空间
+  const topPadding = 40;
+  const bottomPadding = 40;
+  const chartWidth = svgWidth - leftPadding - rightPadding;
+  const chartHeight = svgHeight - topPadding - bottomPadding;
   
   // 计算坐标点
   const getPoints = (values, maxValue) => {
     return values.map((value, index) => {
-      const x = padding + (index / (values.length - 1)) * chartWidth;
-      const y = padding + chartHeight - ((value / maxValue) * chartHeight);
+      const x = leftPadding + (index / (values.length - 1)) * chartWidth;
+      const y = topPadding + chartHeight - ((value / maxValue) * chartHeight);
       return { x, y, value };
     });
   };
@@ -246,32 +249,46 @@ const SalesTrendChart = ({ data, title, period }) => {
   const profitPath = createSmoothPath(profitPoints);
   const ordersPath = createSmoothPath(ordersPoints);
   
-  // 智能标签位置计算 - 净利润标签固定在下方，其他线条自动调整
+  // 智能标签位置计算 - 根据每个点的实际高度动态调整
   const getSmartLabelPosition = (point, index, points, type) => {
     const labelOffset = 12;
     
     if (type === 'profit') {
-      // 净利润标签总是在线下方
+      // 净利润标签固定在线下方
       return point.y + labelOffset;
-    }
+    } 
     
-    // 获取对应位置的三条线的点
+    // 获取当前点的蓝色线和绿色线的Y坐标
     const revenuePoint = revenuePoints[index];
-    const profitPoint = profitPoints[index];
     const orderPoint = ordersPoints[index];
     
     if (type === 'revenue') {
-      // 销售额标签：根据与净利润线的距离决定位置
-      if (revenuePoint && profitPoint) {
-        const gap = Math.abs(revenuePoint.y - profitPoint.y);
-        // 如果距离净利润线太近，标签放在上方；否则放在下方
-        return gap < 30 ? point.y - labelOffset : point.y + labelOffset;
+      // 比较蓝色线和绿色线在当前点的视觉高度（Y坐标越小表示位置越高）
+      if (revenuePoint && orderPoint) {
+        if (revenuePoint.y <= orderPoint.y) {
+          // 蓝色线在绿色线上方或同高度，蓝色标签在上方
+          return point.y - labelOffset;
+        } else {
+          // 蓝色线在绿色线下方，蓝色标签在下方
+          return point.y + labelOffset;
+        }
       }
       return point.y - labelOffset;
-    } else {
-      // 订单数标签：使用右轴，根据与其他线的位置决定
-      return point.y - labelOffset;
+    } else if (type === 'orders') {
+      // 订单数标签位置
+      if (revenuePoint && orderPoint) {
+        if (orderPoint.y < revenuePoint.y) {
+          // 绿色线在蓝色线上方（严格高于），绿色标签在上方
+          return point.y - labelOffset;
+        } else {
+          // 绿色线在蓝色线下方或同高度，绿色标签在下方（默认蓝色优先上方）
+          return point.y + labelOffset;
+        }
+      }
+      return point.y + labelOffset;
     }
+    
+    return point.y;
   };
   
   return (
@@ -383,10 +400,10 @@ const SalesTrendChart = ({ data, title, period }) => {
                 {[0, 0.25, 0.5, 0.75, 1].map(ratio => (
                   <line
                     key={ratio}
-                    x1={padding}
-                    y1={padding + chartHeight * ratio}
-                    x2={padding + chartWidth}
-                    y2={padding + chartHeight * ratio}
+                    x1={leftPadding}
+                    y1={topPadding + chartHeight * ratio}
+                    x2={leftPadding + chartWidth}
+                    y2={topPadding + chartHeight * ratio}
                     stroke="#e2e8f0"
                     strokeWidth="1"
                     strokeDasharray="3,3"
@@ -394,12 +411,12 @@ const SalesTrendChart = ({ data, title, period }) => {
                   />
                 ))}
                 
-                {/* Y轴标签 */}
+                {/* 左侧Y轴标签 */}
                 {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => (
                   <text
                     key={ratio}
-                    x={padding - 10}
-                    y={padding + chartHeight * ratio + 4}
+                    x={leftPadding - 10}
+                    y={topPadding + chartHeight * ratio + 4}
                     textAnchor="end"
                     className="text-xs fill-gray-400 font-medium"
                   >
@@ -407,10 +424,23 @@ const SalesTrendChart = ({ data, title, period }) => {
                   </text>
                 ))}
                 
+                {/* 右侧Y轴标签 - 订单数专用 */}
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => (
+                  <text
+                    key={`right-${ratio}`}
+                    x={leftPadding + chartWidth + 10}
+                    y={topPadding + chartHeight * ratio + 4}
+                    textAnchor="start"
+                    className="text-xs fill-emerald-500 font-medium"
+                  >
+                    {Math.round(maxOrders * (1 - ratio))}
+                  </text>
+                ))}
+                
                 {/* 销售额面积 */}
                 {revenuePoints.length > 1 && (
                   <path
-                    d={`${revenuePath} L ${revenuePoints[revenuePoints.length - 1].x} ${padding + chartHeight} L ${revenuePoints[0].x} ${padding + chartHeight} Z`}
+                    d={`${revenuePath} L ${revenuePoints[revenuePoints.length - 1].x} ${topPadding + chartHeight} L ${revenuePoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#revenueAreaGradient)"
                     className="transition-all duration-1000"
                   />
@@ -419,7 +449,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                 {/* 净利润面积 */}
                 {profitPoints.length > 1 && (
                   <path
-                    d={`${profitPath} L ${profitPoints[profitPoints.length - 1].x} ${padding + chartHeight} L ${profitPoints[0].x} ${padding + chartHeight} Z`}
+                    d={`${profitPath} L ${profitPoints[profitPoints.length - 1].x} ${topPadding + chartHeight} L ${profitPoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#profitAreaGradient)"
                     className="transition-all duration-1000"
                   />
@@ -428,7 +458,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                 {/* 订单数面积 */}
                 {ordersPoints.length > 1 && (
                   <path
-                    d={`${ordersPath} L ${ordersPoints[ordersPoints.length - 1].x} ${padding + chartHeight} L ${ordersPoints[0].x} ${padding + chartHeight} Z`}
+                    d={`${ordersPath} L ${ordersPoints[ordersPoints.length - 1].x} ${topPadding + chartHeight} L ${ordersPoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#ordersAreaGradient)"
                     className="transition-all duration-1000"
                   />
@@ -581,7 +611,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                 
                 {/* X轴标签 */}
                 {chartData.map((item, index) => {
-                  const x = padding + (index / (chartData.length - 1)) * chartWidth;
+                  const x = leftPadding + (index / (chartData.length - 1)) * chartWidth;
                   // 格式化日期，去掉年份
                   const formatPeriod = (period) => {
                     try {
