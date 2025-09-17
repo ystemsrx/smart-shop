@@ -522,15 +522,6 @@ export default function Orders() {
                                           {it.variant_name}
                                         </span>
                                       )}
-                                      {(it.is_lottery || it.is_auto_gift) && (
-                                        <div className="mt-2 text-xs text-pink-600 space-y-1">
-                                          <div>
-                                            奖品：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
-                                            {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
-                                          </div>
-                                          <div className="text-pink-500/80">{it.is_lottery ? '抽奖赠品' : '满额赠品'}</div>
-                                        </div>
-                                      )}
                                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                                         <span className="flex items-center gap-1">
                                           <i className="fas fa-cubes"></i>
@@ -543,6 +534,14 @@ export default function Orders() {
                                       </div>
                                     </div>
                                     <div className="text-right">
+                                      {(it.is_lottery || it.is_auto_gift) && (
+                                        <div className="mb-3 text-xs text-pink-600 text-right max-w-36">
+                                          <div className="font-medium">
+                                            {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
+                                            {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                          </div>
+                                        </div>
+                                      )}
                                       <p className="font-semibold text-gray-900">¥{it.subtotal}</p>
                                       <p className="text-xs text-gray-500">小计</p>
                                     </div>

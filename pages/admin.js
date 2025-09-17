@@ -2254,17 +2254,35 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                         <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
                         <div className="divide-y divide-gray-200 border rounded-md">
                           {(order.items || []).map((it, idx) => (
-                            <div key={idx} className="flex justify-between items-center px-3 py-2 text-sm">
-                              <div className="truncate">
-                                <div className="text-gray-900 truncate">
-                                  {it.name}
-                                  {it.variant_name && (
-                                    <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
-                                  )}
+                            <div key={idx} className="px-3 py-2 text-sm">
+                              <div className="flex justify-between items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-gray-900 truncate flex items-center gap-2">
+                                    {it.name}
+                                    {it.is_lottery && (
+                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
+                                    )}
+                                    {it.is_auto_gift && (
+                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200">赠品</span>
+                                    )}
+                                    {it.variant_name && (
+                                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
+                                    )}
+                                  </div>
+                                  <div className="text-gray-500 mt-1">x{it.quantity} · 单价 ¥{it.unit_price}</div>
                                 </div>
-                                <div className="text-gray-500">x{it.quantity} · 单价 ¥{it.unit_price}</div>
+                                <div className="text-right">
+                                  {(it.is_lottery || it.is_auto_gift) && (
+                                    <div className="mb-2 text-xs text-pink-600 text-right max-w-32">
+                                      <div className="font-medium">
+                                        {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
+                                        {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="text-gray-900 font-medium">¥{it.subtotal}</div>
+                                </div>
                               </div>
-                              <div className="text-gray-900">¥{it.subtotal}</div>
                             </div>
                           ))}
                         </div>
