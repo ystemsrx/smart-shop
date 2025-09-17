@@ -2476,7 +2476,9 @@ class LotteryDB:
         for prize in prizes:
             if prize.get('weight', 0) <= 0:
                 continue
-            items = [dict(item) for item in prize.get('items', []) if item.get('available')]
+            # 修改：包含所有商品（有库存和缺货的），不再只筛选有库存的商品
+            items = [dict(item) for item in prize.get('items', [])]
+            # 修改：即使没有有库存的商品也保留奖项，抽奖时会根据实际库存计算概率
             if not items:
                 continue
             active.append({

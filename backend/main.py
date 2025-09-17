@@ -2021,8 +2021,8 @@ def _search_inventory_for_selector(term: Optional[str]) -> List[Dict[str, Any]]:
                     stock = int(variant.get('stock') or 0)
                 except Exception:
                     stock = 0
-                if stock <= 0:
-                    continue
+                # 修改：允许缺货商品也被搜索到，但标记为不可用
+                available = stock > 0
                 filtered.append({
                     'product_id': product.get('id'),
                     'product_name': product.get('name'),
@@ -2032,15 +2032,15 @@ def _search_inventory_for_selector(term: Optional[str]) -> List[Dict[str, Any]]:
                     'retail_price': retail_price,
                     'img_path': product.get('img_path'),
                     'category': product.get('category'),
-                    'available': True
+                    'available': available
                 })
         else:
             try:
                 stock = int(product.get('stock') or 0)
             except Exception:
                 stock = 0
-            if stock <= 0:
-                continue
+            # 修改：允许缺货商品也被搜索到，但标记为不可用
+            available = stock > 0
             filtered.append({
                 'product_id': product.get('id'),
                 'product_name': product.get('name'),
@@ -2050,7 +2050,7 @@ def _search_inventory_for_selector(term: Optional[str]) -> List[Dict[str, Any]]:
                 'retail_price': retail_price,
                 'img_path': product.get('img_path'),
                 'category': product.get('category'),
-                'available': True
+                'available': available
             })
 
     filtered.sort(key=lambda x: (x.get('product_name') or '', x.get('variant_name') or ''))
