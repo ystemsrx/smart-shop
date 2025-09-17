@@ -85,6 +85,7 @@ export default function Orders() {
   const [lotteryNames, setLotteryNames] = useState([]);
   const [lotteryResult, setLotteryResult] = useState('');
   const [lotteryDisplay, setLotteryDisplay] = useState('');
+  const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
 
   useEffect(() => {
@@ -164,12 +165,14 @@ export default function Orders() {
     try {
       const resp = await apiRequest(`/orders/${orderId}/lottery/draw`, { method: 'POST' });
       if (resp.success) {
-        const names = (resp.data?.names && resp.data.names.length > 0)
+        const resultName = resp.data?.prize_name || '';
+        const list = (resp.data?.names && resp.data.names.length > 0)
           ? resp.data.names
-          : [resp.data?.prize_name];
-        setLotteryNames(names);
-        setLotteryResult(resp.data?.prize_name || '');
-        setLotteryDisplay(names[0] || '');
+          : (resultName ? [resultName] : ['谢谢参与']);
+        setLotteryPrize(resp.data?.prize || null);
+        setLotteryNames(list);
+        setLotteryResult(resultName);
+        setLotteryDisplay(list[0] || '');
         setLotteryOpen(true);
         // 简单滚动动画：2秒内循环高亮，最终停留在结果
         setSpinning(true);
@@ -177,17 +180,17 @@ export default function Orders() {
         const interval = 80;
         let idx = 0;
         const timer = setInterval(() => {
-          idx = (idx + 1) % names.length;
-          setLotteryDisplay(names[idx]);
+          idx = (idx + 1) % list.length;
+          setLotteryDisplay(list[idx]);
         }, interval);
         setTimeout(() => {
           clearInterval(timer);
           setSpinning(false);
-          setLotteryDisplay(resp.data?.prize_name || names[0]);
+          setLotteryDisplay(resultName || list[0]);
         }, duration);
       }
     } catch (e) {
-      // 安静失败
+      setLotteryPrize(null);
     }
   };
 
@@ -519,6 +522,12 @@ export default function Orders() {
                                           {it.variant_name}
                                         </span>
                                       )}
+                                      {it.is_lottery && (
+                                        <div className="mt-2 text-xs text-pink-600 space-y-1">
+                                          <div>奖品：{it.lottery_product_name || it.name}{it.lottery_variant_name ? `（${it.lottery_variant_name}）` : ''}</div>
+                                          <div className="text-pink-500/80">抽奖赠品</div>
+                                        </div>
+                                      )}
                                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                                         <span className="flex items-center gap-1">
                                           <i className="fas fa-cubes"></i>
@@ -658,7 +667,7 @@ export default function Orders() {
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={() => setLotteryOpen(false)}></div>
+          <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }}></div>
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
@@ -668,13 +677,23 @@ export default function Orders() {
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
             </div>
             {!spinning && (
-              <div className="text-center mb-4">
-                <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
-              </div>
+              <>
+                <div className="text-center mb-4 space-y-2">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult || '谢谢参与'}</span>
+                  {lotteryPrize ? (
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>
+                      <div className="text-gray-500">将在下次满额订单随单配送</div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-500">本次未中奖，继续加油！</div>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
+                </div>
+              </>
             )}
-            <div className="flex gap-3">
-              <button onClick={() => setLotteryOpen(false)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
-            </div>
           </div>
         </div>
       )}

@@ -526,13 +526,20 @@ export default function Cart() {
                                     <span className={`text-sm font-medium ${meet ? 'text-emerald-800' : 'text-gray-700'}`}>{r.prize_name || '奖品'}</span>
                                     <span className={`text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>× {r.prize_quantity || 1}</span>
                                   </div>
+                                  {(r.prize_product_name || r.prize_variant_name) && (
+                                    <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
+                                      奖品：{r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
+                                    </p>
+                                  )}
                                   <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
                                     {meet ? '已满足满10，本单将自动附带并随单配送' : '未达满10，本单结算不会附带；满10自动附带并配送'}
                                   </p>
                                 </div>
                                 <div className="text-right">
                                   <span className={`text-sm font-semibold ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>¥0.00</span>
-                                  <p className={`text-xs ${meet ? 'text-emerald-600' : 'text-gray-500'}`}>赠品</p>
+                                  <p className={`text-xs ${meet ? 'text-emerald-600' : 'text-gray-500'}`}>
+                                    赠品
+                                  </p>
                                 </div>
                               </div>
                             </div>

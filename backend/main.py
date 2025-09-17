@@ -1652,15 +1652,35 @@ async def create_order(
                     qty = int(r.get("prize_quantity") or 1)
                     prize_name = r.get("prize_name") or "抽奖奖品"
                     prize_pid = r.get("prize_product_id") or f"prize_{int(datetime.now().timestamp())}"
-                    order_items.append({
+                    prize_variant_id = r.get("prize_variant_id")
+                    prize_variant_name = r.get("prize_variant_name")
+                    prize_product_name = r.get("prize_product_name") or prize_name
+                    try:
+                        recorded_value = float(r.get("prize_unit_price") or 0.0)
+                    except Exception:
+                        recorded_value = 0.0
+                    lottery_item = {
                         "product_id": prize_pid,
                         "name": prize_name,
                         "unit_price": 0.0,
                         "quantity": qty,
                         "subtotal": 0.0,
                         "category": "抽奖",
-                        "is_lottery": True
-                    })
+                        "is_lottery": True,
+                        "lottery_display_name": prize_name,
+                        "lottery_product_id": prize_pid,
+                        "lottery_product_name": prize_product_name,
+                        "lottery_variant_id": prize_variant_id,
+                        "lottery_variant_name": prize_variant_name,
+                        "lottery_unit_price": recorded_value,
+                        "lottery_group_id": r.get("prize_group_id"),
+                        "lottery_reward_id": r.get("id")
+                    }
+                    if prize_variant_id:
+                        lottery_item["variant_id"] = prize_variant_id
+                        if prize_variant_name:
+                            lottery_item["variant_name"] = prize_variant_name
+                    order_items.append(lottery_item)
                     rewards_attached_ids.append(r.get("id"))
             except Exception as e:
                 logger.warning(f"附加抽奖奖品失败: {e}")
@@ -1829,46 +1849,198 @@ async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Op
 
 @app.get("/admin/lottery-config")
 async def admin_get_lottery_config(request: Request):
-    """读取抽奖配置（管理员）。若文件不存在，返回空对象，便于前端直接创建。"""
+    """读取抽奖配置（管理员）。"""
     admin = get_current_admin_required_from_cookie(request)
     try:
-        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
-        if not os.path.exists(cfg_path):
-            return success_response("获取抽奖配置成功", {"config": {}})
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-        if not isinstance(cfg, dict):
-            return error_response("抽奖配置格式无效", 500)
-        return success_response("获取抽奖配置成功", {"config": cfg})
+        prizes = LotteryDB.list_prizes(include_inactive=True)
+        return success_response("获取抽奖配置成功", {"prizes": prizes})
     except Exception as e:
         logger.error(f"读取抽奖配置失败: {e}")
         return error_response("读取抽奖配置失败", 500)
 
+
+class LotteryPrizeItemInput(BaseModel):
+    id: Optional[str] = None
+    product_id: str
+    variant_id: Optional[str] = None
+
+
+class LotteryPrizeInput(BaseModel):
+    id: Optional[str] = None
+    display_name: str
+    weight: float
+    is_active: Optional[bool] = True
+    items: List[LotteryPrizeItemInput] = []
+
+
 class LotteryConfigUpdateRequest(BaseModel):
-    config: Dict[str, Any]
+    prizes: List[LotteryPrizeInput] = []
+
+
+def _persist_lottery_prize_from_payload(prize: LotteryPrizeInput, override_id: Optional[str] = None) -> str:
+    display_name = (prize.display_name or '').strip()
+    if not display_name:
+        raise ValueError("奖项名称不能为空")
+    try:
+        weight_value = float(prize.weight)
+    except Exception:
+        raise ValueError("奖项权重必须为数字")
+    is_active = True if prize.is_active is None else bool(prize.is_active)
+    items_payload: List[Dict[str, Any]] = []
+    for item in prize.items or []:
+        if not item.product_id:
+            continue
+        items_payload.append({
+            'id': item.id,
+            'product_id': item.product_id,
+            'variant_id': item.variant_id
+        })
+    return LotteryDB.upsert_prize(override_id or prize.id, display_name, weight_value, is_active, items_payload)
+
 
 @app.put("/admin/lottery-config")
 async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request):
-    """覆盖写入抽奖配置（管理员）。前端可在任一字段编辑后整体提交保存。"""
+    """批量更新抽奖配置，完全覆盖现有奖项。"""
     admin = get_current_admin_required_from_cookie(request)
     try:
-        cfg = payload.config or {}
-        if not isinstance(cfg, dict):
-            return error_response("配置格式应为对象", 400)
-        # 归一化权重为浮点
-        norm_cfg = {}
-        for k, v in cfg.items():
-            try:
-                norm_cfg[str(k)] = float(v)
-            except Exception:
-                return error_response(f"权重无效: {k}", 400)
-        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(norm_cfg, f, ensure_ascii=False, indent=2)
-        return success_response("抽奖配置已更新", {"config": norm_cfg})
+        prizes_payload = payload.prizes or []
+        saved_ids: List[str] = []
+        for prize in prizes_payload:
+            saved_id = _persist_lottery_prize_from_payload(prize)
+            saved_ids.append(saved_id)
+        LotteryDB.delete_prizes_not_in(saved_ids)
+        refreshed = LotteryDB.list_prizes(include_inactive=True)
+        return success_response("抽奖配置已更新", {"prizes": refreshed})
+    except ValueError as ve:
+        return error_response(str(ve), 400)
     except Exception as e:
         logger.error(f"更新抽奖配置失败: {e}")
         return error_response("更新抽奖配置失败", 500)
+
+
+@app.post("/admin/lottery-prizes")
+async def admin_create_lottery_prize(payload: LotteryPrizeInput, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        prize_id = _persist_lottery_prize_from_payload(payload)
+        prize = next((p for p in LotteryDB.list_prizes(include_inactive=True) if p.get('id') == prize_id), None)
+        return success_response("抽奖奖项已创建", {"prize": prize})
+    except ValueError as ve:
+        return error_response(str(ve), 400)
+    except Exception as e:
+        logger.error(f"创建抽奖奖项失败: {e}")
+        return error_response("创建抽奖奖项失败", 500)
+
+
+@app.put("/admin/lottery-prizes/{prize_id}")
+async def admin_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        updated_id = _persist_lottery_prize_from_payload(payload, override_id=prize_id)
+        prize = next((p for p in LotteryDB.list_prizes(include_inactive=True) if p.get('id') == updated_id), None)
+        if not prize:
+            return error_response("奖项不存在", 404)
+        return success_response("抽奖奖项已更新", {"prize": prize})
+    except ValueError as ve:
+        return error_response(str(ve), 400)
+    except Exception as e:
+        logger.error(f"更新抽奖奖项失败: {e}")
+        return error_response("更新抽奖奖项失败", 500)
+
+
+@app.delete("/admin/lottery-prizes/{prize_id}")
+async def admin_delete_lottery_prize(prize_id: str, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        ok = LotteryDB.delete_prize(prize_id)
+        if not ok:
+            return error_response("奖项不存在", 404)
+        return success_response("抽奖奖项已删除")
+    except Exception as e:
+        logger.error(f"删除抽奖奖项失败: {e}")
+        return error_response("删除抽奖奖项失败", 500)
+
+
+@app.get("/admin/lottery-prizes/search")
+async def admin_search_lottery_prize_items(request: Request, query: Optional[str] = None):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        term = (query or '').strip()
+        if term:
+            products = ProductDB.search_products(term, active_only=True)
+        else:
+            products = ProductDB.get_all_products()
+        filtered: List[Dict[str, Any]] = []
+        for product in products:
+            try:
+                active = int(product.get('is_active', 1) or 1) == 1
+            except Exception:
+                active = True
+            if not active:
+                continue
+            filtered.append(product)
+        if not term:
+            filtered = filtered[:50]
+        product_ids = [p['id'] for p in filtered]
+        variant_map = VariantDB.get_for_products(product_ids) if product_ids else {}
+        results: List[Dict[str, Any]] = []
+        for product in filtered:
+            variants = variant_map.get(product['id']) or []
+            try:
+                price = float(product.get('price') or 0)
+            except Exception:
+                price = 0.0
+            try:
+                discount = float(product.get('discount', 10.0) or 10.0)
+            except Exception:
+                discount = 10.0
+            retail_price = round(price * (discount / 10.0), 2)
+            base_info = {
+                'product_id': product['id'],
+                'product_name': product.get('name'),
+                'img_path': product.get('img_path'),
+                'category': product.get('category'),
+                'price': price,
+                'discount': discount,
+                'retail_price': retail_price
+            }
+            if variants:
+                for variant in variants:
+                    try:
+                        stock = int(variant.get('stock') or 0)
+                    except Exception:
+                        stock = 0
+                    if stock <= 0:
+                        continue
+                    item = {
+                        **base_info,
+                        'variant_id': variant.get('id'),
+                        'variant_name': variant.get('name'),
+                        'stock': stock,
+                        'label': f"{product.get('name')} - {variant.get('name')}"
+                    }
+                    results.append(item)
+            else:
+                try:
+                    stock = int(product.get('stock') or 0)
+                except Exception:
+                    stock = 0
+                if stock <= 0:
+                    continue
+                item = {
+                    **base_info,
+                    'variant_id': None,
+                    'variant_name': None,
+                    'stock': stock,
+                    'label': product.get('name')
+                }
+                results.append(item)
+        results.sort(key=lambda x: x.get('label') or '')
+        return success_response("搜索成功", {"items": results[:100]})
+    except Exception as e:
+        logger.error(f"搜索抽奖候选商品失败: {e}")
+        return error_response("搜索抽奖候选商品失败", 500)
+
 
 class OrderDeleteRequest(BaseModel):
     order_ids: Optional[List[str]] = None
@@ -2106,26 +2278,29 @@ async def draw_lottery(order_id: str, request: Request):
         # 每个订单仅允许一次抽奖
         existing = LotteryDB.get_draw_by_order(order_id)
         if existing:
+            prize_name = existing.get("prize_name")
+            prize_detail = None
+            if prize_name and prize_name != "谢谢参与":
+                prize_detail = {
+                    "display_name": prize_name,
+                    "product_id": existing.get("prize_product_id"),
+                    "product_name": existing.get("prize_product_name"),
+                    "variant_id": existing.get("prize_variant_id"),
+                    "variant_name": existing.get("prize_variant_name"),
+                    "unit_price": existing.get("prize_unit_price"),
+                    "group_id": existing.get("prize_group_id"),
+                }
             return success_response("抽奖已完成", {
-                "prize_name": existing.get("prize_name"),
+                "prize_name": prize_name,
                 "already_drawn": True,
-                "names": []
+                "names": [prize_name] if prize_name else [],
+                "prize": prize_detail
             })
 
-        # 读取抽奖配置（每次读取）
-        cfg_path = os.path.join(os.path.dirname(__file__), "lottery_config.json")
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-        if not isinstance(cfg, dict):
-            return error_response("抽奖配置无效", 500)
-        # 允许空配置，此时100%为“谢谢参与”
-        names = list(cfg.keys())
-        # 过滤负值，转为非负数
-        weights = [max(0.0, float(cfg.get(k, 0))) for k in names]
+        prize_groups = LotteryDB.get_active_prizes_for_draw()
+        names = [p.get("display_name") for p in prize_groups if p.get("display_name")]
+        weights = [max(0.0, float(p.get("weight") or 0)) for p in prize_groups]
         sum_w = sum(weights)
-        # 自动识别权重单位：
-        # - 若总和 <= 1.000001，则视为小数形式（0.05=5%）
-        # - 否则视为百分制（5=5% 或 50=50%）
         is_fraction = sum_w <= 1.000001
         scale = 1.0 if is_fraction else 100.0
         # 剩余“谢谢参与”概率
@@ -2133,45 +2308,84 @@ async def draw_lottery(order_id: str, request: Request):
         total_w = sum_w + leftover
         if total_w <= 0:
             return error_response("抽奖配置权重无效", 500)
-        # 随机抽取，包括“谢谢参与”（若leftover>0）
+
         rnd = random.random() * total_w
         acc = 0.0
-        selected = None
-        # 先在配置项中抽取
-        for n, w in zip(names, weights):
-            if w <= 0:
+        selected_group = None
+        for group, weight in zip(prize_groups, weights):
+            if weight <= 0:
                 continue
-            acc += w
+            acc += weight
             if rnd <= acc:
-                selected = n
+                selected_group = group
                 break
-        # 若未命中且有剩余概率，则判定为“谢谢参与”
-        if selected is None:
-            selected = "谢谢参与"
 
-        # 映射为商品ID（如果存在对应在售商品）；“谢谢参与”不映射
-        prize_pid = None
-        if selected != "谢谢参与":
+        selected_item = None
+        if selected_group:
+            available_items = [item for item in selected_group.get("items", []) if item.get("available")]
+            total_stock = sum(max(0, int(item.get("stock") or 0)) for item in available_items)
+            if total_stock > 0:
+                rnd_item = random.random() * total_stock
+                stock_acc = 0.0
+                for item in available_items:
+                    stock_val = max(0, int(item.get("stock") or 0))
+                    stock_acc += stock_val
+                    if rnd_item <= stock_acc:
+                        selected_item = item
+                        break
+            if not selected_item:
+                selected_group = None
+
+        prize_payload = None
+        prize_product_id = None
+        prize_variant_id = None
+        prize_product_name = None
+        prize_variant_name = None
+        prize_unit_price = 0.0
+        prize_group_id = None
+
+        if selected_group is None:
+            selected_name = "谢谢参与"
+        else:
+            selected_name = selected_group.get("display_name") or ""
+            prize_product_id = selected_item.get("product_id")
+            prize_variant_id = selected_item.get("variant_id")
+            prize_product_name = selected_item.get("product_name")
+            prize_variant_name = selected_item.get("variant_name")
             try:
-                candidates = ProductDB.search_products(selected, active_only=True)
-                exact = next((p for p in candidates if p.get("name") == selected), None)
-                if exact:
-                    prize_pid = exact.get("id")
-                elif candidates:
-                    prize_pid = candidates[0].get("id")
+                prize_unit_price = float(selected_item.get("retail_price") or 0.0)
             except Exception:
-                prize_pid = None
+                prize_unit_price = 0.0
+            prize_group_id = selected_group.get("id")
+            prize_payload = {
+                "display_name": selected_name,
+                "product_id": prize_product_id,
+                "product_name": prize_product_name,
+                "variant_id": prize_variant_id,
+                "variant_name": prize_variant_name,
+                "group_id": prize_group_id
+            }
 
-        # 记录抽奖结果
-        LotteryDB.create_draw(order_id, user["id"], selected, prize_pid, 1)
+        LotteryDB.create_draw(
+            order_id,
+            user["id"],
+            selected_name,
+            prize_product_id,
+            1,
+            prize_group_id=prize_group_id,
+            prize_product_name=prize_product_name,
+            prize_variant_id=prize_variant_id,
+            prize_variant_name=prize_variant_name,
+            prize_unit_price=prize_unit_price
+        )
 
-        # 统一以百分比返回“谢谢参与”概率，便于调试/展示
         thanks_prob_percent = (leftover / scale) * 100.0 if total_w > 0 else 0.0
         return success_response("抽奖完成", {
-            "prize_name": selected,
+            "prize_name": selected_name,
             "already_drawn": False,
             "names": names,
-            "thanks_probability": round(thanks_prob_percent, 2)
+            "thanks_probability": round(thanks_prob_percent, 2),
+            "prize": prize_payload
         })
     except Exception as e:
         logger.error(f"抽奖失败: {e}")
@@ -2225,7 +2439,12 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                             prize_name=draw.get("prize_name"),
                             prize_product_id=draw.get("prize_product_id"),
                             quantity=int(draw.get("prize_quantity") or 1),
-                            source_order_id=order_id
+                            source_order_id=order_id,
+                            prize_group_id=draw.get("prize_group_id"),
+                            prize_product_name=draw.get("prize_product_name"),
+                            prize_variant_id=draw.get("prize_variant_id"),
+                            prize_variant_name=draw.get("prize_variant_name"),
+                            prize_unit_price=draw.get("prize_unit_price")
                         )
                 except Exception as e:
                     logger.warning(f"生成抽奖奖品失败: {e}")
