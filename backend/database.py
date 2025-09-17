@@ -1634,25 +1634,28 @@ class OrderDB:
                         cursor.execute('SELECT product_id, stock FROM product_variants WHERE id = ?', (actual_variant_id,))
                         var_row = cursor.fetchone()
                         if not var_row:
-                            logger.warning(f"抽奖奖品规格不存在，跳过库存扣减: {actual_variant_id}")
+                            logger.info(f"抽奖奖品规格不存在，跳过库存扣减: {actual_variant_id} (item: {item.get('name', 'Unknown')})")
                             continue
                         var_product_id = var_row[0]
                         current_stock = int(var_row[1])
                         if current_stock < quantity:
-                            conn.rollback()
-                            return False
+                            # 抽奖奖品规格库存不足，跳过扣减但不阻止订单支付成功
+                            logger.warning(f"抽奖奖品规格库存不足，跳过扣减: {actual_variant_id} (需要: {quantity}, 可用: {current_stock})")
+                            continue
                         new_stock = current_stock - quantity
                         cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
                     else:
                         cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
                         product_row = cursor.fetchone()
                         if not product_row:
-                            logger.warning(f"抽奖奖品商品不存在，跳过库存扣减: {actual_product_id}")
+                            # 兼容处理：旧版抽奖奖品可能对应不存在的商品或虚拟商品，跳过库存扣减
+                            logger.info(f"抽奖奖品商品不存在，跳过库存扣减: {actual_product_id} (item: {item.get('name', 'Unknown')})")
                             continue
                         current_stock = int(product_row[0])
                         if current_stock < quantity:
-                            conn.rollback()
-                            return False
+                            # 抽奖奖品库存不足，跳过扣减但不阻止订单支付成功
+                            logger.warning(f"抽奖奖品库存不足，跳过扣减: {actual_product_id} (需要: {quantity}, 可用: {current_stock})")
+                            continue
                         new_stock = current_stock - quantity
                         cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
                     # 抽奖赠品已处理库存，无需进入常规分支
@@ -1679,10 +1682,21 @@ class OrderDB:
                     cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
                     product_row = cursor.fetchone()
                     if not product_row:
-                        # 若为赠品且无对应商品，跳过扣减
-                        if isinstance(item, dict) and item.get('is_lottery'):
-                            continue
+                        # 兼容处理：若为各种类型赠品且无对应商品，跳过扣减
+                        if isinstance(item, dict):
+                            # 检查是否为各种类型的赠品
+                            is_gift_item = (
+                                item.get('is_lottery') or          # 抽奖赠品
+                                item.get('is_auto_gift') or        # 满额赠品
+                                item.get('category') == '满额赠品' or # 分类为赠品
+                                '赠品' in str(item.get('name', '')) or  # 名称包含赠品
+                                '赠品' in str(item.get('category', ''))  # 分类包含赠品
+                            )
+                            if is_gift_item:
+                                logger.info(f"跳过赠品库存扣减: {item.get('name', 'Unknown')} (product_id: {product_id})")
+                                continue
                         conn.rollback()
+                        logger.error(f"商品不存在无法扣减库存: product_id={product_id}, item={item}")
                         return False
                     current_stock = int(product_row[0])
                     if current_stock < quantity:
