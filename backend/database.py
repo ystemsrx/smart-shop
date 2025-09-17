@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
 import os
+import uuid
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -262,7 +263,7 @@ def init_database():
         except Exception:
             pass
 
-        # 抽奖记录表（每个订单仅允许一次抽奖）
+        # 抽奖记录表（每个订单仅允许一次抽奖）及抽奖配置表
         try:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS lottery_draws (
@@ -272,12 +273,69 @@ def init_database():
                     prize_name TEXT NOT NULL,
                     prize_product_id TEXT,
                     prize_quantity INTEGER DEFAULT 1,
+                    prize_group_id TEXT,
+                    prize_product_name TEXT,
+                    prize_variant_id TEXT,
+                    prize_variant_name TEXT,
+                    prize_unit_price REAL DEFAULT 0,
                     drawn_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_order ON lottery_draws(order_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_student ON lottery_draws(student_id)')
         except Exception:
+            pass
+
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lottery_prizes (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    weight REAL NOT NULL DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_prizes_active ON lottery_prizes(is_active)')
+        except Exception:
+            pass
+
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lottery_prize_items (
+                    id TEXT PRIMARY KEY,
+                    prize_id TEXT NOT NULL,
+                    product_id TEXT NOT NULL,
+                    variant_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (prize_id) REFERENCES lottery_prizes(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_prize_items_prize ON lottery_prize_items(prize_id)')
+        except Exception:
+            pass
+
+        # 兼容旧库：为抽奖记录和奖励表补充新字段
+        try:
+            cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_group_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_product_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_variant_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_variant_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_unit_price REAL DEFAULT 0')
+        except sqlite3.OperationalError:
             pass
 
         # 待配送奖品（从成功订单产生；可累积；下次满10自动配送）
@@ -288,6 +346,11 @@ def init_database():
                     student_id TEXT NOT NULL,
                     prize_name TEXT NOT NULL,
                     prize_product_id TEXT,
+                    prize_product_name TEXT,
+                    prize_variant_id TEXT,
+                    prize_variant_name TEXT,
+                    prize_unit_price REAL DEFAULT 0,
+                    prize_group_id TEXT,
                     prize_quantity INTEGER DEFAULT 1,
                     source_order_id TEXT NOT NULL,
                     status TEXT DEFAULT 'eligible', -- eligible, consumed, cancelled
@@ -300,6 +363,27 @@ def init_database():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_rewards_status ON user_rewards(status)')
             cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_rewards_source_order ON user_rewards(source_order_id)')
         except Exception:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE user_rewards ADD COLUMN prize_product_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE user_rewards ADD COLUMN prize_variant_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE user_rewards ADD COLUMN prize_variant_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE user_rewards ADD COLUMN prize_unit_price REAL DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE user_rewards ADD COLUMN prize_group_id TEXT')
+        except sqlite3.OperationalError:
             pass
         
         conn.commit()
@@ -1394,7 +1478,7 @@ class OrderDB:
     def create_order(student_id: str, total_amount: float, shipping_info: dict, items: list, payment_method: str = 'wechat', note: str = '', discount_amount: float = 0.0, coupon_id: Optional[str] = None) -> str:
         """创建新订单（但不扣减库存，等待支付成功）"""
         order_id = f"order_{int(datetime.now().timestamp())}"
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -1415,7 +1499,24 @@ class OrderDB:
             ))
             conn.commit()
             return order_id
-    
+
+    @staticmethod
+    def set_order_items(order_id: str, items: List[Dict[str, Any]]) -> bool:
+        """覆盖更新订单商品（用于追加抽奖奖品等场景）。"""
+        try:
+            payload = json.dumps(items)
+        except Exception:
+            payload = json.dumps([])
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE orders 
+                SET items = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (payload, order_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
     @staticmethod
     def update_payment_status(order_id: str, payment_status: str, payment_intent_id: str = None) -> bool:
         """更新订单支付状态"""
@@ -1463,12 +1564,49 @@ class OrderDB:
             
             # 检查库存是否足够并扣减库存
             for item in items:
-                # 抽奖赠品不计入库存扣减（避免不存在商品导致失败）
+                is_lottery_item = False
                 try:
-                    if isinstance(item, dict) and item.get('is_lottery'):
-                        continue
+                    is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
                 except Exception:
-                    pass
+                    is_lottery_item = False
+
+                if is_lottery_item and isinstance(item, dict):
+                    quantity = int(item.get('quantity', 0))
+                    if quantity <= 0:
+                        continue
+                    actual_product_id = item.get('lottery_product_id') or item.get('product_id')
+                    actual_variant_id = item.get('lottery_variant_id') or item.get('variant_id')
+                    if not actual_product_id:
+                        logger.warning(f"抽奖奖品缺少产品ID，跳过库存扣减: {item}")
+                        continue
+                    if actual_variant_id:
+                        cursor.execute('SELECT product_id, stock FROM product_variants WHERE id = ?', (actual_variant_id,))
+                        var_row = cursor.fetchone()
+                        if not var_row:
+                            logger.warning(f"抽奖奖品规格不存在，跳过库存扣减: {actual_variant_id}")
+                            continue
+                        var_product_id = var_row[0]
+                        current_stock = int(var_row[1])
+                        if current_stock < quantity:
+                            conn.rollback()
+                            return False
+                        new_stock = current_stock - quantity
+                        cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
+                    else:
+                        cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
+                        product_row = cursor.fetchone()
+                        if not product_row:
+                            logger.warning(f"抽奖奖品商品不存在，跳过库存扣减: {actual_product_id}")
+                            continue
+                        current_stock = int(product_row[0])
+                        if current_stock < quantity:
+                            conn.rollback()
+                            return False
+                        new_stock = current_stock - quantity
+                        cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
+                    # 抽奖赠品已处理库存，无需进入常规分支
+                    continue
+
                 product_id = item['product_id']
                 quantity = int(item['quantity'])
                 variant_id = item.get('variant_id')
@@ -1837,16 +1975,24 @@ class OrderDB:
                         order_total_amount = float(row[2]) if row[2] else 0.0
                         
                         total_cost = 0.0  # 商品成本总和
-                        gift_count = 0    # 赠品数量
-                        
+                        fallback_gift_count = 0    # 赠品数量（兼容旧数据）
+
                         for item in items_json:
                             product_id = item.get('product_id')
                             quantity = int(item.get('quantity', 0))
                             is_lottery = item.get('is_lottery', False)
-                            
+
                             if is_lottery:
-                                # 赠品：每个赠品成本计为1元
-                                gift_count += quantity
+                                # 新逻辑：优先使用记录的抽奖奖品实际价值；兼容旧订单按1元计
+                                prize_unit_price = None
+                                try:
+                                    prize_unit_price = float(item.get('lottery_unit_price'))
+                                except Exception:
+                                    prize_unit_price = None
+                                if prize_unit_price is not None and prize_unit_price > 0:
+                                    total_cost += prize_unit_price * quantity
+                                else:
+                                    fallback_gift_count += quantity
                                 continue
                                 
                             # 获取商品成本，如果没有设置成本则默认为0
@@ -1862,8 +2008,8 @@ class OrderDB:
                             # 累计商品成本：成本 × 数量
                             total_cost += cost * quantity
                         
-                        # 新算法：净利润 = 订单总额 - 商品成本总和 - 赠品数量×1
-                        final_order_profit = order_total_amount - total_cost - gift_count
+                        # 新算法：净利润 = 订单总额 - 商品成本总和 - 赠品数量×1（兼容旧数据）
+                        final_order_profit = order_total_amount - total_cost - fallback_gift_count
                         total_profit += final_order_profit
                         
                         # 按时间段分组，使用与销售额查询一致的SQLite本地时间转换
@@ -2119,6 +2265,257 @@ class UserProfileDB:
 # 抽奖与奖品相关操作
 class LotteryDB:
     @staticmethod
+    def list_prizes(include_inactive: bool = False) -> List[Dict[str, Any]]:
+        """列出抽奖奖项及其关联商品。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            base_sql = 'SELECT * FROM lottery_prizes'
+            params: List[Any] = []
+            if not include_inactive:
+                base_sql += ' WHERE is_active = 1'
+            base_sql += ' ORDER BY created_at ASC'
+            cursor.execute(base_sql, params)
+            prize_rows = [dict(r) for r in (cursor.fetchall() or [])]
+
+            if not prize_rows:
+                return []
+
+            prize_ids = [row['id'] for row in prize_rows if row.get('id')]
+            item_rows: List[Dict[str, Any]] = []
+            if prize_ids:
+                placeholders = ','.join('?' * len(prize_ids))
+                cursor.execute(
+                    f'SELECT * FROM lottery_prize_items WHERE prize_id IN ({placeholders}) ORDER BY created_at ASC',
+                    prize_ids
+                )
+                item_rows = [dict(r) for r in (cursor.fetchall() or [])]
+
+            product_ids = {row['product_id'] for row in item_rows if row.get('product_id')}
+            variant_ids = {row['variant_id'] for row in item_rows if row.get('variant_id')}
+
+            product_map: Dict[str, Dict[str, Any]] = {}
+            if product_ids:
+                placeholders = ','.join('?' * len(product_ids))
+                cursor.execute(f'SELECT * FROM products WHERE id IN ({placeholders})', list(product_ids))
+                product_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+            variant_map: Dict[str, Dict[str, Any]] = {}
+            if variant_ids:
+                placeholders = ','.join('?' * len(variant_ids))
+                cursor.execute(f'SELECT * FROM product_variants WHERE id IN ({placeholders})', list(variant_ids))
+                variant_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+            prizes: List[Dict[str, Any]] = []
+            prize_lookup: Dict[str, Dict[str, Any]] = {}
+
+            for row in prize_rows:
+                display_name = row.get('display_name') or row.get('prize_name') or ''
+                try:
+                    weight = float(row.get('weight') or 0)
+                except Exception:
+                    weight = 0.0
+                try:
+                    active_flag = 1 if int(row.get('is_active', 1) or 1) == 1 else 0
+                except Exception:
+                    active_flag = 1
+                entry: Dict[str, Any] = {
+                    'id': row.get('id'),
+                    'display_name': display_name,
+                    'weight': weight,
+                    'is_active': active_flag,
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'items': [],
+                    'total_item_count': 0,
+                    'available_item_count': 0,
+                    'total_available_stock': 0,
+                    'issues': [],
+                    '_issue_set': set(),
+                }
+                prizes.append(entry)
+                prize_lookup[entry['id']] = entry
+
+            for row in item_rows:
+                prize_id = row.get('prize_id')
+                entry = prize_lookup.get(prize_id)
+                if not entry:
+                    continue
+
+                product_id = row.get('product_id')
+                variant_id = row.get('variant_id')
+                product = product_map.get(product_id)
+                variant = variant_map.get(variant_id) if variant_id else None
+
+                product_name = product.get('name') if product else None
+                variant_name = variant.get('name') if variant else None
+
+                try:
+                    is_active = 1 if int((product or {}).get('is_active', 1) or 1) == 1 else 0
+                except Exception:
+                    is_active = 1
+
+                if variant:
+                    try:
+                        stock = int(variant.get('stock') or 0)
+                    except Exception:
+                        stock = 0
+                else:
+                    try:
+                        stock = int((product or {}).get('stock') or 0)
+                    except Exception:
+                        stock = 0
+
+                try:
+                    base_price = float((product or {}).get('price') or 0)
+                except Exception:
+                    base_price = 0.0
+                try:
+                    discount = float((product or {}).get('discount', 10.0) or 10.0)
+                except Exception:
+                    discount = 10.0
+                retail_price = round(base_price * (discount / 10.0), 2)
+
+                available = bool(product) and bool(is_active) and stock > 0
+
+                info = {
+                    'id': row.get('id'),
+                    'prize_id': prize_id,
+                    'product_id': product_id,
+                    'variant_id': variant_id,
+                    'product_name': product_name,
+                    'variant_name': variant_name,
+                    'is_active': bool(is_active),
+                    'stock': max(0, stock),
+                    'retail_price': retail_price,
+                    'available': available,
+                    'img_path': (product or {}).get('img_path'),
+                    'category': (product or {}).get('category'),
+                }
+
+                entry['items'].append(info)
+                entry['total_item_count'] += 1
+                if available:
+                    entry['available_item_count'] += 1
+                    entry['total_available_stock'] += max(0, stock)
+                else:
+                    if not product:
+                        entry['_issue_set'].add('关联商品不存在')
+                    elif not is_active:
+                        entry['_issue_set'].add(f"{product_name} 已下架")
+                    else:
+                        suffix = f"（{variant_name}）" if variant_name else ''
+                        entry['_issue_set'].add(f"{product_name}{suffix} 库存不足")
+
+            for entry in prizes:
+                issues = entry.pop('_issue_set', set())
+                entry['issues'] = list(issues)
+                entry['available'] = entry['available_item_count'] > 0
+                entry['items'].sort(key=lambda x: ((x.get('product_name') or ''), (x.get('variant_name') or '')))
+
+            return prizes
+
+    @staticmethod
+    def get_active_prizes_for_draw() -> List[Dict[str, Any]]:
+        prizes = LotteryDB.list_prizes(include_inactive=False)
+        active: List[Dict[str, Any]] = []
+        for prize in prizes:
+            if prize.get('weight', 0) <= 0:
+                continue
+            items = [dict(item) for item in prize.get('items', []) if item.get('available')]
+            if not items:
+                continue
+            active.append({
+                'id': prize.get('id'),
+                'display_name': prize.get('display_name') or '',
+                'weight': float(prize.get('weight') or 0),
+                'items': items,
+            })
+        return active
+
+    @staticmethod
+    def upsert_prize(
+        prize_id: Optional[str],
+        display_name: str,
+        weight: float,
+        is_active: bool,
+        items: List[Dict[str, Any]]
+    ) -> str:
+        if not display_name:
+            raise ValueError('抽奖奖项名称不能为空')
+        prize_id = prize_id or f"lprize_{int(datetime.now().timestamp()*1000)}"
+        try:
+            weight_value = float(weight)
+        except Exception:
+            weight_value = 0.0
+        active_flag = 1 if is_active else 0
+        normalized_items: List[Dict[str, Any]] = []
+        for item in items or []:
+            product_id = item.get('product_id')
+            if not product_id:
+                continue
+            variant_id = item.get('variant_id') or None
+            item_id = item.get('id') or f"lpitem_{uuid.uuid4().hex}"
+            normalized_items.append({
+                'id': item_id,
+                'product_id': product_id,
+                'variant_id': variant_id,
+            })
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1 FROM lottery_prizes WHERE id = ?', (prize_id,))
+            exists = cursor.fetchone() is not None
+            if exists:
+                cursor.execute('''
+                    UPDATE lottery_prizes
+                    SET display_name = ?, weight = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (display_name, weight_value, active_flag, prize_id))
+            else:
+                cursor.execute('''
+                    INSERT INTO lottery_prizes (id, display_name, weight, is_active)
+                    VALUES (?, ?, ?, ?)
+                ''', (prize_id, display_name, weight_value, active_flag))
+
+            cursor.execute('DELETE FROM lottery_prize_items WHERE prize_id = ?', (prize_id,))
+            for item in normalized_items:
+                cursor.execute('''
+                    INSERT INTO lottery_prize_items (id, prize_id, product_id, variant_id)
+                    VALUES (?, ?, ?, ?)
+                ''', (item['id'], prize_id, item['product_id'], item['variant_id']))
+            conn.commit()
+            return prize_id
+
+    @staticmethod
+    def delete_prize(prize_id: str) -> bool:
+        if not prize_id:
+            return False
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM lottery_prize_items WHERE prize_id = ?', (prize_id,))
+            cursor.execute('DELETE FROM lottery_prizes WHERE id = ?', (prize_id,))
+            deleted = cursor.rowcount or 0
+            conn.commit()
+            return deleted > 0
+
+    @staticmethod
+    def delete_prizes_not_in(valid_ids: List[str]) -> int:
+        ids = list({pid for pid in valid_ids if pid})
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if ids:
+                placeholders = ','.join('?' * len(ids))
+                cursor.execute(f'DELETE FROM lottery_prize_items WHERE prize_id NOT IN ({placeholders})', ids)
+                cursor.execute(f'DELETE FROM lottery_prizes WHERE id NOT IN ({placeholders})', ids)
+            else:
+                cursor.execute('DELETE FROM lottery_prize_items')
+                cursor.execute('DELETE FROM lottery_prizes')
+            affected = cursor.rowcount or 0
+            conn.commit()
+            return affected
+
+    @staticmethod
     def get_draw_by_order(order_id: str) -> Optional[Dict]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -2127,20 +2524,68 @@ class LotteryDB:
             return dict(row) if row else None
 
     @staticmethod
-    def create_draw(order_id: str, student_id: str, prize_name: str, prize_product_id: Optional[str] = None, prize_quantity: int = 1) -> str:
+    def create_draw(
+        order_id: str,
+        student_id: str,
+        prize_name: str,
+        prize_product_id: Optional[str] = None,
+        prize_quantity: int = 1,
+        *,
+        prize_group_id: Optional[str] = None,
+        prize_product_name: Optional[str] = None,
+        prize_variant_id: Optional[str] = None,
+        prize_variant_name: Optional[str] = None,
+        prize_unit_price: Optional[float] = None
+    ) -> str:
         draw_id = f"lot_{int(datetime.now().timestamp()*1000)}"
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO lottery_draws (id, order_id, student_id, prize_name, prize_product_id, prize_quantity)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (draw_id, order_id, student_id, prize_name, prize_product_id, int(prize_quantity or 1)))
+                INSERT INTO lottery_draws (
+                    id,
+                    order_id,
+                    student_id,
+                    prize_name,
+                    prize_product_id,
+                    prize_quantity,
+                    prize_group_id,
+                    prize_product_name,
+                    prize_variant_id,
+                    prize_variant_name,
+                    prize_unit_price
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                draw_id,
+                order_id,
+                student_id,
+                prize_name,
+                prize_product_id,
+                int(prize_quantity or 1),
+                prize_group_id,
+                prize_product_name,
+                prize_variant_id,
+                prize_variant_name,
+                float(prize_unit_price or 0.0),
+            ))
             conn.commit()
             return draw_id
 
 class RewardDB:
     @staticmethod
-    def add_reward_from_order(student_id: str, prize_name: str, prize_product_id: Optional[str], quantity: int, source_order_id: str) -> Optional[str]:
+    def add_reward_from_order(
+        student_id: str,
+        prize_name: str,
+        prize_product_id: Optional[str],
+        quantity: int,
+        source_order_id: str,
+        *,
+        prize_group_id: Optional[str] = None,
+        prize_product_name: Optional[str] = None,
+        prize_variant_id: Optional[str] = None,
+        prize_variant_name: Optional[str] = None,
+        prize_unit_price: Optional[float] = None
+    ) -> Optional[str]:
         """从成功订单生成可用奖品；同一订单只会生成一次。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -2151,9 +2596,34 @@ class RewardDB:
                 return None
             rid = f"rwd_{int(datetime.now().timestamp()*1000)}"
             cursor.execute('''
-                INSERT INTO user_rewards (id, student_id, prize_name, prize_product_id, prize_quantity, source_order_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'eligible')
-            ''', (rid, student_id, prize_name, prize_product_id, int(quantity or 1), source_order_id))
+                INSERT INTO user_rewards (
+                    id,
+                    student_id,
+                    prize_name,
+                    prize_product_id,
+                    prize_product_name,
+                    prize_variant_id,
+                    prize_variant_name,
+                    prize_unit_price,
+                    prize_group_id,
+                    prize_quantity,
+                    source_order_id,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'eligible')
+            ''', (
+                rid,
+                student_id,
+                prize_name,
+                prize_product_id,
+                prize_product_name,
+                prize_variant_id,
+                prize_variant_name,
+                float(prize_unit_price or 0.0),
+                prize_group_id,
+                int(quantity or 1),
+                source_order_id
+            ))
             conn.commit()
             return rid
 

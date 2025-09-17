@@ -44,6 +44,7 @@ export default function Checkout() {
   const [lotteryNames, setLotteryNames] = useState([]);
   const [lotteryResult, setLotteryResult] = useState('');
   const [lotteryDisplay, setLotteryDisplay] = useState('');
+  const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
   
   // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
@@ -282,11 +283,13 @@ export default function Checkout() {
         try {
           const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
           if (draw.success) {
+            const resultName = draw.data?.prize_name || '';
             const names = (draw.data?.names && draw.data.names.length > 0)
               ? draw.data.names
-              : [draw.data?.prize_name];
+              : (resultName ? [resultName] : ['谢谢参与']);
+            setLotteryPrize(draw.data?.prize || null);
             setLotteryNames(names);
-            setLotteryResult(draw.data?.prize_name || '');
+            setLotteryResult(resultName);
             setLotteryDisplay(names[0] || '');
             setLotteryOpen(true);
             setSpinning(true);
@@ -301,12 +304,12 @@ export default function Checkout() {
             setTimeout(() => {
               clearInterval(timer);
               setSpinning(false);
-              setLotteryDisplay(draw.data?.prize_name || names[0]);
+              setLotteryDisplay(resultName || names[0]);
               // 不再自动跳转，让用户看到抽奖结果
             }, duration + 200);
           }
         } catch (e) {
-          // 忽略
+          setLotteryPrize(null);
         }
         if (!willRedirect) {
           router.push('/orders');
@@ -747,9 +750,19 @@ export default function Checkout() {
                       </div>
                       <div className="space-y-1">
                         {eligibleRewards.map((r) => (
-                          <div key={r.id} className={`flex justify-between text-sm ${cart.total_price >= 10 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            <span>{r.prize_name} × {r.prize_quantity || 1}</span>
-                            <span>¥0.00</span>
+                          <div key={r.id} className={`flex justify-between items-baseline text-sm ${cart.total_price >= 10 ? 'text-gray-900' : 'text-gray-400'}`}>
+                            <span className="flex flex-col">
+                              <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
+                              {(r.prize_product_name || r.prize_variant_name) && (
+                                <span className="text-[11px] text-gray-500">
+                                  {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-right text-xs">
+                              <span className="text-sm">¥0.00</span>
+                              <span className="text-[11px] text-gray-500">赠品</span>
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -865,7 +878,7 @@ export default function Checkout() {
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); router.push('/orders'); }}></div>
+          <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); setLotteryPrize(null); router.push('/orders'); }}></div>
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
@@ -876,11 +889,19 @@ export default function Checkout() {
             </div>
             {!spinning && (
               <>
-                <div className="text-center mb-4">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult}</span>
+                <div className="text-center mb-4 space-y-2">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult || '谢谢参与'}</span>
+                  {lotteryPrize ? (
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>
+                      <div className="text-gray-500">将在下次满额订单随单配送</div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-500">本次未中奖，继续加油！</div>
+                  )}
                 </div>
                 <div className="flex">
-                  <button onClick={() => { setLotteryOpen(false); router.push('/orders'); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
+                  <button onClick={() => { setLotteryOpen(false); setLotteryPrize(null); router.push('/orders'); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
                 </div>
               </>
             )}

@@ -61,189 +61,509 @@ const ShopStatusCard = () => {
   );
 };
 
-// 抽奖配置编辑面板（内联编辑、自动保存）
+// 抽奖配置管理面板
 const LotteryConfigPanel = () => {
   const { apiRequest } = useApi();
-  const [config, setConfig] = useState({});
+  const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editingKey, setEditingKey] = useState(null); // { type: 'name'|'weight', name: string }
-  const [newName, setNewName] = useState('');
-  const [newWeight, setNewWeight] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingPrize, setEditingPrize] = useState(null);
 
-  const loadConfig = async () => {
+  const loadPrizes = async () => {
     setLoading(true);
     try {
       const res = await apiRequest('/admin/lottery-config');
-      setConfig(res?.data?.config || {});
+      const list = res?.data?.prizes || [];
+      setPrizes(list.map((p) => ({
+        ...p,
+        weight: parseFloat(p.weight || 0),
+        is_active: p.is_active === 1 || p.is_active === true
+      })));
     } catch (e) {
-      // 若文件不存在或其他问题，允许作为空配置继续
-      setConfig({});
+      alert(e.message || '加载抽奖配置失败');
+      setPrizes([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const saveConfig = async (next) => {
+  useEffect(() => { loadPrizes(); }, []);
+
+  const totalWeightRaw = prizes.reduce((acc, p) => acc + (Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0), 0);
+  const isFraction = totalWeightRaw <= 1.000001;
+  const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
+  const thanksPercent = Math.max(0, 100 - totalPercent);
+
+  const openModal = (prize = null) => {
+    setEditingPrize(prize);
+    setModalOpen(true);
+  };
+
+  const handleDelete = async (prize) => {
+    if (!prize?.id) return;
+    if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
     setSaving(true);
     try {
-      await apiRequest('/admin/lottery-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: next })
-      });
-      setConfig(next);
+      await apiRequest(`/admin/lottery-prizes/${prize.id}`, { method: 'DELETE' });
+      await loadPrizes();
     } catch (e) {
-      alert(e.message || '保存抽奖配置失败');
+      alert(e.message || '删除失败');
     } finally {
       setSaving(false);
     }
   };
 
-  useEffect(() => { loadConfig(); }, []);
+  const handleToggleActive = async (prize, nextActive) => {
+    if (!prize?.id) return;
+    setSaving(true);
+    try {
+      const body = {
+        id: prize.id,
+        display_name: prize.display_name,
+        weight: prize.weight,
+        is_active: !!nextActive,
+        items: (prize.items || []).map((item) => ({
+          id: item.id,
+          product_id: item.product_id,
+          variant_id: item.variant_id
+        }))
+      };
+      await apiRequest(`/admin/lottery-prizes/${prize.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await loadPrizes();
+    } catch (e) {
+      alert(e.message || '更新状态失败');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const handleRename = async (oldName, newName) => {
-    const name = String(newName || '').trim();
-    if (!name || name === oldName) { setEditingKey(null); return; }
-    if (config.hasOwnProperty(name)) {
-      alert('已存在同名奖项');
-      setEditingKey(null);
+  const handleSavePrize = async (payload) => {
+    const weightValue = Number.parseFloat(payload.weight);
+    if (Number.isNaN(weightValue)) {
+      alert('请输入有效的权重');
       return;
     }
-    const next = { ...config };
-    next[name] = next[oldName];
-    delete next[oldName];
-    await saveConfig(next);
-    setEditingKey(null);
-  };
-
-  const handleUpdateWeight = async (name, value) => {
-    let v = parseFloat(value);
-    if (isNaN(v)) { v = 0; }
-    const next = { ...config, [name]: v };
-    await saveConfig(next);
-    setEditingKey(null);
-  };
-
-  const entries = Object.entries(config || {});
-  // 计算合计与“谢谢参与”百分比（兼容 0.05=5% 与 5=5% 两种写法）
-  const sumRaw = entries.reduce((acc, [_, w]) => {
-    const v = parseFloat(w);
-    return acc + (isNaN(v) ? 0 : Math.max(0, v));
-  }, 0);
-  const isFraction = sumRaw <= 1.000001;
-  const totalPercent = (isFraction ? sumRaw * 100 : sumRaw);
-  const thanksPercent = Math.max(0, 100 - totalPercent);
-  const handleAdd = async () => {
-    const name = String(newName || '').trim();
-    let w = parseFloat(String(newWeight).trim());
-    if (!name) { alert('请输入奖项名称'); return; }
-    if (isNaN(w)) { alert('请输入有效权重'); return; }
-    if (config.hasOwnProperty(name)) { alert('已存在同名奖项'); return; }
-    const next = { ...config, [name]: w };
-    await saveConfig(next);
-    setNewName('');
-    setNewWeight('');
-  };
-  const handleDelete = async (name) => {
-    const next = { ...config };
-    delete next[name];
-    await saveConfig(next);
+    if ((payload.items || []).length === 0) {
+      alert('请至少选择一个奖品商品');
+      return;
+    }
+    setSaving(true);
+    try {
+      const body = {
+        id: editingPrize?.id,
+        display_name: payload.displayName.trim(),
+        weight: weightValue,
+        is_active: payload.isActive,
+        items: payload.items.map((item) => ({
+          id: item.id,
+          product_id: item.product_id,
+          variant_id: item.variant_id
+        }))
+      };
+      if (editingPrize?.id) {
+        await apiRequest(`/admin/lottery-prizes/${editingPrize.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      } else {
+        await apiRequest('/admin/lottery-prizes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      }
+      await loadPrizes();
+      setModalOpen(false);
+    } catch (e) {
+      alert(e.message || '保存抽奖奖项失败');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="text-lg font-medium text-gray-900">抽奖配置</h3>
-        <div className="text-sm text-gray-600">
-          <span className="mr-4">合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
-          <span className={`${totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}`}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      <div className="px-6 py-4 border-b border-gray-200 flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h3 className="text-lg font-medium text-gray-900">抽奖奖项配置</h3>
+          <p className="text-sm text-gray-600">根据库存权重自动抽取，可组合多种商品。</p>
+        </div>
+        <div className="flex items-center gap-4 text-sm text-gray-600">
+          <span>合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
+          <span className={totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
+          <button
+            onClick={() => openModal(null)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+          >
+            <i className="fas fa-plus text-xs"></i>
+            新增奖项
+          </button>
         </div>
       </div>
       {loading ? (
-        <div className="px-6 py-4 text-sm text-gray-500">加载中...</div>
+        <div className="px-6 py-6 text-sm text-gray-500">加载中...</div>
+      ) : prizes.length === 0 ? (
+        <div className="px-6 py-10 text-center text-gray-500">尚未配置任何奖项，点击上方“新增奖项”开始配置。</div>
       ) : (
         <div className="divide-y">
-          {entries.length === 0 && (
-            <div className="px-6 py-8 text-center text-gray-500">暂无配置</div>
-          )}
-          {entries.map(([name, weight]) => (
-            <div key={name} className="px-6 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {editingKey && editingKey.type === 'name' && editingKey.name === name ? (
-                  <input
-                    type="text"
-                    defaultValue={name}
-                    onBlur={(e) => handleRename(name, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                    className="px-2 py-1 border rounded"
-                    autoFocus
-                  />
-                ) : (
-                  <span
-                    className="text-sm font-medium text-gray-900 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded"
-                    onClick={() => setEditingKey({ type: 'name', name })}
-                    title="点击编辑名称"
-                  >{name}</span>
+          {prizes.map(prize => {
+            const itemList = prize.items || [];
+            const availableItems = itemList.filter(it => it.available !== false);
+            return (
+              <div key={prize.id} className="px-6 py-4">
+                <div className="flex flex-wrap justify-between items-start gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-semibold text-gray-900">{prize.display_name}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${prize.is_active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {prize.is_active ? '启用中' : '已停用'}
+                      </span>
+                      <span className="text-xs text-gray-500">权重 {Number.isFinite(prize.weight) ? prize.weight : 0}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-600 flex items-center gap-3">
+                      <span className="flex items-center gap-1"><i className="fas fa-box"></i>已选商品 {itemList.length}</span>
+                      <span className={`flex items-center gap-1 ${availableItems.length === 0 ? 'text-red-500' : ''}`}>
+                        <i className="fas fa-warehouse"></i>{availableItems.length > 0 ? `可用商品 ${availableItems.length}` : '无可用库存'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <button
+                      onClick={() => handleToggleActive(prize, !prize.is_active)}
+                      className={`px-3 py-1.5 rounded-md border ${prize.is_active ? 'border-gray-300 text-gray-700 hover:bg-gray-100' : 'border-green-300 text-green-700 hover:bg-green-50'}`}
+                    >
+                      {prize.is_active ? '停用' : '启用'}
+                    </button>
+                    <button
+                      onClick={() => openModal(prize)}
+                      className="px-3 py-1.5 rounded-md border border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleDelete(prize)}
+                      className="px-3 py-1.5 rounded-md border border-red-300 text-red-600 hover:bg-red-50"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {itemList.length === 0 ? (
+                    <div className="text-xs text-gray-500">未关联任何商品。</div>
+                  ) : (
+                    itemList.map((item) => {
+                      const label = item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || '未命名商品');
+                      const stock = Number.parseInt(item.stock, 10);
+                      const available = item.available !== false && (!Number.isNaN(stock) ? stock > 0 : true);
+                      return (
+                        <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`text-xs flex items-center justify-between rounded-md px-3 py-2 border ${available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{label}</div>
+                            <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
+                              <span>库存：{Number.isNaN(stock) ? '未知' : stock}</span>
+                              <span>参考售价：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                            </div>
+                          </div>
+                          {!available && <span className="text-[11px] font-medium">不可抽取</span>}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                {Array.isArray(prize.issues) && prize.issues.length > 0 && (
+                  <div className="mt-3 text-xs text-red-600 flex flex-col gap-1">
+                    {prize.issues.map((msg, idx) => (
+                      <span key={idx}>⚠ {msg}</span>
+                    ))}
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                {editingKey && editingKey.type === 'weight' && editingKey.name === name ? (
-                  <input
-                    type="number"
-                    step="0.01"
-                    defaultValue={weight}
-                    onBlur={(e) => handleUpdateWeight(name, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                    className="w-24 px-2 py-1 border rounded text-right"
-                    autoFocus
-                  />
-                ) : (
-                  <span
-                    className="text-sm text-gray-700 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded"
-                    onClick={() => setEditingKey({ type: 'weight', name })}
-                    title="点击编辑权重"
-                  >权重：{String(weight)}</span>
-                )}
-                <button
-                  onClick={() => handleDelete(name)}
-                  className="text-red-600 hover:text-red-800 text-xs ml-2"
-                  title="删除该奖项"
-                >删除</button>
-              </div>
-            </div>
-          ))}
-          {/* 新增行 */}
-          <div className="px-6 py-3 flex items-center justify-between bg-gray-50">
-            <div className="flex items-center gap-2">
+            );
+          })}
+        </div>
+      )}
+      {saving && <div className="px-6 py-2 text-xs text-gray-400">正在保存更改...</div>}
+      <LotteryPrizeModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSave={handleSavePrize}
+        initialPrize={editingPrize}
+        apiRequest={apiRequest}
+      />
+    </div>
+  );
+};
+
+const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) => {
+  const [displayName, setDisplayName] = useState('');
+  const [weight, setWeight] = useState('0');
+  const [isActive, setIsActive] = useState(true);
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [nameSuggestions, setNameSuggestions] = useState([]);
+  const [nameDropdownOpen, setNameDropdownOpen] = useState(false);
+  const [error, setError] = useState('');
+  const searchTimerRef = React.useRef(null);
+  const nameSearchTimerRef = React.useRef(null);
+
+  const mapResultToItem = (item) => ({
+    id: item.id,
+    product_id: item.product_id,
+    variant_id: item.variant_id || null,
+    product_name: item.product_name || item.label || '',
+    variant_name: item.variant_name || null,
+    stock: item.stock,
+    retail_price: item.retail_price,
+    available: item.available !== false,
+    label: item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || item.label || ''),
+  });
+
+  useEffect(() => {
+    if (!open) {
+      setDisplayName('');
+      setWeight('0');
+      setIsActive(true);
+      setSelectedItems([]);
+      setSearchTerm('');
+      setSearchResults([]);
+      setNameSuggestions([]);
+      setError('');
+      return;
+    }
+
+    const initial = initialPrize || null;
+    setDisplayName(initial?.display_name || '');
+    setWeight(String(initial ? (Number.isFinite(initial.weight) ? initial.weight : 0) : 0));
+    setIsActive(initial ? (initial.is_active === true || initial.is_active === 1) : true);
+    setSelectedItems((initial?.items || []).map(mapResultToItem));
+    setSearchTerm('');
+    setSearchResults([]);
+    setError('');
+  }, [open, initialPrize]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const term = searchTerm.trim();
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const res = await apiRequest(`/admin/lottery-prizes/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
+        setSearchResults(res?.data?.items || []);
+      } catch (e) {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchTerm, open, apiRequest]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (nameSearchTimerRef.current) clearTimeout(nameSearchTimerRef.current);
+    const term = displayName.trim();
+    if (!term) {
+      setNameSuggestions([]);
+      return;
+    }
+    nameSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await apiRequest(`/admin/lottery-prizes/search?query=${encodeURIComponent(term)}`);
+        setNameSuggestions(res?.data?.items?.slice(0, 8) || []);
+      } catch (e) {
+        setNameSuggestions([]);
+      }
+    }, 200);
+    return () => {
+      if (nameSearchTimerRef.current) clearTimeout(nameSearchTimerRef.current);
+    };
+  }, [displayName, open, apiRequest]);
+
+  const handleAddItem = (item) => {
+    const mapped = mapResultToItem(item);
+    const key = `${mapped.product_id}__${mapped.variant_id || 'base'}`;
+    if (selectedItems.some((it) => `${it.product_id}__${it.variant_id || 'base'}` === key)) {
+      return;
+    }
+    setSelectedItems(prev => [...prev, mapped]);
+  };
+
+  const handleRemoveItem = (productId, variantId) => {
+    setSelectedItems(prev => prev.filter(it => !(it.product_id === productId && (it.variant_id || null) === (variantId || null))));
+  };
+
+  const handleSelectNameSuggestion = (suggestion) => {
+    setDisplayName(suggestion.product_name || suggestion.label || '');
+    handleAddItem(suggestion);
+    setNameDropdownOpen(false);
+  };
+
+  const handleSubmit = () => {
+    if (!displayName.trim()) {
+      setError('请输入奖项名称');
+      return;
+    }
+    if (selectedItems.length === 0) {
+      setError('请至少选择一个商品作为奖品');
+      return;
+    }
+    setError('');
+    onSave({
+      displayName: displayName.trim(),
+      weight,
+      isActive,
+      items: selectedItems
+    });
+  };
+
+  return (
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/40 transition-opacity`}>
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
+            <p className="text-sm text-gray-500">搜索并选择商品，支持多选组合。</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600">
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="relative">
+              <label className="text-sm font-medium text-gray-700">奖项名称</label>
               <input
                 type="text"
-                placeholder="奖项名称"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-                className="px-2 py-1 border rounded w-48"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                onFocus={() => setNameDropdownOpen(true)}
+                onBlur={() => setTimeout(() => setNameDropdownOpen(false), 150)}
+                placeholder="输入奖项名称，如：火腿肠"
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
               />
+              {nameDropdownOpen && nameSuggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
+                  {nameSuggestions.map((item) => (
+                    <button
+                      key={`${item.product_id}_${item.variant_id || 'base'}`}
+                      type="button"
+                      onMouseDown={() => handleSelectNameSuggestion(item)}
+                      className="w-full text-left px-3 py-2 hover:bg-indigo-50"
+                    >
+                      <div className="text-sm font-medium text-gray-800">{item.product_name || item.label}</div>
+                      <div className="text-xs text-gray-500 flex items-center gap-3">
+                        {item.variant_name && <span>{item.variant_name}</span>}
+                        <span>库存：{item.stock}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div>
+              <label className="text-sm font-medium text-gray-700">概率权重</label>
               <input
                 type="number"
                 step="0.01"
-                placeholder="权重"
-                value={newWeight}
-                onChange={(e) => setNewWeight(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-                className="w-24 px-2 py-1 border rounded text-right"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
               />
-              <button
-                onClick={handleAdd}
-                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm"
-              >添加</button>
+              <p className="mt-1 text-xs text-gray-500">支持填写百分比（如 5 表示 5%）或小数（如 0.05 表示 5%）。</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">状态</label>
+            <button
+              onClick={() => setIsActive(prev => !prev)}
+              className={`px-3 py-1.5 rounded-full text-xs border ${isActive ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-100 border-gray-200 text-gray-600'}`}
+            >
+              {isActive ? '已启用' : '未启用'}
+            </button>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">已选择的奖品商品</label>
+            {selectedItems.length === 0 ? (
+              <div className="mt-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-4 text-center">尚未选择任何商品，使用下方搜索框添加。</div>
+            ) : (
+              <div className="mt-2 grid gap-2">
+                {selectedItems.map(item => (
+                  <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`px-3 py-2 rounded-md border flex justify-between items-center ${item.available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
+                    <div className="text-xs">
+                      <div className="font-medium">{item.label}</div>
+                      <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
+                        <span>库存：{item.stock ?? '未知'}</span>
+                        <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >移除</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">搜索商品并添加到奖池</label>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="输入商品名称、类别关键字"
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <div className="mt-2 border border-gray-200 rounded-md max-h-40 overflow-y-auto">
+              {searchLoading ? (
+                <div className="px-3 py-2 text-xs text-gray-500">搜索中...</div>
+              ) : (searchResults || []).length === 0 ? (
+                <div className="px-3 py-2 text-xs text-gray-500">未找到匹配的商品</div>
+              ) : (
+                searchResults.map(item => {
+                  const key = `${item.product_id}__${item.variant_id || 'base'}`;
+                  const alreadySelected = selectedItems.some(it => `${it.product_id}__${it.variant_id || 'base'}` === key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleAddItem(item)}
+                      disabled={alreadySelected}
+                      className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 ${alreadySelected ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'hover:bg-indigo-50'}`}
+                    >
+                      <div className="font-medium text-gray-800 flex items-center gap-2">
+                        <span>{item.label}</span>
+                        {alreadySelected && <span className="text-xs text-gray-500">已添加</span>}
+                      </div>
+                      <div className="text-[11px] text-gray-500 flex items-center gap-3 mt-1">
+                        <span>库存：{item.stock}</span>
+                        <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
-      )}
-      {saving && <div className="px-6 py-2 text-xs text-gray-400">正在保存...</div>}
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100">取消</button>
+          <button onClick={handleSubmit} className="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">保存</button>
+        </div>
+      </div>
     </div>
   );
 };
