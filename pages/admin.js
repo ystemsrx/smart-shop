@@ -568,6 +568,628 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
   );
 };
 
+const GiftThresholdPanel = () => {
+  const { apiRequest } = useApi();
+  const [thresholds, setThresholds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingThreshold, setEditingThreshold] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const loadThresholds = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest('/admin/gift-thresholds?include_inactive=true');
+      setThresholds(res?.data?.thresholds || []);
+    } catch (e) {
+      alert(e.message || '加载满额门槛配置失败');
+      setThresholds([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadThresholds(); }, []);
+
+  const handleDelete = async (thresholdId) => {
+    if (!confirm('确定要删除这个满额门槛配置吗？')) return;
+    
+    try {
+      await apiRequest(`/admin/gift-thresholds/${thresholdId}`, { method: 'DELETE' });
+      await loadThresholds();
+    } catch (e) {
+      alert(e.message || '删除失败');
+    }
+  };
+
+  const handleToggleActive = async (threshold) => {
+    try {
+      await apiRequest(`/admin/gift-thresholds/${threshold.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !threshold.is_active })
+      });
+      await loadThresholds();
+    } catch (e) {
+      alert(e.message || '更新状态失败');
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      <div className="px-6 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-medium text-gray-900">满额门槛配置</h3>
+          <p className="text-sm text-gray-600">设置多个满额门槛，可以选择发放商品或优惠券。</p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
+        >
+          <i className="fas fa-plus text-xs"></i>
+          添加门槛
+        </button>
+      </div>
+      
+      {loading ? (
+        <div className="px-6 py-6 text-sm text-gray-500">加载中...</div>
+      ) : thresholds.length === 0 ? (
+        <div className="px-6 py-10 text-center text-gray-500">暂未配置满额门槛，点击右上角按钮添加。</div>
+      ) : (
+        <div className="divide-y">
+          {thresholds.map((threshold) => (
+            <div key={threshold.id} className="px-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <h4 className="text-base font-medium text-gray-900">
+                    满 {threshold.threshold_amount} 元
+                  </h4>
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    threshold.is_active 
+                      ? 'bg-green-100 text-green-700 border border-green-200' 
+                      : 'bg-gray-100 text-gray-500 border border-gray-200'
+                  }`}>
+                    {threshold.is_active ? '启用' : '停用'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleActive(threshold)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800"
+                  >
+                    {threshold.is_active ? '停用' : '启用'}
+                  </button>
+                  <button
+                    onClick={() => setEditingThreshold(threshold)}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    onClick={() => handleDelete(threshold.id)}
+                    className="text-xs text-red-600 hover:text-red-800"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                <div className="flex items-center gap-1">
+                  <i className={`fas fa-gift ${threshold.gift_products ? 'text-green-500' : 'text-gray-300'}`}></i>
+                  <span>赠送商品: {threshold.gift_products ? `${threshold.items?.filter(i => i.available).length || 0} 种可用` : '否'}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <i className={`fas fa-ticket-alt ${threshold.gift_coupon ? 'text-blue-500' : 'text-gray-300'}`}></i>
+                  <span>赠送优惠券: {threshold.gift_coupon ? `${threshold.coupon_amount} 元` : '否'}</span>
+                </div>
+              </div>
+              
+              {threshold.gift_products && threshold.items?.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {threshold.items.slice(0, 5).map((item, idx) => (
+                    <div key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 rounded text-xs">
+                      <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
+                      <span className={`ml-1 ${item.available ? 'text-green-600' : 'text-red-500'}`}>
+                        {item.available ? '✓' : '×'}
+                      </span>
+                    </div>
+                  ))}
+                  {threshold.items.length > 5 && (
+                    <span className="text-xs text-gray-500">+{threshold.items.length - 5} 更多...</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {showCreateModal && (
+        <GiftThresholdModal
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSave={loadThresholds}
+          apiRequest={apiRequest}
+        />
+      )}
+      
+      {editingThreshold && (
+        <GiftThresholdModal
+          open={!!editingThreshold}
+          threshold={editingThreshold}
+          onClose={() => setEditingThreshold(null)}
+          onSave={loadThresholds}
+          apiRequest={apiRequest}
+        />
+      )}
+      
+      {saving && <div className="px-6 py-2 text-xs text-gray-400">正在保存更改...</div>}
+    </div>
+  );
+};
+
+const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest }) => {
+  const [formData, setFormData] = useState({
+    threshold_amount: '',
+    gift_products: false,
+    gift_coupon: false,
+    coupon_amount: '',
+    items: []
+  });
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const searchTimerRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setFormData({
+        threshold_amount: '',
+        gift_products: false,
+        gift_coupon: false,
+        coupon_amount: '',
+        items: []
+      });
+      setSelectedItems([]);
+      setSearchResults([]);
+      setSearchTerm('');
+      return;
+    }
+
+    if (threshold) {
+      // 编辑模式
+      setFormData({
+        threshold_amount: threshold.threshold_amount?.toString() || '',
+        gift_products: threshold.gift_products || false,
+        gift_coupon: threshold.gift_coupon || false,
+        coupon_amount: threshold.coupon_amount?.toString() || '',
+        items: threshold.items || []
+      });
+      setSelectedItems(threshold.items?.map(item => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        product_name: item.product_name,
+        variant_name: item.variant_name,
+        stock: item.stock,
+        available: item.available
+      })) || []);
+    }
+  }, [open, threshold]);
+
+  const doSearch = async (term) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const res = await apiRequest(`/admin/gift-thresholds/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
+        setSearchResults(res?.data?.items || []);
+      } catch (e) {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+  };
+
+  useEffect(() => {
+    if (open && formData.gift_products) {
+      doSearch(searchTerm);
+    }
+  }, [searchTerm, open, formData.gift_products]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.threshold_amount || parseFloat(formData.threshold_amount) <= 0) {
+      alert('请输入有效的门槛金额');
+      return;
+    }
+    
+    if (formData.gift_coupon && (!formData.coupon_amount || parseFloat(formData.coupon_amount) <= 0)) {
+      alert('请输入有效的优惠券金额');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        threshold_amount: parseFloat(formData.threshold_amount),
+        gift_products: formData.gift_products,
+        gift_coupon: formData.gift_coupon,
+        coupon_amount: formData.gift_coupon ? parseFloat(formData.coupon_amount) : 0,
+        items: formData.gift_products ? selectedItems.map(item => ({
+          product_id: item.product_id,
+          variant_id: item.variant_id || null
+        })) : []
+      };
+
+      if (threshold) {
+        // 编辑模式
+        await apiRequest(`/admin/gift-thresholds/${threshold.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        // 创建模式
+        await apiRequest('/admin/gift-thresholds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
+      
+      onSave();
+      onClose();
+    } catch (e) {
+      alert(e.message || '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleItemToggle = (item) => {
+    const exists = selectedItems.find(si => 
+      si.product_id === item.product_id && 
+      (si.variant_id || null) === (item.variant_id || null)
+    );
+    
+    if (exists) {
+      setSelectedItems(selectedItems.filter(si => 
+        !(si.product_id === item.product_id && 
+          (si.variant_id || null) === (item.variant_id || null))
+      ));
+    } else {
+      setSelectedItems([...selectedItems, item]);
+    }
+  };
+
+  return (
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/40 transition-opacity`}>
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {threshold ? '编辑满额门槛' : '添加满额门槛'}
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600">
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+          {/* 门槛金额 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">门槛金额</label>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.threshold_amount}
+                onChange={(e) => setFormData({...formData, threshold_amount: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="请输入门槛金额"
+                required
+              />
+              <span className="absolute right-3 top-2 text-gray-400">元</span>
+            </div>
+          </div>
+
+          {/* 赠品类型选择 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">赠品类型</label>
+            <div className="space-y-3">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.gift_products}
+                  onChange={(e) => setFormData({...formData, gift_products: e.target.checked})}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="ml-2 text-sm text-gray-700">赠送商品</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.gift_coupon}
+                  onChange={(e) => setFormData({...formData, gift_coupon: e.target.checked})}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="ml-2 text-sm text-gray-700">赠送优惠券</span>
+              </label>
+            </div>
+          </div>
+
+          {/* 优惠券金额 */}
+          {formData.gift_coupon && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">优惠券金额</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.coupon_amount}
+                  onChange={(e) => setFormData({...formData, coupon_amount: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="请输入优惠券金额"
+                  required
+                />
+                <span className="absolute right-3 top-2 text-gray-400">元</span>
+              </div>
+            </div>
+          )}
+
+          {/* 商品选择 */}
+          {formData.gift_products && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">选择商品</label>
+              <div className="border border-gray-300 rounded-md p-4 space-y-4">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="搜索商品..."
+                />
+                
+                {selectedItems.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-2">已选择商品：</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedItems.map((item, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">
+                          {item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}
+                          <button
+                            type="button"
+                            onClick={() => handleItemToggle(item)}
+                            className="text-indigo-500 hover:text-indigo-700"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {searchLoading ? (
+                  <div className="text-center py-4 text-gray-500">搜索中...</div>
+                ) : searchResults.length > 0 ? (
+                  <div className="max-h-32 overflow-y-auto space-y-2">
+                    {searchResults.map((item) => {
+                      const isSelected = selectedItems.some(si => 
+                        si.product_id === item.product_id && 
+                        (si.variant_id || null) === (item.variant_id || null)
+                      );
+                      
+                      return (
+                        <div
+                          key={`${item.product_id}_${item.variant_id || 'base'}`}
+                          className={`p-2 border rounded cursor-pointer ${
+                            isSelected ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-gray-50'
+                          }`}
+                          onClick={() => handleItemToggle(item)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-medium">{item.product_name}</span>
+                              {item.variant_name && (
+                                <span className="ml-2 text-gray-500">({item.variant_name})</span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              库存: {item.stock}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : searchTerm ? (
+                  <div className="text-center py-4 text-gray-500">没有找到相关商品</div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          </div>
+          
+          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saving ? '保存中...' : (threshold ? '更新' : '创建')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const AutoGiftModal = ({ open, onClose, onSave, initialItems, apiRequest }) => {
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimerRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setSelectedItems([]);
+      setSearchResults([]);
+      setSearchTerm('');
+      return;
+    }
+    setSelectedItems((initialItems || []).map(item => ({ ...item })));
+    setSearchResults([]);
+    setSearchTerm('');
+  }, [open, initialItems]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const term = (searchTerm || '').trim();
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const res = await apiRequest(`/admin/auto-gifts/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
+        setSearchResults(res?.data?.items || []);
+      } catch (e) {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchTerm, open, apiRequest]);
+
+  const keyOf = (item) => `${item.product_id}__${item.variant_id || 'base'}`;
+
+  const handleAdd = (item) => {
+    const key = keyOf(item);
+    if (selectedItems.some((it) => keyOf(it) === key)) {
+      return;
+    }
+    setSelectedItems(prev => [...prev, { ...item }]);
+  };
+
+  const handleRemove = (productId, variantId) => {
+    setSelectedItems(prev => prev.filter(it => !(it.product_id === productId && (it.variant_id || null) === (variantId || null))));
+  };
+
+  const handleSubmit = () => {
+    onSave(selectedItems.map(it => ({ product_id: it.product_id, variant_id: it.variant_id })));
+  };
+
+  return (
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/40 transition-opacity`}>
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden transform transition-all ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">编辑满额赠品池</h3>
+            <p className="text-sm text-gray-500">可选择多个商品或规格，系统优先赠送库存最多的商品。</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600">
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div>
+            <label className="text-sm font-medium text-gray-700">已选择的赠品</label>
+            {selectedItems.length === 0 ? (
+              <div className="mt-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-4 text-center">
+                尚未选择任何商品，使用下方搜索框添加。
+              </div>
+            ) : (
+              <div className="mt-2 grid gap-2">
+                {selectedItems.map(item => {
+                  const label = item.variant_name ? `${item.product_name || '商品'} - ${item.variant_name}` : (item.product_name || '商品');
+                  const stock = Number.isFinite(item.stock) ? item.stock : '--';
+                  return (
+                    <div key={keyOf(item)} className="px-3 py-2 rounded-md border border-gray-200 bg-gray-50 flex items-center justify-between">
+                      <div className="text-xs">
+                        <div className="font-medium">{label}</div>
+                        <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
+                          <span>库存：{stock}</span>
+                          <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => handleRemove(item.product_id, item.variant_id)} className="text-xs text-red-600 hover:text-red-800">移除</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">搜索商品并添加</label>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="输入商品名称或类别关键字"
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <div className="mt-2 border border-gray-200 rounded-md max-h-48 overflow-y-auto">
+              {searchLoading ? (
+                <div className="px-3 py-2 text-xs text-gray-500">搜索中...</div>
+              ) : (searchResults || []).length === 0 ? (
+                <div className="px-3 py-2 text-xs text-gray-500">未找到匹配的商品</div>
+              ) : (
+                searchResults.map(item => {
+                  const key = keyOf(item);
+                  const alreadySelected = selectedItems.some(it => keyOf(it) === key);
+                  const label = item.variant_name ? `${item.product_name || '商品'} - ${item.variant_name}` : (item.product_name || '商品');
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleAdd(item)}
+                      disabled={alreadySelected}
+                      className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 ${alreadySelected ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'hover:bg-indigo-50'}`}
+                    >
+                      <div className="font-medium text-gray-800 flex items-center gap-2">
+                        <span>{label}</span>
+                        {alreadySelected && <span className="text-xs text-gray-500">已添加</span>}
+                      </div>
+                      <div className="text-[11px] text-gray-500 flex items-center gap-3 mt-1">
+                        <span>库存：{item.stock}</span>
+                        <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100">取消</button>
+          <button onClick={handleSubmit} className="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">保存</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 内联库存控制组件
 const StockControl = ({ product, onUpdateStock }) => {
   const [stock, setStock] = useState(product.stock);
@@ -2994,6 +3616,16 @@ export default function Admin() {
                   抽奖配置
                 </button>
                 <button
+                  onClick={() => setActiveTab('autoGifts')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'autoGifts'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  满额门槛
+                </button>
+                <button
                   onClick={() => setActiveTab('coupons')}
                   className={`py-2 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'coupons'
@@ -3404,6 +4036,16 @@ export default function Admin() {
                 <p className="text-sm text-gray-600 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
               </div>
               <LotteryConfigPanel />
+            </>
+          )}
+
+          {activeTab === 'autoGifts' && (
+            <>
+              <div className="mb-6">
+                <h2 className="text-lg font-medium text-gray-900">满额门槛</h2>
+                <p className="text-sm text-gray-600 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>
+              </div>
+              <GiftThresholdPanel />
             </>
           )}
         </main>

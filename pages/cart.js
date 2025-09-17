@@ -233,6 +233,7 @@ export default function Cart() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [eligibleRewards, setEligibleRewards] = useState([]);
+  const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [couponExpanded, setCouponExpanded] = useState(false);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
@@ -260,6 +261,12 @@ export default function Cart() {
         setEligibleRewards(rw?.data?.rewards || []);
       } catch (e) {
         setEligibleRewards([]);
+      }
+      try {
+        const giftsResp = await apiRequest('/gift-thresholds');
+        setAutoGifts(giftsResp?.data?.thresholds || []);
+      } catch (e) {
+        setAutoGifts([]);
       }
       // 加载我的优惠券 + 默认选择规则
       try {
@@ -489,20 +496,23 @@ export default function Cart() {
               {cart.items && cart.items.length > 0 ? (
                 <div className="lg:grid lg:grid-cols-3 lg:gap-8">
                   {/* 购物车商品列表 */}
-                  <div className="lg:col-span-2 space-y-0">
-                    {cart.items.map((item) => (
-                      <CartItem
-                        key={item.product_id}
-                        item={item}
-                        onUpdateQuantity={handleUpdateQuantity}
-                        onRemove={handleRemoveItem}
-                        isLoading={actionLoading}
-                      />
-                    ))}
+                  <div className="lg:col-span-2">
+                    {/* 商品列表容器 */}
+                    <div className="space-y-0">
+                      {cart.items.map((item) => (
+                        <CartItem
+                          key={item.product_id}
+                          item={item}
+                          onUpdateQuantity={handleUpdateQuantity}
+                          onRemove={handleRemoveItem}
+                          isLoading={actionLoading}
+                        />
+                      ))}
+                    </div>
 
                     {/* 抽奖奖品展示（不计入金额，满10自动附带）*/}
                     {eligibleRewards.length > 0 && (
-                      <div className="mt-4">
+                      <div className="mt-8">
                         <div className="mb-2 flex items-center gap-2">
                           <div className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center">
                             <i className="fas fa-gift text-amber-600 text-xs"></i>
@@ -532,7 +542,7 @@ export default function Cart() {
                                     </p>
                                   )}
                                   <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
-                                    {meet ? '已满足满10，本单将自动附带并随单配送' : '未达满10，本单结算不会附带；满10自动附带并配送'}
+                                    {meet ? '满10，本单将自动附带并随单配送' : '未满10，本单结算不会附带；满10自动附带并配送'}
                                   </p>
                                 </div>
                                 <div className="text-right">
@@ -547,6 +557,67 @@ export default function Cart() {
                         })}
                       </div>
                     )}
+
+                    {/* 满额门槛 - 现在在space-y-0外面了 */}
+                    {cart.items.length > 0 && autoGifts.length > 0 && (() => {
+                      const cartTotal = cart?.total_price || 0;
+                      const hasAnyUnlocked = autoGifts.some(threshold => cartTotal >= (threshold.threshold_amount || 0));
+                      
+                      // 根据是否有抽奖奖品来调整间距
+                      const hasRewards = eligibleRewards.length > 0;
+                      const topMargin = hasRewards ? 'mt-8' : 'mt-16'; // 有奖品时用正常间距，无奖品时用大间距
+                      
+                      const containerClass = hasAnyUnlocked 
+                        ? `${topMargin} border border-dashed border-pink-200 rounded-lg bg-pink-50 p-4`
+                        : `${topMargin} border border-dashed border-gray-200 rounded-lg bg-gray-50 p-4`;
+                      const titleIconClass = hasAnyUnlocked ? 'text-pink-500' : 'text-gray-500';
+                      const titleTextClass = hasAnyUnlocked ? 'text-pink-700' : 'text-gray-500';
+                      
+                      return (
+                        <div className={containerClass}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <i className={`fas fa-gift ${titleIconClass}`}></i>
+                            <span className={`text-sm font-semibold ${titleTextClass}`}>满额门槛</span>
+                          </div>
+                          <div className="grid gap-2">
+                            {autoGifts.map((threshold, index) => {
+                              const thresholdAmount = threshold.threshold_amount || 0;
+                              const unlocked = cartTotal >= thresholdAmount;
+                              const cardClass = unlocked
+                                ? 'border-pink-200 bg-pink-50 text-pink-700'
+                                : 'border-gray-300 bg-gray-200 text-gray-600';
+                              
+                              const rewardParts = [];
+                              if (threshold.gift_products && threshold.selected_product_name) {
+                                rewardParts.push(threshold.selected_product_name);
+                              }
+                              if (threshold.gift_coupon && threshold.coupon_amount > 0) {
+                                rewardParts.push(`${threshold.coupon_amount}元优惠券`);
+                              }
+                              const rewardText = rewardParts.length > 0 ? rewardParts.join(' + ') : '暂无奖励';
+                              const hint = unlocked ? '已满足条件' : `还差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`;
+                              
+                              return (
+                                <div
+                                  key={threshold.threshold_amount || index}
+                                  className={`text-xs rounded-md px-3 py-2 border ${cardClass}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-medium">满 ¥{thresholdAmount}</div>
+                                      <div className="mt-1 text-[11px] break-words">{rewardText}</div>
+                                    </div>
+                                    <div className="text-[11px] ml-2 flex-shrink-0">
+                                      {hint}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   
                   {/* 订单摘要 */}
