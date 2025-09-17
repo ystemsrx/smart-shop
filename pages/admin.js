@@ -69,20 +69,25 @@ const LotteryConfigPanel = () => {
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPrize, setEditingPrize] = useState(null);
+  const [collapsedPrizes, setCollapsedPrizes] = useState(new Set());
 
   const loadPrizes = async () => {
     setLoading(true);
     try {
       const res = await apiRequest('/admin/lottery-config');
       const list = res?.data?.prizes || [];
-      setPrizes(list.map((p) => ({
+      const prizesData = list.map((p) => ({
         ...p,
         weight: parseFloat(p.weight || 0),
         is_active: p.is_active === 1 || p.is_active === true
-      })));
+      }));
+      setPrizes(prizesData);
+      // 默认折叠所有奖项
+      setCollapsedPrizes(new Set(prizesData.map(p => p.id)));
     } catch (e) {
       alert(e.message || '加载抽奖配置失败');
       setPrizes([]);
+      setCollapsedPrizes(new Set());
     } finally {
       setLoading(false);
     }
@@ -94,6 +99,18 @@ const LotteryConfigPanel = () => {
   const isFraction = totalWeightRaw <= 1.000001;
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
+
+  const togglePrizeCollapse = (prizeId) => {
+    setCollapsedPrizes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(prizeId)) {
+        newSet.delete(prizeId);
+      } else {
+        newSet.add(prizeId);
+      }
+      return newSet;
+    });
+  };
 
   const openModal = (prize = null) => {
     setEditingPrize(prize);
@@ -215,10 +232,11 @@ const LotteryConfigPanel = () => {
           {prizes.map(prize => {
             const itemList = prize.items || [];
             const availableItems = itemList.filter(it => it.available !== false);
+            const isCollapsed = collapsedPrizes.has(prize.id);
             return (
               <div key={prize.id} className="px-6 py-4">
                 <div className="flex flex-wrap justify-between items-start gap-3">
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-base font-semibold text-gray-900">{prize.display_name}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full border ${prize.is_active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
@@ -230,6 +248,15 @@ const LotteryConfigPanel = () => {
                       <span className="flex items-center gap-1"><i className="fas fa-box"></i>已选商品 {itemList.length}</span>
                       <span className={`flex items-center gap-1 ${availableItems.length === 0 ? 'text-red-500' : ''}`}>
                         <i className="fas fa-warehouse"></i>{availableItems.length > 0 ? `可用商品 ${availableItems.length}` : '无可用库存'}</span>
+                      {itemList.length > 0 && (
+                        <button
+                          onClick={() => togglePrizeCollapse(prize.id)}
+                          className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
+                        >
+                          <span>{isCollapsed ? '展开商品' : '折叠商品'}</span>
+                          <i className={`fas fa-chevron-${isCollapsed ? 'down' : 'up'}`}></i>
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
@@ -253,30 +280,32 @@ const LotteryConfigPanel = () => {
                     </button>
                   </div>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {itemList.length === 0 ? (
-                    <div className="text-xs text-gray-500">未关联任何商品。</div>
-                  ) : (
-                    itemList.map((item) => {
-                      const label = item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || '未命名商品');
-                      const stock = Number.parseInt(item.stock, 10);
-                      const available = item.available !== false && (!Number.isNaN(stock) ? stock > 0 : true);
-                      return (
-                        <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`text-xs flex items-center justify-between rounded-md px-3 py-2 border ${available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{label}</div>
-                            <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
-                              <span>库存：{Number.isNaN(stock) ? '未知' : stock}</span>
-                              <span>参考售价：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                {!isCollapsed && (
+                  <div className="mt-3 space-y-2">
+                    {itemList.length === 0 ? (
+                      <div className="text-xs text-gray-500">未关联任何商品。</div>
+                    ) : (
+                      itemList.map((item) => {
+                        const label = item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || '未命名商品');
+                        const stock = Number.parseInt(item.stock, 10);
+                        const available = item.available !== false && (!Number.isNaN(stock) ? stock > 0 : true);
+                        return (
+                          <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`text-xs flex items-center justify-between rounded-md px-3 py-2 border ${available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">{label}</div>
+                              <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
+                                <span>库存：{Number.isNaN(stock) ? '未知' : stock}</span>
+                                <span>参考售价：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                              </div>
                             </div>
+                            {!available && <span className="text-[11px] font-medium">不可抽取</span>}
                           </div>
-                          {!available && <span className="text-[11px] font-medium">不可抽取</span>}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-                {Array.isArray(prize.issues) && prize.issues.length > 0 && (
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+                {!isCollapsed && Array.isArray(prize.issues) && prize.issues.length > 0 && (
                   <div className="mt-3 text-xs text-red-600 flex flex-col gap-1">
                     {prize.issues.map((msg, idx) => (
                       <span key={idx}>⚠ {msg}</span>
@@ -308,11 +337,9 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [nameSuggestions, setNameSuggestions] = useState([]);
-  const [nameDropdownOpen, setNameDropdownOpen] = useState(false);
   const [error, setError] = useState('');
+  const [isItemsCollapsed, setIsItemsCollapsed] = useState(false);
   const searchTimerRef = React.useRef(null);
-  const nameSearchTimerRef = React.useRef(null);
 
   const mapResultToItem = (item) => ({
     id: item.id,
@@ -334,8 +361,8 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
       setSelectedItems([]);
       setSearchTerm('');
       setSearchResults([]);
-      setNameSuggestions([]);
       setError('');
+      setIsItemsCollapsed(false);
       return;
     }
 
@@ -347,6 +374,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
     setSearchTerm('');
     setSearchResults([]);
     setError('');
+    setIsItemsCollapsed(false);
   }, [open, initialPrize]);
 
   useEffect(() => {
@@ -369,26 +397,6 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
     };
   }, [searchTerm, open, apiRequest]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (nameSearchTimerRef.current) clearTimeout(nameSearchTimerRef.current);
-    const term = displayName.trim();
-    if (!term) {
-      setNameSuggestions([]);
-      return;
-    }
-    nameSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await apiRequest(`/admin/lottery-prizes/search?query=${encodeURIComponent(term)}`);
-        setNameSuggestions(res?.data?.items?.slice(0, 8) || []);
-      } catch (e) {
-        setNameSuggestions([]);
-      }
-    }, 200);
-    return () => {
-      if (nameSearchTimerRef.current) clearTimeout(nameSearchTimerRef.current);
-    };
-  }, [displayName, open, apiRequest]);
 
   const handleAddItem = (item) => {
     const mapped = mapResultToItem(item);
@@ -403,11 +411,6 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
     setSelectedItems(prev => prev.filter(it => !(it.product_id === productId && (it.variant_id || null) === (variantId || null))));
   };
 
-  const handleSelectNameSuggestion = (suggestion) => {
-    setDisplayName(suggestion.product_name || suggestion.label || '');
-    handleAddItem(suggestion);
-    setNameDropdownOpen(false);
-  };
 
   const handleSubmit = () => {
     if (!displayName.trim()) {
@@ -443,35 +446,15 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
         <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="relative">
+            <div>
               <label className="text-sm font-medium text-gray-700">奖项名称</label>
               <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                onFocus={() => setNameDropdownOpen(true)}
-                onBlur={() => setTimeout(() => setNameDropdownOpen(false), 150)}
-                placeholder="输入奖项名称，如：火腿肠"
+                placeholder="输入奖项名称，如：火腿肠、小零食等"
                 className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
               />
-              {nameDropdownOpen && nameSuggestions.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
-                  {nameSuggestions.map((item) => (
-                    <button
-                      key={`${item.product_id}_${item.variant_id || 'base'}`}
-                      type="button"
-                      onMouseDown={() => handleSelectNameSuggestion(item)}
-                      className="w-full text-left px-3 py-2 hover:bg-indigo-50"
-                    >
-                      <div className="text-sm font-medium text-gray-800">{item.product_name || item.label}</div>
-                      <div className="text-xs text-gray-500 flex items-center gap-3">
-                        {item.variant_name && <span>{item.variant_name}</span>}
-                        <span>库存：{item.stock}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">概率权重</label>
@@ -495,12 +478,23 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
             </button>
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700">已选择的奖品商品</label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">已选择的奖品商品</label>
+              {selectedItems.length > 3 && (
+                <button
+                  onClick={() => setIsItemsCollapsed(!isItemsCollapsed)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                >
+                  <span>{isItemsCollapsed ? '展开' : '折叠'}</span>
+                  <i className={`fas fa-chevron-${isItemsCollapsed ? 'down' : 'up'}`}></i>
+                </button>
+              )}
+            </div>
             {selectedItems.length === 0 ? (
               <div className="mt-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-4 text-center">尚未选择任何商品，使用下方搜索框添加。</div>
             ) : (
               <div className="mt-2 grid gap-2">
-                {selectedItems.map(item => (
+                {(isItemsCollapsed && selectedItems.length > 3 ? selectedItems.slice(0, 3) : selectedItems).map(item => (
                   <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`px-3 py-2 rounded-md border flex justify-between items-center ${item.available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
                     <div className="text-xs">
                       <div className="font-medium">{item.label}</div>
@@ -515,6 +509,11 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
                     >移除</button>
                   </div>
                 ))}
+                {isItemsCollapsed && selectedItems.length > 3 && (
+                  <div className="px-3 py-2 text-xs text-gray-500 text-center border border-dashed border-gray-300 rounded-md">
+                    还有 {selectedItems.length - 3} 个商品已折叠，点击上方"展开"查看全部
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -536,6 +535,10 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
                 searchResults.map(item => {
                   const key = `${item.product_id}__${item.variant_id || 'base'}`;
                   const alreadySelected = selectedItems.some(it => `${it.product_id}__${it.variant_id || 'base'}` === key);
+                  // 构建完整的商品名称显示
+                  const fullName = item.variant_name ? 
+                    `${item.product_name || item.label || ''} - ${item.variant_name}` : 
+                    (item.product_name || item.label || '');
                   return (
                     <button
                       key={key}
@@ -545,7 +548,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
                       className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 ${alreadySelected ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'hover:bg-indigo-50'}`}
                     >
                       <div className="font-medium text-gray-800 flex items-center gap-2">
-                        <span>{item.label}</span>
+                        <span>{fullName}</span>
                         {alreadySelected && <span className="text-xs text-gray-500">已添加</span>}
                       </div>
                       <div className="text-[11px] text-gray-500 flex items-center gap-3 mt-1">
