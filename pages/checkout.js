@@ -36,6 +36,7 @@ export default function Checkout() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [eligibleRewards, setEligibleRewards] = useState([]);
+  const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
@@ -106,6 +107,12 @@ export default function Checkout() {
         setEligibleRewards(rw?.data?.rewards || []);
       } catch (e) {
         setEligibleRewards([]);
+      }
+      try {
+        const giftsResp = await apiRequest('/gift-thresholds');
+        setAutoGifts(giftsResp?.data?.thresholds || []);
+      } catch (e) {
+        setAutoGifts([]);
       }
       // 加载我的优惠券并默认选择
       try {
@@ -771,6 +778,42 @@ export default function Checkout() {
                       </p>
                     </div>
                   )}
+                  {cart.items && cart.items.length > 0 && autoGifts.length > 0 && (
+                    <div className="mb-8 border-t border-white/20 pt-6">
+                      <div className="flex items-center gap-2 mb-2">
+                        <i className="fas fa-gifts text-pink-500"></i>
+                        <span className="text-sm font-medium text-gray-900">满额门槛</span>
+                      </div>
+                      <div className="space-y-1">
+                        {autoGifts.map((threshold, index) => {
+                          const thresholdAmount = threshold.threshold_amount || 0;
+                          const cartTotal = cart?.total_price || 0;
+                          const unlocked = cartTotal >= thresholdAmount;
+                          const rowClass = unlocked ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-200 border-gray-300 text-gray-600';
+                          
+                          const rewardParts = [];
+                          if (threshold.gift_products && threshold.selected_product_name) {
+                            rewardParts.push(threshold.selected_product_name);
+                          }
+                          if (threshold.gift_coupon && threshold.coupon_amount > 0) {
+                            rewardParts.push(`${threshold.coupon_amount}元优惠券`);
+                          }
+                          const rewardText = rewardParts.length > 0 ? rewardParts.join(' + ') : '暂无奖励';
+                          const hint = unlocked ? '已满足条件' : `还差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`;
+                          
+                          return (
+                            <div
+                              key={threshold.threshold_amount || index}
+                              className={`flex flex-col text-xs border rounded-md px-3 py-2 ${rowClass}`}
+                            >
+                              <span className="font-medium">满 ¥{thresholdAmount}</span>
+                              <span className="mt-1 text-[11px] break-words">{rewardText} · {hint}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* 支付按钮 */}
                   <button
@@ -890,7 +933,13 @@ export default function Checkout() {
             {!spinning && (
               <>
                 <div className="text-center mb-4 space-y-2">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult || '谢谢参与'}</span>
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                    lotteryResult === '谢谢参与' 
+                      ? 'bg-gray-100 text-gray-700' 
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {lotteryResult === '谢谢参与' ? '谢谢参与' : `恭喜获得：${lotteryResult || '谢谢参与'}`}
+                  </span>
                   {lotteryPrize ? (
                     <div className="text-xs text-gray-600 space-y-1">
                       <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>

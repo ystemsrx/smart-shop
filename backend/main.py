@@ -17,7 +17,7 @@ import random
 from database import (
     init_database, cleanup_old_chat_logs,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB
 )
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
@@ -1643,6 +1643,53 @@ async def create_order(
         # 保存商品金额小计（不含运费），用于满额判断
         items_subtotal = round(total_amount, 2)
 
+        # 新的满额赠品系统：支持多层次门槛配置
+        try:
+            applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal)
+            logger.info(f"订单金额 {items_subtotal} 元，适用门槛: {[t.get('threshold_amount') for t in applicable_thresholds]}")
+            
+            for threshold in applicable_thresholds:
+                threshold_id = threshold.get('id')
+                threshold_amount = threshold.get('threshold_amount', 0)
+                gift_products = threshold.get('gift_products', 0) == 1
+                gift_coupon = threshold.get('gift_coupon', 0) == 1
+                coupon_amount = threshold.get('coupon_amount', 0)
+                applicable_times = threshold.get('applicable_times', 0)
+                
+                # 处理商品赠品
+                if gift_products and applicable_times > 0:
+                    try:
+                        selected_gifts = GiftThresholdDB.pick_gifts_for_threshold(threshold_id, applicable_times)
+                        for gift in selected_gifts:
+                            gift_item = {
+                                "product_id": gift.get('product_id'),
+                                "name": gift.get('display_name') or gift.get('product_name') or '满额赠品',
+                                "unit_price": 0.0,
+                                "quantity": 1,
+                                "subtotal": 0.0,
+                                "category": gift.get('category') or '满额赠品',
+                                "img_path": gift.get('img_path') or '',
+                                "is_auto_gift": True,
+                                "auto_gift_item_id": gift.get('threshold_item_id'),
+                                "auto_gift_product_name": gift.get('product_name'),
+                                "auto_gift_variant_name": gift.get('variant_name'),
+                                "gift_threshold_id": threshold_id,
+                                "gift_threshold_amount": threshold_amount
+                            }
+                            if gift.get('variant_id'):
+                                gift_item['variant_id'] = gift.get('variant_id')
+                                if gift.get('variant_name'):
+                                    gift_item['variant_name'] = gift.get('variant_name')
+                            order_items.append(gift_item)
+                    except Exception as e:
+                        logger.warning(f"生成满额赠品失败 (门槛{threshold_amount}): {e}")
+                
+                # 处理优惠券赠品（在订单创建时不发放，记录信息供支付成功后发放）
+                if gift_coupon and coupon_amount > 0 and applicable_times > 0:
+                    logger.info(f"记录满额优惠券待发放：{applicable_times} 张 {coupon_amount} 元（门槛{threshold_amount}）")
+        except Exception as e:
+            logger.warning(f"处理满额赠品配置失败: {e}")
+
         # 若已达满10门槛，则自动附加可用抽奖奖品（不计入总价）
         rewards_attached_ids: List[str] = []
         if items_subtotal >= 10.0:
@@ -1877,6 +1924,33 @@ class LotteryConfigUpdateRequest(BaseModel):
     prizes: List[LotteryPrizeInput] = []
 
 
+class AutoGiftItemInput(BaseModel):
+    product_id: str
+    variant_id: Optional[str] = None
+
+
+class AutoGiftUpdateRequest(BaseModel):
+    items: List[AutoGiftItemInput] = []
+
+
+# 满额门槛配置模型
+class GiftThresholdCreate(BaseModel):
+    threshold_amount: float
+    gift_products: bool = False
+    gift_coupon: bool = False
+    coupon_amount: float = 0.0
+    items: List[AutoGiftItemInput] = []
+
+
+class GiftThresholdUpdate(BaseModel):
+    threshold_amount: Optional[float] = None
+    gift_products: Optional[bool] = None
+    gift_coupon: Optional[bool] = None
+    coupon_amount: Optional[float] = None
+    is_active: Optional[bool] = None
+    items: Optional[List[AutoGiftItemInput]] = None
+
+
 def _persist_lottery_prize_from_payload(prize: LotteryPrizeInput, override_id: Optional[str] = None) -> str:
     display_name = (prize.display_name or '').strip()
     if not display_name:
@@ -1898,6 +1972,91 @@ def _persist_lottery_prize_from_payload(prize: LotteryPrizeInput, override_id: O
     return LotteryDB.upsert_prize(override_id or prize.id, display_name, weight_value, is_active, items_payload)
 
 
+def _search_inventory_for_selector(term: Optional[str]) -> List[Dict[str, Any]]:
+    try:
+        if term:
+            products = ProductDB.search_products(term, active_only=True)
+        else:
+            products = ProductDB.get_all_products()
+    except Exception as e:
+        logger.error(f"搜索商品失败: {e}")
+        return []
+
+    filtered: List[Dict[str, Any]] = []
+    try:
+        product_ids = [p['id'] for p in products]
+    except Exception:
+        product_ids = []
+
+    variant_map: Dict[str, List[Dict[str, Any]]] = {}
+    if product_ids:
+        try:
+            variant_map = VariantDB.get_for_products(product_ids)
+        except Exception as e:
+            logger.warning(f"获取规格失败: {e}")
+            variant_map = {}
+
+    for product in products:
+        try:
+            is_active = int(product.get('is_active', 1) or 1) == 1
+        except Exception:
+            is_active = True
+        if not is_active:
+            continue
+
+        try:
+            base_price = float(product.get('price') or 0)
+        except Exception:
+            base_price = 0.0
+        try:
+            discount = float(product.get('discount', 10.0) or 10.0)
+        except Exception:
+            discount = 10.0
+        retail_price = round(base_price * (discount / 10.0), 2)
+
+        variants = variant_map.get(product.get('id')) or []
+        if variants:
+            for variant in variants:
+                try:
+                    stock = int(variant.get('stock') or 0)
+                except Exception:
+                    stock = 0
+                if stock <= 0:
+                    continue
+                filtered.append({
+                    'product_id': product.get('id'),
+                    'product_name': product.get('name'),
+                    'variant_id': variant.get('id'),
+                    'variant_name': variant.get('name'),
+                    'stock': stock,
+                    'retail_price': retail_price,
+                    'img_path': product.get('img_path'),
+                    'category': product.get('category'),
+                    'available': True
+                })
+        else:
+            try:
+                stock = int(product.get('stock') or 0)
+            except Exception:
+                stock = 0
+            if stock <= 0:
+                continue
+            filtered.append({
+                'product_id': product.get('id'),
+                'product_name': product.get('name'),
+                'variant_id': None,
+                'variant_name': None,
+                'stock': stock,
+                'retail_price': retail_price,
+                'img_path': product.get('img_path'),
+                'category': product.get('category'),
+                'available': True
+            })
+
+    filtered.sort(key=lambda x: (x.get('product_name') or '', x.get('variant_name') or ''))
+    return filtered[:100]
+
+
 @app.put("/admin/lottery-config")
 async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request):
     """批量更新抽奖配置，完全覆盖现有奖项。"""
@@ -1916,6 +2075,96 @@ async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
     except Exception as e:
         logger.error(f"更新抽奖配置失败: {e}")
         return error_response("更新抽奖配置失败", 500)
+
+
+@app.get("/admin/auto-gifts")
+async def admin_get_auto_gifts(request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        items = AutoGiftDB.list_items()
+        return success_response("获取满额赠品配置成功", {"items": items})
+    except Exception as e:
+        logger.error(f"读取满额赠品配置失败: {e}")
+        return error_response("读取满额赠品配置失败", 500)
+
+
+@app.put("/admin/auto-gifts")
+async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        items = payload.items or []
+        unique: set = set()
+        normalized: List[Dict[str, Optional[str]]] = []
+        for item in items:
+            key = (item.product_id, item.variant_id or None)
+            if key in unique:
+                continue
+            unique.add(key)
+            normalized.append({'product_id': item.product_id, 'variant_id': item.variant_id})
+        AutoGiftDB.replace_items(normalized)
+        refreshed = AutoGiftDB.list_items()
+        return success_response("满额赠品配置已更新", {"items": refreshed})
+    except Exception as e:
+        logger.error(f"更新满额赠品配置失败: {e}")
+        return error_response("更新满额赠品配置失败", 500)
+
+
+@app.get("/admin/auto-gifts/search")
+async def admin_search_auto_gift_items(request: Request, query: Optional[str] = None):
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        results = _search_inventory_for_selector(query)
+        return success_response("搜索成功", {"items": results})
+    except Exception as e:
+        logger.error(f"搜索满额赠品候选失败: {e}")
+        return error_response("搜索满额赠品候选失败", 500)
+
+
+@app.get("/auto-gifts")
+async def public_get_auto_gifts():
+    try:
+        items = AutoGiftDB.get_available_items()
+        return success_response("获取满额赠品成功", {"items": items})
+    except Exception as e:
+        logger.error(f"获取满额赠品失败: {e}")
+        return error_response("获取满额赠品失败", 500)
+
+
+@app.get("/gift-thresholds")
+async def public_get_gift_thresholds():
+    """获取启用的满额门槛配置（公共接口）"""
+    try:
+        thresholds = GiftThresholdDB.list_all(include_inactive=False)
+        # 为公共接口简化数据，只返回必要信息
+        simplified_thresholds = []
+        for threshold in thresholds:
+            available_items = [item for item in threshold.get('items', []) if item.get('available')]
+            
+            # 找到库存最高的商品（与实际赠送逻辑保持一致）
+            selected_product_name = ''
+            if available_items:
+                # 按库存排序，选择库存最高的
+                available_items.sort(key=lambda x: x.get('stock', 0), reverse=True)
+                chosen_item = available_items[0]
+                name = chosen_item.get('product_name', '')
+                if chosen_item.get('variant_name'):
+                    name += f"（{chosen_item.get('variant_name')}）"
+                selected_product_name = name
+            
+            simplified = {
+                'threshold_amount': threshold.get('threshold_amount'),
+                'gift_products': threshold.get('gift_products', 0) == 1,
+                'gift_coupon': threshold.get('gift_coupon', 0) == 1,
+                'coupon_amount': threshold.get('coupon_amount', 0),
+                'products_count': len(available_items),
+                'selected_product_name': selected_product_name  # 只显示将被赠送的商品名称
+            }
+            simplified_thresholds.append(simplified)
+        
+        return success_response("获取满额门槛配置成功", {"thresholds": simplified_thresholds})
+    except Exception as e:
+        logger.error(f"获取满额门槛配置失败: {e}")
+        return error_response("获取满额门槛配置失败", 500)
 
 
 @app.post("/admin/lottery-prizes")
@@ -1965,81 +2214,137 @@ async def admin_delete_lottery_prize(prize_id: str, request: Request):
 async def admin_search_lottery_prize_items(request: Request, query: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
     try:
-        term = (query or '').strip()
-        if term:
-            products = ProductDB.search_products(term, active_only=True)
-        else:
-            products = ProductDB.get_all_products()
-        filtered: List[Dict[str, Any]] = []
-        for product in products:
-            try:
-                active = int(product.get('is_active', 1) or 1) == 1
-            except Exception:
-                active = True
-            if not active:
-                continue
-            filtered.append(product)
-        if not term:
-            filtered = filtered[:50]
-        product_ids = [p['id'] for p in filtered]
-        variant_map = VariantDB.get_for_products(product_ids) if product_ids else {}
-        results: List[Dict[str, Any]] = []
-        for product in filtered:
-            variants = variant_map.get(product['id']) or []
-            try:
-                price = float(product.get('price') or 0)
-            except Exception:
-                price = 0.0
-            try:
-                discount = float(product.get('discount', 10.0) or 10.0)
-            except Exception:
-                discount = 10.0
-            retail_price = round(price * (discount / 10.0), 2)
-            base_info = {
-                'product_id': product['id'],
-                'product_name': product.get('name'),
-                'img_path': product.get('img_path'),
-                'category': product.get('category'),
-                'price': price,
-                'discount': discount,
-                'retail_price': retail_price
-            }
-            if variants:
-                for variant in variants:
-                    try:
-                        stock = int(variant.get('stock') or 0)
-                    except Exception:
-                        stock = 0
-                    if stock <= 0:
-                        continue
-                    item = {
-                        **base_info,
-                        'variant_id': variant.get('id'),
-                        'variant_name': variant.get('name'),
-                        'stock': stock,
-                        'label': f"{product.get('name')} - {variant.get('name')}"
-                    }
-                    results.append(item)
-            else:
-                try:
-                    stock = int(product.get('stock') or 0)
-                except Exception:
-                    stock = 0
-                if stock <= 0:
-                    continue
-                item = {
-                    **base_info,
-                    'variant_id': None,
-                    'variant_name': None,
-                    'stock': stock,
-                    'label': product.get('name')
-                }
-                results.append(item)
-        results.sort(key=lambda x: x.get('label') or '')
-        return success_response("搜索成功", {"items": results[:100]})
+        results = _search_inventory_for_selector(query)
+        return success_response("搜索成功", {"items": results})
     except Exception as e:
         logger.error(f"搜索抽奖候选商品失败: {e}")
         return error_response("搜索抽奖候选商品失败", 500)
+
+
+# ==================== 满额门槛配置管理（管理员） ====================
+
+@app.get("/admin/gift-thresholds")
+async def admin_get_gift_thresholds(request: Request, include_inactive: bool = False):
+    """获取满额门槛配置列表（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        thresholds = GiftThresholdDB.list_all(include_inactive=include_inactive)
+        return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
+    except Exception as e:
+        logger.error(f"获取满额门槛配置失败: {e}")
+        return error_response("获取满额门槛配置失败", 500)
+
+
+@app.post("/admin/gift-thresholds")
+async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Request):
+    """创建满额门槛配置（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        if payload.threshold_amount <= 0:
+            return error_response("门槛金额必须大于0", 400)
+        
+        if payload.gift_coupon and payload.coupon_amount <= 0:
+            return error_response("优惠券金额必须大于0", 400)
+        
+        # 创建门槛配置
+        threshold_id = GiftThresholdDB.create_threshold(
+            threshold_amount=payload.threshold_amount,
+            gift_products=payload.gift_products,
+            gift_coupon=payload.gift_coupon,
+            coupon_amount=payload.coupon_amount if payload.gift_coupon else 0.0
+        )
+        
+        # 添加商品到门槛
+        if payload.items and payload.gift_products:
+            items_data = []
+            for item in payload.items:
+                if item.product_id:
+                    items_data.append({
+                        'product_id': item.product_id,
+                        'variant_id': item.variant_id
+                    })
+            if items_data:
+                GiftThresholdDB.add_items_to_threshold(threshold_id, items_data)
+        
+        threshold = GiftThresholdDB.get_by_id(threshold_id)
+        return success_response("满额门槛配置创建成功", {"threshold": threshold})
+    except Exception as e:
+        logger.error(f"创建满额门槛配置失败: {e}")
+        return error_response("创建满额门槛配置失败", 500)
+
+
+@app.put("/admin/gift-thresholds/{threshold_id}")
+async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdUpdate, request: Request):
+    """更新满额门槛配置（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = GiftThresholdDB.get_by_id(threshold_id)
+        if not existing:
+            return error_response("门槛配置不存在", 404)
+        
+        if payload.threshold_amount is not None and payload.threshold_amount <= 0:
+            return error_response("门槛金额必须大于0", 400)
+        
+        if payload.gift_coupon and payload.coupon_amount is not None and payload.coupon_amount <= 0:
+            return error_response("优惠券金额必须大于0", 400)
+        
+        # 更新基础配置
+        GiftThresholdDB.update_threshold(
+            threshold_id=threshold_id,
+            threshold_amount=payload.threshold_amount,
+            gift_products=payload.gift_products,
+            gift_coupon=payload.gift_coupon,
+            coupon_amount=payload.coupon_amount,
+            is_active=payload.is_active
+        )
+        
+        # 更新商品列表
+        if payload.items is not None:
+            items_data = []
+            for item in payload.items:
+                if item.product_id:
+                    items_data.append({
+                        'product_id': item.product_id,
+                        'variant_id': item.variant_id
+                    })
+            GiftThresholdDB.add_items_to_threshold(threshold_id, items_data)
+        
+        threshold = GiftThresholdDB.get_by_id(threshold_id)
+        return success_response("满额门槛配置更新成功", {"threshold": threshold})
+    except Exception as e:
+        logger.error(f"更新满额门槛配置失败: {e}")
+        return error_response("更新满额门槛配置失败", 500)
+
+
+@app.delete("/admin/gift-thresholds/{threshold_id}")
+async def admin_delete_gift_threshold(threshold_id: str, request: Request):
+    """删除满额门槛配置（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        existing = GiftThresholdDB.get_by_id(threshold_id)
+        if not existing:
+            return error_response("门槛配置不存在", 404)
+        
+        success = GiftThresholdDB.delete_threshold(threshold_id)
+        if not success:
+            return error_response("删除满额门槛配置失败", 500)
+        
+        return success_response("满额门槛配置删除成功")
+    except Exception as e:
+        logger.error(f"删除满额门槛配置失败: {e}")
+        return error_response("删除满额门槛配置失败", 500)
+
+
+@app.get("/admin/gift-thresholds/search")
+async def admin_search_gift_threshold_items(request: Request, query: Optional[str] = None):
+    """搜索满额门槛赠品候选商品（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        results = _search_inventory_for_selector(query)
+        return success_response("搜索成功", {"items": results})
+    except Exception as e:
+        logger.error(f"搜索满额门槛赠品候选失败: {e}")
+        return error_response("搜索满额门槛赠品候选失败", 500)
 
 
 class OrderDeleteRequest(BaseModel):
@@ -2266,7 +2571,7 @@ async def draw_lottery(order_id: str, request: Request):
         items = order.get("items") or []
         items_subtotal = 0.0
         for it in items:
-            if isinstance(it, dict) and it.get("is_lottery"):
+            if isinstance(it, dict) and (it.get("is_lottery") or it.get("is_auto_gift")):
                 continue
             try:
                 items_subtotal += float(it.get("subtotal", 0) or 0)
@@ -2287,7 +2592,6 @@ async def draw_lottery(order_id: str, request: Request):
                     "product_name": existing.get("prize_product_name"),
                     "variant_id": existing.get("prize_variant_id"),
                     "variant_name": existing.get("prize_variant_name"),
-                    "unit_price": existing.get("prize_unit_price"),
                     "group_id": existing.get("prize_group_id"),
                 }
             return success_response("抽奖已完成", {
@@ -2430,10 +2734,10 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                         UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
                     except Exception as e:
                         logger.warning(f"缓存用户收货信息失败: {e}")
-                # 若该订单曾进行抽奖，确认成功后生成可用奖品
+                # 若该订单曾进行抽奖，确认成功后生成可用奖品（排除谢谢参与）
                 try:
                     draw = LotteryDB.get_draw_by_order(order_id)
-                    if draw:
+                    if draw and draw.get("prize_name") != "谢谢参与":
                         RewardDB.add_reward_from_order(
                             student_id=order["student_id"],
                             prize_name=draw.get("prize_name"),
@@ -2448,6 +2752,39 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                         )
                 except Exception as e:
                     logger.warning(f"生成抽奖奖品失败: {e}")
+                # 发放满额优惠券（根据订单金额重新计算）
+                try:
+                    # 计算订单商品小计（不含运费、不含抽奖奖品和满额赠品）
+                    items = order.get("items") or []
+                    items_subtotal = 0.0
+                    for item in items:
+                        if isinstance(item, dict) and not (item.get("is_lottery") or item.get("is_auto_gift")):
+                            try:
+                                items_subtotal += float(item.get("subtotal", 0) or 0)
+                            except Exception:
+                                pass
+                    
+                    # 获取适用的门槛配置并发放优惠券
+                    applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal)
+                    for threshold in applicable_thresholds:
+                        gift_coupon = threshold.get('gift_coupon', 0) == 1
+                        coupon_amount = threshold.get('coupon_amount', 0)
+                        applicable_times = threshold.get('applicable_times', 0)
+                        threshold_amount = threshold.get('threshold_amount', 0)
+                        
+                        if gift_coupon and coupon_amount > 0 and applicable_times > 0:
+                            for _ in range(applicable_times):
+                                coupon_ids = CouponDB.issue_coupons(
+                                    student_id=order["student_id"],
+                                    amount=coupon_amount,
+                                    quantity=1,
+                                    expires_at=None  # 永久有效
+                                )
+                                if coupon_ids:
+                                    logger.info(f"支付成功后为用户 {order['student_id']} 发放满额优惠券 {coupon_amount} 元（门槛{threshold_amount}）")
+                except Exception as e:
+                    logger.warning(f"发放满额优惠券失败: {e}")
+                
                 # 若本单使用了优惠券，支付成功后删除该券（已使用不再显示）
                 try:
                     c_id = order.get("coupon_id")

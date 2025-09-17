@@ -522,10 +522,13 @@ export default function Orders() {
                                           {it.variant_name}
                                         </span>
                                       )}
-                                      {it.is_lottery && (
+                                      {(it.is_lottery || it.is_auto_gift) && (
                                         <div className="mt-2 text-xs text-pink-600 space-y-1">
-                                          <div>奖品：{it.lottery_product_name || it.name}{it.lottery_variant_name ? `（${it.lottery_variant_name}）` : ''}</div>
-                                          <div className="text-pink-500/80">抽奖赠品</div>
+                                          <div>
+                                            奖品：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
+                                            {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                          </div>
+                                          <div className="text-pink-500/80">{it.is_lottery ? '抽奖赠品' : '满额赠品'}</div>
                                         </div>
                                       )}
                                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
@@ -679,7 +682,13 @@ export default function Orders() {
             {!spinning && (
               <>
                 <div className="text-center mb-4 space-y-2">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-medium">恭喜获得：{lotteryResult || '谢谢参与'}</span>
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                    lotteryResult === '谢谢参与' 
+                      ? 'bg-gray-100 text-gray-700' 
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {lotteryResult === '谢谢参与' ? '谢谢参与' : `恭喜获得：${lotteryResult || '谢谢参与'}`}
+                  </span>
                   {lotteryPrize ? (
                     <div className="text-xs text-gray-600 space-y-1">
                       <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>

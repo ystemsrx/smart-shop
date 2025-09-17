@@ -316,6 +316,57 @@ def init_database():
         except Exception:
             pass
 
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS auto_gift_items (
+                    id TEXT PRIMARY KEY,
+                    product_id TEXT NOT NULL,
+                    variant_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_auto_gift_product ON auto_gift_items(product_id)')
+        except Exception:
+            pass
+
+        # 满额赠品规则配置表（替代固定的20元门槛）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS gift_thresholds (
+                    id TEXT PRIMARY KEY,
+                    threshold_amount REAL NOT NULL,       -- 满额门槛（如 20.0, 40.0）
+                    gift_products INTEGER DEFAULT 0,      -- 是否赠送商品（1：是，0：否）
+                    gift_coupon INTEGER DEFAULT 0,        -- 是否赠送优惠券（1：是，0：否）
+                    coupon_amount REAL DEFAULT 0.0,       -- 优惠券金额
+                    is_active INTEGER DEFAULT 1,          -- 是否启用
+                    sort_order INTEGER DEFAULT 0,         -- 排序权重
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_amount ON gift_thresholds(threshold_amount)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_active ON gift_thresholds(is_active)')
+        except Exception:
+            pass
+
+        # 满额赠品池配置表（关联到具体门槛）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS gift_threshold_items (
+                    id TEXT PRIMARY KEY,
+                    threshold_id TEXT NOT NULL,           -- 关联到 gift_thresholds.id
+                    product_id TEXT NOT NULL,             -- 商品ID
+                    variant_id TEXT,                      -- 规格ID（可选）
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (threshold_id) REFERENCES gift_thresholds(id),
+                    FOREIGN KEY (product_id) REFERENCES products(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_items_threshold ON gift_threshold_items(threshold_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_items_product ON gift_threshold_items(product_id)')
+        except Exception:
+            pass
+
         # 兼容旧库：为抽奖记录和奖励表补充新字段
         try:
             cursor.execute('ALTER TABLE lottery_draws ADD COLUMN prize_group_id TEXT')
@@ -1981,6 +2032,7 @@ class OrderDB:
                             product_id = item.get('product_id')
                             quantity = int(item.get('quantity', 0))
                             is_lottery = item.get('is_lottery', False)
+                            is_auto_gift = item.get('is_auto_gift', False)
 
                             if is_lottery:
                                 # 新逻辑：优先使用记录的抽奖奖品实际价值；兼容旧订单按1元计
@@ -1996,6 +2048,7 @@ class OrderDB:
                                 continue
                                 
                             # 获取商品成本，如果没有设置成本则默认为0
+                            # 包括普通商品和满赠商品（is_auto_gift=True）都需要计算实际成本
                             cursor.execute('SELECT cost FROM products WHERE id = ?', (product_id,))
                             cost_row = cursor.fetchone()
                             cost = 0.0
@@ -2006,6 +2059,7 @@ class OrderDB:
                                     cost = 0.0
                             
                             # 累计商品成本：成本 × 数量
+                            # 满赠商品（is_auto_gift）和普通商品都按实际成本计算
                             total_cost += cost * quantity
                         
                         # 新算法：净利润 = 订单总额 - 商品成本总和 - 赠品数量×1（兼容旧数据）
@@ -2571,6 +2625,160 @@ class LotteryDB:
             conn.commit()
             return draw_id
 
+class AutoGiftDB:
+    @staticmethod
+    def list_items() -> List[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM auto_gift_items ORDER BY created_at ASC')
+            rows = [dict(r) for r in cursor.fetchall() or []]
+            if not rows:
+                return []
+
+            product_ids = {row['product_id'] for row in rows if row.get('product_id')}
+            variant_ids = {row['variant_id'] for row in rows if row.get('variant_id')}
+
+            product_map: Dict[str, Dict[str, Any]] = {}
+            if product_ids:
+                placeholders = ','.join('?' * len(product_ids))
+                cursor.execute(f'SELECT * FROM products WHERE id IN ({placeholders})', list(product_ids))
+                product_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+            variant_map: Dict[str, Dict[str, Any]] = {}
+            if variant_ids:
+                placeholders = ','.join('?' * len(variant_ids))
+                cursor.execute(f'SELECT * FROM product_variants WHERE id IN ({placeholders})', list(variant_ids))
+                variant_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            product_id = row.get('product_id')
+            variant_id = row.get('variant_id')
+            product = product_map.get(product_id) if product_id else None
+            variant = variant_map.get(variant_id) if variant_id else None
+
+            product_name = (product or {}).get('name') if product else None
+            variant_name = (variant or {}).get('name') if variant else None
+            try:
+                is_active = 1 if int((product or {}).get('is_active', 1) or 1) == 1 else 0
+            except Exception:
+                is_active = 1
+
+            if variant:
+                try:
+                    stock = int(variant.get('stock') or 0)
+                except Exception:
+                    stock = 0
+                linked_product_id = variant.get('product_id')
+                if linked_product_id and linked_product_id != product_id:
+                    product = product_map.get(linked_product_id, product)
+                    product_id = linked_product_id
+            else:
+                try:
+                    stock = int((product or {}).get('stock') or 0)
+                except Exception:
+                    stock = 0
+
+            try:
+                price = float((product or {}).get('price') or 0)
+            except Exception:
+                price = 0.0
+            try:
+                discount = float((product or {}).get('discount', 10.0) or 10.0)
+            except Exception:
+                discount = 10.0
+            retail_price = round(price * (discount / 10.0), 2)
+
+            available_stock = stock if (product and is_active and stock > 0) else 0
+            items.append({
+                'id': row.get('id'),
+                'product_id': product_id,
+                'variant_id': variant_id,
+                'product_name': product_name,
+                'variant_name': variant_name,
+                'stock': stock,
+                'available_stock': available_stock,
+                'retail_price': retail_price,
+                'is_active': is_active,
+                'available': available_stock > 0,
+                'img_path': (product or {}).get('img_path'),
+                'category': (product or {}).get('category')
+            })
+
+        return items
+
+    @staticmethod
+    def replace_items(items: List[Dict[str, Optional[str]]]) -> None:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM auto_gift_items')
+            for item in items:
+                product_id = item.get('product_id')
+                if not product_id:
+                    continue
+                variant_id = item.get('variant_id') or None
+                entry_id = f"agift_{uuid.uuid4().hex}"
+                cursor.execute('''
+                    INSERT INTO auto_gift_items (id, product_id, variant_id)
+                    VALUES (?, ?, ?)
+                ''', (entry_id, product_id, variant_id))
+            conn.commit()
+
+    @staticmethod
+    def get_available_items() -> List[Dict[str, Any]]:
+        return [item for item in AutoGiftDB.list_items() if item.get('available')]
+
+    @staticmethod
+    def pick_gifts(slot_count: int) -> List[Dict[str, Any]]:
+        if slot_count <= 0:
+            return []
+        candidates = AutoGiftDB.get_available_items()
+        pool: List[Dict[str, Any]] = []
+        for gift in candidates:
+            product_id = gift.get('product_id')
+            if not product_id:
+                continue
+            try:
+                stock = int(gift.get('available_stock') or gift.get('stock') or 0)
+            except Exception:
+                stock = 0
+            if stock <= 0:
+                continue
+            pool.append({
+                'config_id': gift.get('id'),
+                'product_id': product_id,
+                'variant_id': gift.get('variant_id'),
+                'product_name': gift.get('product_name') or '',
+                'variant_name': gift.get('variant_name'),
+                'stock': stock,
+                'img_path': gift.get('img_path'),
+                'category': gift.get('category') or '满额赠品',
+                'order': len(pool)
+            })
+
+        results: List[Dict[str, Any]] = []
+        for _ in range(slot_count):
+            pool = [item for item in pool if item['stock'] > 0]
+            if not pool:
+                break
+            chosen = max(pool, key=lambda x: (x['stock'], -x['order']))
+            base_name = chosen['product_name'] or '满额赠品'
+            variant_name = chosen.get('variant_name')
+            display_name = f"{base_name}（{variant_name}）" if variant_name else base_name
+            results.append({
+                'config_id': chosen.get('config_id'),
+                'product_id': chosen.get('product_id'),
+                'variant_id': chosen.get('variant_id'),
+                'product_name': base_name,
+                'variant_name': variant_name,
+                'display_name': display_name,
+                'img_path': chosen.get('img_path'),
+                'category': chosen.get('category')
+            })
+            chosen['stock'] = max(0, chosen['stock'] - 1)
+
+        return results
+
 class RewardDB:
     @staticmethod
     def add_reward_from_order(
@@ -2858,6 +3066,232 @@ class CouponDB:
                 logger.error(f"解锁优惠券失败: {e}")
                 conn.rollback()
                 return False
+
+class GiftThresholdDB:
+    """满额赠品门槛配置数据库操作类"""
+    
+    @staticmethod
+    def list_all(include_inactive: bool = False) -> List[Dict[str, Any]]:
+        """获取所有满额门槛配置，按门槛金额排序"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = '''
+                SELECT * FROM gift_thresholds 
+                WHERE is_active = 1
+                ORDER BY threshold_amount ASC, sort_order ASC
+            '''
+            if include_inactive:
+                query = '''
+                    SELECT * FROM gift_thresholds 
+                    ORDER BY threshold_amount ASC, sort_order ASC
+                '''
+            
+            cursor.execute(query)
+            rows = cursor.fetchall() or []
+            
+            thresholds = []
+            for row in rows:
+                threshold_dict = dict(row)
+                # 获取关联的商品列表
+                threshold_id = threshold_dict['id']
+                cursor.execute('''
+                    SELECT gti.*, p.name as product_name, p.img_path, p.category, p.stock, p.is_active,
+                           pv.name as variant_name, pv.stock as variant_stock
+                    FROM gift_threshold_items gti
+                    LEFT JOIN products p ON gti.product_id = p.id
+                    LEFT JOIN product_variants pv ON gti.variant_id = pv.id
+                    WHERE gti.threshold_id = ?
+                    ORDER BY gti.created_at ASC
+                ''', (threshold_id,))
+                
+                items_rows = cursor.fetchall() or []
+                items = []
+                for item_row in items_rows:
+                    item_dict = dict(item_row)
+                    # 判断库存情况
+                    if item_dict.get('variant_id'):
+                        stock = int(item_dict.get('variant_stock') or 0)
+                    else:
+                        stock = int(item_dict.get('stock') or 0)
+                    
+                    is_active = int(item_dict.get('is_active', 1) or 1) == 1
+                    item_dict['available'] = is_active and stock > 0
+                    item_dict['stock'] = stock
+                    items.append(item_dict)
+                
+                threshold_dict['items'] = items
+                thresholds.append(threshold_dict)
+            
+            return thresholds
+    
+    @staticmethod
+    def get_by_id(threshold_id: str) -> Optional[Dict[str, Any]]:
+        """根据ID获取门槛配置"""
+        thresholds = GiftThresholdDB.list_all(include_inactive=True)
+        return next((t for t in thresholds if t.get('id') == threshold_id), None)
+    
+    @staticmethod
+    def create_threshold(threshold_amount: float, gift_products: bool = False, 
+                        gift_coupon: bool = False, coupon_amount: float = 0.0) -> str:
+        """创建新的满额门槛配置"""
+        import uuid
+        threshold_id = f"threshold_{uuid.uuid4().hex}"
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO gift_thresholds 
+                (id, threshold_amount, gift_products, gift_coupon, coupon_amount, is_active, sort_order)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
+            ''', (threshold_id, threshold_amount, 1 if gift_products else 0, 1 if gift_coupon else 0, 
+                  coupon_amount, int(threshold_amount)))
+            conn.commit()
+            
+        return threshold_id
+    
+    @staticmethod
+    def update_threshold(threshold_id: str, threshold_amount: Optional[float] = None,
+                        gift_products: Optional[bool] = None, gift_coupon: Optional[bool] = None,
+                        coupon_amount: Optional[float] = None, is_active: Optional[bool] = None) -> bool:
+        """更新门槛配置"""
+        updates = []
+        params = []
+        
+        if threshold_amount is not None:
+            updates.append("threshold_amount = ?")
+            params.append(threshold_amount)
+        if gift_products is not None:
+            updates.append("gift_products = ?")
+            params.append(1 if gift_products else 0)
+        if gift_coupon is not None:
+            updates.append("gift_coupon = ?")
+            params.append(1 if gift_coupon else 0)
+        if coupon_amount is not None:
+            updates.append("coupon_amount = ?")
+            params.append(coupon_amount)
+        if is_active is not None:
+            updates.append("is_active = ?")
+            params.append(1 if is_active else 0)
+        
+        if not updates:
+            return False
+        
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(threshold_id)
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'''
+                UPDATE gift_thresholds 
+                SET {", ".join(updates)}
+                WHERE id = ?
+            ''', params)
+            conn.commit()
+            
+        return cursor.rowcount > 0
+    
+    @staticmethod
+    def delete_threshold(threshold_id: str) -> bool:
+        """删除门槛配置及其关联的商品"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 先删除关联的商品
+            cursor.execute('DELETE FROM gift_threshold_items WHERE threshold_id = ?', (threshold_id,))
+            # 再删除门槛配置
+            cursor.execute('DELETE FROM gift_thresholds WHERE id = ?', (threshold_id,))
+            conn.commit()
+            
+        return cursor.rowcount > 0
+    
+    @staticmethod
+    def add_items_to_threshold(threshold_id: str, items: List[Dict[str, Optional[str]]]) -> bool:
+        """为门槛添加商品"""
+        import uuid
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 先清空现有商品
+            cursor.execute('DELETE FROM gift_threshold_items WHERE threshold_id = ?', (threshold_id,))
+            
+            # 添加新商品
+            for item in items:
+                product_id = item.get('product_id')
+                if not product_id:
+                    continue
+                variant_id = item.get('variant_id') or None
+                item_id = f"gti_{uuid.uuid4().hex}"
+                cursor.execute('''
+                    INSERT INTO gift_threshold_items (id, threshold_id, product_id, variant_id)
+                    VALUES (?, ?, ?, ?)
+                ''', (item_id, threshold_id, product_id, variant_id))
+            
+            conn.commit()
+            
+        return True
+    
+    @staticmethod
+    def get_applicable_thresholds(amount: float) -> List[Dict[str, Any]]:
+        """根据金额获取所有适用的门槛配置（按金额升序）"""
+        thresholds = GiftThresholdDB.list_all()
+        applicable = []
+        
+        for threshold in thresholds:
+            threshold_amount = float(threshold.get('threshold_amount', 0))
+            if threshold_amount > 0 and amount >= threshold_amount:
+                # 计算可以获得多少次这个门槛的奖励
+                times = int(amount // threshold_amount)
+                threshold['applicable_times'] = times
+                applicable.append(threshold)
+        
+        return applicable
+    
+    @staticmethod
+    def pick_gifts_for_threshold(threshold_id: str, count: int) -> List[Dict[str, Any]]:
+        """为指定门槛选择赠品（只选择库存最高的一种商品）"""
+        if count <= 0:
+            return []
+            
+        threshold = GiftThresholdDB.get_by_id(threshold_id)
+        if not threshold:
+            return []
+            
+        # 获取可用商品，按库存排序
+        available_items = [item for item in threshold.get('items', []) if item.get('available')]
+        if not available_items:
+            return []
+            
+        # 按库存排序（降序），只选择库存最高的一种商品
+        available_items.sort(key=lambda x: x.get('stock', 0), reverse=True)
+        chosen = available_items[0]  # 只选择库存最高的一种
+        
+        # 检查库存是否足够
+        available_stock = chosen.get('stock', 0)
+        actual_count = min(count, available_stock)
+        
+        if actual_count <= 0:
+            return []
+        
+        # 构造返回数据
+        product_name = chosen.get('product_name') or '满额赠品'
+        variant_name = chosen.get('variant_name')
+        display_name = f"{product_name}（{variant_name}）" if variant_name else product_name
+        
+        results = []
+        for _ in range(actual_count):
+            results.append({
+                'threshold_item_id': chosen.get('id'),
+                'product_id': chosen.get('product_id'),
+                'variant_id': chosen.get('variant_id'),
+                'product_name': product_name,
+                'variant_name': variant_name,
+                'display_name': display_name,
+                'img_path': chosen.get('img_path'),
+                'category': chosen.get('category') or '满额赠品'
+            })
+        
+        return results
+
 
 if __name__ == "__main__":
     # 初始化数据库
