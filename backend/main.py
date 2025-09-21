@@ -378,8 +378,9 @@ def build_product_listing_for_staff(
     include_unassigned = bool(scope.get('is_super_admin'))
 
     if staff.get('type') != 'agent':
-        owner_ids = []
-        include_unassigned = True
+        if owner_ids is None and not include_unassigned:
+            owner_ids = []
+            include_unassigned = True
 
     if query:
         products = ProductDB.search_products(
@@ -435,6 +436,90 @@ def build_product_listing_for_staff(
         "categories": categories,
         "scope": scope
     }
+
+
+def resolve_owner_filter_for_staff(
+    staff: Dict[str, Any],
+    scope: Dict[str, Any],
+    owner_param: Optional[str]
+) -> Tuple[Optional[List[str]], bool, str]:
+    """解析商品/分类统计的归属过滤"""
+    if staff.get('type') == 'agent':
+        return scope.get('owner_ids'), bool(scope.get('is_super_admin')), 'self'
+
+    filter_value = (owner_param or '').strip() or 'self'
+    lower = filter_value.lower()
+
+    if lower == 'self':
+        return [], True, 'self'
+
+    if lower == 'all':
+        return None, True, 'all'
+
+    target = AdminDB.get_admin(filter_value, include_disabled=True)
+    if not target or (target.get('role') or '').lower() != 'agent':
+        raise HTTPException(status_code=400, detail="指定的代理不存在")
+
+    return [filter_value], False, filter_value
+
+
+def resolve_staff_order_scope(
+    staff: Dict[str, Any],
+    scope: Dict[str, Any],
+    agent_param: Optional[str]
+) -> Tuple[Optional[str], Optional[List[str]], Optional[List[str]], Optional[List[str]], Optional[List[str]], str]:
+    selected_agent_id = scope.get('agent_id')
+    selected_address_ids = scope.get('address_ids')
+    selected_building_ids = scope.get('building_ids')
+    exclude_address_ids: Optional[List[str]] = None
+    exclude_building_ids: Optional[List[str]] = None
+
+    if staff.get('type') == 'agent':
+        return (
+            staff.get('id'),
+            selected_address_ids,
+            selected_building_ids,
+            None,
+            None,
+            'self'
+        )
+
+    filter_value = (agent_param or '').strip() or 'self'
+    lower = filter_value.lower()
+
+    if lower == 'all':
+        return None, None, None, None, None, 'all'
+
+    if lower == 'self':
+        assignments = AgentAssignmentDB.list_agents_with_buildings(include_disabled=True)
+        address_set: Set[str] = set()
+        building_set: Set[str] = set()
+        for entry in assignments:
+            for record in entry.get('buildings') or []:
+                addr_id = record.get('address_id')
+                bld_id = record.get('building_id')
+                if addr_id:
+                    address_set.add(addr_id)
+                if bld_id:
+                    building_set.add(bld_id)
+        return (
+            None,
+            None,
+            None,
+            list(address_set) if address_set else None,
+            list(building_set) if building_set else None,
+            'self'
+        )
+
+    target = AdminDB.get_admin(filter_value, include_disabled=True)
+    if not target or (target.get('role') or '').lower() != 'agent':
+        raise HTTPException(status_code=400, detail="指定的代理不存在")
+
+    assignments = AgentAssignmentDB.get_buildings_for_agent(filter_value)
+    address_ids = list({record.get('address_id') for record in assignments if record.get('address_id')}) or None
+    building_ids = [record.get('building_id') for record in assignments if record.get('building_id')]
+
+    return filter_value, address_ids, building_ids, None, None, filter_value
 
 
 async def handle_product_stock_update(
@@ -1870,7 +1955,8 @@ async def admin_list_products(
     request: Request,
     q: Optional[str] = None,
     category: Optional[str] = None,
-    include_inactive: Optional[bool] = True
+    include_inactive: Optional[bool] = True,
+    owner_id: Optional[str] = None
 ):
     staff = get_current_staff_required_from_cookie(request)
 
@@ -1885,9 +1971,14 @@ async def admin_list_products(
         include_inactive_flag = bool(include_inactive)
 
     scope = build_staff_scope(staff)
+    owner_ids, include_unassigned, _ = resolve_owner_filter_for_staff(staff, scope, owner_id)
+    scope_override = dict(scope)
+    scope_override['owner_ids'] = owner_ids
+    scope_override['is_super_admin'] = include_unassigned
+
     data = build_product_listing_for_staff(
         staff,
-        scope,
+        scope_override,
         query=query,
         category=category_filter,
         include_inactive=include_inactive_flag
@@ -1915,39 +2006,45 @@ async def agent_list_products(
     return success_response("获取商品列表成功", data)
 
 @app.get("/admin/stats")
-async def get_admin_stats(request: Request):
+async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
     """获取管理统计信息"""
     # 验证管理员权限
     staff = get_current_staff_required_from_cookie(request)
 
     try:
         scope = build_staff_scope(staff)
-        owner_ids = scope["owner_ids"] if scope["owner_ids"] is not None else None
-        include_unassigned = scope["is_super_admin"]
+        owner_ids, include_unassigned, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_id)
 
         products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
         try:
             CategoryDB.cleanup_orphan_categories()
         except Exception:
             pass
-        try:
-            CategoryDB.cleanup_orphan_categories()
-        except Exception:
-            pass
-        categories = CategoryDB.get_all_categories()
+        categories = CategoryDB.get_categories_with_products(
+            owner_ids=owner_ids,
+            include_unassigned=include_unassigned
+        )
         # 注册人数
         try:
             users_count = UserDB.count_users()
         except Exception:
             users_count = 0
 
+        total_stock = 0
+        for p in products:
+            try:
+                total_stock += max(int(p.get('stock', 0) or 0), 0)
+            except Exception:
+                continue
+
         stats = {
             "total_products": len(products),
             "categories": len(categories),
-            "total_stock": sum(p['stock'] for p in products),
+            "total_stock": total_stock,
             "recent_products": products[:5],  # 最近5个商品
             "users_count": users_count,
-            "scope": scope
+            "scope": scope,
+            "owner_filter": normalized_filter
         }
 
         return success_response("获取统计信息成功", stats)
@@ -2197,18 +2294,23 @@ async def agent_update_product_image(
 # ==================== 分类管理路由 ====================
 
 @app.get("/admin/categories")
-async def get_admin_categories(request: Request):
+async def get_admin_categories(request: Request, owner_id: Optional[str] = None):
     """获取所有分类（管理员）"""
     # 验证管理员权限
     admin = get_current_admin_required_from_cookie(request)
     
     try:
-        # 返回前清理无商品的空分类，保持分类表干净
+        scope = build_staff_scope(admin)
+        owner_ids, include_unassigned, _ = resolve_owner_filter_for_staff(admin, scope, owner_id)
+
         try:
             CategoryDB.cleanup_orphan_categories()
         except Exception:
             pass
-        categories = CategoryDB.get_categories_with_products(owner_ids=[], include_unassigned=True)
+        categories = CategoryDB.get_categories_with_products(
+            owner_ids=owner_ids,
+            include_unassigned=include_unassigned
+        )
         return success_response("获取分类成功", {"categories": categories})
     
     except Exception as e:
@@ -2626,57 +2728,14 @@ async def get_all_orders(
             offset_val = 0
 
         scope = build_staff_scope(staff)
-
-        requested_agent_param = (agent_id or '').strip()
-        selected_agent_id = scope.get('agent_id')
-        selected_address_ids = scope.get('address_ids')
-        selected_building_ids = scope.get('building_ids')
-        exclude_address_ids: Optional[List[str]] = None
-        exclude_building_ids: Optional[List[str]] = None
-        selected_filter = requested_agent_param or 'self'
-
-        if staff.get('type') == 'agent':
-            selected_agent_id = staff.get('id')
-            selected_filter = 'self'
-        else:
-            if not requested_agent_param:
-                requested_agent_param = 'self'
-
-            lower_param = requested_agent_param.lower()
-            if lower_param == 'all':
-                selected_agent_id = None
-                selected_address_ids = None
-                selected_building_ids = None
-                selected_filter = 'all'
-            elif lower_param == 'self':
-                selected_agent_id = None
-                selected_address_ids = None
-                selected_building_ids = None
-                selected_filter = 'self'
-                assignments = AgentAssignmentDB.list_agents_with_buildings(include_disabled=True)
-                address_acc: Set[str] = set()
-                building_acc: Set[str] = set()
-                for entry in assignments:
-                    for record in entry.get('buildings') or []:
-                        addr_id = record.get('address_id')
-                        bld_id = record.get('building_id')
-                        if addr_id:
-                            address_acc.add(addr_id)
-                        if bld_id:
-                            building_acc.add(bld_id)
-                if address_acc:
-                    exclude_address_ids = list(address_acc)
-                if building_acc:
-                    exclude_building_ids = list(building_acc)
-            else:
-                target_agent = AdminDB.get_admin(requested_agent_param, include_disabled=True)
-                if not target_agent:
-                    raise HTTPException(status_code=400, detail="指定的代理不存在")
-                selected_agent_id = requested_agent_param
-                selected_filter = requested_agent_param
-                assignments = AgentAssignmentDB.get_buildings_for_agent(requested_agent_param)
-                selected_address_ids = list({record.get('address_id') for record in assignments if record.get('address_id')}) or None
-                selected_building_ids = [record.get('building_id') for record in assignments if record.get('building_id')]
+        (
+            selected_agent_id,
+            selected_address_ids,
+            selected_building_ids,
+            exclude_address_ids,
+            exclude_building_ids,
+            selected_filter
+        ) = resolve_staff_order_scope(staff, scope, agent_id)
 
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
@@ -3627,20 +3686,32 @@ async def update_order_status(
         return error_response("更新订单状态失败", 500)
 
 @app.get("/admin/order-stats")
-async def get_order_statistics(request: Request):
+async def get_order_statistics(request: Request, agent_id: Optional[str] = None):
     """获取订单统计信息（管理员）"""
     staff = get_current_staff_required_from_cookie(request)
 
     try:
         scope = build_staff_scope(staff)
+        (
+            selected_agent_id,
+            selected_address_ids,
+            selected_building_ids,
+            exclude_address_ids,
+            exclude_building_ids,
+            resolved_filter
+        ) = resolve_staff_order_scope(staff, scope, agent_id)
+
         stats = OrderDB.get_order_stats(
-            agent_id=scope.get('agent_id'),
-            address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            agent_id=selected_agent_id,
+            address_ids=selected_address_ids,
+            building_ids=selected_building_ids,
+            exclude_address_ids=exclude_address_ids,
+            exclude_building_ids=exclude_building_ids
         )
         stats["scope"] = scope
+        stats["selected_agent_filter"] = resolved_filter
         return success_response("获取订单统计成功", stats)
-    
+
     except Exception as e:
         logger.error(f"获取订单统计失败: {e}")
         return error_response("获取订单统计失败", 500)

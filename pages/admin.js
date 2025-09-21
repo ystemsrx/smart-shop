@@ -2965,23 +2965,33 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   }, [isInitialized, user, expectedRole, router]);
 
   // 加载统计数据和商品列表
-  const loadData = async () => {
+  const loadData = async (agentFilterValue = orderAgentFilter, shouldReloadOrders = true) => {
     if (!user || user.type !== expectedRole) {
       return;
     }
     setIsLoading(true);
     setError('');
-    
+
     try {
-      const statsPromise = apiRequest('/admin/stats');
+      const normalizedFilter = isAdmin ? (agentFilterValue || 'self').toString() : null;
+      const buildQueryString = (key, value) => {
+        const params = new URLSearchParams();
+        params.set(key, value);
+        const qs = params.toString();
+        return qs ? `?${qs}` : '';
+      };
+      const ownerQuery = isAdmin ? buildQueryString('owner_id', normalizedFilter || 'self') : '';
+      const agentQuery = isAdmin ? buildQueryString('agent_id', normalizedFilter || 'self') : '';
+
+      const statsPromise = apiRequest(`/admin/stats${ownerQuery}`);
       const usersCountPromise = isAdmin
         ? apiRequest('/admin/users/count')
         : Promise.resolve({ data: { count: 0 } });
-      const productsPromise = apiRequest(`${staffPrefix}/products`);
+      const productsPromise = apiRequest(`${staffPrefix}/products${ownerQuery}`);
       const categoriesPromise = isAdmin
-        ? apiRequest('/admin/categories')
+        ? apiRequest(`/admin/categories${ownerQuery}`)
         : Promise.resolve({ data: { categories: [] } });
-      const orderStatsPromise = apiRequest('/admin/order-stats');
+      const orderStatsPromise = apiRequest(`/admin/order-stats${agentQuery}`);
       const addressesPromise = isAdmin
         ? apiRequest('/admin/addresses')
         : Promise.resolve({ data: { addresses: [] } });
@@ -3073,7 +3083,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       setAddresses(addressesData.data.addresses || []);
       setSelectedProducts([]); // 重新加载数据时清空选择
       // 初始加载订单第一页（分页，默认每页20）
-      await loadOrders(0, orderSearch, orderAgentFilter);
+      if (shouldReloadOrders) {
+        await loadOrders(0, orderSearch, agentFilterValue);
+      }
     } catch (err) {
       setError(err.message || '加载数据失败');
     } finally {
@@ -3149,7 +3161,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     const normalized = (nextFilter || 'self').toString();
     setOrderAgentFilter(normalized);
     setOrderStatusFilter('全部');
-    await loadOrders(0, orderSearch, normalized);
+    await Promise.all([
+      loadOrders(0, orderSearch, normalized),
+      loadData(normalized, false)
+    ]);
   };
 
   // 地址操作
@@ -3774,7 +3789,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   // 初始化加载
   useEffect(() => {
     if (!user || user.type !== expectedRole) return;
-    loadData();
+    loadData('self');
     if (isAdmin) {
       loadAddresses();
       loadAgents();
