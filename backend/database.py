@@ -2415,6 +2415,8 @@ class OrderDB:
                 placeholders = ','.join('?' * len(excluded_addresses))
                 where_sql.append(f'(o.address_id IS NULL OR o.address_id NOT IN ({placeholders}))')
                 params.extend(excluded_addresses)
+            if excluded_buildings or excluded_addresses:
+                where_sql.append('(o.agent_id IS NULL OR o.agent_id = "")')
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
@@ -2602,6 +2604,8 @@ class OrderDB:
                     placeholders = ','.join('?' * len(excluded_addresses))
                     clauses.append(f'({alias}.address_id IS NULL OR {alias}.address_id NOT IN ({placeholders}))')
                     params.extend(excluded_addresses)
+                if excluded_buildings or excluded_addresses:
+                    clauses.append(f'({alias}.agent_id IS NULL OR {alias}.agent_id = "")')
                 if extra_clause:
                     clauses.append(extra_clause)
                     if extra_params:
