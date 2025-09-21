@@ -3,7 +3,7 @@ import sqlite3
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from contextlib import contextmanager
 import os
 import uuid
@@ -14,6 +14,110 @@ logger = logging.getLogger(__name__)
 
 # 数据库配置
 DB_PATH = os.path.join(os.path.dirname(__file__), "dorm_shop.db")
+
+def ensure_table_columns(conn, table_name: str, required_columns: Dict[str, str]) -> None:
+    """
+    确保表中存在所需的列，如果不存在则自动添加
+    
+    Args:
+        conn: 数据库连接
+        table_name: 表名
+        required_columns: 字典，键为列名，值为列定义（如 'TEXT DEFAULT NULL'）
+    """
+    cursor = conn.cursor()
+    
+    try:
+        # 获取表的当前列信息
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        
+        # 检查每个必需的列是否存在
+        for column_name, column_definition in required_columns.items():
+            if column_name not in existing_columns:
+                try:
+                    alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+                    cursor.execute(alter_sql)
+                    logger.info(f"自动添加列: {table_name}.{column_name}")
+                except sqlite3.OperationalError as e:
+                    logger.warning(f"无法添加列 {table_name}.{column_name}: {e}")
+                    
+        conn.commit()
+    except sqlite3.OperationalError as e:
+        logger.warning(f"检查表 {table_name} 列时出错: {e}")
+
+def auto_migrate_database(conn) -> None:
+    """
+    自动迁移数据库结构，确保所有必需的列都存在
+    """
+    # 定义所有表需要的列
+    table_migrations = {
+        'admins': {
+            'payment_qr_path': 'TEXT',
+            'is_active': 'INTEGER DEFAULT 1'
+        },
+        'products': {
+            'is_active': 'INTEGER DEFAULT 1',
+            'discount': 'REAL DEFAULT 10.0',
+            'cost': 'REAL DEFAULT 0',
+            'owner_id': 'TEXT'
+        },
+        'orders': {
+            'payment_status': 'TEXT DEFAULT "pending"',
+            
+            'address_id': 'TEXT',
+            'building_id': 'TEXT',
+            'agent_id': 'TEXT'
+        },
+        'user_profiles': {
+            'address_id': 'TEXT',
+            'building_id': 'TEXT',
+            'agent_id': 'TEXT'
+        },
+        'lottery_prizes': {
+            'owner_id': 'TEXT'
+        },
+        'auto_gift_items': {
+            'owner_id': 'TEXT'
+        },
+        'gift_thresholds': {
+            'owner_id': 'TEXT'
+        },
+        'coupons': {
+            'owner_id': 'TEXT'
+        }
+    }
+    
+    # 先确保所有列都存在
+    for table_name, columns in table_migrations.items():
+        ensure_table_columns(conn, table_name, columns)
+    
+    # 创建依赖于新列的索引
+    cursor = conn.cursor()
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_owner ON products(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_agent ON orders(agent_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_address ON orders(address_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_building ON orders(building_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_profiles_address ON user_profiles(address_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_profiles_building ON user_profiles(building_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_profiles_agent ON user_profiles(agent_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_lottery_prizes_owner ON lottery_prizes(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_auto_gift_items_owner ON auto_gift_items(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_thresholds_owner ON gift_thresholds(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_owner ON coupons(owner_id)')
+        logger.info("创建依赖新列的索引完成")
+    except sqlite3.OperationalError as e:
+        logger.warning(f"创建新索引时出错: {e}")
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE lottery_prizes SET owner_id = NULL WHERE owner_id IS NULL")
+        cursor.execute("UPDATE auto_gift_items SET owner_id = NULL WHERE owner_id IS NULL")
+        cursor.execute("UPDATE gift_thresholds SET owner_id = NULL WHERE owner_id IS NULL")
+        cursor.execute("UPDATE coupons SET owner_id = NULL WHERE owner_id IS NULL")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
 def init_database():
     """初始化数据库表结构"""
@@ -122,6 +226,9 @@ def init_database():
                 building TEXT,
                 room TEXT,
                 full_address TEXT,
+                address_id TEXT,
+                building_id TEXT,
+                agent_id TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES users (id)
             )
@@ -153,8 +260,24 @@ def init_database():
                 FOREIGN KEY (address_id) REFERENCES addresses(id)
             )
         ''')
+
+        # 代理与楼栋关联表（一个楼栋仅能绑定到一个代理）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS agent_buildings (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                address_id TEXT NOT NULL,
+                building_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES admins(id),
+                FOREIGN KEY (address_id) REFERENCES addresses(id),
+                FOREIGN KEY (building_id) REFERENCES buildings(id),
+                UNIQUE(agent_id, building_id),
+                UNIQUE(building_id)
+            )
+        ''')
         
-        # 创建索引优化查询
+        # 创建基础索引（不依赖于可能缺失的列）
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_carts_student_id ON carts(student_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_student_id ON chat_logs(student_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_timestamp ON chat_logs(timestamp)')
@@ -170,13 +293,62 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_buildings_address ON buildings(address_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_buildings_enabled ON buildings(enabled)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_buildings_sort ON buildings(sort_order)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_agent ON agent_buildings(agent_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_building ON agent_buildings(building_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_address ON agent_buildings(address_id)')
         
         # 为现有表添加新字段（如果不存在的话）
+        try:
+            cursor.execute('ALTER TABLE admins ADD COLUMN payment_qr_path TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE admins ADD COLUMN is_active INTEGER DEFAULT 1')
+        except sqlite3.OperationalError:
+            pass
+
+        # 保障超级管理员角色正确
+        try:
+            cursor.execute("UPDATE admins SET role = 'super_admin' WHERE id IN ('ADMIN_USERNAME1', 'ADMIN_USERNAME2')")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE user_profiles ADD COLUMN address_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE user_profiles ADD COLUMN building_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE user_profiles ADD COLUMN agent_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+
         try:
             cursor.execute('ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT "pending"')
         except sqlite3.OperationalError:
             pass  # 字段已存在
-            
+
+
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN address_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN building_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN agent_id TEXT')
+        except sqlite3.OperationalError:
+            pass
 
         # 为老库添加商品折扣字段（以折为单位，10表示不打折）
         try:
@@ -195,6 +367,11 @@ def init_database():
             cursor.execute('ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0.0')
         except sqlite3.OperationalError:
             pass  # 字段已存在
+
+        try:
+            cursor.execute('ALTER TABLE products ADD COLUMN owner_id TEXT')
+        except sqlite3.OperationalError:
+            pass
 
         # 订单表增加优惠相关字段（若不存在）
         try:
@@ -252,6 +429,7 @@ def init_database():
                     amount REAL NOT NULL,
                     expires_at TIMESTAMP NULL,
                     status TEXT DEFAULT 'active', -- active, revoked
+                    owner_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (student_id) REFERENCES users(id)
@@ -293,6 +471,7 @@ def init_database():
                     display_name TEXT NOT NULL,
                     weight REAL NOT NULL DEFAULT 0,
                     is_active INTEGER DEFAULT 1,
+                    owner_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -322,6 +501,7 @@ def init_database():
                     id TEXT PRIMARY KEY,
                     product_id TEXT NOT NULL,
                     variant_id TEXT,
+                    owner_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -340,6 +520,7 @@ def init_database():
                     coupon_amount REAL DEFAULT 0.0,       -- 优惠券金额
                     is_active INTEGER DEFAULT 1,          -- 是否启用
                     sort_order INTEGER DEFAULT 0,         -- 排序权重
+                    owner_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -437,6 +618,13 @@ def init_database():
         except sqlite3.OperationalError:
             pass
         
+        # 执行自动数据库迁移
+        try:
+            auto_migrate_database(conn)
+            logger.info("自动数据库迁移完成")
+        except Exception as e:
+            logger.warning(f"自动数据库迁移失败: {e}")
+        
         conn.commit()
         logger.info("数据库表结构初始化成功")
         
@@ -518,15 +706,32 @@ def init_sample_data(conn):
     ]
     
     for product in sample_products:
-        cursor.execute('''
-            INSERT OR IGNORE INTO products 
-            (id, name, category, price, stock, img_path, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            product['id'], product['name'], product['category'],
-            product['price'], product['stock'], product['img_path'],
-            product['description']
-        ))
+        try:
+            # 使用安全执行方式，支持自动迁移
+            safe_execute_with_migration(conn, '''
+                INSERT OR IGNORE INTO products 
+                (id, name, category, price, stock, img_path, description, discount, is_active, cost, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                product['id'], product['name'], product['category'],
+                product['price'], product['stock'], product['img_path'],
+                product['description'], 10.0, 1, 0.0, None
+            ), 'products')
+        except Exception as e:
+            # 如果新格式失败，尝试旧格式
+            logger.warning(f"使用新格式插入示例产品失败，尝试旧格式: {e}")
+            try:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO products 
+                    (id, name, category, price, stock, img_path, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    product['id'], product['name'], product['category'],
+                    product['price'], product['stock'], product['img_path'],
+                    product['description']
+                ))
+            except Exception as e2:
+                logger.error(f"插入示例产品失败: {e2}")
     
     # 插入默认分类
     default_categories = [
@@ -571,6 +776,39 @@ def get_db_connection():
         raise
     finally:
         conn.close()
+
+def safe_execute_with_migration(conn, sql: str, params: tuple = (), table_name: str = None):
+    """
+    安全执行SQL，如果遇到列不存在的错误，会尝试自动迁移后重新执行
+    
+    Args:
+        conn: 数据库连接
+        sql: SQL语句
+        params: SQL参数
+        table_name: 涉及的表名，用于有针对性的迁移
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql, params)
+        return cursor
+    except sqlite3.OperationalError as e:
+        error_msg = str(e).lower()
+        
+        # 检查是否是列不存在的错误
+        if 'no such column' in error_msg or 'has no column named' in error_msg:
+            logger.warning(f"检测到列不存在错误: {e}")
+            try:
+                # 执行自动迁移
+                auto_migrate_database(conn)
+                # 重新尝试执行SQL
+                cursor.execute(sql, params)
+                logger.info("自动迁移后重新执行SQL成功")
+                return cursor
+            except Exception as migration_error:
+                logger.error(f"自动迁移失败: {migration_error}")
+                raise e
+        else:
+            raise e
 
 def cleanup_old_chat_logs():
     """清理7天前的聊天记录"""
@@ -699,8 +937,8 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description, cost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description, cost, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -710,47 +948,97 @@ class ProductDB:
                 float(product_data.get('discount', 10.0)),
                 product_data.get('img_path', ''),
                 product_data.get('description', ''),
-                float(product_data.get('cost', 0.0))
+                float(product_data.get('cost', 0.0)),
+                product_data.get('owner_id')
             ))
             conn.commit()
             return product_id
-    
+
     @staticmethod
-    def get_all_products() -> List[Dict]:
-        """获取所有商品"""
+    def _build_owner_filter(owner_ids: Optional[List[str]], include_unassigned: bool) -> Tuple[str, List[Any]]:
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if owner_ids is None:
+            return '', params
+
+        normalized = [oid for oid in (owner_ids or []) if oid]
+        if normalized:
+            placeholders = ','.join('?' * len(normalized))
+            conditions.append(f"owner_id IN ({placeholders})")
+            params.extend(normalized)
+
+        if include_unassigned:
+            conditions.append('(owner_id IS NULL OR owner_id = "")')
+
+        if not conditions:
+            # 未提供owner且不允许未绑定，直接返回空过滤条件但外层需处理
+            return '1=0', []
+
+        where_clause = ' OR '.join(conditions)
+        return where_clause, params
+
+    @staticmethod
+    def get_all_products(owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+        """获取商品列表，可按归属过滤"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
-            return [dict(row) for row in cursor.fetchall()]
-    
-    @staticmethod
-    def get_products_by_category(category: str) -> List[Dict]:
-        """按类别获取商品"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                'SELECT * FROM products WHERE category = ? ORDER BY created_at DESC',
-                (category,)
-            )
-            return [dict(row) for row in cursor.fetchall()]
-    
-    @staticmethod
-    def search_products(query: str, active_only: bool = False) -> List[Dict]:
-        """搜索商品；当 active_only=True 时，仅返回上架商品"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if active_only:
-                cursor.execute('''
-                    SELECT * FROM products 
-                    WHERE (name LIKE ? OR category LIKE ? OR description LIKE ?) AND (is_active = 1)
-                    ORDER BY created_at DESC
-                ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+            where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
+            if owner_ids is None:
+                cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
             else:
-                cursor.execute('''
-                    SELECT * FROM products 
-                    WHERE name LIKE ? OR category LIKE ? OR description LIKE ?
-                    ORDER BY created_at DESC
-                ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+                if where_sql == '1=0':
+                    return []
+                cursor.execute(f'SELECT * FROM products WHERE {where_sql} ORDER BY created_at DESC', params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_products_by_category(category: str, owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+        """按类别获取商品，可按归属过滤"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
+            if owner_ids is None:
+                cursor.execute(
+                    'SELECT * FROM products WHERE category = ? ORDER BY created_at DESC',
+                    (category,)
+                )
+            else:
+                if where_sql == '1=0':
+                    return []
+                sql = f'SELECT * FROM products WHERE category = ? AND ({where_sql}) ORDER BY created_at DESC'
+                cursor.execute(sql, [category, *params])
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def search_products(query: str, active_only: bool = False, owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+        """搜索商品；当 active_only=True 时，仅返回上架商品；支持按归属过滤"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
+
+            def build_base_sql(active_filter: bool) -> Tuple[str, List[Any]]:
+                base_params = [f'%{query}%', f'%{query}%', f'%{query}%']
+                base_conditions = '(name LIKE ? OR category LIKE ? OR description LIKE ?)'
+                if where_sql and owner_ids is not None:
+                    base_conditions = f'{base_conditions} AND ({where_sql})'
+                    base_params.extend(params)
+                sql = f'SELECT * FROM products WHERE {base_conditions}'
+                if active_filter:
+                    sql += ' AND (is_active = 1)'
+                sql += ' ORDER BY created_at DESC'
+                return sql, base_params
+
+            if active_only:
+                if owner_ids is not None and where_sql == '1=0':
+                    return []
+                sql, sql_params = build_base_sql(True)
+                cursor.execute(sql, sql_params)
+            else:
+                if owner_ids is not None and where_sql == '1=0':
+                    return []
+                sql, sql_params = build_base_sql(False)
+                cursor.execute(sql, sql_params)
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
@@ -878,10 +1166,10 @@ class SettingsDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost']:
-                if field in product_data:
-                    update_fields.append(f"{field} = ?")
-                    values.append(product_data[field])
+        for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id']:
+            if field in product_data:
+                update_fields.append(f"{field} = ?")
+                values.append(product_data[field])
             
             if not update_fields:
                 return False
@@ -1159,16 +1447,28 @@ class CategoryDB:
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
-    def get_categories_with_products() -> List[Dict]:
-        """获取有商品关联的分类"""
+    def get_categories_with_products(owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+        """获取有商品关联的分类，可按商品归属过滤"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT DISTINCT c.* 
-                FROM categories c 
-                INNER JOIN products p ON c.name = p.category 
-                ORDER BY c.name
-            ''')
+            if owner_ids is None:
+                cursor.execute('''
+                    SELECT DISTINCT c.* 
+                    FROM categories c 
+                    INNER JOIN products p ON c.name = p.category 
+                    ORDER BY c.name
+                ''')
+            else:
+                where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
+                if where_sql == '1=0':
+                    return []
+                cursor.execute(f'''
+                    SELECT DISTINCT c.* 
+                    FROM categories c 
+                    INNER JOIN products p ON c.name = p.category 
+                    WHERE {where_sql}
+                    ORDER BY c.name
+                ''', params)
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
@@ -1511,22 +1811,322 @@ class BuildingDB:
 
 # 管理员相关操作
 class AdminDB:
+    SAFE_SUPER_ADMINS = {"ADMIN_USERNAME1", "ADMIN_USERNAME2"}
+
     @staticmethod
     def verify_admin(admin_id: str, password: str) -> Optional[Dict]:
-        """验证管理员凭据"""
+        """验证管理员/代理凭据"""
+        admin = AdminDB.get_admin(admin_id)
+        if not admin:
+            return None
+        if admin.get('password') != password:
+            return None
+        return admin
+
+    @staticmethod
+    def get_admin(admin_id: str, include_disabled: bool = False) -> Optional[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            try:
+                cursor = safe_execute_with_migration(conn, 'SELECT * FROM admins WHERE id = ?', (admin_id,), 'admins')
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                data = dict(row)
+                if not include_disabled:
+                    try:
+                        if int(data.get('is_active', 1) or 1) != 1:
+                            return None
+                    except Exception:
+                        pass
+                return data
+            except Exception as e:
+                logger.error(f"获取管理员信息失败: {e}")
+                return None
+
+    @staticmethod
+    def list_admins(role: Optional[str] = None, include_disabled: bool = False) -> List[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            try:
+                clauses = []
+                params: List[Any] = []
+                if role:
+                    clauses.append('role = ?')
+                    params.append(role)
+                if not include_disabled:
+                    clauses.append('(is_active IS NULL OR is_active = 1)')
+                where_sql = ('WHERE ' + ' AND '.join(clauses)) if clauses else ''
+                cursor = safe_execute_with_migration(conn, f'SELECT * FROM admins {where_sql} ORDER BY created_at DESC', tuple(params), 'admins')
+                rows = cursor.fetchall() or []
+                results = []
+                for row in rows:
+                    data = dict(row)
+                    # 再次过滤以防止旧库缺少字段
+                    if not include_disabled and int(data.get('is_active', 1) or 1) != 1:
+                        continue
+                    results.append(data)
+                return results
+            except Exception as e:
+                logger.error(f"获取管理员列表失败: {e}")
+                return []
+
+    @staticmethod
+    def create_admin(admin_id: str, password: str, name: str, role: str = 'agent', payment_qr_path: Optional[str] = None) -> bool:
+        with get_db_connection() as conn:
+            try:
+                safe_execute_with_migration(conn, '''
+                    INSERT INTO admins (id, password, name, role, payment_qr_path, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                ''', (admin_id, password, name, role, payment_qr_path), 'admins')
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    @staticmethod
+    def update_admin(admin_id: str, **fields) -> bool:
+        allowed_fields = {'password', 'name', 'role', 'payment_qr_path', 'is_active'}
+        updates = []
+        params: List[Any] = []
+        for key, value in fields.items():
+            if key in allowed_fields and value is not None:
+                updates.append(f"{key} = ?")
+                params.append(value)
+        if not updates:
+            return False
+        updates.append('updated_at = CURRENT_TIMESTAMP')
+        params.append(admin_id)
+        with get_db_connection() as conn:
+            try:
+                cursor = safe_execute_with_migration(conn, f"UPDATE admins SET {', '.join(updates)} WHERE id = ?", tuple(params), 'admins')
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception as e:
+                logger.error(f"更新管理员信息失败: {e}")
+                return False
+
+    @staticmethod
+    def soft_delete_admin(admin_id: str) -> bool:
+        if admin_id in AdminDB.SAFE_SUPER_ADMINS:
+            return False
+        return AdminDB.update_admin(admin_id, is_active=0)
+
+    @staticmethod
+    def restore_admin(admin_id: str) -> bool:
+        return AdminDB.update_admin(admin_id, is_active=1)
+
+
+class AgentAssignmentDB:
+    @staticmethod
+    def set_agent_buildings(agent_id: str, building_ids: List[str]) -> bool:
+        """重置代理所管理的楼栋列表"""
+        if not agent_id:
+            return False
+        unique_ids = []
+        for bid in building_ids or []:
+            if bid and bid not in unique_ids:
+                unique_ids.append(bid)
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                'SELECT * FROM admins WHERE id = ? AND password = ?',
-                (admin_id, password)
-            )
+            try:
+                cursor.execute('DELETE FROM agent_buildings WHERE agent_id = ?', (agent_id,))
+                for bid in unique_ids:
+                    cursor.execute('SELECT id, address_id FROM buildings WHERE id = ?', (bid,))
+                    row = cursor.fetchone()
+                    if not row:
+                        continue
+                    address_id = row['address_id']
+                    assignment_id = f"agtb_{uuid.uuid4().hex}"
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO agent_buildings (id, agent_id, address_id, building_id)
+                        VALUES (?, ?, ?, ?)
+                    ''', (assignment_id, agent_id, address_id, bid))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新代理楼栋失败: {e}")
+                conn.rollback()
+                return False
+
+    @staticmethod
+    def get_buildings_for_agent(agent_id: str) -> List[Dict[str, Any]]:
+        if not agent_id:
+            return []
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    ab.id,
+                    ab.agent_id,
+                    ab.address_id,
+                    ab.building_id,
+                    b.name AS building_name,
+                    b.enabled AS building_enabled,
+                    addr.name AS address_name,
+                    addr.enabled AS address_enabled,
+                    addr.sort_order AS address_sort,
+                    b.sort_order AS building_sort
+                FROM agent_buildings ab
+                JOIN buildings b ON b.id = ab.building_id
+                LEFT JOIN addresses addr ON addr.id = ab.address_id
+                WHERE ab.agent_id = ?
+                ORDER BY addr.sort_order ASC, b.sort_order ASC
+            ''', (agent_id,))
+            rows = cursor.fetchall() or []
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_agent_for_building(building_id: str) -> Optional[Dict[str, Any]]:
+        if not building_id:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    ab.id,
+                    ab.agent_id,
+                    ab.address_id,
+                    ab.building_id,
+                    a.name AS agent_name,
+                    a.role AS agent_role,
+                    a.payment_qr_path,
+                    a.is_active,
+                    b.name AS building_name,
+                    addr.name AS address_name
+                FROM agent_buildings ab
+                JOIN admins a ON a.id = ab.agent_id
+                JOIN buildings b ON b.id = ab.building_id
+                LEFT JOIN addresses addr ON addr.id = ab.address_id
+                WHERE ab.building_id = ?
+                LIMIT 1
+            ''', (building_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            try:
+                if int(data.get('is_active', 1) or 1) != 1:
+                    return None
+            except Exception:
+                pass
+            return data
+
+    @staticmethod
+    def get_agent_id_for_building(building_id: str) -> Optional[str]:
+        agent = AgentAssignmentDB.get_agent_for_building(building_id)
+        if not agent:
+            return None
+        return agent.get('agent_id')
+
+    @staticmethod
+    def get_agent_ids_for_address(address_id: str) -> List[str]:
+        if not address_id:
+            return []
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT DISTINCT agent_id FROM agent_buildings
+                WHERE address_id = ?
+            ''', (address_id,))
+            rows = cursor.fetchall() or []
+            return [row['agent_id'] for row in rows if row['agent_id']]
+
+    @staticmethod
+    def get_assignment_map_for_buildings(building_ids: List[str]) -> Dict[str, Optional[str]]:
+        if not building_ids:
+            return {}
+        unique_ids = [bid for bid in set(building_ids) if bid]
+        if not unique_ids:
+            return {}
+        placeholders = ','.join('?' * len(unique_ids))
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'''
+                SELECT building_id, agent_id
+                FROM agent_buildings
+                WHERE building_id IN ({placeholders})
+            ''', unique_ids)
+            rows = cursor.fetchall() or []
+            result = {bid: None for bid in unique_ids}
+            for row in rows:
+                result[row['building_id']] = row['agent_id']
+            return result
+
+    @staticmethod
+    def list_agents_with_buildings(include_disabled: bool = False) -> List[Dict[str, Any]]:
+        agents = AdminDB.list_admins(role='agent', include_disabled=include_disabled)
+        result: List[Dict[str, Any]] = []
+        for agent in agents:
+            buildings = AgentAssignmentDB.get_buildings_for_agent(agent['id'])
+            entry = dict(agent)
+            entry['buildings'] = buildings
+            result.append(entry)
+        return result
 
 # 订单相关操作
 class OrderDB:
     @staticmethod
-    def create_order(student_id: str, total_amount: float, shipping_info: dict, items: list, payment_method: str = 'wechat', note: str = '', discount_amount: float = 0.0, coupon_id: Optional[str] = None) -> str:
+    def _build_scope_filter(
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None,
+        table_alias: str = 'o'
+    ) -> Tuple[str, List[Any]]:
+        clauses: List[str] = []
+        params: List[Any] = []
+
+        normalized_addresses = [aid for aid in (address_ids or []) if aid]
+        normalized_buildings = [bid for bid in (building_ids or []) if bid]
+
+        if agent_id:
+            clauses.append(f"{table_alias}.agent_id = ?")
+            params.append(agent_id)
+
+            fallback_clauses: List[str] = []
+            if normalized_buildings:
+                placeholders = ','.join('?' * len(normalized_buildings))
+                fallback_clauses.append(
+                    f"({table_alias}.agent_id IS NULL AND {table_alias}.building_id IN ({placeholders}))"
+                )
+                params.extend(normalized_buildings)
+            if normalized_addresses:
+                placeholders = ','.join('?' * len(normalized_addresses))
+                fallback_clauses.append(
+                    f"({table_alias}.agent_id IS NULL AND {table_alias}.address_id IN ({placeholders}))"
+                )
+                params.extend(normalized_addresses)
+            if fallback_clauses:
+                clauses.extend(fallback_clauses)
+        else:
+            if normalized_buildings:
+                placeholders = ','.join('?' * len(normalized_buildings))
+                clauses.append(f"{table_alias}.building_id IN ({placeholders})")
+                params.extend(normalized_buildings)
+            if normalized_addresses:
+                placeholders = ','.join('?' * len(normalized_addresses))
+                clauses.append(f"{table_alias}.address_id IN ({placeholders})")
+                params.extend(normalized_addresses)
+
+        if not clauses:
+            return '', []
+
+        connector = ' OR ' if agent_id else ' OR '
+        return '(' + connector.join(clauses) + ')', params
+
+    @staticmethod
+    def create_order(
+        student_id: str,
+        total_amount: float,
+        shipping_info: dict,
+        items: list,
+        payment_method: str = 'wechat',
+        note: str = '',
+        discount_amount: float = 0.0,
+        coupon_id: Optional[str] = None,
+        address_id: Optional[str] = None,
+        building_id: Optional[str] = None,
+        agent_id: Optional[str] = None
+    ) -> str:
         """创建新订单（但不扣减库存，等待支付成功）"""
         order_id = f"order_{int(datetime.now().timestamp())}"
 
@@ -1534,8 +2134,8 @@ class OrderDB:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO orders 
-                (id, student_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id, address_id, building_id, agent_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 order_id,
                 student_id,
@@ -1546,7 +2146,10 @@ class OrderDB:
                 note,
                 'pending',
                 float(discount_amount or 0.0),
-                coupon_id
+                coupon_id,
+                address_id,
+                building_id,
+                agent_id
             ))
             conn.commit()
             return order_id
@@ -1757,7 +2360,14 @@ class OrderDB:
             return orders
 
     @staticmethod
-    def get_orders_paginated(order_id: Optional[str] = None, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+    def get_orders_paginated(
+        order_id: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         获取订单（管理员用），支持按订单ID模糊查询与分页。
         返回 { 'orders': [...], 'total': int }
@@ -1781,11 +2391,16 @@ class OrderDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            params: list = []
-            where_sql = []
+            params: List[Any] = []
+            where_sql: List[str] = []
             if order_id:
                 where_sql.append('o.id LIKE ?')
                 params.append(f'%{order_id}%')
+
+            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids)
+            if scope_clause:
+                where_sql.append(scope_clause)
+                params.extend(scope_params)
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
@@ -1945,32 +2560,53 @@ class OrderDB:
                 return 0
     
     @staticmethod
-    def get_order_stats() -> Dict:
+    def get_order_stats(
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None
+    ) -> Dict:
         """获取订单统计信息（管理员用）"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
+
+            def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias)
+                clauses: List[str] = []
+                params: List[Any] = []
+                if scope_clause:
+                    clauses.append(scope_clause)
+                    params.extend(scope_args)
+                if extra_clause:
+                    clauses.append(extra_clause)
+                    if extra_params:
+                        params.extend(extra_params)
+                if not clauses:
+                    return '', params
+                return ' WHERE ' + ' AND '.join(clauses), params
             
             # 总订单数
-            cursor.execute('SELECT COUNT(*) FROM orders')
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT COUNT(*) FROM orders{where_clause}', params)
             total_orders = cursor.fetchone()[0]
             
             # 各状态订单数
-            cursor.execute('''
+            where_clause, params = build_where(alias='orders')
+            cursor.execute(f'''
                 SELECT status, COUNT(*) as count 
-                FROM orders 
+                FROM orders {where_clause}
                 GROUP BY status
-            ''')
+            ''', params)
             status_counts = {row[0]: row[1] for row in cursor.fetchall()}
             
             # 今日订单数
-            cursor.execute('''
-                SELECT COUNT(*) FROM orders 
-                WHERE date(created_at) = date('now')
-            ''')
+            today_clause = "date(created_at, 'localtime') = date('now', 'localtime')"
+            where_clause, params = build_where(today_clause)
+            cursor.execute(f'''SELECT COUNT(*) FROM orders{where_clause}''', params)
             today_orders = cursor.fetchone()[0]
             
             # 总销售额
-            cursor.execute('SELECT COALESCE(SUM(total_amount), 0) FROM orders')
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT COALESCE(SUM(total_amount), 0) FROM orders{where_clause}', params)
             total_revenue = cursor.fetchone()[0]
             
             return {
@@ -1981,13 +2617,33 @@ class OrderDB:
             }
 
     @staticmethod
-    def get_dashboard_stats(period: str = 'week') -> Dict:
+    def get_dashboard_stats(
+        period: str = 'week',
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None
+    ) -> Dict:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             # 基础统计
-            basic_stats = OrderDB.get_order_stats()
+            basic_stats = OrderDB.get_order_stats(agent_id=agent_id, address_ids=address_ids, building_ids=building_ids)
+
+            def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias)
+                clauses: List[str] = []
+                params: List[Any] = []
+                if scope_clause:
+                    clauses.append(scope_clause)
+                    params.extend(scope_args)
+                if extra_clause:
+                    clauses.append(extra_clause)
+                    if extra_params:
+                        params.extend(extra_params)
+                if not clauses:
+                    return '', params
+                return ' WHERE ' + ' AND '.join(clauses), params
             
             # 按时间段统计销售额
             if period == 'day':
@@ -2007,15 +2663,16 @@ class OrderDB:
                 date_format = "近30天"
             
             # 当前时间段销售额
+            where_clause, params = build_where(time_filter)
             cursor.execute(f'''
                 SELECT {group_by} as period, 
                        COALESCE(SUM(total_amount), 0) as revenue,
                        COUNT(*) as orders
                 FROM orders 
-                WHERE {time_filter}
+                {where_clause}
                 GROUP BY {group_by}
                 ORDER BY period
-            ''')
+            ''', params)
             current_period_data = [
                 {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
                 for row in cursor.fetchall()
@@ -2023,12 +2680,19 @@ class OrderDB:
 
             # 计算净利润数据 - 使用新算法：订单总额减去成本总和
             def calculate_profit_for_period(time_filter_clause):
+                where_clause, params = build_where(
+                    f"({time_filter_clause})", alias='o'
+                )
+                extra_clause = "o.payment_status = 'succeeded'"
+                if where_clause:
+                    where_clause = where_clause + ' AND ' + extra_clause
+                else:
+                    where_clause = ' WHERE ' + extra_clause
                 cursor.execute(f'''
                     SELECT o.items, o.created_at, o.total_amount
                     FROM orders o 
-                    WHERE {time_filter_clause}
-                    AND o.payment_status = 'succeeded'
-                ''')
+                    {where_clause}
+                ''', params)
                 
                 total_profit = 0.0
                 profit_by_period = {}
@@ -2131,11 +2795,12 @@ class OrderDB:
                 data_point['profit'] = round(current_profit_by_period.get(period_key, 0), 2)
             
             # 对比时间段销售额和净利润
+            prev_where, prev_params = build_where(prev_time_filter)
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
                 FROM orders 
-                WHERE {prev_time_filter}
-            ''')
+                {prev_where}
+            ''', prev_params)
             prev_data = cursor.fetchone()
             prev_revenue = round(prev_data[0], 2) if prev_data else 0
             prev_orders = prev_data[1] if prev_data else 0
@@ -2144,11 +2809,12 @@ class OrderDB:
             prev_profit, _ = calculate_profit_for_period(prev_time_filter)
             
             # 当前时间段总计
+            current_where, current_params = build_where(time_filter)
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
                 FROM orders 
-                WHERE {time_filter}
-            ''')
+                {current_where}
+            ''', current_params)
             current_data = cursor.fetchone()
             current_revenue = round(current_data[0], 2) if current_data else 0
             current_orders = current_data[1] if current_data else 0
@@ -2165,12 +2831,16 @@ class OrderDB:
                 profit_growth = round(((current_profit - prev_profit) / prev_profit) * 100, 1)
             
             # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围
+            where_clause_orders, params_orders = build_where(f'({time_filter})', alias='o')
+            if where_clause_orders:
+                where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
+            else:
+                where_clause_orders = " WHERE o.payment_status = 'succeeded'"
             cursor.execute(f'''
                 SELECT o.items, o.created_at
                 FROM orders o 
-                WHERE {time_filter}
-                AND o.payment_status = 'succeeded'
-            ''')
+                {where_clause_orders}
+            ''', params_orders)
             
             # 统计商品销量
             product_stats = {}
@@ -2204,13 +2874,24 @@ class OrderDB:
             )[:10]
             
             # 用户增长统计
-            cursor.execute('SELECT COUNT(*) FROM users')
+            customers_where, customers_params = build_where(alias='o')
+            if customers_where:
+                cursor.execute(f'''
+                    SELECT COUNT(DISTINCT o.student_id)
+                    FROM orders o
+                    {customers_where}
+                ''', customers_params)
+            else:
+                cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
             total_users = cursor.fetchone()[0] or 0
-            
-            cursor.execute('''
-                SELECT COUNT(*) FROM users 
-                WHERE date(created_at) >= date('now', '-7 days')
-            ''')
+
+            recent_clause = "date(o.created_at, 'localtime') >= date('now', '-7 days', 'localtime')"
+            recent_where, recent_params = build_where(recent_clause, alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {recent_where}
+            ''', recent_params)
             new_users_week = cursor.fetchone()[0] or 0
             
             # 计算总净利润和今日净利润
@@ -2248,13 +2929,26 @@ class OrderDB:
             }
 
     @staticmethod  
-    def get_customers_with_purchases(limit: int = 5, offset: int = 0) -> Dict[str, Any]:
+    def get_customers_with_purchases(
+        limit: int = 5,
+        offset: int = 0,
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """获取所有至少购买过一次的用户信息，按总购买金额降序排列"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
+            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias='o')
+            where_parts = ["o.payment_status = 'succeeded'"]
+            params: List[Any] = list(scope_params)
+            if scope_clause:
+                where_parts.append(scope_clause)
+            where_sql = ' WHERE ' + ' AND '.join(where_parts)
+
             # 查询购买过商品的用户统计
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT 
                     u.id,
                     u.name,
@@ -2264,26 +2958,26 @@ class OrderDB:
                     MIN(o.created_at) as first_order_date
                 FROM users u
                 INNER JOIN orders o ON u.id = o.student_id
-                WHERE o.payment_status = 'succeeded'
+                {where_sql}
                 GROUP BY u.id, u.name
                 ORDER BY total_spent DESC
                 LIMIT ? OFFSET ?
-            ''', (limit, offset))
-            
+            ''', [*params, limit, offset])
+
             customers = []
             for row in cursor.fetchall():
                 customer = dict(row)
                 # 计算平均订单金额
                 customer['avg_order_amount'] = round(customer['total_spent'] / customer['order_count'], 2) if customer['order_count'] > 0 else 0
                 customers.append(customer)
-            
+
             # 统计总数
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT COUNT(DISTINCT u.id)
                 FROM users u
                 INNER JOIN orders o ON u.id = o.student_id
-                WHERE o.payment_status = 'succeeded'
-            ''')
+                {where_sql}
+            ''', params)
             total = cursor.fetchone()[0] or 0
             
             return {
@@ -2312,6 +3006,9 @@ class UserProfileDB:
         building = shipping.get('building')
         room = shipping.get('room')
         full_address = shipping.get('full_address')
+        address_id = shipping.get('address_id')
+        building_id = shipping.get('building_id')
+        agent_id = shipping.get('agent_id')
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT student_id FROM user_profiles WHERE student_id = ?', (student_id,))
@@ -2319,29 +3016,39 @@ class UserProfileDB:
             if exists:
                 cursor.execute('''
                     UPDATE user_profiles
-                    SET name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, updated_at = CURRENT_TIMESTAMP
+                    SET name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE student_id = ?
-                ''', (name, phone, dormitory, building, room, full_address, student_id))
+                ''', (name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, student_id))
             else:
                 cursor.execute('''
-                    INSERT INTO user_profiles (student_id, name, phone, dormitory, building, room, full_address)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (student_id, name, phone, dormitory, building, room, full_address))
+                    INSERT INTO user_profiles (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id))
             conn.commit()
             return True
 
 # 抽奖与奖品相关操作
 class LotteryDB:
     @staticmethod
-    def list_prizes(include_inactive: bool = False) -> List[Dict[str, Any]]:
+    def list_prizes(owner_id: Optional[str] = None, include_inactive: bool = False) -> List[Dict[str, Any]]:
         """列出抽奖奖项及其关联商品。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            base_sql = 'SELECT * FROM lottery_prizes'
+            where_clauses: List[str] = []
             params: List[Any] = []
             if not include_inactive:
-                base_sql += ' WHERE is_active = 1'
+                where_clauses.append('is_active = 1')
+
+            if owner_id is None:
+                where_clauses.append('owner_id IS NULL')
+            else:
+                where_clauses.append('owner_id = ?')
+                params.append(owner_id)
+
+            base_sql = 'SELECT * FROM lottery_prizes'
+            if where_clauses:
+                base_sql += ' WHERE ' + ' AND '.join(where_clauses)
             base_sql += ' ORDER BY created_at ASC'
             cursor.execute(base_sql, params)
             prize_rows = [dict(r) for r in (cursor.fetchall() or [])]
@@ -2484,8 +3191,8 @@ class LotteryDB:
             return prizes
 
     @staticmethod
-    def get_active_prizes_for_draw() -> List[Dict[str, Any]]:
-        prizes = LotteryDB.list_prizes(include_inactive=False)
+    def get_active_prizes_for_draw(owner_id: Optional[str]) -> List[Dict[str, Any]]:
+        prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=False)
         active: List[Dict[str, Any]] = []
         for prize in prizes:
             if prize.get('weight', 0) <= 0:
@@ -2509,7 +3216,8 @@ class LotteryDB:
         display_name: str,
         weight: float,
         is_active: bool,
-        items: List[Dict[str, Any]]
+        items: List[Dict[str, Any]],
+        owner_id: Optional[str]
     ) -> str:
         if not display_name:
             raise ValueError('抽奖奖项名称不能为空')
@@ -2534,19 +3242,33 @@ class LotteryDB:
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT 1 FROM lottery_prizes WHERE id = ?', (prize_id,))
-            exists = cursor.fetchone() is not None
-            if exists:
-                cursor.execute('''
-                    UPDATE lottery_prizes
-                    SET display_name = ?, weight = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                ''', (display_name, weight_value, active_flag, prize_id))
+            cursor.execute('SELECT owner_id FROM lottery_prizes WHERE id = ?', (prize_id,))
+            existing = cursor.fetchone()
+            if existing:
+                existing_owner = existing['owner_id'] if isinstance(existing, sqlite3.Row) else existing[0]
+                if (owner_id is None and existing_owner is not None) or (owner_id is not None and existing_owner != owner_id):
+                    raise ValueError('无权编辑该抽奖奖项')
+
+                owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+                params = [display_name, weight_value, active_flag, prize_id]
+                if owner_id is not None:
+                    params.append(owner_id)
+
+                cursor.execute(
+                    f'''
+                        UPDATE lottery_prizes
+                        SET display_name = ?, weight = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND {owner_condition}
+                    ''',
+                    params
+                )
+                if cursor.rowcount == 0:
+                    raise ValueError('无权编辑该抽奖奖项')
             else:
                 cursor.execute('''
-                    INSERT INTO lottery_prizes (id, display_name, weight, is_active)
-                    VALUES (?, ?, ?, ?)
-                ''', (prize_id, display_name, weight_value, active_flag))
+                    INSERT INTO lottery_prizes (id, display_name, weight, is_active, owner_id)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (prize_id, display_name, weight_value, active_flag, owner_id))
 
             cursor.execute('DELETE FROM lottery_prize_items WHERE prize_id = ?', (prize_id,))
             for item in normalized_items:
@@ -2558,29 +3280,60 @@ class LotteryDB:
             return prize_id
 
     @staticmethod
-    def delete_prize(prize_id: str) -> bool:
+    def delete_prize(prize_id: str, owner_id: Optional[str]) -> bool:
         if not prize_id:
             return False
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM lottery_prize_items WHERE prize_id = ?', (prize_id,))
-            cursor.execute('DELETE FROM lottery_prizes WHERE id = ?', (prize_id,))
+            owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+            owner_param: Tuple[Any, ...] = tuple() if owner_id is None else (owner_id,)
+            cursor.execute(
+                f'''DELETE FROM lottery_prize_items 
+                    WHERE prize_id IN (
+                        SELECT id FROM lottery_prizes WHERE id = ? AND {owner_condition}
+                    )''',
+                (prize_id, *owner_param)
+            )
+            cursor.execute(
+                f'DELETE FROM lottery_prizes WHERE id = ? AND {owner_condition}',
+                (prize_id, *owner_param)
+            )
             deleted = cursor.rowcount or 0
             conn.commit()
             return deleted > 0
 
     @staticmethod
-    def delete_prizes_not_in(valid_ids: List[str]) -> int:
+    def delete_prizes_not_in(valid_ids: List[str], owner_id: Optional[str]) -> int:
         ids = list({pid for pid in valid_ids if pid})
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+            owner_param: Tuple[Any, ...] = tuple() if owner_id is None else (owner_id,)
             if ids:
                 placeholders = ','.join('?' * len(ids))
-                cursor.execute(f'DELETE FROM lottery_prize_items WHERE prize_id NOT IN ({placeholders})', ids)
-                cursor.execute(f'DELETE FROM lottery_prizes WHERE id NOT IN ({placeholders})', ids)
+                cursor.execute(
+                    f'''DELETE FROM lottery_prize_items 
+                        WHERE prize_id IN (
+                            SELECT id FROM lottery_prizes WHERE id NOT IN ({placeholders}) AND {owner_condition}
+                        )''',
+                    (*ids, *owner_param)
+                )
+                cursor.execute(
+                    f'DELETE FROM lottery_prizes WHERE id NOT IN ({placeholders}) AND {owner_condition}',
+                    (*ids, *owner_param)
+                )
             else:
-                cursor.execute('DELETE FROM lottery_prize_items')
-                cursor.execute('DELETE FROM lottery_prizes')
+                cursor.execute(
+                    f'''DELETE FROM lottery_prize_items 
+                        WHERE prize_id IN (
+                            SELECT id FROM lottery_prizes WHERE {owner_condition}
+                        )''',
+                    owner_param
+                )
+                cursor.execute(
+                    f'DELETE FROM lottery_prizes WHERE {owner_condition}',
+                    owner_param
+                )
             affected = cursor.rowcount or 0
             conn.commit()
             return affected
@@ -2643,10 +3396,16 @@ class LotteryDB:
 
 class AutoGiftDB:
     @staticmethod
-    def list_items() -> List[Dict[str, Any]]:
+    def list_items(owner_id: Optional[str]) -> List[Dict[str, Any]]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM auto_gift_items ORDER BY created_at ASC')
+            if owner_id is None:
+                cursor.execute('SELECT * FROM auto_gift_items WHERE owner_id IS NULL ORDER BY created_at ASC')
+            else:
+                cursor.execute(
+                    'SELECT * FROM auto_gift_items WHERE owner_id = ? ORDER BY created_at ASC',
+                    (owner_id,)
+                )
             rows = [dict(r) for r in cursor.fetchall() or []]
             if not rows:
                 return []
@@ -2724,10 +3483,13 @@ class AutoGiftDB:
         return items
 
     @staticmethod
-    def replace_items(items: List[Dict[str, Optional[str]]]) -> None:
+    def replace_items(owner_id: Optional[str], items: List[Dict[str, Optional[str]]]) -> None:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM auto_gift_items')
+            if owner_id is None:
+                cursor.execute('DELETE FROM auto_gift_items WHERE owner_id IS NULL')
+            else:
+                cursor.execute('DELETE FROM auto_gift_items WHERE owner_id = ?', (owner_id,))
             for item in items:
                 product_id = item.get('product_id')
                 if not product_id:
@@ -2735,20 +3497,20 @@ class AutoGiftDB:
                 variant_id = item.get('variant_id') or None
                 entry_id = f"agift_{uuid.uuid4().hex}"
                 cursor.execute('''
-                    INSERT INTO auto_gift_items (id, product_id, variant_id)
-                    VALUES (?, ?, ?)
-                ''', (entry_id, product_id, variant_id))
+                    INSERT INTO auto_gift_items (id, product_id, variant_id, owner_id)
+                    VALUES (?, ?, ?, ?)
+                ''', (entry_id, product_id, variant_id, owner_id))
             conn.commit()
 
     @staticmethod
-    def get_available_items() -> List[Dict[str, Any]]:
-        return [item for item in AutoGiftDB.list_items() if item.get('available')]
+    def get_available_items(owner_id: Optional[str]) -> List[Dict[str, Any]]:
+        return [item for item in AutoGiftDB.list_items(owner_id) if item.get('available')]
 
     @staticmethod
-    def pick_gifts(slot_count: int) -> List[Dict[str, Any]]:
+    def pick_gifts(owner_id: Optional[str], slot_count: int) -> List[Dict[str, Any]]:
         if slot_count <= 0:
             return []
-        candidates = AutoGiftDB.get_available_items()
+        candidates = AutoGiftDB.get_available_items(owner_id)
         pool: List[Dict[str, Any]] = []
         for gift in candidates:
             product_id = gift.get('product_id')
@@ -2903,7 +3665,13 @@ class RewardDB:
 # 优惠券相关操作
 class CouponDB:
     @staticmethod
-    def issue_coupons(student_id: str, amount: float, quantity: int = 1, expires_at: Optional[str] = None) -> List[str]:
+    def issue_coupons(
+        student_id: str,
+        amount: float,
+        quantity: int = 1,
+        expires_at: Optional[str] = None,
+        owner_id: Optional[str] = None
+    ) -> List[str]:
         """发放优惠券（返回生成的优惠券ID列表）。学号必须存在于 users 表。"""
         if quantity <= 0:
             return []
@@ -2918,9 +3686,9 @@ class CouponDB:
                 cid = f"cpn_{int(datetime.now().timestamp()*1000)}_{i}"
                 try:
                     cursor.execute('''
-                        INSERT INTO coupons (id, student_id, amount, expires_at, status)
-                        VALUES (?, ?, ?, ?, 'active')
-                    ''', (cid, student_id, float(amount), expires_at))
+                        INSERT INTO coupons (id, student_id, amount, expires_at, status, owner_id)
+                        VALUES (?, ?, ?, ?, 'active', ?)
+                    ''', (cid, student_id, float(amount), expires_at, owner_id))
                     ids.append(cid)
                 except Exception:
                     # 跳过单条失败，继续
@@ -2929,14 +3697,26 @@ class CouponDB:
         return ids
 
     @staticmethod
-    def list_all(student_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_all(student_id: Optional[str] = None, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """列出所有优惠券（管理员查看），包含 active/revoked；不包含已使用（因为已删除）。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            clauses = []
+            params: List[Any] = []
             if student_id:
-                cursor.execute('SELECT * FROM coupons WHERE student_id = ? ORDER BY created_at DESC', (student_id,))
+                clauses.append('student_id = ?')
+                params.append(student_id)
+            if owner_id is None:
+                clauses.append('owner_id IS NULL')
             else:
-                cursor.execute('SELECT * FROM coupons ORDER BY created_at DESC')
+                clauses.append('owner_id = ?')
+                params.append(owner_id)
+
+            query = 'SELECT * FROM coupons'
+            if clauses:
+                query += ' WHERE ' + ' AND '.join(clauses)
+            query += ' ORDER BY created_at DESC'
+            cursor.execute(query, params)
             rows = cursor.fetchall() or []
             items = [dict(r) for r in rows]
             # 计算是否过期
@@ -2962,11 +3742,28 @@ class CouponDB:
             return items
 
     @staticmethod
-    def get_active_for_student(student_id: str) -> List[Dict[str, Any]]:
+    def get_active_for_student(
+        student_id: str,
+        owner_id: Optional[str] = None,
+        restrict_owner: bool = False
+    ) -> List[Dict[str, Any]]:
         """获取用户当前可用的优惠券（active 且未过期）。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM coupons WHERE student_id = ? AND status = \"active\" AND (locked_order_id IS NULL OR TRIM(locked_order_id) = \"\") ORDER BY created_at DESC', (student_id,))
+            clauses = [
+                'student_id = ?',
+                "status = 'active'",
+                '(locked_order_id IS NULL OR TRIM(locked_order_id) = "")'
+            ]
+            params: List[Any] = [student_id]
+            if restrict_owner:
+                if owner_id is None:
+                    clauses.append('owner_id IS NULL')
+                else:
+                    clauses.append('owner_id = ?')
+                    params.append(owner_id)
+            query = 'SELECT * FROM coupons WHERE ' + ' AND '.join(clauses) + ' ORDER BY created_at DESC'
+            cursor.execute(query, params)
             items = [dict(r) for r in cursor.fetchall()]
             # 过滤过期
             now = datetime.now()
@@ -2998,10 +3795,17 @@ class CouponDB:
             return dict(row) if row else None
 
     @staticmethod
-    def revoke(coupon_id: str) -> bool:
+    def revoke(coupon_id: str, owner_id: Optional[str]) -> bool:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('UPDATE coupons SET status = \"revoked\", updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = \"active\"', (coupon_id,))
+            owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+            params: List[Any] = [coupon_id]
+            if owner_id is not None:
+                params.append(owner_id)
+            cursor.execute(
+                f'UPDATE coupons SET status = "revoked", updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = "active" AND {owner_condition}',
+                params
+            )
             ok = cursor.rowcount > 0
             conn.commit()
             return ok
@@ -3017,13 +3821,20 @@ class CouponDB:
             return ok
 
     @staticmethod
-    def check_valid_for_student(coupon_id: str, student_id: str) -> Optional[Dict[str, Any]]:
+    def check_valid_for_student(coupon_id: str, student_id: str, owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """校验优惠券是否可用（归属、状态、未过期）。返回券信息或None。"""
         c = CouponDB.get_by_id(coupon_id)
         if not c:
             return None
         if c.get('student_id') != student_id:
             return None
+        existing_owner = c.get('owner_id')
+        if owner_id is None:
+            if existing_owner not in (None, '', 'null'):
+                return None
+        else:
+            if existing_owner != owner_id:
+                return None
         if (c.get('status') or 'active') != 'active':
             return None
         # 被其他订单锁定则不可用
@@ -3087,23 +3898,26 @@ class GiftThresholdDB:
     """满额赠品门槛配置数据库操作类"""
     
     @staticmethod
-    def list_all(include_inactive: bool = False) -> List[Dict[str, Any]]:
+    def list_all(owner_id: Optional[str], include_inactive: bool = False) -> List[Dict[str, Any]]:
         """获取所有满额门槛配置，按门槛金额排序"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
-            query = '''
-                SELECT * FROM gift_thresholds 
-                WHERE is_active = 1
-                ORDER BY threshold_amount ASC, sort_order ASC
-            '''
-            if include_inactive:
-                query = '''
-                    SELECT * FROM gift_thresholds 
-                    ORDER BY threshold_amount ASC, sort_order ASC
-                '''
-            
-            cursor.execute(query)
+            where_clauses: List[str] = []
+            params: List[Any] = []
+            if not include_inactive:
+                where_clauses.append('is_active = 1')
+            if owner_id is None:
+                where_clauses.append('owner_id IS NULL')
+            else:
+                where_clauses.append('owner_id = ?')
+                params.append(owner_id)
+
+            query = 'SELECT * FROM gift_thresholds'
+            if where_clauses:
+                query += ' WHERE ' + ' AND '.join(where_clauses)
+            query += ' ORDER BY threshold_amount ASC, sort_order ASC'
+
+            cursor.execute(query, params)
             rows = cursor.fetchall() or []
             
             thresholds = []
@@ -3142,14 +3956,19 @@ class GiftThresholdDB:
             return thresholds
     
     @staticmethod
-    def get_by_id(threshold_id: str) -> Optional[Dict[str, Any]]:
+    def get_by_id(threshold_id: str, owner_id: Optional[str]) -> Optional[Dict[str, Any]]:
         """根据ID获取门槛配置"""
-        thresholds = GiftThresholdDB.list_all(include_inactive=True)
+        thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return next((t for t in thresholds if t.get('id') == threshold_id), None)
     
     @staticmethod
-    def create_threshold(threshold_amount: float, gift_products: bool = False, 
-                        gift_coupon: bool = False, coupon_amount: float = 0.0) -> str:
+    def create_threshold(
+        owner_id: Optional[str],
+        threshold_amount: float,
+        gift_products: bool = False,
+        gift_coupon: bool = False,
+        coupon_amount: float = 0.0
+    ) -> str:
         """创建新的满额门槛配置"""
         import uuid
         threshold_id = f"threshold_{uuid.uuid4().hex}"
@@ -3158,18 +3977,31 @@ class GiftThresholdDB:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO gift_thresholds 
-                (id, threshold_amount, gift_products, gift_coupon, coupon_amount, is_active, sort_order)
-                VALUES (?, ?, ?, ?, ?, 1, ?)
-            ''', (threshold_id, threshold_amount, 1 if gift_products else 0, 1 if gift_coupon else 0, 
-                  coupon_amount, int(threshold_amount)))
+                (id, threshold_amount, gift_products, gift_coupon, coupon_amount, is_active, sort_order, owner_id)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            ''', (
+                threshold_id,
+                threshold_amount,
+                1 if gift_products else 0,
+                1 if gift_coupon else 0,
+                coupon_amount,
+                int(threshold_amount),
+                owner_id
+            ))
             conn.commit()
             
         return threshold_id
     
     @staticmethod
-    def update_threshold(threshold_id: str, threshold_amount: Optional[float] = None,
-                        gift_products: Optional[bool] = None, gift_coupon: Optional[bool] = None,
-                        coupon_amount: Optional[float] = None, is_active: Optional[bool] = None) -> bool:
+    def update_threshold(
+        threshold_id: str,
+        owner_id: Optional[str],
+        threshold_amount: Optional[float] = None,
+        gift_products: Optional[bool] = None,
+        gift_coupon: Optional[bool] = None,
+        coupon_amount: Optional[float] = None,
+        is_active: Optional[bool] = None
+    ) -> bool:
         """更新门槛配置"""
         updates = []
         params = []
@@ -3198,38 +4030,63 @@ class GiftThresholdDB:
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(f'''
+            owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+            sql = f'''
                 UPDATE gift_thresholds 
                 SET {", ".join(updates)}
-                WHERE id = ?
-            ''', params)
+                WHERE id = ? AND {owner_condition}
+            '''
+            if owner_id is None:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql, [*params, owner_id])
             conn.commit()
-            
+
         return cursor.rowcount > 0
     
     @staticmethod
-    def delete_threshold(threshold_id: str) -> bool:
+    def delete_threshold(threshold_id: str, owner_id: Optional[str]) -> bool:
         """删除门槛配置及其关联的商品"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # 先删除关联的商品
-            cursor.execute('DELETE FROM gift_threshold_items WHERE threshold_id = ?', (threshold_id,))
-            # 再删除门槛配置
-            cursor.execute('DELETE FROM gift_thresholds WHERE id = ?', (threshold_id,))
+            owner_condition = 'owner_id IS NULL' if owner_id is None else 'owner_id = ?'
+            owner_param: Tuple[Any, ...] = tuple() if owner_id is None else (owner_id,)
+            cursor.execute(
+                f'''DELETE FROM gift_threshold_items 
+                    WHERE threshold_id IN (
+                        SELECT id FROM gift_thresholds WHERE id = ? AND {owner_condition}
+                    )''',
+                (threshold_id, *owner_param)
+            )
+            cursor.execute(
+                f'DELETE FROM gift_thresholds WHERE id = ? AND {owner_condition}',
+                (threshold_id, *owner_param)
+            )
             conn.commit()
-            
+
         return cursor.rowcount > 0
     
     @staticmethod
-    def add_items_to_threshold(threshold_id: str, items: List[Dict[str, Optional[str]]]) -> bool:
+    def add_items_to_threshold(
+        threshold_id: str,
+        owner_id: Optional[str],
+        items: List[Dict[str, Optional[str]]]
+    ) -> bool:
         """为门槛添加商品"""
         import uuid
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute('SELECT owner_id FROM gift_thresholds WHERE id = ?', (threshold_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+            existing_owner = row['owner_id'] if isinstance(row, sqlite3.Row) else row[0]
+            if (owner_id is None and existing_owner is not None) or (owner_id is not None and existing_owner != owner_id):
+                return False
             # 先清空现有商品
             cursor.execute('DELETE FROM gift_threshold_items WHERE threshold_id = ?', (threshold_id,))
-            
+
             # 添加新商品
             for item in items:
                 product_id = item.get('product_id')
@@ -3247,9 +4104,9 @@ class GiftThresholdDB:
         return True
     
     @staticmethod
-    def get_applicable_thresholds(amount: float) -> List[Dict[str, Any]]:
+    def get_applicable_thresholds(amount: float, owner_id: Optional[str]) -> List[Dict[str, Any]]:
         """根据金额获取所有适用的门槛配置（按金额升序）"""
-        thresholds = GiftThresholdDB.list_all()
+        thresholds = GiftThresholdDB.list_all(owner_id=owner_id)
         applicable = []
         
         for threshold in thresholds:
@@ -3263,12 +4120,16 @@ class GiftThresholdDB:
         return applicable
     
     @staticmethod
-    def pick_gifts_for_threshold(threshold_id: str, count: int) -> List[Dict[str, Any]]:
+    def pick_gifts_for_threshold(
+        threshold_id: str,
+        owner_id: Optional[str],
+        count: int
+    ) -> List[Dict[str, Any]]:
         """为指定门槛选择赠品（只选择库存最高的一种商品）"""
         if count <= 0:
             return []
             
-        threshold = GiftThresholdDB.get_by_id(threshold_id)
+        threshold = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not threshold:
             return []
             

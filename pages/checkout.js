@@ -3,6 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
@@ -26,10 +27,7 @@ export default function Checkout() {
     room: '',
     note: ''
   });
-  const [addressOptions, setAddressOptions] = useState([]);
-  const [addrLoading, setAddrLoading] = useState(false);
-  const [buildingOptions, setBuildingOptions] = useState([]);
-  const [bldLoading, setBldLoading] = useState(false);
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading } = useLocation();
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -47,17 +45,30 @@ export default function Checkout() {
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
+
+  const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '未选择地址';
   
   // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
   const handlePayLater = async () => {
+    if (!locationReady) {
+      alert('请先选择配送地址');
+      openLocationModal();
+      return;
+    }
     try {
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
-        dormitory: formData.dormitory,
-        building: formData.building,
+        dormitory: location?.dormitory || formData.dormitory,
+        building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
+        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || '',
+        building_id: location?.building_id || '',
+        agent_id: location?.agent_id || ''
       };
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
@@ -97,7 +108,18 @@ export default function Checkout() {
   const loadCart = async () => {
     setIsLoading(true);
     setError('');
-    
+
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setIsLoading(false);
+      setCart({ items: [], total_quantity: 0, total_price: 0 });
+      setEligibleRewards([]);
+      setAutoGifts([]);
+      setCoupons([]);
+      setSelectedCouponId(null);
+      setApplyCoupon(false);
+      return;
+    }
+
     try {
       const data = await getCart();
       setCart(data.data);
@@ -123,15 +145,12 @@ export default function Checkout() {
         const fromQuery = (router?.query?.coupon_id || '').toString();
         const applyParam = (router?.query?.apply || router?.query?.apply_coupon || '').toString().toLowerCase();
         if (applyParam === '0' || applyParam === 'false') {
-          // 用户在购物车未勾选使用券：保持不勾选
           setSelectedCouponId(null);
           setApplyCoupon(false);
         } else if (fromQuery && list.some(x => x.id === fromQuery) && sub > (parseFloat(list.find(x => x.id === fromQuery).amount) || 0)) {
-          // 明确指定了券并选择使用
           setSelectedCouponId(fromQuery);
           setApplyCoupon(true);
         } else {
-          // 未指定，则默认选择最高可用（保留原有体验）
           const applicable = list.filter(x => sub > (parseFloat(x.amount) || 0));
           if (applicable.length > 0) {
             applicable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
@@ -189,56 +208,12 @@ export default function Checkout() {
     if (!isCreatingPayment && shopOpen) handleCreatePayment();
   };
 
-  // 加载可选地址（宿舍区）
-  const loadAddresses = async () => {
-    setAddrLoading(true);
-    try {
-      const res = await apiRequest('/addresses');
-      const addrs = res?.data?.addresses || [];
-      setAddressOptions(addrs);
-      // 如果当前未选择，默认选第一个
-      if (!formData.dormitory && addrs.length > 0) {
-        setFormData(prev => ({ ...prev, dormitory: addrs[0].name }));
-      }
-    } catch (e) {
-      // 回退一个默认值：桃园
-      const fallback = [{ id: 'addr_default_taoyuan', name: '桃园' }];
-      setAddressOptions(fallback);
-      if (!formData.dormitory) {
-        setFormData(prev => ({ ...prev, dormitory: '桃园' }));
-      }
-    } finally {
-      setAddrLoading(false);
-    }
-  };
-
-  // 根据选中的园区加载楼栋
-  const loadBuildings = async (addrName, addrId) => {
-    setBldLoading(true);
-    try {
-      const query = addrId ? `?address_id=${encodeURIComponent(addrId)}` : (addrName ? `?address_name=${encodeURIComponent(addrName)}` : '');
-      const res = await apiRequest(`/buildings${query}`);
-      const blds = res?.data?.buildings || [];
-      setBuildingOptions(blds);
-      if (!formData.building && blds.length > 0) {
-        setFormData(prev => ({ ...prev, building: blds[0].name }));
-      }
-    } catch (e) {
-      const fallback = [{ id: 'bld_default_6she', name: '六舍' }];
-      setBuildingOptions(fallback);
-      if (!formData.building) {
-        setFormData(prev => ({ ...prev, building: '六舍' }));
-      }
-    } finally {
-      setBldLoading(false);
-    }
-  };
-
   // 打开支付弹窗（不创建订单，直到点击按钮）
   const handleCreatePayment = async () => {
     // 验证必填字段
-    if (!formData.name || !formData.phone || !formData.dormitory || !formData.building || !formData.room) {
-      alert('请填写完整的收货信息');
+    if (!formData.name || !formData.phone || !location || !location.address_id || !location.building_id || !formData.room) {
+      alert('请填写完整的收货信息并选择配送地址');
+      openLocationModal();
       return;
     }
     
@@ -260,14 +235,22 @@ export default function Checkout() {
 
   // 用户点击“已付款”：创建订单并标记为待验证，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
+    if (!locationReady) {
+      alert('请先选择配送地址');
+      openLocationModal();
+      return;
+    }
     try {
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
-        dormitory: formData.dormitory,
-        building: formData.building,
+        dormitory: location?.dormitory || formData.dormitory,
+        building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
+        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || '',
+        building_id: location?.building_id || '',
+        agent_id: location?.agent_id || ''
       };
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
@@ -331,37 +314,35 @@ export default function Checkout() {
 
   // 初始化加载
   useEffect(() => {
-    if (user) {
-      loadCart();
-      loadAddresses();
-      // 读取最近一次成功付款的收货信息
-      (async () => {
-        try {
-          const res = await apiRequest('/profile/shipping');
-          const ship = res?.data?.shipping;
-          if (ship) {
-            setFormData(prev => ({
-              ...prev,
-              name: ship.name || prev.name,
-              phone: ship.phone || prev.phone,
-              dormitory: ship.dormitory || prev.dormitory,
-              building: ship.building || prev.building,
-              room: ship.room || prev.room,
-            }));
-          }
-        } catch (e) {
-          // 忽略
+    if (!user) return;
+    loadCart();
+    (async () => {
+      try {
+        const res = await apiRequest('/profile/shipping');
+        const ship = res?.data?.shipping;
+        if (ship) {
+          setFormData(prev => ({
+            ...prev,
+            name: ship.name || prev.name,
+            phone: ship.phone || prev.phone,
+            room: ship.room || prev.room,
+          }));
         }
-      })();
-    }
-  }, [user]);
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, [user, locationRevision]);
 
-  // 当园区变化时，刷新楼栋
   useEffect(() => {
-    if (!formData.dormitory) return;
-    const addr = addressOptions.find(a => a.name === formData.dormitory);
-    loadBuildings(formData.dormitory, addr?.id);
-  }, [formData.dormitory, addressOptions]);
+    if (location) {
+      setFormData(prev => ({
+        ...prev,
+        dormitory: location.dormitory || '',
+        building: location.building || '',
+      }));
+    }
+  }, [location]);
 
   // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
   useEffect(() => {
@@ -505,43 +486,23 @@ export default function Checkout() {
                     
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div>
-                        <label htmlFor="dormitory" className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-building mr-2"></i>宿舍区 *
                         </label>
-                        <select
-                          id="dormitory"
-                          name="dormitory"
-                          required
-                          value={formData.dormitory}
-                          onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900"
-                        >
-                          <option value="" className="text-gray-900">{addrLoading ? '加载中...' : '请选择'}</option>
-                          {addressOptions.map(a => (
-                            <option key={a.id || a.name} value={a.name} className="text-gray-900">{a.name}</option>
-                          ))}
-                        </select>
+                        <div className="input-glass w-full text-gray-900">
+                          {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}
+                        </div>
                       </div>
-                      
+
                       <div>
-                        <label htmlFor="building" className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-home mr-2"></i>楼栋 *
                         </label>
-                        <select
-                          id="building"
-                          name="building"
-                          required
-                          value={formData.building}
-                          onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900"
-                        >
-                          <option value="" className="text-gray-900">{bldLoading ? '加载中...' : '请选择'}</option>
-                          {buildingOptions.map(b => (
-                            <option key={b.id || b.name} value={b.name} className="text-gray-900">{b.name}</option>
-                          ))}
-                        </select>
+                        <div className="input-glass w-full text-gray-900">
+                          {locationLoading ? '加载中...' : (location?.building || '未选择')}
+                        </div>
                       </div>
-                      
+
                       <div>
                         <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-door-open mr-2"></i>房间号 *
@@ -558,6 +519,19 @@ export default function Checkout() {
                         />
                       </div>
                     </div>
+
+                    {user?.type === 'user' && (
+                      <div className="mt-3 flex items-center justify-between text-xs text-gray-500 bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl">
+                        <span>若需修改园区或楼栋，请先更新配送地址。</span>
+                        <button
+                          type="button"
+                          onClick={openLocationModal}
+                          className="text-indigo-600 hover:text-indigo-800"
+                        >
+                          修改地址
+                        </button>
+                      </div>
+                    )}
                     
                     <div>
                       <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">

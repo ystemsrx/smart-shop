@@ -1,0 +1,254 @@
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth } from './useAuth';
+import LocationModal from '../components/LocationModal';
+
+const LocationContext = createContext(null);
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:9099'
+    : 'https://chatapi.your_domain.com');
+
+export function LocationProvider({ children }) {
+  const { user, isInitialized } = useAuth();
+  const [location, setLocation] = useState(null);
+  const [isModalOpen, setModalOpen] = useState(false);
+  const [forceSelection, setForceSelection] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [addresses, setAddresses] = useState([]);
+  const [addressesLoaded, setAddressesLoaded] = useState(false);
+  const [buildingCache, setBuildingCache] = useState({});
+  const [buildingOptions, setBuildingOptions] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState('');
+  const [selectedBuildingId, setSelectedBuildingId] = useState('');
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+
+  const fetchJSON = useCallback(async (url, options = {}) => {
+    const resp = await fetch(url, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      ...options,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.success) {
+      const message = data.message || `HTTP ${resp.status}`;
+      throw new Error(message);
+    }
+    return data;
+  }, []);
+
+  const ensureAddressesLoaded = useCallback(async () => {
+    if (addressesLoaded) return addresses;
+    try {
+      const data = await fetchJSON(`${API_BASE}/addresses`);
+      const list = data.data?.addresses || [];
+      setAddresses(list);
+      setAddressesLoaded(true);
+      return list;
+    } catch (err) {
+      console.error('获取地址列表失败:', err.message);
+      setAddressesLoaded(false);
+      throw err;
+    }
+  }, [addressesLoaded, addresses, fetchJSON]);
+
+  const loadBuildingsFor = useCallback(async (addressId) => {
+    if (!addressId) {
+      setBuildingOptions([]);
+      return [];
+    }
+    if (buildingCache[addressId]) {
+      setBuildingOptions(buildingCache[addressId]);
+      return buildingCache[addressId];
+    }
+    try {
+      const data = await fetchJSON(`${API_BASE}/buildings?address_id=${encodeURIComponent(addressId)}`);
+      const list = data.data?.buildings || [];
+      setBuildingCache(prev => ({ ...prev, [addressId]: list }));
+      setBuildingOptions(list);
+      return list;
+    } catch (err) {
+      console.error('获取楼栋列表失败:', err.message);
+      setBuildingOptions([]);
+      throw err;
+    }
+  }, [buildingCache, fetchJSON]);
+
+  const loadProfile = useCallback(async () => {
+    if (!user || user.type !== 'user') {
+      setLocation(null);
+      setModalOpen(false);
+      setForceSelection(false);
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    try {
+      const data = await fetchJSON(`${API_BASE}/profile/shipping`);
+      const profile = data.data?.shipping || null;
+      setLocation(profile);
+      const hasLocation = profile && profile.address_id && profile.building_id;
+      if (!hasLocation) {
+        const addrList = await ensureAddressesLoaded() || addresses;
+        const defaultAddressId = profile?.address_id || addrList?.[0]?.id;
+        const addrId = defaultAddressId || '';
+        setSelectedAddressId(addrId);
+        if (addrId) {
+          const buildings = await loadBuildingsFor(addrId);
+          const fallbackBuildingId = profile?.building_id || buildings[0]?.id || '';
+          setSelectedBuildingId(fallbackBuildingId);
+        } else {
+          setSelectedBuildingId('');
+          setBuildingOptions([]);
+        }
+        setForceSelection(true);
+        setModalOpen(true);
+      } else {
+        setForceSelection(false);
+        setModalOpen(false);
+        setSelectedAddressId(profile.address_id);
+        if (profile.address_id) {
+          loadBuildingsFor(profile.address_id);
+          setSelectedBuildingId(profile.building_id || '');
+        }
+      }
+    } catch (err) {
+      setError(err.message || '加载收货资料失败');
+      setForceSelection(true);
+      setModalOpen(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, fetchJSON, ensureAddressesLoaded, loadBuildingsFor, addresses]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!user || user.type !== 'user') {
+      setLocation(null);
+      setModalOpen(false);
+      setForceSelection(false);
+      return;
+    }
+    loadProfile();
+  }, [user, isInitialized, loadProfile]);
+
+  const openLocationModal = useCallback(async () => {
+    if (!user || user.type !== 'user') return;
+    try {
+      const addrList = await ensureAddressesLoaded() || addresses;
+      const addrId = location?.address_id || addrList?.[0]?.id || '';
+      setSelectedAddressId(addrId);
+      const buildings = addrId ? await loadBuildingsFor(addrId) : [];
+      const buildingId = location?.building_id || buildings[0]?.id || '';
+      setSelectedBuildingId(buildingId);
+      setForceSelection(false);
+      setModalOpen(true);
+      setError('');
+    } catch (err) {
+      setError(err.message || '无法加载地址，请稍后重试');
+      setModalOpen(true);
+      setForceSelection(true);
+    }
+  }, [user, location, ensureAddressesLoaded, addresses, loadBuildingsFor]);
+
+  const closeLocationModal = useCallback(() => {
+    if (forceSelection) return;
+    setModalOpen(false);
+    setError('');
+  }, [forceSelection]);
+
+  const selectAddress = useCallback(async (addressId) => {
+    setSelectedAddressId(addressId);
+    try {
+      const buildings = await loadBuildingsFor(addressId);
+      setSelectedBuildingId(buildings[0]?.id || '');
+    } catch (err) {
+      setError(err.message || '获取楼栋信息失败');
+    }
+  }, [loadBuildingsFor]);
+
+  const selectBuilding = useCallback((buildingId) => {
+    setSelectedBuildingId(buildingId);
+  }, []);
+
+  const saveLocation = useCallback(async () => {
+    if (!selectedAddressId || !selectedBuildingId) {
+      setError('请选择完整的地址与楼栋');
+      return;
+    }
+    setIsSaving(true);
+    setError('');
+    try {
+      const data = await fetchJSON(`${API_BASE}/profile/location`, {
+        method: 'POST',
+        body: JSON.stringify({
+          address_id: selectedAddressId,
+          building_id: selectedBuildingId,
+        })
+      });
+      const shipping = data.data?.shipping || null;
+      setLocation(shipping);
+      setForceSelection(false);
+      setModalOpen(false);
+      setRevision(prev => prev + 1);
+    } catch (err) {
+      setError(err.message || '更新地址失败');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedAddressId, selectedBuildingId, fetchJSON]);
+
+  const value = {
+    location,
+    isLoading,
+    isSaving,
+    isModalOpen,
+    forceSelection,
+    addresses,
+    buildingOptions,
+    selectedAddressId,
+    selectedBuildingId,
+    error,
+    revision,
+    openLocationModal,
+    closeLocationModal,
+    selectAddress,
+    selectBuilding,
+    saveLocation,
+    reloadLocation: loadProfile,
+  };
+
+  return (
+    <LocationContext.Provider value={value}>
+      {children}
+      <LocationModal
+        isOpen={isModalOpen && user?.type === 'user'}
+        forceSelection={forceSelection}
+        addresses={addresses}
+        selectedAddressId={selectedAddressId}
+        onSelectAddress={selectAddress}
+        buildingOptions={buildingOptions}
+        selectedBuildingId={selectedBuildingId}
+        onSelectBuilding={selectBuilding}
+        onConfirm={saveLocation}
+        onClose={closeLocationModal}
+        isLoading={isLoading}
+        isSaving={isSaving}
+        error={error}
+      />
+    </LocationContext.Provider>
+  );
+}
+
+export function useLocation() {
+  const context = useContext(LocationContext);
+  if (!context) {
+    throw new Error('useLocation must be used within a LocationProvider');
+  }
+  return context;
+}

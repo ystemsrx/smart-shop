@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 // Link 不再使用，导航由通用组件处理
 import { useProducts, useCart, useAuth } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
@@ -355,6 +356,7 @@ export default function Shop() {
   const { user } = useAuth();
   const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
   
   const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
@@ -370,6 +372,10 @@ export default function Shop() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '请选择配送地址';
+
   // 规格选择弹窗状态
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [specModalProduct, setSpecModalProduct] = useState(null);
@@ -489,9 +495,16 @@ export default function Shop() {
 
   // 加载商品和分类
   const loadData = async () => {
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setProducts([]);
+      setCategories([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError('');
-    
+
     try {
       const [productsData, categoriesData] = await Promise.all([
         getProducts(selectedCategory),
@@ -576,6 +589,11 @@ export default function Shop() {
 
   // 搜索商品
   const handleSearch = async () => {
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setError('请先选择配送地址');
+      return;
+    }
+
     if (!searchQuery.trim()) {
       loadData();
       return;
@@ -659,12 +677,12 @@ export default function Shop() {
   // 初始化和分类变化时加载数据
   useEffect(() => {
     loadData();
-  }, [selectedCategory]);
+  }, [selectedCategory, locationRevision, user, forceSelection]);
 
   // 用户登录状态变化时加载购物车
   useEffect(() => {
     loadCart();
-  }, [user]);
+  }, [user, locationRevision]);
 
   // 加载店铺状态（打烊提示）
   useEffect(() => {
@@ -758,6 +776,30 @@ export default function Shop() {
                 <span>商品优质保证</span>
               </div>
             </div>
+
+            {user?.type === 'user' && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={openLocationModal}
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/80 text-gray-700 border border-white/40 shadow-md hover:shadow-lg transition-all duration-300"
+                >
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-600">
+                    <i className="fas fa-location-dot"></i>
+                  </span>
+                  <div className="text-left">
+                    <div className="text-xs text-gray-500">当前配送地址</div>
+                    <div className="text-sm font-semibold text-gray-900 mt-0.5">{displayLocation}</div>
+                  </div>
+                  <span className="text-xs text-emerald-600 font-medium ml-2">更改</span>
+                </button>
+              </div>
+            )}
+
+            {user?.type === 'user' && forceSelection && (
+              <div className="mt-3 text-sm text-orange-600 flex justify-center">
+                为了展示可售商品，请先选择您的配送地址。
+              </div>
+            )}
           </div>
 
           {/* 搜索栏 */}

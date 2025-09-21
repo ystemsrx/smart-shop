@@ -21,13 +21,12 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // 自动识别管理员账号（仅支持 ADMIN_USERNAME1 / ADMIN_USERNAME2）
-      const isAdmin = ['ADMIN_USERNAME1', 'ADMIN_USERNAME2'].includes(formData.student_id);
-      await login(formData.student_id, formData.password, isAdmin);
-      
-      // 根据用户类型跳转到不同页面
-      if (isAdmin) {
+      const account = await login(formData.student_id.trim(), formData.password);
+
+      if (account?.type === 'admin') {
         router.push('/admin/dashboard');
+      } else if (account?.type === 'agent') {
+        router.push('/agent/dashboard');
       } else {
         router.push('/');
       }

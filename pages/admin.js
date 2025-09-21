@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useApi, useAdminShop } from '../hooks/useAuth';
@@ -62,7 +62,7 @@ const ShopStatusCard = () => {
 };
 
 // 抽奖配置管理面板
-const LotteryConfigPanel = () => {
+const LotteryConfigPanel = ({ apiPrefix }) => {
   const { apiRequest } = useApi();
   const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +74,7 @@ const LotteryConfigPanel = () => {
   const loadPrizes = async () => {
     setLoading(true);
     try {
-      const res = await apiRequest('/admin/lottery-config');
+      const res = await apiRequest(`${apiPrefix}/lottery-config`);
       const list = res?.data?.prizes || [];
       const prizesData = list.map((p) => ({
         ...p,
@@ -122,7 +122,7 @@ const LotteryConfigPanel = () => {
     if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
     setSaving(true);
     try {
-      await apiRequest(`/admin/lottery-prizes/${prize.id}`, { method: 'DELETE' });
+      await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, { method: 'DELETE' });
       await loadPrizes();
     } catch (e) {
       alert(e.message || '删除失败');
@@ -146,7 +146,7 @@ const LotteryConfigPanel = () => {
           variant_id: item.variant_id
         }))
       };
-      await apiRequest(`/admin/lottery-prizes/${prize.id}`, {
+      await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -183,13 +183,13 @@ const LotteryConfigPanel = () => {
         }))
       };
       if (editingPrize?.id) {
-        await apiRequest(`/admin/lottery-prizes/${editingPrize.id}`, {
+        await apiRequest(`${apiPrefix}/lottery-prizes/${editingPrize.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
       } else {
-        await apiRequest('/admin/lottery-prizes', {
+        await apiRequest(`${apiPrefix}/lottery-prizes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -384,7 +384,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
     searchTimerRef.current = setTimeout(async () => {
       try {
         setSearchLoading(true);
-        const res = await apiRequest(`/admin/lottery-prizes/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
+        const res = await apiRequest(`${apiPrefix}/lottery-prizes/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
         setSearchResults(res?.data?.items || []);
       } catch (e) {
         setSearchResults([]);
@@ -571,7 +571,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
   );
 };
 
-const GiftThresholdPanel = () => {
+const GiftThresholdPanel = ({ apiPrefix }) => {
   const { apiRequest } = useApi();
   const [thresholds, setThresholds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -582,7 +582,7 @@ const GiftThresholdPanel = () => {
   const loadThresholds = async () => {
     setLoading(true);
     try {
-      const res = await apiRequest('/admin/gift-thresholds?include_inactive=true');
+      const res = await apiRequest(`${apiPrefix}/gift-thresholds?include_inactive=true`);
       setThresholds(res?.data?.thresholds || []);
     } catch (e) {
       alert(e.message || '加载满额门槛配置失败');
@@ -598,7 +598,7 @@ const GiftThresholdPanel = () => {
     if (!confirm('确定要删除这个满额门槛配置吗？')) return;
     
     try {
-      await apiRequest(`/admin/gift-thresholds/${thresholdId}`, { method: 'DELETE' });
+      await apiRequest(`${apiPrefix}/gift-thresholds/${thresholdId}`, { method: 'DELETE' });
       await loadThresholds();
     } catch (e) {
       alert(e.message || '删除失败');
@@ -607,7 +607,7 @@ const GiftThresholdPanel = () => {
 
   const handleToggleActive = async (threshold) => {
     try {
-      await apiRequest(`/admin/gift-thresholds/${threshold.id}`, {
+      await apiRequest(`${apiPrefix}/gift-thresholds/${threshold.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !threshold.is_active })
@@ -714,9 +714,10 @@ const GiftThresholdPanel = () => {
           onClose={() => setShowCreateModal(false)}
           onSave={loadThresholds}
           apiRequest={apiRequest}
+          apiPrefix={apiPrefix}
         />
       )}
-      
+
       {editingThreshold && (
         <GiftThresholdModal
           open={!!editingThreshold}
@@ -724,6 +725,7 @@ const GiftThresholdPanel = () => {
           onClose={() => setEditingThreshold(null)}
           onSave={loadThresholds}
           apiRequest={apiRequest}
+          apiPrefix={apiPrefix}
         />
       )}
       
@@ -732,7 +734,7 @@ const GiftThresholdPanel = () => {
   );
 };
 
-const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest }) => {
+const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiPrefix }) => {
   const [formData, setFormData] = useState({
     threshold_amount: '',
     gift_products: false,
@@ -787,7 +789,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest }) =>
     searchTimerRef.current = setTimeout(async () => {
       try {
         setSearchLoading(true);
-        const res = await apiRequest(`/admin/gift-thresholds/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
+        const res = await apiRequest(`${apiPrefix}/gift-thresholds/search${term ? `?query=${encodeURIComponent(term)}` : ''}`);
         setSearchResults(res?.data?.items || []);
       } catch (e) {
         setSearchResults([]);
@@ -830,14 +832,14 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest }) =>
 
       if (threshold) {
         // 编辑模式
-        await apiRequest(`/admin/gift-thresholds/${threshold.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+        await apiRequest(`${apiPrefix}/gift-thresholds/${threshold.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
       } else {
         // 创建模式
-        await apiRequest('/admin/gift-thresholds', {
+        await apiRequest(`${apiPrefix}/gift-thresholds`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1673,7 +1675,7 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
 };
 
 // 编辑商品表单组件
-const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
+const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) => {
   const [formData, setFormData] = useState({
     name: product.name || '',
     category: product.category || '',
@@ -1899,13 +1901,13 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel }) => {
       </form>
 
       {/* 规格管理 */}
-      <VariantManager productId={product.id} />
+      <VariantManager productId={product.id} apiPrefix={apiPrefix} />
     </div>
   );
 };
 
 // 规格管理（每个商品独立）
-const VariantManager = ({ productId }) => {
+const VariantManager = ({ productId, apiPrefix }) => {
   const { apiRequest } = useApi();
   const [variants, setVariants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1915,7 +1917,7 @@ const VariantManager = ({ productId }) => {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await apiRequest(`/admin/products/${productId}/variants`);
+      const res = await apiRequest(`${apiPrefix}/products/${productId}/variants`);
       setVariants(res?.data?.variants || []);
     } finally { setLoading(false); }
   };
@@ -1924,16 +1926,19 @@ const VariantManager = ({ productId }) => {
 
   const addVariant = async () => {
     if (!newName) return;
-    await apiRequest(`/admin/products/${productId}/variants`, { method: 'POST', body: JSON.stringify({ name: newName, stock: parseInt(newStock) || 0 })});
+    await apiRequest(`${apiPrefix}/products/${productId}/variants`, { method: 'POST', body: JSON.stringify({ name: newName, stock: parseInt(newStock) || 0 })});
     setNewName(''); setNewStock(0); load();
   };
   const updateVariant = async (id, patch) => {
-    await apiRequest(`/admin/variants/${id}`, { method: 'PUT', body: JSON.stringify(patch)});
+    await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), {
+      method: 'PUT',
+      body: JSON.stringify(patch)
+    });
     load();
   };
   const removeVariant = async (id) => {
     if (!confirm('确定删除该规格？')) return;
-    await apiRequest(`/admin/variants/${id}`, { method: 'DELETE' });
+    await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), { method: 'DELETE' });
     load();
   };
 
@@ -1970,7 +1975,7 @@ const VariantManager = ({ productId }) => {
 };
 
 // 规格库存编辑弹窗（仅库存增减与编辑）
-const VariantStockModal = ({ product, onClose }) => {
+const VariantStockModal = ({ product, onClose, apiPrefix }) => {
   const { apiRequest } = useApi();
   const [variants, setVariants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1979,7 +1984,7 @@ const VariantStockModal = ({ product, onClose }) => {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await apiRequest(`/admin/products/${product.id}/variants`);
+      const res = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
       setVariants(res?.data?.variants || []);
     } catch (e) {
       alert(e.message || '加载规格失败');
@@ -1994,7 +1999,10 @@ const VariantStockModal = ({ product, onClose }) => {
     if (newStock < 0) newStock = 0;
     setSaving(true);
     try {
-      await apiRequest(`/admin/variants/${variantId}`, { method: 'PUT', body: JSON.stringify({ stock: parseInt(newStock) || 0 }) });
+      await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${variantId}`.replace('//', '/'), {
+        method: 'PUT',
+        body: JSON.stringify({ stock: parseInt(newStock) || 0 })
+      });
       setVariants(prev => prev.map(v => v.id === variantId ? { ...v, stock: parseInt(newStock) || 0 } : v));
     } catch (e) {
       alert(e.message || '更新库存失败');
@@ -2550,7 +2558,7 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
 };
 
 // 优惠券管理面板
-const CouponsPanel = () => {
+const CouponsPanel = ({ apiPrefix }) => {
   const { apiRequest } = useApi();
   const [q, setQ] = React.useState('');
   const [suggests, setSuggests] = React.useState([]);
@@ -2587,7 +2595,7 @@ const CouponsPanel = () => {
   const loadList = async () => {
     setLoading(true);
     try {
-      const url = selected ? `/admin/coupons?student_id=${encodeURIComponent(selected)}` : '/admin/coupons';
+      const url = selected ? `${apiPrefix}/coupons?student_id=${encodeURIComponent(selected)}` : `${apiPrefix}/coupons`;
       const r = await apiRequest(url);
       setList(r?.data?.coupons || []);
     } catch (e) {
@@ -2614,7 +2622,7 @@ const CouponsPanel = () => {
     }
     setIssuing(true);
     try {
-      await apiRequest('/admin/coupons/issue', {
+      await apiRequest(`${apiPrefix}/coupons/issue`, {
         method: 'POST',
         body: JSON.stringify({ student_id: sid, amount: amt, quantity: parseInt(quantity)||1, expires_at: expires })
       });
@@ -2632,7 +2640,7 @@ const CouponsPanel = () => {
   const handleRevoke = async (id) => {
     if (!confirm('确定撤回该优惠券？')) return;
     try {
-      await apiRequest(`/admin/coupons/${id}/revoke`, { method: 'PATCH' });
+      await apiRequest(`${apiPrefix}/coupons/${id}/revoke`, { method: 'PATCH' });
       await loadList();
     } catch (e) {
       alert(e.message || '撤回失败');
@@ -2833,10 +2841,17 @@ const CouponsPanel = () => {
   );
 };
 
-export default function Admin() {
+function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'products' }) {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, isInitialized } = useAuth();
   const { apiRequest } = useApi();
+  const expectedRole = role === 'agent' ? 'agent' : 'admin';
+  const isAdmin = expectedRole === 'admin';
+  const isAgent = expectedRole === 'agent';
+  const staffPrefix = isAgent ? '/agent' : '/admin';
+  const allowedTabs = isAdmin
+    ? ['products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons']
+    : ['products', 'orders', 'lottery', 'autoGifts', 'coupons'];
   
   const [stats, setStats] = useState({
     total_products: 0,
@@ -2866,7 +2881,9 @@ export default function Admin() {
     total_revenue: 0
   });
   const [orderStatusFilter, setOrderStatusFilter] = useState('全部'); // 全部/未付款/待确认/待配送/配送中/已完成
-  const [activeTab, setActiveTab] = useState('products'); // products, orders, addresses, lottery, coupons
+  const [activeTab, setActiveTab] = useState(
+    allowedTabs.includes(initialTab) ? initialTab : allowedTabs[0]
+  ); // 可见标签
   // 订单分页/搜索
   const [orderPage, setOrderPage] = useState(0);
   const [orderHasMore, setOrderHasMore] = useState(false);
@@ -2886,42 +2903,89 @@ export default function Admin() {
   const [addrDragId, setAddrDragId] = useState(null);
   const [addrDragging, setAddrDragging] = useState(false);
 
+  // 代理管理相关状态
+  const initialAgentForm = { account: '', password: '', name: '', building_ids: [], is_active: true };
+  const [agents, setAgents] = useState([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [agentForm, setAgentForm] = useState(initialAgentForm);
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentError, setAgentError] = useState('');
+
+  const buildingLabelMap = useMemo(() => {
+    const map = {};
+    (addresses || []).forEach(addr => {
+      const blds = buildingsByAddress[addr.id] || [];
+      blds.forEach(b => {
+        if (b?.id) {
+          map[b.id] = `${addr.name || ''}${b.name ? ' · ' + b.name : ''}`.trim();
+        }
+      });
+    });
+    return map;
+  }, [addresses, buildingsByAddress]);
+
   // 楼栋管理状态（已合并到地址列表）
 
   // 检查管理员权限
   useEffect(() => {
+    if (!isInitialized) return;
     if (!user) {
-      router.push('/login');
+      router.replace('/login');
       return;
     }
-    
-    if (user.type !== 'admin') {
-      alert('需要管理员权限');
-      router.push('/');
-      return;
+
+    if (user.type !== expectedRole) {
+      const fallback = user.type === 'admin'
+        ? '/admin/dashboard'
+        : user.type === 'agent'
+          ? '/agent/dashboard'
+          : '/';
+      router.replace(fallback);
     }
-  }, [user, router]);
+  }, [isInitialized, user, expectedRole, router]);
 
   // 加载统计数据和商品列表
   const loadData = async () => {
+    if (!user || user.type !== expectedRole) {
+      return;
+    }
     setIsLoading(true);
     setError('');
     
     try {
+      const statsPromise = apiRequest('/admin/stats');
+      const usersCountPromise = isAdmin
+        ? apiRequest('/admin/users/count')
+        : Promise.resolve({ data: { count: 0 } });
+      const productsPromise = apiRequest(`${staffPrefix}/products`);
+      const categoriesPromise = isAdmin
+        ? apiRequest('/admin/categories')
+        : Promise.resolve({ data: { categories: [] } });
+      const orderStatsPromise = apiRequest('/admin/order-stats');
+      const addressesPromise = isAdmin
+        ? apiRequest('/admin/addresses')
+        : Promise.resolve({ data: { addresses: [] } });
+
       const [statsData, usersCountData, productsData, categoriesData, orderStatsData, addressesData] = await Promise.all([
-        apiRequest('/admin/stats'),
-        apiRequest('/admin/users/count'),
-        apiRequest('/products'),
-        apiRequest('/admin/categories'),
-        apiRequest('/admin/order-stats'),
-        apiRequest('/admin/addresses')
+        statsPromise,
+        usersCountPromise,
+        productsPromise,
+        categoriesPromise,
+        orderStatsPromise,
+        addressesPromise
       ]);
       
       const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
       setStats(mergedStats);
-      setProducts(productsData.data.products || []);
+      const productPayload = productsData.data || {};
+      setProducts(productPayload.products || []);
       // 管理端分类按拼音/英文排序（A-Z > 0-9 > 中文 > 其他）
-      const adminCats = categoriesData.data.categories || [];
+      const rawCategories = isAdmin
+        ? (categoriesData.data.categories || [])
+        : (productPayload.categories || []).map((name) => ({ id: name, name }));
+      const adminCats = rawCategories.slice();
       const letters2 = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
       const firstSigChar2 = (s) => {
         const str = String(s || '');
@@ -3006,7 +3070,7 @@ export default function Admin() {
     params.set('offset', String(p * 20));
     const q = String(search || '').trim();
     if (q) params.set('order_id', q);
-    return '/admin/orders?' + params.toString();
+    return `${staffPrefix}/orders?` + params.toString();
   };
 
   const loadOrders = async (page = orderPage, search = orderSearch) => {
@@ -3045,6 +3109,11 @@ export default function Admin() {
 
   // 地址操作
   const loadAddresses = async () => {
+    if (!isAdmin) {
+      setAddresses([]);
+      setBuildingsByAddress({});
+      return;
+    }
     setAddrLoading(true);
     try {
       const res = await apiRequest('/admin/addresses');
@@ -3069,6 +3138,156 @@ export default function Admin() {
     } finally {
       setAddrLoading(false);
     }
+  };
+
+  const loadAgents = async () => {
+    if (!isAdmin) {
+      setAgents([]);
+      return;
+    }
+    setAgentLoading(true);
+    setAgentError('');
+    try {
+      const res = await apiRequest('/admin/agents');
+      setAgents(res.data?.agents || []);
+    } catch (e) {
+      setAgents([]);
+      setAgentError(e.message || '获取代理列表失败');
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const openAgentModal = (agent = null) => {
+    if (agent) {
+      setEditingAgent(agent);
+      setAgentForm({
+        account: agent.id,
+        password: '',
+        name: agent.name || agent.id,
+        building_ids: (agent.buildings || []).map(b => b.building_id).filter(Boolean),
+        is_active: agent.is_active !== false,
+      });
+    } else {
+      setEditingAgent(null);
+      setAgentForm(initialAgentForm);
+    }
+    setAgentError('');
+    setAgentModalOpen(true);
+  };
+
+  const closeAgentModal = () => {
+    setAgentModalOpen(false);
+    setEditingAgent(null);
+    setAgentForm(initialAgentForm);
+    setAgentError('');
+  };
+
+  const toggleAgentBuilding = (buildingId) => {
+    setAgentForm(prev => {
+      const current = prev.building_ids || [];
+      const next = current.includes(buildingId)
+        ? current.filter(id => id !== buildingId)
+        : [...current, buildingId];
+      return { ...prev, building_ids: next };
+    });
+  };
+
+  const handleAgentSave = async () => {
+    try {
+      const payload = agentForm;
+      if (!payload.account.trim()) {
+        setAgentError('请输入代理账号');
+        return;
+      }
+      if (!editingAgent && !payload.password) {
+        setAgentError('请设置代理初始密码');
+        return;
+      }
+      if (!payload.building_ids || payload.building_ids.length === 0) {
+        setAgentError('请至少选择一个负责楼栋');
+        return;
+      }
+
+      setAgentSaving(true);
+      if (editingAgent) {
+        const body = {
+          name: payload.name,
+          building_ids: payload.building_ids,
+          is_active: payload.is_active,
+        };
+        if (payload.password) {
+          body.password = payload.password;
+        }
+        await apiRequest(`/admin/agents/${editingAgent.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
+      } else {
+        await apiRequest('/admin/agents', {
+          method: 'POST',
+          body: JSON.stringify({
+            account: payload.account.trim(),
+            password: payload.password,
+            name: payload.name || payload.account.trim(),
+            building_ids: payload.building_ids,
+          })
+        });
+      }
+      closeAgentModal();
+      await loadAgents();
+    } catch (e) {
+      setAgentError(e.message || '保存代理失败');
+    } finally {
+      setAgentSaving(false);
+    }
+  };
+
+  const handleAgentStatusToggle = async (agent, nextActive) => {
+    try {
+      await apiRequest(`/admin/agents/${agent.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: nextActive ? 1 : 0 })
+      });
+      await loadAgents();
+    } catch (e) {
+      alert(e.message || '更新代理状态失败');
+    }
+  };
+
+  const handleAgentDelete = async (agent) => {
+    if (!confirm(`确定停用代理“${agent.name || agent.id}”吗？`)) return;
+    try {
+      await apiRequest(`/admin/agents/${agent.id}`, { method: 'DELETE' });
+      await loadAgents();
+    } catch (e) {
+      alert(e.message || '停用代理失败');
+    }
+  };
+
+  const handleAgentQrUpload = async (agent) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (event) => {
+      const file = event.target?.files?.[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        setAgentSaving(true);
+        await apiRequest(`/admin/agents/${agent.id}/payment-qr`, {
+          method: 'POST',
+          body: form,
+        });
+        await loadAgents();
+      } catch (e) {
+        alert(e.message || '上传收款码失败');
+      } finally {
+        setAgentSaving(false);
+      }
+    };
+    input.click();
   };
 
   // 地址拖拽排序
@@ -3191,7 +3410,7 @@ export default function Admin() {
         formData.append('image', productData.image);
       }
       
-      await apiRequest('/admin/products', {
+      await apiRequest(`${staffPrefix}/products`, {
         method: 'POST',
         body: formData,
         headers: {} // 让浏览器自动设置Content-Type
@@ -3222,7 +3441,7 @@ export default function Admin() {
         cost: productData.cost || 0
       };
       
-      await apiRequest(`/admin/products/${editingProduct.id}`, {
+      await apiRequest(`${staffPrefix}/products/${editingProduct.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -3234,7 +3453,7 @@ export default function Admin() {
       if (productData.image) {
         const formData = new FormData();
         formData.append('image', productData.image);
-        await apiRequest(`/admin/products/${editingProduct.id}/image`, {
+        await apiRequest(`${staffPrefix}/products/${editingProduct.id}/image`, {
           method: 'POST',
           body: formData,
           headers: {}
@@ -3255,7 +3474,7 @@ export default function Admin() {
   // 设置商品折扣
   const handleUpdateDiscount = async (productId, zhe) => {
     try {
-      await apiRequest(`/admin/products/${productId}`, {
+      await apiRequest(`${staffPrefix}/products/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({ discount: zhe })
       });
@@ -3269,7 +3488,7 @@ export default function Admin() {
   const handleBatchUpdateDiscount = async (productIds, zhe) => {
     if (!productIds || productIds.length === 0) { alert('请选择要设置折扣的商品'); return; }
     try {
-      await apiRequest('/admin/products', {
+      await apiRequest(`${staffPrefix}/products`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_ids: productIds, discount: zhe })
@@ -3287,7 +3506,7 @@ export default function Admin() {
     const currentActive = !(product.is_active === 0 || product.is_active === false);
     const target = !currentActive; // 目标状态
     try {
-      await apiRequest(`/admin/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
+      await apiRequest(`${staffPrefix}/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
       await loadData();
     } catch (e) {
       alert(e.message || '更新上下架状态失败');
@@ -3298,7 +3517,7 @@ export default function Admin() {
   const handleUpdateStock = async (productId, newStock) => {
     try {
       // 改用已验证可用的通用更新接口，以避免个别路由兼容问题
-      await apiRequest(`/admin/products/${productId}`, {
+      await apiRequest(`${staffPrefix}/products/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({ stock: newStock })
       });
@@ -3319,7 +3538,7 @@ export default function Admin() {
     }
     
     try {
-      await apiRequest(`/admin/products/${product.id}`, {
+      await apiRequest(`${staffPrefix}/products/${product.id}`, {
         method: 'DELETE'
       });
       
@@ -3369,7 +3588,7 @@ export default function Admin() {
       setIsSubmitting(true);
       
       // 使用同一个删除API，通过请求体传递多个商品ID
-      await apiRequest('/admin/products/0', {
+      await apiRequest(`${staffPrefix}/products/0`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -3498,13 +3717,16 @@ export default function Admin() {
 
   // 初始化加载
   useEffect(() => {
-    if (user && user.type === 'admin') {
-      loadData();
+    if (!user || user.type !== expectedRole) return;
+    loadData();
+    if (isAdmin) {
+      loadAddresses();
+      loadAgents();
     }
-  }, [user]);
+  }, [user, expectedRole]);
 
-  // 如果不是管理员，不渲染内容
-  if (!user || user.type !== 'admin') {
+  // 非授权账号不渲染
+  if (!user || user.type !== expectedRole) {
     return null;
   }
 
@@ -3514,23 +3736,23 @@ export default function Admin() {
   return (
     <>
       <Head>
-        <title>管理后台 - [商店名称]</title>
+        <title>{isAdmin ? '管理后台 - [商店名称]' : '代理后台 - [商店名称]'}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
       <div className="min-h-screen bg-gray-50">
         {/* 统一导航栏 */}
-        <Nav active="admin" />
+        <Nav active={navActive} />
         
         {/* 主要内容 */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
           <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">管理后台</h1>
-            <p className="text-gray-600 mt-1">管理商品和查看统计信息</p>
+            <h1 className="text-2xl font-bold text-gray-900">{isAdmin ? '管理后台' : '代理后台'}</h1>
+            <p className="text-gray-600 mt-1">{isAdmin ? '管理商品、订单与系统配置。' : '管理您负责区域的商品与订单。'}</p>
           </div>
 
           {/* 店铺状态开关 */}
-          <ShopStatusCard />
+          {isAdmin && <ShopStatusCard />}
 
 
 
@@ -3612,50 +3834,72 @@ export default function Admin() {
                     </span>
                   )}
                 </button>
-                <button
-                  onClick={() => {
-                    setActiveTab('addresses');
-                    // 懒加载地址数据
-                    loadAddresses();
-                  }}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'addresses'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  地址管理
-                </button>
-                <button
-                  onClick={() => setActiveTab('lottery')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'lottery'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  抽奖配置
-                </button>
-                <button
-                  onClick={() => setActiveTab('autoGifts')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'autoGifts'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  满额门槛
-                </button>
-                <button
-                  onClick={() => setActiveTab('coupons')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'coupons'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  优惠券管理
-                </button>
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setActiveTab('addresses');
+                        loadAddresses();
+                      }}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                        activeTab === 'addresses'
+                          ? 'border-indigo-500 text-indigo-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      地址管理
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab('agents');
+                        loadAgents();
+                      }}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                        activeTab === 'agents'
+                          ? 'border-indigo-500 text-indigo-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      代理管理
+                    </button>
+                  </>
+                )}
+                {allowedTabs.includes('lottery') && (
+                  <button
+                    onClick={() => setActiveTab('lottery')}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === 'lottery'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    抽奖配置
+                  </button>
+                )}
+                {allowedTabs.includes('autoGifts') && (
+                  <button
+                    onClick={() => setActiveTab('autoGifts')}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === 'autoGifts'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    满额门槛
+                  </button>
+                )}
+                {allowedTabs.includes('coupons') && (
+                  <button
+                    onClick={() => setActiveTab('coupons')}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === 'coupons'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    优惠券管理
+                  </button>
+                )}
               </nav>
             </div>
           </div>
@@ -3702,12 +3946,13 @@ export default function Admin() {
           {/* 编辑商品表单 */}
           {editingProduct && (
             <div className="mb-6">
-              <EditProductForm
-                product={editingProduct}
-                onSubmit={handleEditProduct}
-                isLoading={isSubmitting}
-                onCancel={() => setEditingProduct(null)}
-              />
+          <EditProductForm
+            product={editingProduct}
+            onSubmit={handleEditProduct}
+            isLoading={isSubmitting}
+            onCancel={() => setEditingProduct(null)}
+            apiPrefix={staffPrefix}
+          />
             </div>
           )}
 
@@ -3830,9 +4075,203 @@ export default function Admin() {
             </>
           )}
 
+          {activeTab === 'agents' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium text-gray-900">代理管理</h2>
+                  <p className="text-sm text-gray-500 mt-1">创建代理账号并绑定负责的楼栋，系统会按楼栋自动分配订单与商品。</p>
+                </div>
+                <button
+                  onClick={() => openAgentModal(null)}
+                  className="px-4 py-2 rounded-md bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                >
+                  新增代理
+                </button>
+              </div>
+
+              {agentError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                  {agentError}
+                </div>
+              )}
+
+              {agentLoading ? (
+                <div className="flex items-center justify-center py-16 text-gray-500 gap-3">
+                  <div className="h-6 w-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+                  正在加载代理列表...
+                </div>
+              ) : (
+                agents.length === 0 ? (
+                  <div className="bg-white border border-dashed border-gray-300 p-8 text-center text-gray-500 rounded-lg">
+                    暂无代理，点击“新增代理”开始配置。
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {agents.map(agent => {
+                      const buildingNames = (agent.buildings || []).map(b => buildingLabelMap[b.building_id] || `${b.address_name || ''}${b.building_name ? '·' + b.building_name : ''}`.trim()).filter(Boolean);
+                      return (
+                        <div key={agent.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 flex flex-col gap-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                                {agent.name || agent.id}
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${agent.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
+                                  {agent.is_active !== false ? '启用' : '已停用'}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">账号：{agent.id}</div>
+                              <div className="text-xs text-gray-500 mt-1">负责楼栋：{buildingNames.length > 0 ? buildingNames.join('、') : '未绑定'}</div>
+                            </div>
+                            <div className="flex flex-col gap-2 text-sm">
+                              <button onClick={() => openAgentModal(agent)} className="px-3 py-1.5 border border-gray-200 rounded-md hover:bg-gray-50">编辑</button>
+                              <button onClick={() => handleAgentStatusToggle(agent, agent.is_active === false)} className="px-3 py-1.5 border border-gray-200 rounded-md hover:bg-gray-50">
+                                {agent.is_active === false ? '启用' : '停用'}
+                              </button>
+                              <button onClick={() => handleAgentQrUpload(agent)} className="px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded-md hover:bg-indigo-50">收款码</button>
+                              {agent.is_active === false && (
+                                <button onClick={() => handleAgentDelete(agent)} className="px-3 py-1.5 border border-red-200 text-red-600 rounded-md hover:bg-red-50">删除</button>
+                              )}
+                            </div>
+                          </div>
+                          {agent.payment_qr_path && (
+                            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                              <div className="text-xs text-gray-500 mb-2">当前收款码</div>
+                              <img
+                                src={agent.payment_qr_path}
+                                alt={`${agent.name || agent.id} 收款码`}
+                                className="w-32 h-32 object-contain bg-white border border-gray-200"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {agentModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{editingAgent ? '编辑代理' : '新增代理'}</h3>
+                        <p className="text-xs text-gray-500 mt-1">为代理指定负责的楼栋，以便系统分配订单和商品管理权限。</p>
+                      </div>
+                      <button onClick={closeAgentModal} className="text-gray-400 hover:text-gray-600" aria-label="关闭">
+                        <i className="fas fa-times" />
+                      </button>
+                    </div>
+
+                    {agentError && (
+                      <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
+                        {agentError}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">账号</label>
+                        <input
+                          type="text"
+                          value={agentForm.account}
+                          onChange={(e) => setAgentForm(prev => ({ ...prev, account: e.target.value }))}
+                          disabled={!!editingAgent}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{editingAgent ? '重设密码（可选）' : '初始密码'}</label>
+                        <input
+                          type="password"
+                          value={agentForm.password}
+                          onChange={(e) => setAgentForm(prev => ({ ...prev, password: e.target.value }))}
+                          placeholder={editingAgent ? '留空则不修改' : '请输入初始密码'}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">名称</label>
+                        <input
+                          type="text"
+                          value={agentForm.name}
+                          onChange={(e) => setAgentForm(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="用于展示的名称"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 mt-6">
+                        <input
+                          type="checkbox"
+                          id="agent_active"
+                          checked={agentForm.is_active}
+                          onChange={(e) => setAgentForm(prev => ({ ...prev, is_active: !!e.target.checked }))}
+                        />
+                        <label htmlFor="agent_active" className="text-sm text-gray-700">启用该代理</label>
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">负责楼栋</h4>
+                      <p className="text-xs text-gray-500 mb-3">请选择代理负责的楼栋，可多选。</p>
+                      <div className="space-y-4">
+                        {(addresses || []).map(addr => {
+                          const blds = buildingsByAddress[addr.id] || [];
+                          if (!blds.length) return null;
+                          return (
+                            <div key={addr.id} className="border border-gray-200 rounded-lg p-3">
+                              <div className="text-sm font-medium text-gray-800 mb-2">{addr.name}</div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {blds.map(b => (
+                                  <label
+                                    key={b.id}
+                                    className={`flex items-center gap-2 px-3 py-2 border rounded-md text-sm ${agentForm.building_ids.includes(b.id) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={agentForm.building_ids.includes(b.id)}
+                                      onChange={() => toggleAgentBuilding(b.id)}
+                                    />
+                                    <span>{b.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(addresses || []).every(addr => (buildingsByAddress[addr.id] || []).length === 0) && (
+                          <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                            暂无可选楼栋，请先在“地址管理”中配置楼栋。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-6 flex justify-end gap-3">
+                      <button
+                        onClick={closeAgentModal}
+                        className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={handleAgentSave}
+                        disabled={agentSaving}
+                        className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {agentSaving ? '保存中...' : '保存'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 优惠券管理 */}
           {activeTab === 'coupons' && (
-            <CouponsPanel />
+            <CouponsPanel apiPrefix={staffPrefix} />
           )}
 
           {/* 地址管理 */}
@@ -4056,7 +4495,7 @@ export default function Admin() {
                 <h2 className="text-lg font-medium text-gray-900">抽奖配置</h2>
                 <p className="text-sm text-gray-600 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
               </div>
-              <LotteryConfigPanel />
+              <LotteryConfigPanel apiPrefix={staffPrefix} />
             </>
           )}
 
@@ -4066,7 +4505,7 @@ export default function Admin() {
                 <h2 className="text-lg font-medium text-gray-900">满额门槛</h2>
                 <p className="text-sm text-gray-600 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>
               </div>
-              <GiftThresholdPanel />
+              <GiftThresholdPanel apiPrefix={staffPrefix} />
             </>
           )}
         </main>
@@ -4075,9 +4514,24 @@ export default function Admin() {
           <VariantStockModal
             product={variantStockProduct}
             onClose={() => setVariantStockProduct(null)}
+            apiPrefix={staffPrefix}
           />
         )}
       </div>
     </>
+  );
+}
+
+export function StaffPortal(props) {
+  return <StaffPortalPage {...props} />;
+}
+
+export default function AdminPage() {
+  return (
+    <StaffPortalPage
+      role="admin"
+      navActive="admin"
+      initialTab="products"
+    />
   );
 }

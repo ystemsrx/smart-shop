@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
@@ -112,7 +113,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
   const base = (cart?.payable_total ?? cart.total_price) || 0;
@@ -210,10 +211,14 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
       
       <button
         onClick={onCheckout}
-        disabled={isLoading || cart.total_quantity === 0 || isClosed}
+        disabled={isLoading || cart.total_quantity === 0 || isClosed || !locationReady}
         className="w-full bg-gray-900 text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
       >
-        {isLoading ? '处理中...' : (isClosed ? '打烊中 · 暂停结算' : '去结算')}
+        {isLoading
+          ? '处理中...'
+          : (isClosed
+              ? '打烊中 · 暂停结算'
+              : (!locationReady ? '请选择配送地址' : '去结算'))}
       </button>
     </div>
   );
@@ -225,7 +230,8 @@ export default function Cart() {
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
   const { getShopStatus } = useProducts();
   const { apiRequest } = useApi();
-  
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
+
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -238,6 +244,13 @@ export default function Cart() {
   const [couponExpanded, setCouponExpanded] = useState(false);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '请选择配送地址';
+  const locationRevisionRef = useRef(locationRevision);
 
   // 检查登录状态
   useEffect(() => {
@@ -251,8 +264,19 @@ export default function Cart() {
   const loadCart = async () => {
     setIsLoading(true);
     setError('');
-    
+
     try {
+      if (!locationReady) {
+        setCart({ items: [], total_quantity: 0, total_price: 0, payable_total: 0, shipping_fee: 0 });
+        setEligibleRewards([]);
+        setAutoGifts([]);
+        setCoupons([]);
+        setSelectedCouponId(null);
+        setApplyCoupon(false);
+        setIsLoading(false);
+        return;
+      }
+
       const data = await getCart();
       setCart(data.data);
       // 加载可用抽奖奖品
@@ -294,6 +318,25 @@ export default function Cart() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (locationRevisionRef.current === undefined) {
+      locationRevisionRef.current = locationRevision;
+      return;
+    }
+    if (locationRevisionRef.current !== locationRevision) {
+      locationRevisionRef.current = locationRevision;
+      if (user?.type === 'user' && locationReady) {
+        setInfoMessage(`已切换至 ${displayLocation}，购物车已清空，请重新挑选商品。`);
+      }
+    }
+  }, [locationRevision, user, locationReady, displayLocation]);
+
+  useEffect(() => {
+    if (user?.type === 'user' && !locationReady) {
+      setInfoMessage('请选择配送地址以查看购物车。');
+    }
+  }, [user, locationReady]);
 
   // 更新商品数量
   const handleUpdateQuantity = async (productId, quantity, variantId = null) => {
@@ -344,7 +387,16 @@ export default function Cart() {
       alert(shopNote || '当前打烊，暂不支持结算，仅可加入购物车');
       return;
     }
-    router.push('/checkout');
+    if (!locationReady) {
+      alert('请先选择配送地址以完成结算');
+      openLocationModal();
+      return;
+    }
+    if (applyCoupon && selectedCouponId) {
+      router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+    } else {
+      router.push('/checkout?apply=0');
+    }
   };
 
   // 初始化加载
@@ -352,7 +404,7 @@ export default function Cart() {
     if (user) {
       loadCart();
     }
-  }, [user]);
+  }, [user, locationReady, locationRevision]);
 
   // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
   useEffect(() => {
@@ -415,6 +467,38 @@ export default function Cart() {
               </button>
             )}
           </div>
+
+          {user?.type === 'user' && (
+            <div className="mb-6">
+              <button
+                onClick={openLocationModal}
+                className="w-full sm:w-auto flex items-center gap-3 px-4 py-3 bg-white border border-emerald-200 rounded-2xl text-emerald-700 hover:shadow-lg transition-all duration-300"
+              >
+                <span className="flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-600">
+                  <i className="fas fa-location-dot"></i>
+                </span>
+                <div className="text-left">
+                  <div className="text-xs text-emerald-600">当前配送地址</div>
+                  <div className="text-sm font-semibold text-emerald-700 mt-0.5">{displayLocation}</div>
+                </div>
+                <span className="ml-auto text-xs text-emerald-600 font-medium">修改</span>
+              </button>
+            </div>
+          )}
+
+          {infoMessage && (
+            <div className="mb-6 bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-3 rounded-xl flex items-start gap-2">
+              <i className="fas fa-info-circle mt-0.5"></i>
+              <span>{infoMessage}</span>
+              <button
+                onClick={() => setInfoMessage('')}
+                className="ml-auto text-emerald-500 hover:text-emerald-700"
+                aria-label="关闭提示"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+          )}
 
           {/* 错误提示 */}
           {error && (
@@ -625,14 +709,7 @@ export default function Cart() {
                     <div className="lg:sticky lg:top-24">
                       <OrderSummary
                         cart={cart}
-                        onCheckout={() => {
-                          // 保持用户在订单摘要中的“使用优惠券”勾选状态
-                          if (applyCoupon && selectedCouponId) {
-                            router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
-                          } else {
-                            router.push('/checkout?apply=0');
-                          }
-                        }}
+                        onCheckout={handleCheckout}
                         isLoading={actionLoading}
                         isClosed={!shopOpen}
                         coupons={coupons}
@@ -640,6 +717,7 @@ export default function Cart() {
                         setSelectedCouponId={setSelectedCouponId}
                         applyCoupon={applyCoupon}
                         setApplyCoupon={setApplyCoupon}
+                        locationReady={locationReady}
                       />
                     </div>
                   </div>

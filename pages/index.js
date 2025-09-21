@@ -26,6 +26,8 @@ export default function Home() {
   useEffect(() => {
     if (user && user.type === 'admin') {
       router.push('/admin/dashboard');
+    } else if (user && user.type === 'agent') {
+      router.push('/agent/dashboard');
     }
   }, [user, router]);
 

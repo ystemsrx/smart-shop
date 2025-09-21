@@ -346,29 +346,39 @@ class AuthManager:
     
     @staticmethod
     def login_admin(admin_id: str, password: str) -> Optional[Dict[str, Any]]:
-        """管理员登录"""
+        """管理员/代理登录"""
         admin = AdminDB.verify_admin(admin_id, password)
         if not admin:
             return None
-        
+
+        role = admin.get('role') or 'admin'
+        account_type = 'admin' if role in ('admin', 'super_admin') else 'agent'
+
         token_data = {
             "sub": admin_id,
-            "type": "admin",
+            "type": account_type,
             "name": admin['name'],
-            "role": admin['role']
+            "role": role
         }
         access_token = AuthManager.create_access_token(token_data)
-        
-        return {
+
+        account_payload = {
+            "id": admin['id'],
+            "name": admin['name'],
+            "role": role,
+            "type": account_type,
+            "created_at": admin.get('created_at'),
+            "payment_qr_path": admin.get('payment_qr_path')
+        }
+
+        result: Dict[str, Any] = {
             "access_token": access_token,
             "token_type": "bearer",
-            "admin": {
-                "id": admin['id'],
-                "name": admin['name'],
-                "role": admin['role'],
-                "created_at": admin['created_at']
-            }
+            "admin": account_payload
         }
+        if account_type == 'agent':
+            result["agent"] = account_payload
+        return result
 
 def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
@@ -410,16 +420,34 @@ def get_current_admin(
     """获取当前管理员"""
     if not credentials:
         raise HTTPException(status_code=401, detail="需要管理员权限")
-    
+
     payload = AuthManager.verify_token(credentials.credentials)
     if not payload or payload.get("type") != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    
+
     return {
         "id": payload.get("sub"),
         "name": payload.get("name"),
         "role": payload.get("role"),
         "type": "admin"
+    }
+
+def get_current_staff(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Dict[str, Any]:
+    """获取当前工作人员（总管理员或代理）"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="需要工作人员权限")
+
+    payload = AuthManager.verify_token(credentials.credentials)
+    if not payload or payload.get("type") not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="需要工作人员权限")
+
+    return {
+        "id": payload.get("sub"),
+        "name": payload.get("name"),
+        "role": payload.get("role"),
+        "type": payload.get("type")
     }
 
 def set_auth_cookie(response: Response, token: str):
@@ -460,16 +488,33 @@ def get_current_admin_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
     token = get_token_from_cookie(request)
     if not token:
         return None
-    
+
     payload = AuthManager.verify_token(token)
     if not payload or payload.get("type") != "admin":
         return None
-    
+
     return {
         "id": payload.get("sub"),
         "name": payload.get("name"),
         "role": payload.get("role"),
         "type": "admin"
+    }
+
+def get_current_staff_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
+    """从Cookie获取当前工作人员（管理员/代理）"""
+    token = get_token_from_cookie(request)
+    if not token:
+        return None
+
+    payload = AuthManager.verify_token(token)
+    if not payload or payload.get("type") not in ("admin", "agent"):
+        return None
+
+    return {
+        "id": payload.get("sub"),
+        "name": payload.get("name"),
+        "role": payload.get("role"),
+        "type": payload.get("type")
     }
 
 def get_current_admin_required_from_cookie(request: Request) -> Dict[str, Any]:
@@ -478,6 +523,27 @@ def get_current_admin_required_from_cookie(request: Request) -> Dict[str, Any]:
     if not admin:
         raise HTTPException(status_code=401, detail="需要管理员权限")
     return admin
+
+def get_current_staff_required_from_cookie(request: Request) -> Dict[str, Any]:
+    staff = get_current_staff_from_cookie(request)
+    if not staff:
+        raise HTTPException(status_code=401, detail="需要工作人员权限")
+    return staff
+
+def get_current_agent_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
+    staff = get_current_staff_from_cookie(request)
+    if not staff or staff.get('type') != 'agent':
+        return None
+    return staff
+
+def is_super_admin_role(role: Optional[str]) -> bool:
+    return str(role or '').lower() in ("admin", "super_admin")
+
+def get_current_super_admin_required_from_cookie(request: Request) -> Dict[str, Any]:
+    staff = get_current_staff_required_from_cookie(request)
+    if not is_super_admin_role(staff.get('role')):
+        raise HTTPException(status_code=403, detail="需要总管理员权限")
+    return staff
 
 def get_current_user_required_from_cookie(request: Request) -> Dict[str, Any]:
     """从Cookie获取当前用户（必需）"""

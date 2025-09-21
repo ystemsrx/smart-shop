@@ -1,12 +1,25 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 
 // 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders'
 export default function Nav({ active = 'home' }) {
   const { user, logout } = useAuth();
+  const { location, openLocationModal } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMenu = () => setMobileOpen(false);
+
+  const isAdmin = user?.type === 'admin';
+  const isAgent = user?.type === 'agent';
+  const isStaff = isAdmin || isAgent;
+  const ordersNavKey = isAdmin ? 'orders-admin' : 'orders-agent';
+  const ordersNavLink = isAdmin ? '/admin/orders' : '/agent/orders';
+  const agentProductsNavKey = 'products-agent';
+  const agentProductsLink = '/agent/products';
+  const locationLabel = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '未选择地址';
 
   const linkCls = (name) => {
     const base = 'px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ease-out flex items-center gap-2';
@@ -67,20 +80,28 @@ export default function Nav({ active = 'home' }) {
               {/* 桌面导航菜单 */}
               <div className="hidden md:flex items-center space-x-2">
                 {/* 管理员专用导航 */}
-                {user && user.type === 'admin' ? (
+                {isStaff ? (
                   <>
-                    <Link href="/shop" className={linkCls('shop')}>
-                      <i className="fas fa-store"></i>
-                      <span>商品商城</span>
-                    </Link>
-                    <Link href="/admin/dashboard" className={linkCls('dashboard')}>
+                    <Link href={isAdmin ? "/admin/dashboard" : "/agent/dashboard"} className={linkCls('dashboard')}>
                       <i className="fas fa-chart-line"></i>
                       <span>仪表盘</span>
                     </Link>
-                    <Link href="/admin" className={linkCls('admin')}>
-                      <i className="fas fa-cog"></i>
-                      <span>管理后台</span>
+                    {isAgent && (
+                      <Link href={agentProductsLink} className={linkCls(agentProductsNavKey)}>
+                        <i className="fas fa-box-open"></i>
+                        <span>商品管理</span>
+                      </Link>
+                    )}
+                    <Link href={ordersNavLink} className={linkCls(ordersNavKey)}>
+                      <i className="fas fa-clipboard-list"></i>
+                      <span>订单管理</span>
                     </Link>
+                    {isAdmin && (
+                      <Link href="/admin" className={linkCls('admin')}>
+                        <i className="fas fa-cog"></i>
+                        <span>管理后台</span>
+                      </Link>
+                    )}
                   </>
                 ) : (
                   /* 普通用户导航 */
@@ -114,25 +135,37 @@ export default function Nav({ active = 'home' }) {
             <div className="flex items-center space-x-4">
               {user ? (
                 <div className="flex items-center space-x-3">
-                  {/* 用户信息 */}
                   <div className="hidden sm:flex items-center space-x-3 px-3 py-2 rounded-xl bg-white/50 backdrop-blur-sm border border-white/20">
-                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                       <i className="fas fa-user text-white text-sm"></i>
-                     </div>
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
+                      <i className="fas fa-user text-white text-sm"></i>
+                    </div>
                     <div className="text-sm">
                       <div className="font-medium text-gray-900">{user.name}</div>
-                      {user.type === 'admin' && (
+                      {isAdmin && (
                         <div className="flex items-center gap-1 text-xs text-red-600">
                           <i className="fas fa-crown"></i>
                           <span>管理员</span>
                         </div>
                       )}
+                      {isAgent && (
+                        <div className="flex items-center gap-1 text-xs text-amber-600">
+                          <i className="fas fa-user-tie"></i>
+                          <span>代理</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* 管理员不需要额外按钮，因为导航栏已包含所有菜单 */}
+                  {user.type === 'user' && (
+                    <button
+                      onClick={() => { openLocationModal(); closeMenu(); }}
+                      className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/60 hover:bg-white/80 text-gray-700 text-sm font-medium transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    >
+                      <i className="fas fa-location-dot text-emerald-500"></i>
+                      <span>{locationLabel}</span>
+                    </button>
+                  )}
 
-                  {/* 退出按钮 */}
                   <button
                     onClick={() => { logout(); closeMenu(); }}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 text-sm font-medium transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
@@ -176,10 +209,16 @@ export default function Nav({ active = 'home' }) {
                    </div>
                   <div>
                     <div className="font-semibold text-gray-900">{user.name}</div>
-                    {user.type === 'admin' && (
+                    {isAdmin && (
                       <div className="flex items-center gap-1 text-sm text-red-600">
                         <i className="fas fa-crown"></i>
                         <span>管理员</span>
+                      </div>
+                    )}
+                    {isAgent && (
+                      <div className="flex items-center gap-1 text-sm text-amber-600">
+                        <i className="fas fa-user-tie"></i>
+                        <span>代理</span>
                       </div>
                     )}
                   </div>
@@ -187,23 +226,45 @@ export default function Nav({ active = 'home' }) {
               </div>
             )}
 
+            {user && user.type === 'user' && (
+              <button
+                onClick={() => { openLocationModal(); closeMenu(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 transition-all duration-200"
+              >
+                <i className="fas fa-location-dot w-5"></i>
+                <div className="flex-1 text-left">
+                  <div className="text-sm font-semibold">当前地址</div>
+                  <div className="text-xs text-emerald-600 mt-0.5">{locationLabel}</div>
+                </div>
+                <i className="fas fa-pen"></i>
+              </button>
+            )}
+
             {/* 导航菜单 */}
             <div className="space-y-2">
               {/* 管理员专用菜单 */}
-              {user && user.type === 'admin' ? (
+              {isStaff ? (
                 <>
-                  <Link href="/shop" onClick={closeMenu} className={`${active === 'shop' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                    <i className="fas fa-store w-5"></i>
-                    <span className="font-medium">商品商城</span>
-                  </Link>
-                  <Link href="/admin/dashboard" onClick={closeMenu} className={`${active === 'dashboard' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                  <Link href={isAdmin ? "/admin/dashboard" : "/agent/dashboard"} onClick={closeMenu} className={`${active === 'dashboard' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
                     <i className="fas fa-chart-line w-5"></i>
                     <span className="font-medium">仪表盘</span>
                   </Link>
-                  <Link href="/admin" onClick={closeMenu} className={`${active === 'admin' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                    <i className="fas fa-cog w-5"></i>
-                    <span className="font-medium">管理后台</span>
+                  {isAgent && (
+                    <Link href={agentProductsLink} onClick={closeMenu} className={`${active === agentProductsNavKey ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                      <i className="fas fa-box-open w-5"></i>
+                      <span className="font-medium">商品管理</span>
+                    </Link>
+                  )}
+                  <Link href={ordersNavLink} onClick={closeMenu} className={`${active === ordersNavKey ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                    <i className="fas fa-clipboard-list w-5"></i>
+                    <span className="font-medium">订单管理</span>
                   </Link>
+                  {isAdmin && (
+                    <Link href="/admin" onClick={closeMenu} className={`${active === 'admin' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                      <i className="fas fa-cog w-5"></i>
+                      <span className="font-medium">管理后台</span>
+                    </Link>
+                  )}
                 </>
               ) : (
                 /* 普通用户菜单 */
@@ -259,4 +320,3 @@ export default function Nav({ active = 'home' }) {
     </>
   );
 }
-
