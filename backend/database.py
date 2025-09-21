@@ -2366,7 +2366,9 @@ class OrderDB:
         offset: int = 0,
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
-        building_ids: Optional[List[str]] = None
+        building_ids: Optional[List[str]] = None,
+        exclude_address_ids: Optional[List[str]] = None,
+        exclude_building_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         获取订单（管理员用），支持按订单ID模糊查询与分页。
@@ -2401,6 +2403,18 @@ class OrderDB:
             if scope_clause:
                 where_sql.append(scope_clause)
                 params.extend(scope_params)
+
+            excluded_addresses = [aid for aid in (exclude_address_ids or []) if aid]
+            excluded_buildings = [bid for bid in (exclude_building_ids or []) if bid]
+
+            if excluded_buildings:
+                placeholders = ','.join('?' * len(excluded_buildings))
+                where_sql.append(f'(o.building_id IS NULL OR o.building_id NOT IN ({placeholders}))')
+                params.extend(excluded_buildings)
+            if excluded_addresses:
+                placeholders = ','.join('?' * len(excluded_addresses))
+                where_sql.append(f'(o.address_id IS NULL OR o.address_id NOT IN ({placeholders}))')
+                params.extend(excluded_addresses)
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
@@ -2563,7 +2577,9 @@ class OrderDB:
     def get_order_stats(
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
-        building_ids: Optional[List[str]] = None
+        building_ids: Optional[List[str]] = None,
+        exclude_address_ids: Optional[List[str]] = None,
+        exclude_building_ids: Optional[List[str]] = None
     ) -> Dict:
         """获取订单统计信息（管理员用）"""
         with get_db_connection() as conn:
@@ -2576,6 +2592,16 @@ class OrderDB:
                 if scope_clause:
                     clauses.append(scope_clause)
                     params.extend(scope_args)
+                excluded_buildings = [bid for bid in (exclude_building_ids or []) if bid]
+                excluded_addresses = [aid for aid in (exclude_address_ids or []) if aid]
+                if excluded_buildings:
+                    placeholders = ','.join('?' * len(excluded_buildings))
+                    clauses.append(f'({alias}.building_id IS NULL OR {alias}.building_id NOT IN ({placeholders}))')
+                    params.extend(excluded_buildings)
+                if excluded_addresses:
+                    placeholders = ','.join('?' * len(excluded_addresses))
+                    clauses.append(f'({alias}.address_id IS NULL OR {alias}.address_id NOT IN ({placeholders}))')
+                    params.extend(excluded_addresses)
                 if extra_clause:
                     clauses.append(extra_clause)
                     if extra_params:

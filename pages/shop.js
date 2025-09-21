@@ -357,6 +357,7 @@ export default function Shop() {
   const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
+  const navActive = user && (user.type === 'admin' || user.type === 'agent') ? 'staff-shop' : 'shop';
   
   const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
@@ -714,7 +715,7 @@ export default function Shop() {
       </Head>
 
       {/* 顶部导航（移动端优化） */}
-      <Nav active="shop" />
+      <Nav active={navActive} />
 
       <div className="min-h-screen pt-16" style={{
         background: 'linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)'

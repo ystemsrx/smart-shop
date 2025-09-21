@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 
-// 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders'
+// 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders' | 'staff-shop' | 'staff-dashboard' | 'staff-backend'
 export default function Nav({ active = 'home' }) {
   const { user, logout } = useAuth();
   const { location, openLocationModal } = useLocation();
@@ -13,10 +13,9 @@ export default function Nav({ active = 'home' }) {
   const isAdmin = user?.type === 'admin';
   const isAgent = user?.type === 'agent';
   const isStaff = isAdmin || isAgent;
-  const ordersNavKey = isAdmin ? 'orders-admin' : 'orders-agent';
-  const ordersNavLink = isAdmin ? '/admin/orders' : '/agent/orders';
-  const agentProductsNavKey = 'products-agent';
-  const agentProductsLink = '/agent/products';
+  const staffShopLink = '/shop';
+  const staffDashboardLink = isAdmin ? '/admin/dashboard' : '/agent/dashboard';
+  const staffPortalLink = isAdmin ? '/admin' : '/agent';
   const locationLabel = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
     : '未选择地址';
@@ -82,26 +81,18 @@ export default function Nav({ active = 'home' }) {
                 {/* 管理员专用导航 */}
                 {isStaff ? (
                   <>
-                    <Link href={isAdmin ? "/admin/dashboard" : "/agent/dashboard"} className={linkCls('dashboard')}>
+                    <Link href={staffShopLink} className={linkCls('staff-shop')}>
+                      <i className="fas fa-store"></i>
+                      <span>商品商城</span>
+                    </Link>
+                    <Link href={staffDashboardLink} className={linkCls('staff-dashboard')}>
                       <i className="fas fa-chart-line"></i>
                       <span>仪表盘</span>
                     </Link>
-                    {isAgent && (
-                      <Link href={agentProductsLink} className={linkCls(agentProductsNavKey)}>
-                        <i className="fas fa-box-open"></i>
-                        <span>商品管理</span>
-                      </Link>
-                    )}
-                    <Link href={ordersNavLink} className={linkCls(ordersNavKey)}>
-                      <i className="fas fa-clipboard-list"></i>
-                      <span>订单管理</span>
+                    <Link href={staffPortalLink} className={linkCls('staff-backend')}>
+                      <i className="fas fa-cog"></i>
+                      <span>管理后台</span>
                     </Link>
-                    {isAdmin && (
-                      <Link href="/admin" className={linkCls('admin')}>
-                        <i className="fas fa-cog"></i>
-                        <span>管理后台</span>
-                      </Link>
-                    )}
                   </>
                 ) : (
                   /* 普通用户导航 */
@@ -245,26 +236,30 @@ export default function Nav({ active = 'home' }) {
               {/* 管理员专用菜单 */}
               {isStaff ? (
                 <>
-                  <Link href={isAdmin ? "/admin/dashboard" : "/agent/dashboard"} onClick={closeMenu} className={`${active === 'dashboard' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                  <Link
+                    href={staffShopLink}
+                    onClick={closeMenu}
+                    className={`${active === 'staff-shop' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}
+                  >
+                    <i className="fas fa-store w-5"></i>
+                    <span className="font-medium">商品商城</span>
+                  </Link>
+                  <Link
+                    href={staffDashboardLink}
+                    onClick={closeMenu}
+                    className={`${active === 'staff-dashboard' ? 'bg-green-50 text-green-600 border-green-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}
+                  >
                     <i className="fas fa-chart-line w-5"></i>
                     <span className="font-medium">仪表盘</span>
                   </Link>
-                  {isAgent && (
-                    <Link href={agentProductsLink} onClick={closeMenu} className={`${active === agentProductsNavKey ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                      <i className="fas fa-box-open w-5"></i>
-                      <span className="font-medium">商品管理</span>
-                    </Link>
-                  )}
-                  <Link href={ordersNavLink} onClick={closeMenu} className={`${active === ordersNavKey ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                    <i className="fas fa-clipboard-list w-5"></i>
-                    <span className="font-medium">订单管理</span>
+                  <Link
+                    href={staffPortalLink}
+                    onClick={closeMenu}
+                    className={`${active === 'staff-backend' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}
+                  >
+                    <i className="fas fa-cog w-5"></i>
+                    <span className="font-medium">管理后台</span>
                   </Link>
-                  {isAdmin && (
-                    <Link href="/admin" onClick={closeMenu} className={`${active === 'admin' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
-                      <i className="fas fa-cog w-5"></i>
-                      <span className="font-medium">管理后台</span>
-                    </Link>
-                  )}
                 </>
               ) : (
                 /* 普通用户菜单 */

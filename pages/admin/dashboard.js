@@ -697,7 +697,7 @@ const TimePeriodSelector = ({ period, onChange, className = "" }) => (
   </div>
 );
 
-function StaffDashboardPage({ role = 'admin', navActive = 'dashboard', viewAllOrdersHref }) {
+function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', viewAllOrdersHref }) {
   const router = useRouter();
   const { user, isInitialized } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -1384,7 +1384,7 @@ export default function AdminDashboardPage() {
   return (
     <StaffDashboardPage
       role="admin"
-      navActive="dashboard"
+      navActive="staff-dashboard"
       viewAllOrdersHref="/admin"
     />
   );
