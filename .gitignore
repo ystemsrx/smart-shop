@@ -12,3 +12,7 @@ chatapi/
 AGENTS.md
 lottery_config.json
 tencent*.txt
+public/
+items/
+logs/
+.pytest_cache/
