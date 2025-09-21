@@ -1297,7 +1297,7 @@ export default function AdminDashboard() {
                           {/* 总消费 */}
                           <div className="text-right">
                             <div className="text-2xl font-bold text-cyan-600">
-                              ¥{customer.total_spent}
+                              ¥{Number(customer.total_spent).toFixed(2)}
                             </div>
                             <div className="text-sm text-gray-500">
                               总消费
