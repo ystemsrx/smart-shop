@@ -2841,7 +2841,7 @@ const CouponsPanel = ({ apiPrefix }) => {
   );
 };
 
-function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'products' }) {
+function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'products' }) {
   const router = useRouter();
   const { user, logout, isInitialized } = useAuth();
   const { apiRequest } = useApi();
@@ -2890,6 +2890,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
   const [orderTotal, setOrderTotal] = useState(0);
   const [orderSearch, setOrderSearch] = useState('');
   const [orderLoading, setOrderLoading] = useState(false);
+  const [orderAgentFilter, setOrderAgentFilter] = useState('self');
+  const [orderAgentOptions, setOrderAgentOptions] = useState([]);
 
   // 地址管理相关状态
   const [addresses, setAddresses] = useState([]);
@@ -2925,6 +2927,22 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
     });
     return map;
   }, [addresses, buildingsByAddress]);
+
+  const orderAgentFilterLabel = useMemo(() => {
+    if (!isAdmin) {
+      return '我的订单';
+    }
+    const raw = (orderAgentFilter || 'self').toString();
+    const lower = raw.toLowerCase();
+    if (lower === 'all') {
+      return '全部代理订单';
+    }
+    if (lower === 'self') {
+      return `${user?.name || user?.id || '当前账号'} 的订单`;
+    }
+    const target = orderAgentOptions.find(agent => agent.id === orderAgentFilter);
+    return `${target?.name || orderAgentFilter} 的订单`;
+  }, [isAdmin, orderAgentFilter, orderAgentOptions, user]);
 
   // 楼栋管理状态（已合并到地址列表）
 
@@ -3055,7 +3073,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
       setAddresses(addressesData.data.addresses || []);
       setSelectedProducts([]); // 重新加载数据时清空选择
       // 初始加载订单第一页（分页，默认每页20）
-      await loadOrders(0, orderSearch);
+      await loadOrders(0, orderSearch, orderAgentFilter);
     } catch (err) {
       setError(err.message || '加载数据失败');
     } finally {
@@ -3063,26 +3081,46 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
     }
   };
 
-  const buildOrdersQuery = (page = 0, search = '') => {
+  const buildOrdersQuery = (page = 0, search = '', agentFilterValue = orderAgentFilter) => {
     const params = new URLSearchParams();
     params.set('limit', '20');
     const p = parseInt(page) || 0;
     params.set('offset', String(p * 20));
     const q = String(search || '').trim();
     if (q) params.set('order_id', q);
+    if (isAdmin) {
+      const rawFilter = (agentFilterValue ?? '').toString().trim();
+      const lowerFilter = rawFilter.toLowerCase();
+      if (!rawFilter || lowerFilter === 'self') {
+        params.set('agent_id', 'self');
+      } else if (lowerFilter === 'all') {
+        params.set('agent_id', 'all');
+      } else {
+        params.set('agent_id', rawFilter);
+      }
+    }
     return `${staffPrefix}/orders?` + params.toString();
   };
 
-  const loadOrders = async (page = orderPage, search = orderSearch) => {
+  const loadOrders = async (page = orderPage, search = orderSearch, agentFilterValue = orderAgentFilter) => {
     setOrderLoading(true);
     try {
-      const url = buildOrdersQuery(page, search);
+      const url = buildOrdersQuery(page, search, agentFilterValue);
       const res = await apiRequest(url);
       const data = res?.data || {};
       setOrders(data.orders || []);
       setOrderHasMore(!!data.has_more);
-      setOrderTotal(parseInt(data.total || 0));
+      setOrderTotal(parseInt(data.total || 0, 10) || 0);
       setOrderPage(parseInt(page) || 0);
+      if (data.stats) {
+        setOrderStats(data.stats);
+      }
+      if (typeof data.selected_agent_filter === 'string') {
+        const normalizedFilter = data.selected_agent_filter || 'self';
+        if (normalizedFilter !== orderAgentFilter) {
+          setOrderAgentFilter(normalizedFilter);
+        }
+      }
     } catch (e) {
       alert(e.message || '加载订单失败');
     } finally {
@@ -3092,19 +3130,26 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
 
   // 刷新/搜索/翻页（订单）
   const handleOrderRefresh = async () => {
-    await loadOrders(orderPage, orderSearch);
+    await loadOrders(orderPage, orderSearch, orderAgentFilter);
   };
   const handleOrderSearchSubmit = async () => {
-    await loadOrders(0, orderSearch);
+    await loadOrders(0, orderSearch, orderAgentFilter);
   };
   const handlePrevPage = async () => {
     const next = Math.max(0, (orderPage || 0) - 1);
-    await loadOrders(next, orderSearch);
+    await loadOrders(next, orderSearch, orderAgentFilter);
   };
   const handleNextPage = async () => {
     if (!orderHasMore) return;
     const next = (orderPage || 0) + 1;
-    await loadOrders(next, orderSearch);
+    await loadOrders(next, orderSearch, orderAgentFilter);
+  };
+
+  const handleOrderAgentFilterChange = async (nextFilter) => {
+    const normalized = (nextFilter || 'self').toString();
+    setOrderAgentFilter(normalized);
+    setOrderStatusFilter('全部');
+    await loadOrders(0, orderSearch, normalized);
   };
 
   // 地址操作
@@ -3143,16 +3188,27 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
   const loadAgents = async () => {
     if (!isAdmin) {
       setAgents([]);
+      setOrderAgentOptions([]);
       return;
     }
     setAgentLoading(true);
     setAgentError('');
     try {
-      const res = await apiRequest('/admin/agents');
-      setAgents(res.data?.agents || []);
+      const res = await apiRequest('/admin/agents?include_inactive=1');
+      const list = res.data?.agents || [];
+      setAgents(list);
+      const normalized = list
+        .filter(item => item && item.id)
+        .map(item => ({
+          id: item.id,
+          name: item.name || item.id,
+          isActive: item.is_active !== false
+        }));
+      setOrderAgentOptions(normalized);
     } catch (e) {
       setAgents([]);
       setAgentError(e.message || '获取代理列表失败');
+      setOrderAgentOptions([]);
     } finally {
       setAgentLoading(false);
     }
@@ -3617,7 +3673,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
         body: JSON.stringify({ status: newStatus })
       });
       // 重新加载当前页订单数据
-      await loadOrders(orderPage, orderSearch);
+      await loadOrders(orderPage, orderSearch, orderAgentFilter);
     } catch (err) {
       alert(err.message || '更新订单状态失败');
     }
@@ -3630,7 +3686,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
         method: 'PATCH',
         body: JSON.stringify({ payment_status: newPaymentStatus })
       });
-      await loadOrders(orderPage, orderSearch);
+      await loadOrders(orderPage, orderSearch, orderAgentFilter);
     } catch (err) {
       alert(err.message || '更新支付状态失败');
     }
@@ -3659,7 +3715,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
         body: JSON.stringify({ order_ids: orderIds })
       });
       setSelectedOrders([]);
-      await loadOrders(orderPage, orderSearch);
+      await loadOrders(orderPage, orderSearch, orderAgentFilter);
       alert('已删除所选订单');
     } catch (e) {
       alert(e.message || '批量删除订单失败');
@@ -3999,6 +4055,28 @@ function StaffPortalPage({ role = 'admin', navActive = 'admin', initialTab = 'pr
               <div className="mb-6">
                 <h2 className="text-lg font-medium text-gray-900">订单管理</h2>
                 <p className="text-sm text-gray-600 mt-1">管理和跟踪用户订单</p>
+                {isAdmin && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <label className="text-sm font-medium text-gray-700">查看范围</label>
+                    <select
+                      className="min-w-[200px] rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={orderAgentFilter}
+                      onChange={(e) => handleOrderAgentFilterChange(e.target.value)}
+                      disabled={orderLoading}
+                    >
+                      <option value="self">我的订单（{user?.name || user?.id || '当前账号'}）</option>
+                      <option value="all">全部订单</option>
+                      {orderAgentOptions.map(agent => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name}{agent.isActive ? '' : '（停用）'}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">
+                      {orderAgentFilterLabel}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* 订单状态统计 */}
@@ -4530,7 +4608,7 @@ export default function AdminPage() {
   return (
     <StaffPortalPage
       role="admin"
-      navActive="admin"
+      navActive="staff-backend"
       initialTab="products"
     />
   );

@@ -4,7 +4,7 @@ export default function AgentProductsPage() {
   return (
     <StaffPortal
       role="agent"
-      navActive="products-agent"
+      navActive="staff-backend"
       initialTab="products"
     />
   );

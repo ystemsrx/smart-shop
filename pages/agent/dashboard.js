@@ -4,7 +4,7 @@ export default function AgentDashboardPage() {
   return (
     <StaffDashboard
       role="agent"
-      navActive="dashboard"
+      navActive="staff-dashboard"
       viewAllOrdersHref="/agent/orders"
     />
   );

@@ -4,7 +4,7 @@ import re
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -377,6 +377,10 @@ def build_product_listing_for_staff(
     # 仅对拥有超级管理员权限的账号展示未归属商品，代理查看范围严格限制为自身数据
     include_unassigned = bool(scope.get('is_super_admin'))
 
+    if staff.get('type') != 'agent':
+        owner_ids = []
+        include_unassigned = True
+
     if query:
         products = ProductDB.search_products(
             query,
@@ -497,6 +501,17 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
     resolved_address_id = address_id
     resolved_building_id = building_id
     agent_id: Optional[str] = None
+
+    staff = get_current_staff_from_cookie(request)
+    if staff and staff.get('type') == 'agent':
+        staff_agent_id = staff.get('id')
+        owner_ids = [staff_agent_id] if staff_agent_id else None
+        return {
+            "agent_id": staff_agent_id,
+            "address_id": None,
+            "building_id": None,
+            "owner_ids": owner_ids
+        }
 
     user = get_current_user_from_cookie(request)
     if user:
@@ -2193,7 +2208,7 @@ async def get_admin_categories(request: Request):
             CategoryDB.cleanup_orphan_categories()
         except Exception:
             pass
-        categories = CategoryDB.get_all_categories()
+        categories = CategoryDB.get_categories_with_products(owner_ids=[], include_unassigned=True)
         return success_response("获取分类成功", {"categories": categories})
     
     except Exception as e:
@@ -2581,7 +2596,13 @@ async def get_order_detail(order_id: str, request: Request):
 # ==================== 管理员订单路由 ====================
 
 @app.get("/admin/orders")
-async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Optional[int] = 0, order_id: Optional[str] = None):
+async def get_all_orders(
+    request: Request,
+    limit: Optional[int] = 20,
+    offset: Optional[int] = 0,
+    order_id: Optional[str] = None,
+    agent_id: Optional[str] = None
+):
     """获取订单（管理员）——支持分页与按订单ID精确搜索。
     默认每次最多返回20条，通过翻页继续获取，避免一次拿全表。
     """
@@ -2605,13 +2626,67 @@ async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Op
             offset_val = 0
 
         scope = build_staff_scope(staff)
+
+        requested_agent_param = (agent_id or '').strip()
+        selected_agent_id = scope.get('agent_id')
+        selected_address_ids = scope.get('address_ids')
+        selected_building_ids = scope.get('building_ids')
+        exclude_address_ids: Optional[List[str]] = None
+        exclude_building_ids: Optional[List[str]] = None
+        selected_filter = requested_agent_param or 'self'
+
+        if staff.get('type') == 'agent':
+            selected_agent_id = staff.get('id')
+            selected_filter = 'self'
+        else:
+            if not requested_agent_param:
+                requested_agent_param = 'self'
+
+            lower_param = requested_agent_param.lower()
+            if lower_param == 'all':
+                selected_agent_id = None
+                selected_address_ids = None
+                selected_building_ids = None
+                selected_filter = 'all'
+            elif lower_param == 'self':
+                selected_agent_id = None
+                selected_address_ids = None
+                selected_building_ids = None
+                selected_filter = 'self'
+                assignments = AgentAssignmentDB.list_agents_with_buildings(include_disabled=True)
+                address_acc: Set[str] = set()
+                building_acc: Set[str] = set()
+                for entry in assignments:
+                    for record in entry.get('buildings') or []:
+                        addr_id = record.get('address_id')
+                        bld_id = record.get('building_id')
+                        if addr_id:
+                            address_acc.add(addr_id)
+                        if bld_id:
+                            building_acc.add(bld_id)
+                if address_acc:
+                    exclude_address_ids = list(address_acc)
+                if building_acc:
+                    exclude_building_ids = list(building_acc)
+            else:
+                target_agent = AdminDB.get_admin(requested_agent_param, include_disabled=True)
+                if not target_agent:
+                    raise HTTPException(status_code=400, detail="指定的代理不存在")
+                selected_agent_id = requested_agent_param
+                selected_filter = requested_agent_param
+                assignments = AgentAssignmentDB.get_buildings_for_agent(requested_agent_param)
+                selected_address_ids = list({record.get('address_id') for record in assignments if record.get('address_id')}) or None
+                selected_building_ids = [record.get('building_id') for record in assignments if record.get('building_id')]
+
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
             limit=limit_val,
             offset=offset_val,
-            agent_id=scope.get('agent_id'),
-            address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            agent_id=selected_agent_id,
+            address_ids=selected_address_ids,
+            building_ids=selected_building_ids,
+            exclude_address_ids=exclude_address_ids,
+            exclude_building_ids=exclude_building_ids
         )
         orders = page_data.get("orders", [])
         total = int(page_data.get("total", 0))
@@ -2622,9 +2697,11 @@ async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Op
                 order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
 
         stats = OrderDB.get_order_stats(
-            agent_id=scope.get('agent_id'),
-            address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            agent_id=selected_agent_id,
+            address_ids=selected_address_ids,
+            building_ids=selected_building_ids,
+            exclude_address_ids=exclude_address_ids,
+            exclude_building_ids=exclude_building_ids
         )
         has_more = (offset_val + len(orders)) < total
         return success_response("获取订单列表成功", {
@@ -2634,7 +2711,9 @@ async def get_all_orders(request: Request, limit: Optional[int] = 20, offset: Op
             "limit": limit_val,
             "offset": offset_val,
             "has_more": has_more,
-            "scope": scope
+            "scope": scope,
+            "selected_agent_id": selected_agent_id,
+            "selected_agent_filter": selected_filter or 'self'
         })
     
     except Exception as e:
