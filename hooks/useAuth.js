@@ -20,6 +20,30 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState('');
   const [isInitialized, setIsInitialized] = useState(false);
 
+  const normalizeAccount = (payload) => {
+    if (!payload) return null;
+    if (payload.user) {
+      return { ...payload.user, type: payload.user.type || 'user' };
+    }
+    if (payload.agent) {
+      const agentInfo = payload.agent;
+      return { ...agentInfo, type: agentInfo.type || 'agent' };
+    }
+    if (payload.admin) {
+      const adminInfo = payload.admin;
+      let accountType = adminInfo.type;
+      if (!accountType) {
+        const role = (adminInfo.role || '').toLowerCase();
+        accountType = role === 'agent' ? 'agent' : 'admin';
+      }
+      return { ...adminInfo, type: accountType };
+    }
+    if (payload.type) {
+      return { ...payload };
+    }
+    return { ...payload, type: 'user' };
+  };
+
   // 检查用户登录状态
   const checkAuth = async () => {
     try {
@@ -33,11 +57,13 @@ export function AuthProvider({ children }) {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          setUser(data.data);
+          const account = normalizeAccount(data.data);
+          if (account) {
+            setUser(account);
+          }
         }
       }
     } catch (err) {
-      // 静默失败，用户未登录
       console.log('认证检查失败:', err.message);
     } finally {
       setIsInitialized(true);
@@ -45,35 +71,29 @@ export function AuthProvider({ children }) {
   };
 
   // 用户登录
-  const login = async (studentId, password, isAdmin = false) => {
+  const login = async (accountId, password) => {
     setIsLoading(true);
     setError('');
 
     try {
-      const endpoint = isAdmin ? '/auth/admin-login' : '/auth/login';
-      const payload = isAdmin 
-        ? { admin_id: studentId, password }
-        : { student_id: studentId, password };
-
-      const response = await fetch(`${API_BASE}${endpoint}`, {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ student_id: accountId, password }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // 登录成功，设置用户信息
-        const userData = isAdmin ? data.data.admin : data.data.user;
-        setUser({
-          ...userData,
-          type: isAdmin ? 'admin' : 'user'
-        });
-        return userData;
+        const account = normalizeAccount(data.data);
+        if (!account) {
+          throw new Error('无法识别登录身份');
+        }
+        setUser(account);
+        return account;
       } else {
         throw new Error(data.message || '登录失败');
       }
