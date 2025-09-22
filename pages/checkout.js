@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useCart, useApi } from '../hooks/useAuth';
+import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
@@ -16,6 +16,7 @@ export default function Checkout() {
   const { getCart, clearCart } = useCart();
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
+  const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
@@ -111,15 +112,30 @@ export default function Checkout() {
       router.push('/login');
       return;
     }
-    // 同步店铺状态
+    // 同步店铺/代理状态
     (async () => {
       try {
-        const s = await getShopStatus();
-        setShopOpen(!!s.data?.is_open);
-        setShopNote(s.data?.note || '当前打烊，暂不支持结算');
-      } catch (e) {}
+        const addressId = location?.address_id;
+        const buildingId = location?.building_id;
+        const res = await getUserAgentStatus(addressId, buildingId);
+        
+        setShopOpen(!!res.data?.is_open);
+        
+        if (res.data?.is_open) {
+          setShopNote('');
+        } else {
+          const defaultNote = res.data?.is_agent 
+            ? '当前区域代理已暂停营业，暂不支持结算' 
+            : '店铺已暂停营业，暂不支持结算';
+          setShopNote(res.data?.note || defaultNote);
+        }
+      } catch (e) {
+        // 出错时默认为营业状态
+        setShopOpen(true);
+        setShopNote('');
+      }
     })();
-  }, [user, router]);
+  }, [user, router, location]);
 
   // 加载购物车数据
   const loadCart = async () => {

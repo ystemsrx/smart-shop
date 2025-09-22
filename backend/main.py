@@ -18,7 +18,7 @@ import random
 from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB
 )
 from database import AgentAssignmentDB
 from auth import (
@@ -2006,6 +2006,87 @@ async def update_shop_status(payload: ShopStatusUpdate, request: Request):
         logger.error(f"更新店铺状态失败: {e}")
         return error_response("更新店铺状态失败", 500)
 
+# ==================== 代理独立状态管理 ====================
+
+class AgentStatusUpdateRequest(BaseModel):
+    is_open: bool
+    closed_note: Optional[str] = ''
+
+@app.get("/agent/status")
+async def get_agent_status(request: Request):
+    """获取代理的营业状态"""
+    agent = get_current_agent_from_cookie(request)
+    if not agent:
+        return error_response("需要代理权限", 403)
+    
+    try:
+        status = AgentStatusDB.get_agent_status(agent['id'])
+        return success_response("获取代理状态成功", {
+            "is_open": bool(status.get('is_open', 1)),
+            "closed_note": status.get('closed_note', '')
+        })
+    except Exception as e:
+        logger.error(f"获取代理状态失败: {e}")
+        return error_response("获取代理状态失败", 500)
+
+@app.patch("/agent/status")
+async def update_agent_status(payload: AgentStatusUpdateRequest, request: Request):
+    """更新代理的营业状态"""
+    agent = get_current_agent_from_cookie(request)
+    if not agent:
+        return error_response("需要代理权限", 403)
+    
+    try:
+        success = AgentStatusDB.update_agent_status(
+            agent['id'], 
+            payload.is_open, 
+            payload.closed_note or ''
+        )
+        if success:
+            return success_response("代理状态已更新", {
+                "is_open": payload.is_open,
+                "closed_note": payload.closed_note or ''
+            })
+        else:
+            return error_response("更新代理状态失败", 500)
+    except Exception as e:
+        logger.error(f"更新代理状态失败: {e}")
+        return error_response("更新代理状态失败", 500)
+
+@app.get("/shop/agent-status")
+async def get_user_agent_status(
+    request: Request,
+    address_id: Optional[str] = None, 
+    building_id: Optional[str] = None
+):
+    """获取用户所属代理的营业状态"""
+    try:
+        # 使用现有的 resolve_shopping_scope 函数获取用户所属代理
+        scope = resolve_shopping_scope(request, address_id, building_id)
+        agent_id = scope.get('agent_id')
+        
+        if not agent_id:
+            # 没有对应代理，返回全局店铺状态
+            is_open = SettingsDB.get('shop_is_open', '1') != '0'
+            note = SettingsDB.get('shop_closed_note', '')
+            return success_response("获取店铺状态成功", {
+                "is_open": is_open,
+                "note": note,
+                "is_agent": False
+            })
+        
+        # 有对应代理，返回代理状态
+        status = AgentStatusDB.get_agent_status(agent_id)
+        return success_response("获取代理状态成功", {
+            "is_open": bool(status.get('is_open', 1)),
+            "note": status.get('closed_note', ''),
+            "is_agent": True,
+            "agent_id": agent_id
+        })
+    except Exception as e:
+        logger.error(f"获取用户代理状态失败: {e}")
+        return error_response("获取状态失败", 500)
+
 # ==================== 规格管理（管理员） ====================
 
 class VariantCreate(BaseModel):
@@ -2624,17 +2705,31 @@ async def create_order(
     user = get_current_user_required_from_cookie(request)
 
     try:
-        # 获取用户购物车
-        cart_data = CartDB.get_cart(user["id"])
-        if not cart_data or not cart_data["items"]:
-            return error_response("购物车为空，无法创建订单", 400)
-
         shipping_info = dict(order_request.shipping_info or {})
         scope = resolve_shopping_scope(
             request,
             address_id=shipping_info.get('address_id'),
             building_id=shipping_info.get('building_id')
         )
+
+        # 检查代理打烊状态
+        agent_id = scope.get('agent_id')
+        if agent_id:
+            # 有对应代理，检查代理是否打烊
+            if not AgentStatusDB.is_agent_open(agent_id):
+                closed_note = AgentStatusDB.get_agent_closed_note(agent_id)
+                return error_response(f"当前区域代理已暂停营业。{closed_note}", 400)
+        else:
+            # 没有对应代理，检查全局店铺状态
+            is_open = SettingsDB.get('shop_is_open', '1') != '0'
+            if not is_open:
+                closed_note = SettingsDB.get('shop_closed_note', '')
+                return error_response(f"店铺已暂停营业。{closed_note}", 400)
+
+        # 获取用户购物车
+        cart_data = CartDB.get_cart(user["id"])
+        if not cart_data or not cart_data["items"]:
+            return error_response("购物车为空，无法创建订单", 400)
 
         if not scope.get('building_id'):
             return error_response("请先选择收货地址", 400)

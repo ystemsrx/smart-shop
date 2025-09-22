@@ -1,12 +1,102 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useApi, useAdminShop } from '../hooks/useAuth';
+import { useAuth, useApi, useAdminShop, useAgentStatus } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
 import Nav from '../components/Nav';
 
+
+// 代理状态卡片（打烊/营业）
+const AgentStatusCard = () => {
+  const { getStatus, updateStatus } = useAgentStatus();
+  const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(true);
+  const [closedNote, setClosedNote] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getStatus();
+        setIsOpen(!!s.data?.is_open);
+        setClosedNote(s.data?.closed_note || '');
+      } catch (e) {
+        console.error('获取代理状态失败:', e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const toggle = async () => {
+    const next = !isOpen;
+    setIsOpen(next);
+    try { 
+      await updateStatus(next, closedNote); 
+    } catch (e) {
+      console.error('更新代理状态失败:', e);
+      setIsOpen(!next); // 恢复之前的状态
+    }
+  };
+
+  const saveNote = async () => {
+    try { 
+      await updateStatus(isOpen, closedNote); 
+      alert('提示已更新'); 
+    } catch (e) {
+      console.error('保存提示失败:', e);
+      alert('保存提示失败');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+          <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
+      <div>
+        <div className="text-sm text-gray-600">代理状态</div>
+        <div className={`mt-1 text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
+          {isOpen ? '营业中' : '打烊中'}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="打烊提示语（可选）"
+            value={closedNote}
+            onChange={(e) => setClosedNote(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
+          />
+          <button 
+            onClick={saveNote} 
+            className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
+          >
+            保存提示
+          </button>
+        </div>
+      </div>
+      <button
+        onClick={toggle}
+        className={`px-4 py-2 rounded-md text-white font-semibold ${
+          isOpen 
+            ? 'bg-red-600 hover:bg-red-700' 
+            : 'bg-green-600 hover:bg-green-700'
+        }`}
+      >
+        {isOpen ? '设为打烊' : '设为营业'}
+      </button>
+    </div>
+  );
+};
 
 // 店铺状态卡片（打烊/营业）
 const ShopStatusCard = () => {
@@ -3884,8 +3974,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             <p className="text-gray-600 mt-1">{isAdmin ? '管理商品、订单与系统配置。' : '管理您负责区域的商品与订单。'}</p>
           </div>
 
-          {/* 店铺状态开关 */}
+          {/* 状态开关 */}
           {isAdmin && <ShopStatusCard />}
+          {isAgent && <AgentStatusCard />}
 
 
 
