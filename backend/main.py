@@ -13,6 +13,8 @@ from pydantic import BaseModel
 import uvicorn
 import json
 import random
+from PIL import Image
+import io
 
 # 导入自定义模块
 from database import (
@@ -334,13 +336,33 @@ async def store_product_image(category: str, base_name: str, image: UploadFile) 
     os.makedirs(category_dir, exist_ok=True)
 
     timestamp = int(datetime.now().timestamp())
-    file_extension = os.path.splitext(image.filename or "")[1] or ".jpg"
-    filename = f"{base_name}_{timestamp}{file_extension}"
+    # 统一使用.webp扩展名
+    filename = f"{base_name}_{timestamp}.webp"
     file_path = os.path.join(category_dir, filename)
 
+    # 读取并转换图片为webp格式
     content = await image.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    try:
+        # 使用PIL打开图片
+        img = Image.open(io.BytesIO(content))
+        
+        # 如果图片有RGBA模式，转换为RGB模式（webp支持更好）
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # 创建白色背景
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # 保存为webp格式，使用用户指定的参数
+        img.save(file_path, "WEBP", quality=40, method=6, optimize=True)
+        
+    except Exception as e:
+        logger.error(f"图片处理失败: {e}")
+        raise HTTPException(status_code=400, detail=f"图片处理失败: {str(e)}")
 
     relative_path = f"items/{safe_category}/{filename}"
     return relative_path, file_path
