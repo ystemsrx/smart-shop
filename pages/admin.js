@@ -1459,8 +1459,17 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-lg font-medium text-gray-900">商品列表</h3>
-        {selectedProducts.length > 0 && (
-          <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
+          {/* 刷新按钮 */}
+          <button
+            onClick={onRefresh}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            <i className="fas fa-sync-alt mr-2"></i>
+            刷新
+          </button>
+          {selectedProducts.length > 0 && (
+            <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">已选择 {selectedProducts.length} 件商品</span>
             {/* 批量折扣设置 */}
             <div className="flex items-center space-x-2">
@@ -1495,7 +1504,8 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
               批量删除
             </button>
           </div>
-        )}
+          )}
+        </div>
       </div>
       
       <div className="overflow-x-auto">
@@ -2484,8 +2494,51 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
   );
 };
 
+// 通用模态组件
+const Modal = ({ isOpen, onClose, title, children, size = "large" }) => {
+  if (!isOpen) return null;
+
+  const sizeClasses = {
+    small: "max-w-md",
+    medium: "max-w-lg", 
+    large: "max-w-4xl",
+    xlarge: "max-w-6xl"
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex min-h-screen items-center justify-center p-4">
+        {/* 背景遮罩 */}
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+          onClick={onClose}
+        />
+        
+        {/* 模态内容 */}
+        <div className={`relative w-full ${sizeClasses[size]} bg-white rounded-lg shadow-xl transform transition-all`}>
+          {/* 标题栏 */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 focus:outline-none"
+            >
+              <i className="fas fa-times text-xl"></i>
+            </button>
+          </div>
+          
+          {/* 内容区域 */}
+          <div className="p-6 max-h-[80vh] overflow-y-auto">
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 添加商品表单组件
-const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
+const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -2495,6 +2548,9 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
     cost: ''
   });
   const [imageFile, setImageFile] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [newVariantName, setNewVariantName] = useState('');
+  const [newVariantStock, setNewVariantStock] = useState(0);
 
   const handleInputChange = (e) => {
     setFormData({
@@ -2538,6 +2594,37 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
     }
   };
 
+  // 变体管理函数
+  const addVariant = () => {
+    if (!newVariantName.trim()) {
+      alert('请输入变体名称');
+      return;
+    }
+    
+    if (variants.some(v => v.name === newVariantName.trim())) {
+      alert('变体名称已存在');
+      return;
+    }
+    
+    setVariants([...variants, {
+      id: Date.now(), // 临时ID
+      name: newVariantName.trim(),
+      stock: parseInt(newVariantStock) || 0
+    }]);
+    setNewVariantName('');
+    setNewVariantStock(0);
+  };
+  
+  const removeVariant = (id) => {
+    setVariants(variants.filter(v => v.id !== id));
+  };
+  
+  const updateVariantStock = (id, newStock) => {
+    setVariants(variants.map(v => 
+      v.id === id ? { ...v, stock: parseInt(newStock) || 0 } : v
+    ));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     
@@ -2565,23 +2652,13 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
       ...formData,
       price,
       stock,
-      image: imageFile
+      image: imageFile,
+      variants // 传递变体数据
     });
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-lg font-medium text-gray-900">添加新商品</h3>
-        <button
-          onClick={onCancel}
-          className="text-gray-400 hover:text-gray-600"
-        >
-          ×
-        </button>
-      </div>
-      
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2688,6 +2765,81 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
           />
         </div>
         
+        {/* 商品变体管理 */}
+        <div className="border-t border-gray-200 pt-6">
+          <h4 className="text-sm font-medium text-gray-900 mb-4">商品变体（可选）</h4>
+          
+          {/* 变体列表 */}
+          {variants.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {variants.map((variant) => (
+                <div key={variant.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm font-medium text-gray-900">{variant.name}</span>
+                    <span className="text-sm text-gray-500">库存: {variant.stock}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={variant.stock}
+                      onChange={(e) => updateVariantStock(variant.id, e.target.value)}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeVariant(variant.id)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* 添加新变体 */}
+          <div className="flex items-end space-x-3">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                变体名称
+              </label>
+              <input
+                type="text"
+                value={newVariantName}
+                onChange={(e) => setNewVariantName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="例如: 红色、大号、500ml"
+              />
+            </div>
+            <div className="w-24">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                库存
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={newVariantStock}
+                onChange={(e) => setNewVariantStock(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={addVariant}
+              className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm font-medium hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            >
+              添加变体
+            </button>
+          </div>
+          
+          <p className="text-xs text-gray-500 mt-2">
+            变体可以用来区分同一商品的不同规格、颜色、尺寸等。如果不需要变体，可以直接跳过。
+          </p>
+        </div>
+        
         <div className="flex space-x-3 pt-4">
           <button
             type="submit"
@@ -2705,7 +2857,6 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel }) => {
           </button>
         </div>
       </form>
-    </div>
   );
 };
 
@@ -3315,6 +3466,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [products, setProducts] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -3942,6 +4095,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         formData.append('image', productData.image);
       }
       
+      // 添加variants数据
+      if (productData.variants && productData.variants.length > 0) {
+        formData.append('variants', JSON.stringify(productData.variants));
+      }
+      
       await apiRequest(`${staffPrefix}/products`, {
         method: 'POST',
         body: formData,
@@ -3949,7 +4107,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       });
       
       alert('商品添加成功！');
-      setShowAddForm(false);
+      setShowAddModal(false);
       await loadData(); // 重新加载数据
       
     } catch (err) {
@@ -3994,6 +4152,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       
       alert('商品更新成功！');
       setEditingProduct(null);
+      setShowEditModal(false);
       await loadData(); // 重新加载数据
       
     } catch (err) {
@@ -4455,10 +4614,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               <div className="mb-6 flex justify-between items-center">
                 <h2 className="text-lg font-medium text-gray-900">商品管理</h2>
                 <button
-                  onClick={() => setShowAddForm(!showAddForm)}
+                  onClick={() => setShowAddModal(true)}
                   className="bg-indigo-600 text-white px-4 py-2 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 >
-                  {showAddForm ? '取消添加' : '添加商品'}
+                  添加商品
                 </button>
               </div>
 
@@ -4477,29 +4636,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 ))}
               </div>
 
-          {/* 添加商品表单 */}
-          {showAddForm && (
-            <div className="mb-6">
-              <AddProductForm
-                onSubmit={handleAddProduct}
-                isLoading={isSubmitting}
-                onCancel={() => setShowAddForm(false)}
-              />
-            </div>
-          )}
-
-          {/* 编辑商品表单 */}
-          {editingProduct && (
-            <div className="mb-6">
-          <EditProductForm
-            product={editingProduct}
-            onSubmit={handleEditProduct}
-            isLoading={isSubmitting}
-            onCancel={() => setEditingProduct(null)}
-            apiPrefix={staffPrefix}
-          />
-            </div>
-          )}
+          {/* 表单已移至弹窗中 */}
 
 
 
@@ -4522,7 +4659,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                  <ProductTable 
                   products={visibleProducts} 
                   onRefresh={loadData}
-                  onEdit={setEditingProduct}
+                  onEdit={(product) => {
+                    setEditingProduct(product);
+                    setShowEditModal(true);
+                  }}
                   onDelete={handleDeleteProduct}
                   onUpdateStock={handleUpdateStock}
                   onBatchDelete={handleBatchDelete}
@@ -5262,6 +5402,45 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             </>
           )}
         </main>
+
+        {/* 添加商品弹窗 */}
+        <Modal
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          title="添加商品"
+          size="large"
+        >
+          <AddProductForm
+            onSubmit={handleAddProduct}
+            isLoading={isSubmitting}
+            onCancel={() => setShowAddModal(false)}
+            apiPrefix={staffPrefix}
+          />
+        </Modal>
+
+        {/* 编辑商品弹窗 */}
+        <Modal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingProduct(null);
+          }}
+          title="编辑商品"
+          size="large"
+        >
+          {editingProduct && (
+            <EditProductForm
+              product={editingProduct}
+              onSubmit={handleEditProduct}
+              isLoading={isSubmitting}
+              onCancel={() => {
+                setShowEditModal(false);
+                setEditingProduct(null);
+              }}
+              apiPrefix={staffPrefix}
+            />
+          )}
+        </Modal>
 
         {variantStockProduct && (
           <VariantStockModal
