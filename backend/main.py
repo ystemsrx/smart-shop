@@ -18,7 +18,7 @@ import random
 from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB
 )
 from database import AgentAssignmentDB
 from auth import (
@@ -1783,7 +1783,8 @@ async def get_cart(request: Request):
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
-        
+        owner_scope_id = get_owner_id_from_scope(scope)
+
         # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
         include_unassigned = False
 
@@ -1794,7 +1795,8 @@ async def get_cart(request: Request):
                 "items": [], 
                 "total_quantity": 0, 
                 "total_price": 0.0,
-                "scope": scope
+                "scope": scope,
+                "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id)
             })
 
         # 获取购物车中的商品信息
@@ -1857,7 +1859,8 @@ async def get_cart(request: Request):
             "total_quantity": total_quantity,
             "total_price": round(total_price, 2),
             "shipping_fee": round(shipping_fee, 2),
-            "payable_total": round(total_price + shipping_fee, 2)
+            "payable_total": round(total_price + shipping_fee, 2),
+            "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id)
         }
         
         cart_result["scope"] = scope
@@ -2704,6 +2707,7 @@ async def create_order(
 
         # 新的满额赠品系统：支持多层次门槛配置
         owner_scope_id = get_owner_id_from_scope(scope)
+        lottery_threshold = LotteryConfigDB.get_threshold(owner_scope_id)
 
         try:
             applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal, owner_scope_id)
@@ -2753,7 +2757,7 @@ async def create_order(
 
         # 若已达满10门槛，则自动附加可用抽奖奖品（不计入总价）
         rewards_attached_ids: List[str] = []
-        if items_subtotal >= 10.0:
+        if items_subtotal >= lottery_threshold:
             try:
                 rewards = RewardDB.get_eligible_rewards(
                     user["id"],
@@ -3070,7 +3074,11 @@ async def admin_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(admin)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        return success_response("获取抽奖配置成功", {"prizes": prizes})
+        threshold = LotteryConfigDB.get_threshold(owner_id)
+        return success_response("获取抽奖配置成功", {
+            "prizes": prizes,
+            "threshold_amount": threshold
+        })
     except Exception as e:
         logger.error(f"读取抽奖配置失败: {e}")
         return error_response("读取抽奖配置失败", 500)
@@ -3082,7 +3090,11 @@ async def agent_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(agent)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        return success_response("获取抽奖配置成功", {"prizes": prizes})
+        threshold = LotteryConfigDB.get_threshold(owner_id)
+        return success_response("获取抽奖配置成功", {
+            "prizes": prizes,
+            "threshold_amount": threshold
+        })
     except Exception as e:
         logger.error(f"代理读取抽奖配置失败: {e}")
         return error_response("读取抽奖配置失败", 500)
@@ -3104,6 +3116,11 @@ class LotteryPrizeInput(BaseModel):
 
 class LotteryConfigUpdateRequest(BaseModel):
     prizes: List[LotteryPrizeInput] = []
+    threshold_amount: Optional[float] = None
+
+
+class LotteryThresholdUpdateRequest(BaseModel):
+    threshold_amount: float
 
 
 class AutoGiftItemInput(BaseModel):
@@ -3267,7 +3284,13 @@ async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
             saved_ids.append(saved_id)
         LotteryDB.delete_prizes_not_in(saved_ids, owner_id)
         refreshed = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        return success_response("抽奖配置已更新", {"prizes": refreshed})
+        if payload.threshold_amount is not None:
+            LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
+        threshold_value = LotteryConfigDB.get_threshold(owner_id)
+        return success_response("抽奖配置已更新", {
+            "prizes": refreshed,
+            "threshold_amount": threshold_value
+        })
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as e:
@@ -3288,12 +3311,46 @@ async def agent_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
             saved_ids.append(saved_id)
         LotteryDB.delete_prizes_not_in(saved_ids, owner_id)
         refreshed = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        return success_response("抽奖配置已更新", {"prizes": refreshed})
+        if payload.threshold_amount is not None:
+            LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
+        threshold_value = LotteryConfigDB.get_threshold(owner_id)
+        return success_response("抽奖配置已更新", {
+            "prizes": refreshed,
+            "threshold_amount": threshold_value
+        })
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as e:
         logger.error(f"代理更新抽奖配置失败: {e}")
         return error_response("更新抽奖配置失败", 500)
+
+
+@app.patch("/admin/lottery-config/threshold")
+async def admin_update_lottery_threshold(payload: LotteryThresholdUpdateRequest, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        value = LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
+        return success_response("抽奖门槛已更新", {"threshold_amount": value})
+    except ValueError as ve:
+        return error_response(str(ve), 400)
+    except Exception as e:
+        logger.error(f"更新抽奖门槛失败: {e}")
+        return error_response("更新抽奖门槛失败", 500)
+
+
+@app.patch("/agent/lottery-config/threshold")
+async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest, request: Request):
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        value = LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
+        return success_response("抽奖门槛已更新", {"threshold_amount": value})
+    except ValueError as ve:
+        return error_response(str(ve), 400)
+    except Exception as e:
+        logger.error(f"代理更新抽奖门槛失败: {e}")
+        return error_response("更新抽奖门槛失败", 500)
 
 
 @app.get("/admin/auto-gifts")
@@ -3454,92 +3511,38 @@ async def public_get_auto_gifts():
 
 
 @app.get("/gift-thresholds")
-async def public_get_gift_thresholds():
-    """获取启用的满额门槛配置（公共接口）"""
+async def public_get_gift_thresholds(request: Request):
+    """获取当前配送范围内启用的满额门槛配置"""
     try:
-        # 公共接口需要获取所有启用的门槛配置，不限制owner_id
-        # 但是目前的list_all方法不支持查询所有owner的配置，我们需要修改实现
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                'SELECT * FROM gift_thresholds WHERE is_active = 1 ORDER BY threshold_amount ASC, sort_order ASC'
-            )
-            rows = cursor.fetchall() or []
-            
-            # 复用 GiftThresholdDB 的数据处理逻辑
-            thresholds = []
-            for row in rows:
-                threshold_dict = dict(row)
-                
-                # 获取关联的商品信息
-                threshold_id = threshold_dict.get('id')
-                if threshold_id:
-                    cursor.execute(
-                        '''SELECT gti.product_id, gti.variant_id,
-                              p.name as product_name, p.stock as product_stock, p.is_active as product_active,
-                              v.name as variant_name, v.stock as variant_stock
-                           FROM gift_threshold_items gti
-                           LEFT JOIN products p ON gti.product_id = p.id
-                           LEFT JOIN product_variants v ON gti.variant_id = v.id
-                           WHERE gti.threshold_id = ?
-                           ORDER BY gti.created_at ASC''',
-                        (threshold_id,)
-                    )
-                    item_rows = cursor.fetchall() or []
-                    
-                    items = []
-                    for item_row in item_rows:
-                        item_dict = dict(item_row)
-                        product_active = item_dict.get('product_active', 1) == 1
-                        variant_id = item_dict.get('variant_id')
-                        
-                        if variant_id:
-                            stock = item_dict.get('variant_stock', 0) or 0
-                        else:
-                            stock = item_dict.get('product_stock', 0) or 0
-                        
-                        available = product_active and stock > 0
-                        
-                        items.append({
-                            'product_id': item_dict.get('product_id'),
-                            'variant_id': variant_id,
-                            'product_name': item_dict.get('product_name', ''),
-                            'variant_name': item_dict.get('variant_name', ''),
-                            'stock': stock,
-                            'available': available
-                        })
-                    
-                    threshold_dict['items'] = items
-                
-                thresholds.append(threshold_dict)
-        
-        # 为公共接口简化数据，只返回必要信息
+        scope = resolve_shopping_scope(request)
+        owner_id = get_owner_id_from_scope(scope)
+        thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=False)
+
         simplified_thresholds = []
         for threshold in thresholds:
             available_items = [item for item in threshold.get('items', []) if item.get('available')]
-            
-            # 找到库存最高的商品（与实际赠送逻辑保持一致）
             selected_product_name = ''
             if available_items:
-                # 按库存排序，选择库存最高的
-                available_items.sort(key=lambda x: x.get('stock', 0), reverse=True)
-                chosen_item = available_items[0]
+                sorted_items = sorted(available_items, key=lambda x: x.get('stock', 0), reverse=True)
+                chosen_item = sorted_items[0]
                 name = chosen_item.get('product_name', '')
                 if chosen_item.get('variant_name'):
                     name += f"（{chosen_item.get('variant_name')}）"
                 selected_product_name = name
-            
-            simplified = {
+
+            simplified_thresholds.append({
                 'threshold_amount': threshold.get('threshold_amount'),
                 'gift_products': threshold.get('gift_products', 0) == 1,
                 'gift_coupon': threshold.get('gift_coupon', 0) == 1,
                 'coupon_amount': threshold.get('coupon_amount', 0),
                 'products_count': len(available_items),
-                'selected_product_name': selected_product_name  # 只显示将被赠送的商品名称
-            }
-            simplified_thresholds.append(simplified)
-        
-        return success_response("获取满额门槛配置成功", {"thresholds": simplified_thresholds})
+                'selected_product_name': selected_product_name
+            })
+
+        return success_response("获取满额门槛配置成功", {
+            "thresholds": simplified_thresholds,
+            "owner_id": owner_id
+        })
     except Exception as e:
         logger.error(f"获取满额门槛配置失败: {e}")
         return error_response("获取满额门槛配置失败", 500)
@@ -4215,8 +4218,10 @@ async def draw_lottery(order_id: str, request: Request):
                 items_subtotal += float(it.get("subtotal", 0) or 0)
             except Exception:
                 pass
-        if items_subtotal < 10.0:
-            return error_response("本单商品金额未满10元，不参与抽奖", 400)
+        owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
+        threshold_amount = LotteryConfigDB.get_threshold(owner_id)
+        if items_subtotal < threshold_amount:
+            return error_response(f"本单商品金额未满{threshold_amount:.2f}元，不参与抽奖", 400)
 
         # 每个订单仅允许一次抽奖
         existing = LotteryDB.get_draw_by_order(order_id)
@@ -4236,10 +4241,10 @@ async def draw_lottery(order_id: str, request: Request):
                 "prize_name": prize_name,
                 "already_drawn": True,
                 "names": [prize_name] if prize_name else [],
-                "prize": prize_detail
+                "prize": prize_detail,
+                "threshold_amount": threshold_amount
             })
 
-        owner_id = order.get('agent_id') or None
         prize_groups = LotteryDB.get_active_prizes_for_draw(owner_id)
         names = [p.get("display_name") for p in prize_groups if p.get("display_name")]
         weights = [max(0.0, float(p.get("weight") or 0)) for p in prize_groups]
@@ -4329,7 +4334,8 @@ async def draw_lottery(order_id: str, request: Request):
             "already_drawn": False,
             "names": names,
             "thanks_probability": round(thanks_prob_percent, 2),
-            "prize": prize_payload
+            "prize": prize_payload,
+            "threshold_amount": threshold_amount
         })
     except Exception as e:
         logger.error(f"抽奖失败: {e}")

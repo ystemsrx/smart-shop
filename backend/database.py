@@ -563,6 +563,18 @@ def init_database():
 
         try:
             cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lottery_configs (
+                    owner_id TEXT PRIMARY KEY,
+                    threshold_amount REAL NOT NULL DEFAULT 10.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute("INSERT OR IGNORE INTO lottery_configs (owner_id, threshold_amount) VALUES ('admin', 10.0)")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute('''
                 CREATE TABLE IF NOT EXISTS auto_gift_items (
                     id TEXT PRIMARY KEY,
                     product_id TEXT NOT NULL,
@@ -3125,6 +3137,76 @@ class UserProfileDB:
             return True
 
 # 抽奖与奖品相关操作
+class LotteryConfigDB:
+    """管理抽奖全局配置（如抽奖门槛）"""
+
+    DEFAULT_THRESHOLD: float = 10.0
+    MIN_THRESHOLD: float = 0.01
+
+    @staticmethod
+    def normalize_owner(owner_id: Optional[str]) -> str:
+        value = (owner_id or '').strip()
+        return value or 'admin'
+
+    @staticmethod
+    def get_threshold(owner_id: Optional[str]) -> float:
+        normalized = LotteryConfigDB.normalize_owner(owner_id)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT threshold_amount FROM lottery_configs WHERE owner_id = ?',
+                (normalized,)
+            )
+            row = cursor.fetchone()
+            if not row or row[0] is None:
+                return LotteryConfigDB.DEFAULT_THRESHOLD
+            try:
+                value = float(row[0])
+            except (TypeError, ValueError):
+                return LotteryConfigDB.DEFAULT_THRESHOLD
+            if value < LotteryConfigDB.MIN_THRESHOLD:
+                return LotteryConfigDB.DEFAULT_THRESHOLD
+            return round(value, 2)
+
+    @staticmethod
+    def set_threshold(owner_id: Optional[str], threshold_amount: float) -> float:
+        normalized = LotteryConfigDB.normalize_owner(owner_id)
+        try:
+            value = float(threshold_amount)
+        except (TypeError, ValueError):
+            raise ValueError('抽奖门槛必须为数字')
+
+        if value < LotteryConfigDB.MIN_THRESHOLD:
+            raise ValueError(f'抽奖门槛需不低于 {LotteryConfigDB.MIN_THRESHOLD}')
+
+        value = round(value, 2)
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                    INSERT INTO lottery_configs (owner_id, threshold_amount, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(owner_id) DO UPDATE SET
+                        threshold_amount = excluded.threshold_amount,
+                        updated_at = CURRENT_TIMESTAMP
+                ''',
+                (normalized, value)
+            )
+            conn.commit()
+
+        return value
+
+    @staticmethod
+    def get_config(owner_id: Optional[str]) -> Dict[str, Any]:
+        normalized = LotteryConfigDB.normalize_owner(owner_id)
+        threshold = LotteryConfigDB.get_threshold(normalized)
+        return {
+            'owner_id': normalized,
+            'threshold_amount': threshold
+        }
+
+
 class LotteryDB:
     @staticmethod
     def list_prizes(owner_id: Optional[str] = None, include_inactive: bool = False) -> List[Dict[str, Any]]:
@@ -3469,13 +3551,14 @@ class LotteryDB:
                     prize_name,
                     prize_product_id,
                     prize_quantity,
+                    owner_id,
                     prize_group_id,
                     prize_product_name,
                     prize_variant_id,
                     prize_variant_name,
                     prize_unit_price
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 draw_id,
                 order_id,
