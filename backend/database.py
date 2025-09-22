@@ -3763,7 +3763,10 @@ class RewardDB:
             exists = cursor.fetchone()
             if exists:
                 return None
-            normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else None
+            try:
+                normalized_owner = LotteryConfigDB.normalize_owner(owner_id)
+            except Exception:
+                normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else 'admin'
             rid = f"rwd_{int(datetime.now().timestamp()*1000)}"
             cursor.execute('''
                 INSERT INTO user_rewards (
@@ -3781,7 +3784,7 @@ class RewardDB:
                     source_order_id,
                     status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'eligible')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'eligible')
             ''', (
                 rid,
                 student_id,
@@ -3814,11 +3817,23 @@ class RewardDB:
             params: List[Any] = [student_id]
 
             if restrict_owner:
+                normalized_owner = None
                 if owner_id is None or (isinstance(owner_id, str) and owner_id.strip() == ''):
+                    normalized_owner = None
+                else:
+                    try:
+                        normalized_owner = LotteryConfigDB.normalize_owner(owner_id)
+                    except Exception:
+                        normalized_owner = owner_id.strip() if isinstance(owner_id, str) else None
+
+                if normalized_owner is None:
                     clauses.append('(owner_id IS NULL OR TRIM(owner_id) = "")')
+                elif normalized_owner == 'admin':
+                    clauses.append('(owner_id = ? OR owner_id IS NULL OR TRIM(owner_id) = "")')
+                    params.append(normalized_owner)
                 else:
                     clauses.append('owner_id = ?')
-                    params.append(owner_id)
+                    params.append(normalized_owner)
 
             query = 'SELECT * FROM user_rewards WHERE ' + ' AND '.join(clauses) + ' ORDER BY created_at ASC'
             cursor.execute(query, params)
@@ -3837,10 +3852,21 @@ class RewardDB:
             cursor = conn.cursor()
             placeholders = ','.join('?' * len(reward_ids))
             try:
-                normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else None
+                normalized_owner = None
+                if owner_id is None or (isinstance(owner_id, str) and owner_id.strip() == ''):
+                    normalized_owner = None
+                else:
+                    try:
+                        normalized_owner = LotteryConfigDB.normalize_owner(owner_id)
+                    except Exception:
+                        normalized_owner = owner_id.strip() if isinstance(owner_id, str) else None
+
                 if normalized_owner is None:
                     owner_condition = '(owner_id IS NULL OR TRIM(owner_id) = "")'
                     params: List[Any] = [consumed_order_id, *reward_ids, student_id]
+                elif normalized_owner == 'admin':
+                    owner_condition = '(owner_id = ? OR owner_id IS NULL OR TRIM(owner_id) = "")'
+                    params = [consumed_order_id, *reward_ids, student_id, normalized_owner]
                 else:
                     owner_condition = 'owner_id = ?'
                     params = [consumed_order_id, *reward_ids, student_id, normalized_owner]

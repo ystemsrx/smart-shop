@@ -4394,7 +4394,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
             ok = OrderDB.complete_payment_and_update_stock(order_id)
             if not ok:
                 return error_response("处理支付成功失败，可能库存不足或状态异常", 400)
-            order_owner_id = order.get('agent_id') or None
+            order_owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
             try:
                 # 清空该用户购物车
                 CartDB.update_cart(order["student_id"], {})
