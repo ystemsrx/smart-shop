@@ -115,6 +115,9 @@ def auto_migrate_database(conn) -> None:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_thresholds_owner ON gift_thresholds(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_owner ON coupons(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_settings_owner ON settings(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner ON payment_qr_codes(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner_type ON payment_qr_codes(owner_type)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_enabled ON payment_qr_codes(is_enabled)')
         logger.info("创建依赖新列的索引完成")
     except sqlite3.OperationalError as e:
         logger.warning(f"创建新索引时出错: {e}")
@@ -183,6 +186,8 @@ def auto_migrate_database(conn) -> None:
         pass
     except Exception as e:
         logger.warning(f"回填抽奖归属失败: {e}")
+    
+    # 收款码数据迁移将在 init_database 完成后进行
 
 def init_database():
     """初始化数据库表结构"""
@@ -323,6 +328,20 @@ def init_database():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(address_id, name),
                 FOREIGN KEY (address_id) REFERENCES addresses(id)
+            )
+        ''')
+
+        # 收款码表（支持管理员和代理多个收款码）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS payment_qr_codes (
+                id TEXT PRIMARY KEY,                -- 收款码ID
+                owner_id TEXT NOT NULL,             -- 所有者ID（管理员ID或代理ID）
+                owner_type TEXT NOT NULL,           -- 所有者类型（admin或agent）
+                name TEXT NOT NULL,                 -- 收款码备注名称
+                image_path TEXT NOT NULL,           -- 收款码图片路径
+                is_enabled INTEGER DEFAULT 1,      -- 是否启用（1 启用，0 禁用）
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -722,6 +741,88 @@ def init_database():
         
         conn.commit()
         logger.info("数据库表结构初始化成功")
+        
+        # 清理旧的收款码数据（确保新旧逻辑兼容）
+        try:
+            cursor = conn.cursor()
+            
+            # 检查是否存在旧的收款码数据
+            cursor.execute("SELECT COUNT(*) FROM admins WHERE payment_qr_path IS NOT NULL AND payment_qr_path != ''")
+            old_payment_count = cursor.fetchone()[0]
+            
+            if old_payment_count > 0:
+                logger.info(f"检测到 {old_payment_count} 个旧的收款码数据，开始清理...")
+                
+                # 先迁移旧数据到新表（如果尚未迁移）
+                cursor.execute('''
+                    SELECT id, name, role, payment_qr_path
+                    FROM admins
+                    WHERE payment_qr_path IS NOT NULL AND payment_qr_path != ''
+                ''')
+                
+                migrated_count = 0
+                for row in cursor.fetchall():
+                    admin_id, admin_name, role, payment_qr_path = row
+                    
+                    # 确定实际的 owner_id：管理员统一使用 'admin'，代理使用具体ID
+                    actual_owner_id = 'admin' if role in ('admin', 'super_admin') else admin_id
+                    
+                    # 检查是否已经迁移过
+                    cursor.execute('SELECT COUNT(*) FROM payment_qr_codes WHERE owner_id = ? AND owner_type = ?', 
+                                 (actual_owner_id, role))
+                    existing_count = cursor.fetchone()[0]
+                    
+                    if existing_count == 0:
+                        # 创建收款码记录
+                        import time
+                        qr_id = f"qr_{int(time.time() * 1000)}"
+                        qr_name = f"{admin_name or admin_id}的收款码"
+                        
+                        cursor.execute('''
+                            INSERT INTO payment_qr_codes 
+                            (id, owner_id, owner_type, name, image_path, is_enabled)
+                            VALUES (?, ?, ?, ?, ?, 1)
+                        ''', (qr_id, actual_owner_id, role, qr_name, payment_qr_path))
+                        
+                        migrated_count += 1
+                        logger.info(f"迁移 {role} {admin_id} 的收款码到 owner_id={actual_owner_id}: {payment_qr_path}")
+                
+                # 清理旧的收款码字段数据
+                cursor.execute("UPDATE admins SET payment_qr_path = NULL WHERE payment_qr_path IS NOT NULL")
+                
+                # 统一管理员收款码的 owner_id 为 'admin'
+                cursor.execute('''
+                    UPDATE payment_qr_codes 
+                    SET owner_id = 'admin' 
+                    WHERE owner_type = 'admin' AND owner_id != 'admin'
+                ''')
+                admin_unified_count = cursor.rowcount
+                
+                if admin_unified_count > 0:
+                    logger.info(f"统一了 {admin_unified_count} 个管理员收款码的 owner_id 为 'admin'")
+                
+                conn.commit()
+                logger.info(f"收款码数据清理完成，已迁移 {migrated_count} 个收款码，并清理了旧字段数据")
+            else:
+                logger.info("未发现旧的收款码数据，无需清理")
+                
+                # 即使没有旧数据，也要检查并统一现有管理员收款码的 owner_id
+                cursor.execute('''
+                    UPDATE payment_qr_codes 
+                    SET owner_id = 'admin' 
+                    WHERE owner_type = 'admin' AND owner_id != 'admin'
+                ''')
+                admin_unified_count = cursor.rowcount
+                
+                if admin_unified_count > 0:
+                    logger.info(f"统一了 {admin_unified_count} 个现有管理员收款码的 owner_id 为 'admin'")
+                    conn.commit()
+                
+        except Exception as e:
+            logger.warning(f"清理旧收款码数据失败: {e}")
+            conn.rollback()
+        
+        # 收款码数据迁移将在模块加载完成后单独处理
         
         # 初始化示例数据（仅在显式允许时）
         if os.getenv("DB_SEED_DEMO") == "1":
@@ -4517,7 +4618,186 @@ class AgentStatusDB:
                 return []
 
 
+# 收款码管理
+class PaymentQrDB:
+    """管理收款码的增删改查"""
+    
+    @staticmethod
+    def create_payment_qr(owner_id: str, owner_type: str, name: str, image_path: str) -> str:
+        """创建收款码"""
+        import time
+        qr_id = f"qr_{int(time.time() * 1000)}"
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO payment_qr_codes (id, owner_id, owner_type, name, image_path, is_enabled)
+                VALUES (?, ?, ?, ?, ?, 1)
+            ''', (qr_id, owner_id, owner_type, name, image_path))
+            conn.commit()
+            return qr_id
+    
+    @staticmethod
+    def get_payment_qrs(owner_id: str, owner_type: str, include_disabled: bool = False) -> List[Dict[str, Any]]:
+        """获取指定用户的收款码列表"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            where_clause = "WHERE owner_id = ? AND owner_type = ?"
+            params = [owner_id, owner_type]
+            
+            if not include_disabled:
+                where_clause += " AND is_enabled = 1"
+            
+            cursor.execute(f'''
+                SELECT id, owner_id, owner_type, name, image_path, is_enabled, created_at, updated_at
+                FROM payment_qr_codes
+                {where_clause}
+                ORDER BY created_at DESC
+            ''', params)
+            
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    @staticmethod
+    def get_enabled_payment_qrs(owner_id: str, owner_type: str) -> List[Dict[str, Any]]:
+        """获取指定用户的启用收款码列表"""
+        return PaymentQrDB.get_payment_qrs(owner_id, owner_type, include_disabled=False)
+    
+    @staticmethod
+    def get_payment_qr(qr_id: str) -> Optional[Dict[str, Any]]:
+        """获取单个收款码"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, owner_id, owner_type, name, image_path, is_enabled, created_at, updated_at
+                FROM payment_qr_codes
+                WHERE id = ?
+            ''', (qr_id,))
+            
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    @staticmethod
+    def update_payment_qr(qr_id: str, name: Optional[str] = None, image_path: Optional[str] = None) -> bool:
+        """更新收款码信息"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if name is not None:
+                updates.append("name = ?")
+                params.append(name)
+            
+            if image_path is not None:
+                updates.append("image_path = ?")
+                params.append(image_path)
+            
+            if not updates:
+                return False
+            
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(qr_id)
+            
+            cursor.execute(f'''
+                UPDATE payment_qr_codes
+                SET {", ".join(updates)}
+                WHERE id = ?
+            ''', params)
+            
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def update_payment_qr_status(qr_id: str, is_enabled: bool) -> bool:
+        """更新收款码启用状态"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE payment_qr_codes
+                SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (1 if is_enabled else 0, qr_id))
+            
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def delete_payment_qr(qr_id: str) -> bool:
+        """删除收款码"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM payment_qr_codes WHERE id = ?', (qr_id,))
+            
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def ensure_at_least_one_enabled(owner_id: str, owner_type: str) -> bool:
+        """确保至少有一个收款码启用"""
+        enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(owner_id, owner_type)
+        if len(enabled_qrs) == 0:
+            # 如果没有启用的，随机启用一个
+            all_qrs = PaymentQrDB.get_payment_qrs(owner_id, owner_type, include_disabled=True)
+            if all_qrs:
+                PaymentQrDB.update_payment_qr_status(all_qrs[0]['id'], True)
+                return True
+        return len(enabled_qrs) > 0
+    
+    @staticmethod
+    def get_random_enabled_qr(owner_id: str, owner_type: str) -> Optional[Dict[str, Any]]:
+        """随机获取一个启用的收款码"""
+        import random
+        enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(owner_id, owner_type)
+        return random.choice(enabled_qrs) if enabled_qrs else None
+
+    @staticmethod
+    def migrate_from_admin_payment_qr():
+        """从旧的admins.payment_qr_path迁移数据到新表"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 查找所有有收款码的管理员/代理
+            cursor.execute('''
+                SELECT id, name, role, payment_qr_path
+                FROM admins
+                WHERE payment_qr_path IS NOT NULL AND payment_qr_path != ''
+            ''')
+            
+            rows = cursor.fetchall()
+            migrated_count = 0
+            
+            for row in rows:
+                admin_id, admin_name, role, payment_qr_path = row
+                
+                # 检查是否已经迁移过
+                cursor.execute('SELECT COUNT(*) FROM payment_qr_codes WHERE owner_id = ? AND owner_type = ?', 
+                             (admin_id, role))
+                existing_count = cursor.fetchone()[0]
+                
+                if existing_count == 0:
+                    # 创建收款码记录
+                    qr_name = f"{admin_name or admin_id}的收款码"
+                    PaymentQrDB.create_payment_qr(admin_id, role, qr_name, payment_qr_path)
+                    migrated_count += 1
+                    
+                    logger.info(f"迁移 {role} {admin_id} 的收款码: {payment_qr_path}")
+            
+            logger.info(f"收款码数据迁移完成，共迁移 {migrated_count} 条记录")
+            return migrated_count
+
+
 if __name__ == "__main__":
     # 初始化数据库
     init_database()
+    
+    # 迁移收款码数据
+    try:
+        PaymentQrDB.migrate_from_admin_payment_qr()
+        print("收款码数据迁移完成")
+    except Exception as e:
+        print(f"迁移收款码数据失败: {e}")
+    
     print("数据库初始化完成")

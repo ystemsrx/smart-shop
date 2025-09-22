@@ -18,7 +18,8 @@ import random
 from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
-    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB
+    VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB,
+    PaymentQrDB
 )
 from database import AgentAssignmentDB
 from auth import (
@@ -1030,8 +1031,9 @@ async def startup_event():
     """应用启动时初始化"""
     logger.info("正在启动宿舍智能小商城API...")
     
-    # 初始化数据库
+    # 初始化数据库（包含收款码数据清理和迁移）
     init_database()
+    
     # 启动时清理无商品的空分类
     try:
         CategoryDB.cleanup_orphan_categories()
@@ -1731,44 +1733,381 @@ async def admin_delete_agent(agent_id: str, request: Request):
         return error_response("删除代理失败", 500)
 
 
-@app.post("/admin/agents/{agent_id}/payment-qr")
-async def admin_upload_agent_qr(agent_id: str, request: Request, file: UploadFile = File(...)):
-    staff = get_current_super_admin_required_from_cookie(request)
+# ==================== 收款码管理路由 ====================
+
+# 收款码数据模型
+class PaymentQrCreateRequest(BaseModel):
+    name: str
+    
+class PaymentQrUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    
+class PaymentQrStatusRequest(BaseModel):
+    is_enabled: bool
+
+@app.get("/admin/payment-qrs")
+async def admin_get_payment_qrs(request: Request):
+    """管理员获取收款码列表（所有管理员共享）"""
+    staff = get_current_staff_required_from_cookie(request)
     try:
-        agent = AdminDB.get_admin(agent_id, include_disabled=True)
-        if not agent or (agent.get('role') or '').lower() != 'agent':
-            return error_response("代理不存在", 404)
+        # 所有管理员统一使用 'admin' 作为 owner_id
+        qrs = PaymentQrDB.get_payment_qrs('admin', 'admin', include_disabled=True)
+        return success_response("获取收款码列表成功", {"payment_qrs": qrs})
+    except Exception as e:
+        logger.error(f"获取管理员收款码列表失败: {e}")
+        return error_response("获取收款码列表失败", 500)
+
+@app.get("/agent/payment-qrs")
+async def agent_get_payment_qrs(request: Request):
+    """代理获取自己的收款码列表"""
+    staff = get_current_staff_required_from_cookie(request)
+    if staff.get('role') != 'agent':
+        return error_response("权限不足", 403)
+    try:
+        qrs = PaymentQrDB.get_payment_qrs(staff['id'], 'agent', include_disabled=True)
+        return success_response("获取收款码列表成功", {"payment_qrs": qrs})
+    except Exception as e:
+        logger.error(f"获取代理收款码列表失败: {e}")
+        return error_response("获取收款码列表失败", 500)
+
+@app.post("/admin/payment-qrs")
+async def admin_create_payment_qr(
+    request: Request,
+    name: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """管理员创建收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    try:
         if not file or not file.filename:
             return error_response("请上传图片文件", 400)
 
-        ext = os.path.splitext(file.filename)[1].lower() or '.png'
-        safe_name = agent.get('name') or agent_id
-        safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', safe_name)
-        filename = f"{safe_name}{ext}"
+        # 验证文件类型
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in allowed_extensions:
+            return error_response("只支持图片格式：jpg, jpeg, png, gif, webp", 400)
+        
+        # 生成文件名
+        import time
+        timestamp = int(time.time() * 1000)
+        safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', name)
+        filename = f"payment_qr_{staff['id']}_{timestamp}_{safe_name}{ext}"
         target_path = os.path.join(public_dir, filename)
 
+        # 保存文件
         content = await file.read()
         with open(target_path, 'wb') as f:
             f.write(content)
 
         web_path = f"/{filename}"
-        previous = agent.get('payment_qr_path')
-        if previous and previous != web_path:
-            prev_rel = previous[1:] if previous.startswith('/') else previous
-            prev_abs = os.path.join(public_dir, prev_rel)
-            try:
-                if os.path.exists(prev_abs) and os.path.isfile(prev_abs) and prev_abs != target_path:
-                    os.remove(prev_abs)
-            except Exception:
-                logger.warning(f"删除旧收款码失败: {prev_abs}")
-
-        AdminDB.update_admin(agent_id, payment_qr_path=web_path)
-        refreshed = AdminDB.get_admin(agent_id, include_disabled=True)
-        data = serialize_agent_account(refreshed)
-        return success_response("收款码上传成功", {"agent": data})
+        
+        # 创建收款码记录（所有管理员统一使用 'admin' 作为 owner_id）
+        qr_id = PaymentQrDB.create_payment_qr('admin', 'admin', name, web_path)
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        
+        return success_response("收款码创建成功", {"payment_qr": qr})
     except Exception as e:
-        logger.error(f"上传代理收款码失败: {e}")
-        return error_response("上传收款码失败", 500)
+        logger.error(f"创建管理员收款码失败: {e}")
+        return error_response("创建收款码失败", 500)
+
+@app.post("/agent/payment-qrs")
+async def agent_create_payment_qr(
+    request: Request,
+    name: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """代理创建收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    if staff.get('role') != 'agent':
+        return error_response("权限不足", 403)
+    try:
+        if not file or not file.filename:
+            return error_response("请上传图片文件", 400)
+        
+        # 验证文件类型
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in allowed_extensions:
+            return error_response("只支持图片格式：jpg, jpeg, png, gif, webp", 400)
+        
+        # 生成文件名
+        import time
+        timestamp = int(time.time() * 1000)
+        safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', name)
+        filename = f"payment_qr_{staff['id']}_{timestamp}_{safe_name}{ext}"
+        target_path = os.path.join(public_dir, filename)
+        
+        # 保存文件
+        content = await file.read()
+        with open(target_path, 'wb') as f:
+            f.write(content)
+        
+        web_path = f"/{filename}"
+        
+        # 创建收款码记录
+        qr_id = PaymentQrDB.create_payment_qr(staff['id'], 'agent', name, web_path)
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        
+        return success_response("收款码创建成功", {"payment_qr": qr})
+    except Exception as e:
+        logger.error(f"创建代理收款码失败: {e}")
+        return error_response("创建收款码失败", 500)
+
+@app.put("/admin/payment-qrs/{qr_id}")
+async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, request: Request):
+    """管理员更新收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    try:
+        # 验证收款码所有权（所有管理员共享）
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 更新
+        if payload.name:
+            PaymentQrDB.update_payment_qr(qr_id, name=payload.name)
+        
+        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        return success_response("收款码更新成功", {"payment_qr": updated_qr})
+    except Exception as e:
+        logger.error(f"更新管理员收款码失败: {e}")
+        return error_response("更新收款码失败", 500)
+
+@app.put("/agent/payment-qrs/{qr_id}")
+async def agent_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, request: Request):
+    """代理更新收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    if staff.get('role') != 'agent':
+        return error_response("权限不足", 403)
+    try:
+        # 验证收款码所有权
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != staff['id'] or qr['owner_type'] != 'agent':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 更新
+        if payload.name:
+            PaymentQrDB.update_payment_qr(qr_id, name=payload.name)
+        
+        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        return success_response("收款码更新成功", {"payment_qr": updated_qr})
+    except Exception as e:
+        logger.error(f"更新代理收款码失败: {e}")
+        return error_response("更新收款码失败", 500)
+
+@app.patch("/admin/payment-qrs/{qr_id}/status")
+async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusRequest, request: Request):
+    """管理员更新收款码启用状态"""
+    staff = get_current_staff_required_from_cookie(request)
+    try:
+        # 验证收款码所有权（所有管理员共享）
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 如果要禁用，确保至少有一个启用的收款码
+        if not payload.is_enabled:
+            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs('admin', 'admin')
+            if len(enabled_qrs) <= 1 and qr['is_enabled'] == 1:
+                return error_response("至少需要保留一个启用的收款码", 400)
+        
+        # 更新状态
+        PaymentQrDB.update_payment_qr_status(qr_id, payload.is_enabled)
+        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
+    except Exception as e:
+        logger.error(f"更新管理员收款码状态失败: {e}")
+        return error_response("更新收款码状态失败", 500)
+
+@app.patch("/agent/payment-qrs/{qr_id}/status")
+async def agent_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusRequest, request: Request):
+    """代理更新收款码启用状态"""
+    staff = get_current_staff_required_from_cookie(request)
+    if staff.get('role') != 'agent':
+        return error_response("权限不足", 403)
+    try:
+        # 验证收款码所有权
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != staff['id'] or qr['owner_type'] != 'agent':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 如果要禁用，确保至少有一个启用的收款码
+        if not payload.is_enabled:
+            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(staff['id'], 'agent')
+            if len(enabled_qrs) <= 1 and qr['is_enabled'] == 1:
+                return error_response("至少需要保留一个启用的收款码", 400)
+        
+        # 更新状态
+        PaymentQrDB.update_payment_qr_status(qr_id, payload.is_enabled)
+        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
+    except Exception as e:
+        logger.error(f"更新代理收款码状态失败: {e}")
+        return error_response("更新收款码状态失败", 500)
+
+@app.delete("/admin/payment-qrs/{qr_id}")
+async def admin_delete_payment_qr(qr_id: str, request: Request):
+    """管理员删除收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    try:
+        # 验证收款码所有权（所有管理员共享）
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 注释掉最后一个收款码的限制，允许删除唯一收款码
+        # all_qrs = PaymentQrDB.get_payment_qrs('admin', 'admin', include_disabled=True)
+        # if len(all_qrs) <= 1:
+        #     return error_response("至少需要保留一个收款码", 400)
+        
+        # 删除文件
+        try:
+            if qr['image_path'] and qr['image_path'].startswith('/'):
+                file_path = os.path.join(public_dir, qr['image_path'][1:])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+        except Exception as e:
+            logger.warning(f"删除收款码文件失败: {e}")
+        
+        # 删除记录
+        PaymentQrDB.delete_payment_qr(qr_id)
+        
+        # 如果删除的是启用的收款码，确保还有其他启用的
+        PaymentQrDB.ensure_at_least_one_enabled('admin', 'admin')
+        
+        return success_response("收款码删除成功")
+    except Exception as e:
+        logger.error(f"删除管理员收款码失败: {e}")
+        return error_response("删除收款码失败", 500)
+
+@app.delete("/agent/payment-qrs/{qr_id}")
+async def agent_delete_payment_qr(qr_id: str, request: Request):
+    """代理删除收款码"""
+    staff = get_current_staff_required_from_cookie(request)
+    if staff.get('role') != 'agent':
+        return error_response("权限不足", 403)
+    try:
+        # 验证收款码所有权
+        qr = PaymentQrDB.get_payment_qr(qr_id)
+        if not qr or qr['owner_id'] != staff['id'] or qr['owner_type'] != 'agent':
+            return error_response("收款码不存在或无权限", 404)
+        
+        # 注释掉最后一个收款码的限制，允许删除唯一收款码
+        # all_qrs = PaymentQrDB.get_payment_qrs(staff['id'], 'agent', include_disabled=True)
+        # if len(all_qrs) <= 1:
+        #     return error_response("至少需要保留一个收款码", 400)
+        
+        # 删除文件
+        try:
+            if qr['image_path'] and qr['image_path'].startswith('/'):
+                file_path = os.path.join(public_dir, qr['image_path'][1:])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+        except Exception as e:
+            logger.warning(f"删除收款码文件失败: {e}")
+        
+        # 删除记录
+        PaymentQrDB.delete_payment_qr(qr_id)
+        
+        # 如果删除的是启用的收款码，确保还有其他启用的
+        PaymentQrDB.ensure_at_least_one_enabled(staff['id'], 'agent')
+        
+        return success_response("收款码删除成功")
+    except Exception as e:
+        logger.error(f"删除代理收款码失败: {e}")
+        return error_response("删除收款码失败", 500)
+
+# 获取支付收款码（不需要订单ID）
+@app.get("/payment-qr")
+async def get_payment_qr(address_id: str = None, building_id: str = None, request: Request = None):
+    """根据地址信息获取对应的收款码"""
+    user = get_current_user_from_cookie(request)
+    if not user:
+        return error_response("未登录", 401)
+    
+    try:
+        # 确定收款码所有者
+        qr_owner_id = None
+        qr_owner_type = None
+        
+        # 如果提供了地址信息，尝试查找对应的代理
+        if building_id:
+            from database import AgentAssignmentDB
+            assignment_map = AgentAssignmentDB.get_assignment_map_for_buildings([building_id])
+            agent_id = assignment_map.get(building_id)
+            
+            if agent_id:
+                # 有代理，使用代理的收款码
+                qr_owner_id = agent_id
+                qr_owner_type = 'agent'
+            else:
+                # 没有代理，使用管理员收款码
+                qr_owner_id = 'admin'
+                qr_owner_type = 'admin'
+        else:
+            # 没有地址信息，使用管理员收款码
+            qr_owner_id = 'admin'
+            qr_owner_type = 'admin'
+        
+        # 获取随机启用的收款码
+        qr = PaymentQrDB.get_random_enabled_qr(qr_owner_id, qr_owner_type)
+        
+        if not qr:
+            # 如果没有找到收款码，尝试从旧系统获取
+            if qr_owner_type == 'agent':
+                agent = AdminDB.get_admin(qr_owner_id)
+                if agent and agent.get('payment_qr_path'):
+                    return success_response("获取收款码成功", {
+                        "payment_qr": {
+                            "image_path": agent['payment_qr_path'],
+                            "name": f"{agent.get('name', qr_owner_id)}的收款码",
+                            "owner_type": qr_owner_type
+                        }
+                    })
+            
+            # 如果还是没有，返回默认标识
+            return success_response("获取收款码成功", {
+                "payment_qr": {
+                    "name": "无收款码",
+                    "owner_type": "default"
+                }
+            })
+        
+        return success_response("获取收款码成功", {"payment_qr": qr})
+        
+    except Exception as e:
+        logger.error(f"获取收款码失败: {e}")
+        return error_response("获取收款码失败", 500)
+
+# 获取订单收款码（保留兼容性）
+@app.get("/orders/{order_id}/payment-qr")
+async def get_order_payment_qr(order_id: str, request: Request):
+    """获取订单对应的收款码"""
+    user = get_current_user_from_cookie(request)
+    if not user:
+        return error_response("未登录", 401)
+    
+    try:
+        # 获取订单信息
+        order = OrderDB.get_order_by_id(order_id)
+        if not order:
+            return error_response("订单不存在", 404)
+        
+        # 验证订单所有权
+        if order['student_id'] != user['id']:
+            return error_response("无权限访问该订单", 403)
+        
+        # 转发到新的收款码API
+        return await get_payment_qr(
+            address_id=order.get('address_id'),
+            building_id=order.get('building_id'),
+            request=request
+        )
+        
+    except Exception as e:
+        logger.error(f"获取订单收款码失败: {e}")
+        return error_response("获取收款码失败", 500)
 
 # ==================== 购物车路由 ====================
 

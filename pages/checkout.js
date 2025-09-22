@@ -44,6 +44,8 @@ export default function Checkout() {
   // 抽奖弹窗
   const [lotteryOpen, setLotteryOpen] = useState(false);
   const [lotteryNames, setLotteryNames] = useState([]);
+  // 支付收款码
+  const [paymentQr, setPaymentQr] = useState(null);
   const [lotteryResult, setLotteryResult] = useState('');
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
@@ -69,14 +71,16 @@ export default function Checkout() {
       : lotteryThreshold.toFixed(2)
   ), [lotteryThreshold]);
 
-  // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
+  // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
     if (!locationReady) {
       alert('请先选择配送地址');
       openLocationModal();
       return;
     }
+    
     try {
+      // 创建订单（但不标记为已付款）
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
@@ -88,6 +92,7 @@ export default function Checkout() {
         building_id: location?.building_id || '',
         agent_id: location?.agent_id || ''
       };
+      
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -98,9 +103,17 @@ export default function Checkout() {
           apply_coupon: !!applyCoupon
         })
       });
-      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
+      
+      if (!orderResponse.success) {
+        throw new Error(orderResponse.message || '订单创建失败');
+      }
+      
+      // 清空购物车并跳转
       try { await clearCart(); } catch (e) {}
+      setShowPayModal(false);
+      setPaymentQr(null);
       router.push('/orders');
+      
     } catch (e) {
       alert(e.message || '创建订单失败');
     }
@@ -241,7 +254,7 @@ export default function Checkout() {
     if (!isCreatingPayment && shopOpen) handleCreatePayment();
   };
 
-  // 打开支付弹窗（不创建订单，直到点击按钮）
+  // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
     // 验证必填字段
     if (!formData.name || !formData.phone || !location || !location.address_id || !location.building_id || !formData.room) {
@@ -259,21 +272,50 @@ export default function Checkout() {
 
     setIsCreatingPayment(true);
     setError('');
+    setPaymentQr(null); // 重置收款码
+    
     try {
+      // 获取收款码（基于当前地址信息）
+      const buildingId = location?.building_id;
+      const addressId = location?.address_id;
+      
+      const qrResponse = await apiRequest(`/payment-qr?building_id=${buildingId || ''}&address_id=${addressId || ''}`);
+      
+      if (qrResponse.success && qrResponse.data?.payment_qr) {
+        setPaymentQr(qrResponse.data.payment_qr);
+      } else {
+        // 没有收款码
+        setPaymentQr({
+          owner_type: 'default',
+          name: "无收款码"
+        });
+      }
+      
+      // 显示支付弹窗
+      setShowPayModal(true);
+      
+    } catch (error) {
+      console.warn('获取收款码失败:', error);
+      setPaymentQr({
+        owner_type: 'default',
+        name: "无收款码"
+      });
       setShowPayModal(true);
     } finally {
       setIsCreatingPayment(false);
     }
   };
 
-  // 用户点击“已付款”：创建订单并标记为待验证，清空购物车并跳转订单页
+  // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
     if (!locationReady) {
       alert('请先选择配送地址');
       openLocationModal();
       return;
     }
+    
     try {
+      // 创建订单
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
@@ -285,6 +327,7 @@ export default function Checkout() {
         building_id: location?.building_id || '',
         agent_id: location?.agent_id || ''
       };
+      
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -295,12 +338,21 @@ export default function Checkout() {
           apply_coupon: !!applyCoupon
         })
       });
-      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
+      
+      if (!orderResponse.success) {
+        throw new Error(orderResponse.message || '订单创建失败');
+      }
+      
       const createdOrderId = orderResponse.data.order_id;
       setOrderId(createdOrderId);
+      
+      // 标记订单为已付款
       const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
+        setShowPayModal(false);
+        setPaymentQr(null);
+        
         // 触发抽奖动画并自动跳转到订单页
         let willRedirect = false;
         try {
@@ -604,7 +656,7 @@ export default function Checkout() {
                           <i className="fab fa-weixin text-green-400 text-lg"></i>
                           <span className="text-sm font-medium text-gray-900">微信扫码支付</span>
                         </div>
-                        <p className="text-xs text-gray-700">创建支付后会弹出收款码，请使用微信长按扫码付款</p>
+                        <p className="text-xs text-gray-700">点击立即支付获取收款码，扫码付款后点击"已完成付款"</p>
                       </div>
                     </div>
                   </div>
@@ -841,7 +893,7 @@ export default function Checkout() {
                     {isCreatingPayment ? (
                       <>
                         <div className="loading-dots text-white"></div>
-                        <span>创建支付中...</span>
+                        <span>获取收款码中...</span>
                       </>
                     ) : (
                       <>
@@ -874,7 +926,10 @@ export default function Checkout() {
       {/* 微信收款码弹窗 */}
       {showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
-          <div className="absolute inset-0" onClick={() => setShowPayModal(false)}></div>
+          <div className="absolute inset-0" onClick={() => {
+            setShowPayModal(false);
+            setPaymentQr(null);
+          }}></div>
           <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
             {/* 弹窗标题 */}
             <div className="text-center mb-6">
@@ -886,11 +941,31 @@ export default function Checkout() {
 
             {/* 二维码区域 */}
             <div className="mb-6 text-center">
-              <img 
-                src={Math.random() < 0.5 ? "/1_wx.png" : "/2_wx.png"} 
-                alt="微信收款码" 
-                className="mx-auto w-64 h-64 object-contain" 
-              />
+              {paymentQr ? (
+                paymentQr.owner_type === 'default' ? (
+                  <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                    <div className="text-center">
+                      <div className="text-4xl mb-4">⚠️</div>
+                      <p className="text-gray-600 text-lg font-medium">暂不可付款，请联系管理员</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <img 
+                      src={paymentQr.image_path} 
+                      alt={paymentQr.name || "收款码"} 
+                      className="mx-auto w-80 h-80 object-contain" 
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-100 rounded">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
+                    <p className="text-gray-600 text-sm">正在加载收款码...</p>
+                  </div>
+                </div>
+              )}
             </div>
 
 
@@ -898,7 +973,8 @@ export default function Checkout() {
             <div className="flex gap-3">
               <button
                 onClick={handleMarkPaid}
-                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm"
+                disabled={paymentQr && paymentQr.owner_type === 'default'}
+                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
                 <span>我已完成付款</span>
@@ -906,9 +982,9 @@ export default function Checkout() {
               
               <button
                 onClick={handlePayLater}
-                className="flex-1 bg-gray-100 text-gray-900 py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+                className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
               >
-                <i className="fas fa-clock"></i>
+                <i className="fas fa-clock text-black"></i>
                 <span>稍后支付</span>
               </button>
             </div>
@@ -926,7 +1002,10 @@ export default function Checkout() {
 
             {/* 关闭按钮 */}
             <button
-              onClick={() => setShowPayModal(false)}
+              onClick={() => {
+                setShowPayModal(false);
+                setPaymentQr(null);
+              }}
               className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 transition-all duration-200"
             >
               <i className="fas fa-times"></i>
