@@ -16,7 +16,7 @@ import random
 
 # 导入自定义模块
 from database import (
-    init_database, cleanup_old_chat_logs,
+    init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
     VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB
 )
@@ -143,14 +143,97 @@ def get_owner_id_from_scope(scope: Optional[Dict[str, Any]]) -> Optional[str]:
     if not scope:
         return None
     agent_id = scope.get('agent_id')
-    return agent_id if agent_id else None
+    return agent_id
+
+
+def fix_legacy_product_ownership():
+    """修复旧系统遗留的owner_id为None的商品，分配给统一的'admin'"""
+    logger.info("开始检查并修复旧商品的归属...")
+    
+    try:
+        # 获取所有owner_id为None的商品
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM products WHERE owner_id IS NULL OR owner_id = ''")
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                logger.info("没有发现需要修复的商品")
+                return
+                
+            logger.info(f"发现 {count} 个需要修复归属的商品")
+            
+            # 确保系统中有管理员存在
+            cursor.execute("SELECT COUNT(*) FROM admins WHERE (role = 'super_admin' OR role = 'admin') AND is_active = 1")
+            admin_count = cursor.fetchone()[0]
+            
+            if admin_count > 0:
+                logger.info("将使用统一的'admin'作为默认归属")
+                
+                # 更新所有owner_id为None的商品，统一设置为'admin'
+                cursor.execute(
+                    "UPDATE products SET owner_id = ? WHERE owner_id IS NULL OR owner_id = ''",
+                    ('admin',)
+                )
+                
+                updated_count = cursor.rowcount
+                conn.commit()
+                logger.info(f"成功修复 {updated_count} 个商品的归属")
+            else:
+                logger.warning("未找到可用的管理员账户，跳过商品归属修复")
+                
+    except Exception as e:
+        logger.error(f"修复商品归属时发生错误: {e}")
+        raise
+
+
+def migrate_admin_products_to_unified_owner():
+    """将现有admin拥有的商品迁移到统一的'admin'owner_id"""
+    logger.info("开始迁移现有admin商品到统一的owner_id...")
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取所有活跃的管理员ID
+            cursor.execute("SELECT id FROM admins WHERE (role = 'super_admin' OR role = 'admin') AND is_active = 1")
+            admin_ids = [row[0] for row in cursor.fetchall()]
+            
+            if not admin_ids:
+                logger.info("没有找到活跃的管理员，跳过迁移")
+                return
+            
+            # 查找所有属于这些管理员的商品
+            placeholders = ', '.join(['?' for _ in admin_ids])
+            cursor.execute(f"SELECT COUNT(*) FROM products WHERE owner_id IN ({placeholders})", admin_ids)
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                logger.info("没有发现需要迁移的管理员商品")
+                return
+                
+            logger.info(f"发现 {count} 个需要迁移到统一owner_id的管理员商品")
+            
+            # 更新所有属于管理员的商品，统一设置为'admin'
+            cursor.execute(f"UPDATE products SET owner_id = ? WHERE owner_id IN ({placeholders})", ['admin'] + admin_ids)
+            
+            updated_count = cursor.rowcount
+            conn.commit()
+            logger.info(f"成功迁移 {updated_count} 个管理员商品到统一的'admin'归属")
+                
+    except Exception as e:
+        logger.error(f"迁移管理员商品归属时发生错误: {e}")
+        raise
 
 
 def resolve_owner_id_for_staff(staff: Dict[str, Any], requested_owner_id: Optional[str]) -> Optional[str]:
     """Resolve the final owner_id a staff member is allowed to use."""
     if staff.get('type') == 'agent':
         return staff.get('id')
+    
+    # 对于admin：统一使用'admin'作为owner_id
     if requested_owner_id:
+        # 如果指定了owner_id，验证其有效性
         owner_record = AdminDB.get_admin(requested_owner_id, include_disabled=True)
         if not owner_record:
             raise HTTPException(status_code=400, detail="指定的代理不存在")
@@ -158,7 +241,9 @@ def resolve_owner_id_for_staff(staff: Dict[str, Any], requested_owner_id: Option
         if role != 'agent' and not is_super_admin_role(role):
             raise HTTPException(status_code=400, detail="owner_id 必须为代理账号")
         return requested_owner_id
-    return requested_owner_id
+    else:
+        # admin创建的商品统一归属为'admin'
+        return 'admin'
 
 
 def ensure_product_accessible(staff: Dict[str, Any], product_id: str) -> Dict[str, Any]:
@@ -607,18 +692,44 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
             if not resolved_building_id:
                 resolved_building_id = profile.get('building_id')
 
+    # 修复Agent商品权限控制：
+    # 1. 如果选择了具体楼栋，检查该楼栋是否分配给Agent
+    # 2. 如果选择了地址但没有具体楼栋，检查该地址下是否有Agent分配
+    # 3. 只有在明确有Agent分配的情况下，才限制显示Agent商品
     if resolved_building_id:
         assignment = AgentAssignmentDB.get_agent_for_building(resolved_building_id)
         if assignment and assignment.get('agent_id'):
+            # 楼栋被分配给了Agent，显示该Agent的商品
             agent_id = assignment['agent_id']
             if not resolved_address_id:
                 resolved_address_id = assignment.get('address_id')
     elif resolved_address_id:
         agents = AgentAssignmentDB.get_agent_ids_for_address(resolved_address_id)
+        # 只有当地址下只有一个Agent时，才限制显示该Agent的商品
+        # 如果地址下有多个Agent或没有Agent，则显示Admin商品
         if len(agents) == 1:
             agent_id = agents[0]
+        # 如果len(agents) == 0 或 > 1，则agent_id保持为None，显示Admin商品
 
-    owner_ids = [agent_id] if agent_id else None
+    # 修改owner_ids逻辑：
+    # - 如果找到了唯一的agent_id，则只显示该Agent的商品
+    # - 如果没有找到agent_id，则显示Admin的商品（统一使用'admin'）
+    if agent_id:
+        owner_ids = [agent_id]
+    else:
+        # 没有找到Agent，显示统一的Admin商品
+        try:
+            # 确认系统中有管理员存在
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM admins WHERE (role = 'super_admin' OR role = 'admin') AND is_active = 1")
+                admin_count = cursor.fetchone()[0]
+                if admin_count > 0:
+                    owner_ids = ['admin']  # 使用统一的'admin'显示所有Admin商品
+                else:
+                    owner_ids = None  # 回退到显示未分配商品
+        except Exception:
+            owner_ids = None  # 出错时回退到显示未分配商品
 
     return {
         "agent_id": agent_id,
@@ -855,6 +966,18 @@ async def startup_event():
         CategoryDB.cleanup_orphan_categories()
     except Exception as e:
         logger.warning(f"启动时清理空分类失败: {e}")
+    
+    # 修复旧系统遗留的owner_id为None的商品，分配给默认admin
+    try:
+        fix_legacy_product_ownership()
+    except Exception as e:
+        logger.warning(f"修复旧商品归属失败: {e}")
+    
+    # 迁移现有admin商品到统一的'admin'owner_id
+    try:
+        migrate_admin_products_to_unified_owner()
+    except Exception as e:
+        logger.warning(f"迁移admin商品归属失败: {e}")
     
     # 启动定时清理任务
     asyncio.create_task(periodic_cleanup())
@@ -1137,7 +1260,10 @@ async def get_products(request: Request, category: Optional[str] = None, address
     try:
         scope = resolve_shopping_scope(request, address_id, building_id)
         owner_ids = scope["owner_ids"]
-        include_unassigned = False if owner_ids else True
+        
+        # 修复Agent商品权限控制：
+        # 现在所有商品都有owner_id，所以统一使用owner_ids过滤，不再依赖include_unassigned
+        include_unassigned = False
 
         if category:
             products = ProductDB.get_products_by_category(category, owner_ids=owner_ids, include_unassigned=include_unassigned)
@@ -1164,7 +1290,10 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
     try:
         scope = resolve_shopping_scope(request, address_id, building_id)
         owner_ids = scope["owner_ids"]
-        include_unassigned = False if owner_ids else True
+        
+        # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
+        include_unassigned = False
+            
         products = ProductDB.search_products(q, owner_ids=owner_ids, include_unassigned=include_unassigned)
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
@@ -1186,7 +1315,10 @@ async def get_categories(request: Request, address_id: Optional[str] = None, bui
     try:
         scope = resolve_shopping_scope(request, address_id, building_id)
         owner_ids = scope["owner_ids"]
-        include_unassigned = False if owner_ids else True
+        
+        # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
+        include_unassigned = False
+            
         # 返回前自动清理空分类
         try:
             CategoryDB.cleanup_orphan_categories()
@@ -1574,7 +1706,9 @@ async def get_cart(request: Request):
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
-        include_unassigned = False if owner_ids else True
+        
+        # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
+        include_unassigned = False
 
         cart_data = CartDB.get_cart(user["id"])
         if not cart_data:
@@ -1937,6 +2071,8 @@ async def agent_create_product(
     image: Optional[UploadFile] = File(None)
 ):
     agent, _ = require_agent_with_scope(request)
+    # Agent创建的商品应该明确设置为该Agent的ID作为owner_id
+    agent_owner_id = get_owner_id_for_staff(agent)
     return await handle_product_creation(
         agent,
         name=name,
@@ -1945,7 +2081,7 @@ async def agent_create_product(
         stock=stock,
         description=description,
         cost=cost,
-        owner_id=None,
+        owner_id=agent_owner_id,
         image=image
     )
 
