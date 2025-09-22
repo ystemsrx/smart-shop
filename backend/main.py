@@ -119,6 +119,11 @@ def build_staff_scope(staff: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "building_ids": building_ids,
             "agent_id": staff['id']
         })
+    else:
+        # admin统一使用'admin'作为owner_id
+        scope.update({
+            "owner_ids": ['admin']
+        })
 
     return scope
 
@@ -136,14 +141,22 @@ def get_owner_id_for_staff(staff: Dict[str, Any]) -> Optional[str]:
     """Return the owner_id used to segregate staff resources."""
     if not staff:
         return None
-    return staff.get('id') if staff.get('type') == 'agent' else None
+    if staff.get('type') == 'agent':
+        return staff.get('id')
+    else:
+        # admin统一使用'admin'作为owner_id
+        return 'admin'
 
 
 def get_owner_id_from_scope(scope: Optional[Dict[str, Any]]) -> Optional[str]:
     if not scope:
         return None
     agent_id = scope.get('agent_id')
-    return agent_id
+    if agent_id:
+        return agent_id
+    else:
+        # 如果没有agent_id，说明是admin用户，使用'admin'作为owner_id
+        return 'admin'
 
 
 def fix_legacy_product_ownership():
@@ -223,6 +236,63 @@ def migrate_admin_products_to_unified_owner():
                 
     except Exception as e:
         logger.error(f"迁移管理员商品归属时发生错误: {e}")
+        raise
+
+
+def fix_legacy_config_ownership():
+    """修复旧系统遗留的配置数据owner_id为None的问题，分配给统一的'admin'"""
+    logger.info("开始检查并修复旧配置数据的归属...")
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 统计需要修复的各类配置数据
+            config_tables = {
+                'lottery_prizes': '抽奖奖项',
+                'auto_gift_items': '自动赠品',
+                'gift_thresholds': '满额门槛',
+                'coupons': '优惠券',
+                'settings': '系统设置'
+            }
+            
+            total_fixed = 0
+            fix_summary = []
+            
+            for table, description in config_tables.items():
+                try:
+                    # 检查表是否存在且有owner_id列
+                    cursor.execute(f"PRAGMA table_info({table})")
+                    columns = [row[1] for row in cursor.fetchall()]
+                    
+                    if 'owner_id' not in columns:
+                        logger.debug(f"表 {table} 没有 owner_id 列，跳过")
+                        continue
+                    
+                    # 统计需要修复的记录数
+                    cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE owner_id IS NULL OR owner_id = ''")
+                    count = cursor.fetchone()[0]
+                    
+                    if count > 0:
+                        # 执行修复
+                        cursor.execute(f"UPDATE {table} SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+                        fixed_count = cursor.rowcount
+                        total_fixed += fixed_count
+                        fix_summary.append(f"{description}: {fixed_count}项")
+                        logger.info(f"修复 {table} 表中 {fixed_count} 项配置的owner_id")
+                
+                except Exception as e:
+                    logger.warning(f"修复表 {table} 时出错: {e}")
+                    continue
+            
+            if total_fixed > 0:
+                conn.commit()
+                logger.info(f"配置数据修复完成，共修复 {total_fixed} 项：{', '.join(fix_summary)}")
+            else:
+                logger.info("没有发现需要修复的配置数据")
+                
+    except Exception as e:
+        logger.error(f"修复配置数据归属时发生错误: {e}")
         raise
 
 
@@ -459,13 +529,13 @@ def build_product_listing_for_staff(
 ) -> Dict[str, Any]:
     owner_ids = scope.get('owner_ids')
 
-    # 仅对拥有超级管理员权限的账号展示未归属商品，代理查看范围严格限制为自身数据
-    include_unassigned = bool(scope.get('is_super_admin'))
+    # 现在所有商品都有owner_id，不再需要include_unassigned
+    include_unassigned = False
 
     if staff.get('type') != 'agent':
-        if owner_ids is None and not include_unassigned:
+        if owner_ids is None:
+            # 如果没有设置owner_ids，应该设置为空列表避免查询所有商品
             owner_ids = []
-            include_unassigned = True
 
     if query:
         products = ProductDB.search_products(
@@ -536,7 +606,8 @@ def resolve_owner_filter_for_staff(
     lower = filter_value.lower()
 
     if lower == 'self':
-        return [], True, 'self'
+        # 对于admin查看自己的商品，现在统一使用'admin'作为owner_id
+        return ['admin'], False, 'self'
 
     if lower == 'all':
         return None, True, 'all'
@@ -978,6 +1049,12 @@ async def startup_event():
         migrate_admin_products_to_unified_owner()
     except Exception as e:
         logger.warning(f"迁移admin商品归属失败: {e}")
+    
+    # 修复旧系统遗留的配置数据owner_id为None的问题
+    try:
+        fix_legacy_config_ownership()
+    except Exception as e:
+        logger.warning(f"修复旧配置数据归属失败: {e}")
     
     # 启动定时清理任务
     asyncio.create_task(periodic_cleanup())
@@ -2678,7 +2755,11 @@ async def create_order(
         rewards_attached_ids: List[str] = []
         if items_subtotal >= 10.0:
             try:
-                rewards = RewardDB.get_eligible_rewards(user["id"]) or []
+                rewards = RewardDB.get_eligible_rewards(
+                    user["id"],
+                    owner_scope_id,
+                    restrict_owner=True
+                ) or []
                 for r in rewards:
                     qty = int(r.get("prize_quantity") or 1)
                     prize_name = r.get("prize_name") or "抽奖奖品"
@@ -2765,7 +2846,12 @@ async def create_order(
         # 标记已附加的奖品为已消费（绑定到本订单）
         if rewards_attached_ids:
             try:
-                RewardDB.consume_rewards(user["id"], rewards_attached_ids, order_id)
+                RewardDB.consume_rewards(
+                    user["id"],
+                    rewards_attached_ids,
+                    order_id,
+                    owner_scope_id
+                )
             except Exception as e:
                 logger.warning(f"标记抽奖奖品消费失败: {e}")
         
@@ -3082,7 +3168,8 @@ def _persist_lottery_prize_from_payload(
 def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     scope = build_staff_scope(staff) if staff else None
     owner_ids = scope.get('owner_ids') if scope else None
-    include_unassigned = scope.get('is_super_admin') if scope else True
+    # 现在所有商品都有owner_id，不再需要include_unassigned
+    include_unassigned = False
     try:
         if term:
             products = ProductDB.search_products(term, active_only=True, owner_ids=owner_ids, include_unassigned=include_unassigned)
@@ -3302,7 +3389,64 @@ async def agent_search_auto_gift_items(request: Request, query: Optional[str] = 
 @app.get("/auto-gifts")
 async def public_get_auto_gifts():
     try:
-        items = AutoGiftDB.get_available_items(owner_id=None)
+        # 公共接口需要获取所有可用的自动赠品，不限制owner_id
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM auto_gift_items ORDER BY created_at ASC')
+            rows = [dict(r) for r in cursor.fetchall() or []]
+            
+            if not rows:
+                return success_response("获取满额赠品成功", {"items": []})
+
+            product_ids = {row['product_id'] for row in rows if row.get('product_id')}
+            variant_ids = {row['variant_id'] for row in rows if row.get('variant_id')}
+
+            product_map = {}
+            if product_ids:
+                placeholders = ','.join('?' * len(product_ids))
+                cursor.execute(f'SELECT * FROM products WHERE id IN ({placeholders})', list(product_ids))
+                product_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+            variant_map = {}
+            if variant_ids:
+                placeholders = ','.join('?' * len(variant_ids))
+                cursor.execute(f'SELECT * FROM product_variants WHERE id IN ({placeholders})', list(variant_ids))
+                variant_map = {row['id']: dict(row) for row in cursor.fetchall() or []}
+
+            items = []
+            for row in rows:
+                product_id = row.get('product_id')
+                variant_id = row.get('variant_id')
+                
+                product_info = product_map.get(product_id) if product_id else None
+                variant_info = variant_map.get(variant_id) if variant_id else None
+                
+                if not product_info:
+                    continue
+                
+                # 计算库存和可用性
+                if variant_id and variant_info:
+                    stock = variant_info.get('stock', 0) or 0
+                    product_name = f"{product_info.get('name', '')}（{variant_info.get('name', '')}）"
+                else:
+                    stock = product_info.get('stock', 0) or 0
+                    product_name = product_info.get('name', '')
+                
+                available = (product_info.get('is_active', 1) == 1) and (stock > 0)
+                
+                item = {
+                    'id': row.get('id'),
+                    'product_id': product_id,
+                    'variant_id': variant_id,
+                    'product_name': product_name,
+                    'stock': stock,
+                    'available': available,
+                    'available_stock': stock
+                }
+                
+                if available:  # 只返回可用的赠品
+                    items.append(item)
+        
         return success_response("获取满额赠品成功", {"items": items})
     except Exception as e:
         logger.error(f"获取满额赠品失败: {e}")
@@ -3313,7 +3457,62 @@ async def public_get_auto_gifts():
 async def public_get_gift_thresholds():
     """获取启用的满额门槛配置（公共接口）"""
     try:
-        thresholds = GiftThresholdDB.list_all(owner_id=None, include_inactive=False)
+        # 公共接口需要获取所有启用的门槛配置，不限制owner_id
+        # 但是目前的list_all方法不支持查询所有owner的配置，我们需要修改实现
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM gift_thresholds WHERE is_active = 1 ORDER BY threshold_amount ASC, sort_order ASC'
+            )
+            rows = cursor.fetchall() or []
+            
+            # 复用 GiftThresholdDB 的数据处理逻辑
+            thresholds = []
+            for row in rows:
+                threshold_dict = dict(row)
+                
+                # 获取关联的商品信息
+                threshold_id = threshold_dict.get('id')
+                if threshold_id:
+                    cursor.execute(
+                        '''SELECT gti.product_id, gti.variant_id,
+                              p.name as product_name, p.stock as product_stock, p.is_active as product_active,
+                              v.name as variant_name, v.stock as variant_stock
+                           FROM gift_threshold_items gti
+                           LEFT JOIN products p ON gti.product_id = p.id
+                           LEFT JOIN product_variants v ON gti.variant_id = v.id
+                           WHERE gti.threshold_id = ?
+                           ORDER BY gti.created_at ASC''',
+                        (threshold_id,)
+                    )
+                    item_rows = cursor.fetchall() or []
+                    
+                    items = []
+                    for item_row in item_rows:
+                        item_dict = dict(item_row)
+                        product_active = item_dict.get('product_active', 1) == 1
+                        variant_id = item_dict.get('variant_id')
+                        
+                        if variant_id:
+                            stock = item_dict.get('variant_stock', 0) or 0
+                        else:
+                            stock = item_dict.get('product_stock', 0) or 0
+                        
+                        available = product_active and stock > 0
+                        
+                        items.append({
+                            'product_id': item_dict.get('product_id'),
+                            'variant_id': variant_id,
+                            'product_name': item_dict.get('product_name', ''),
+                            'variant_name': item_dict.get('variant_name', ''),
+                            'stock': stock,
+                            'available': available
+                        })
+                    
+                    threshold_dict['items'] = items
+                
+                thresholds.append(threshold_dict)
+        
         # 为公共接口简化数据，只返回必要信息
         simplified_thresholds = []
         for threshold in thresholds:
@@ -4116,6 +4315,7 @@ async def draw_lottery(order_id: str, request: Request):
             selected_name,
             prize_product_id,
             1,
+            owner_id=owner_id,
             prize_group_id=prize_group_id,
             prize_product_name=prize_product_name,
             prize_variant_id=prize_variant_id,
@@ -4136,11 +4336,31 @@ async def draw_lottery(order_id: str, request: Request):
         return error_response("抽奖失败", 500)
 
 @app.get("/rewards/eligible")
-async def get_eligible_rewards(request: Request):
+async def get_eligible_rewards(
+    request: Request,
+    owner_id: Optional[str] = None,
+    restrict_owner: Optional[bool] = False
+):
     """获取当前用户可用（未消费）的抽奖奖品列表"""
     user = get_current_user_required_from_cookie(request)
     try:
-        rewards = RewardDB.get_eligible_rewards(user["id"]) or []
+        normalized_owner: Optional[str]
+        if owner_id is None:
+            normalized_owner = None
+        else:
+            value = owner_id.strip()
+            normalized_owner = None if value.lower() in {"", "none", "null", "undefined"} else value
+
+        if isinstance(restrict_owner, bool):
+            restrict_flag = restrict_owner
+        else:
+            restrict_flag = str(restrict_owner).strip().lower() in {"1", "true", "yes"}
+
+        rewards = RewardDB.get_eligible_rewards(
+            user["id"],
+            normalized_owner,
+            restrict_owner=restrict_flag
+        ) or []
         return success_response("获取奖品成功", {"rewards": rewards})
     except Exception as e:
         logger.error(f"获取奖品失败: {e}")
@@ -4168,6 +4388,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
             ok = OrderDB.complete_payment_and_update_stock(order_id)
             if not ok:
                 return error_response("处理支付成功失败，可能库存不足或状态异常", 400)
+            order_owner_id = order.get('agent_id') or None
             try:
                 # 清空该用户购物车
                 CartDB.update_cart(order["student_id"], {})
@@ -4187,6 +4408,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                             prize_product_id=draw.get("prize_product_id"),
                             quantity=int(draw.get("prize_quantity") or 1),
                             source_order_id=order_id,
+                            owner_id=order_owner_id,
                             prize_group_id=draw.get("prize_group_id"),
                             prize_product_name=draw.get("prize_product_name"),
                             prize_variant_id=draw.get("prize_variant_id"),
@@ -4208,7 +4430,6 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                                 pass
                     
                     # 获取适用的门槛配置并发放优惠券
-                    order_owner_id = order.get('agent_id') or None
                     applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal, order_owner_id)
                     for threshold in applicable_thresholds:
                         gift_coupon = threshold.get('gift_coupon', 0) == 1
