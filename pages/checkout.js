@@ -8,8 +8,6 @@ import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 
-const SHIPPING_THRESHOLD = 10;
-
 export default function Checkout() {
   const router = useRouter();
   const { user } = useAuth();
@@ -19,6 +17,7 @@ export default function Checkout() {
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
+  const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -416,6 +415,17 @@ export default function Checkout() {
       } catch (e) {
         // ignore
       }
+      
+      // 获取配送费配置
+      try {
+        const deliveryRes = await apiRequest('/delivery-config');
+        const config = deliveryRes?.data?.delivery_config;
+        if (config) {
+          setDeliveryConfig(config);
+        }
+      } catch (e) {
+        console.warn('获取配送费配置失败:', e);
+      }
     })();
   }, [user, locationRevision]);
 
@@ -735,6 +745,11 @@ export default function Checkout() {
                         )}
                       </span>
                     </div>
+                    {cart.shipping_fee > 0 && (
+                      <div className="text-xs text-gray-500 flex justify-end">
+                        满 ¥{deliveryConfig.free_delivery_threshold} 免配送费
+                      </div>
+                    )}
                     {/* 优惠券选择（结算区域） */}
                     <div className="flex items-center justify-between text-sm">
                       <label className="flex items-center gap-2">

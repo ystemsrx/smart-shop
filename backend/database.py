@@ -85,6 +85,9 @@ def auto_migrate_database(conn) -> None:
         'gift_thresholds': {
             'owner_id': 'TEXT'
         },
+        'delivery_settings': {
+            'owner_id': 'TEXT'
+        },
         'coupons': {
             'owner_id': 'TEXT'
         },
@@ -640,6 +643,24 @@ def init_database():
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_amount ON gift_thresholds(threshold_amount)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_active ON gift_thresholds(is_active)')
+        except Exception:
+            pass
+
+        # 配送费设置表（独立配置）
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS delivery_settings (
+                    id TEXT PRIMARY KEY,
+                    delivery_fee REAL DEFAULT 1.0,                -- 基础配送费
+                    free_delivery_threshold REAL DEFAULT 10.0,    -- 免配送费门槛
+                    is_active INTEGER DEFAULT 1,                  -- 是否启用
+                    owner_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_delivery_settings_owner ON delivery_settings(owner_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_delivery_settings_active ON delivery_settings(is_active)')
         except Exception:
             pass
 
@@ -4253,6 +4274,93 @@ class CouponDB:
                 conn.rollback()
                 return False
 
+class DeliverySettingsDB:
+    """配送费设置数据库操作类"""
+    
+    @staticmethod
+    def get_settings(owner_id: Optional[str]) -> Dict[str, Any]:
+        """获取配送费设置"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            where_clauses = ['is_active = 1']
+            params = []
+            
+            if owner_id is None:
+                where_clauses.append('owner_id IS NULL')
+            else:
+                where_clauses.append('owner_id = ?')
+                params.append(owner_id)
+
+            query = 'SELECT * FROM delivery_settings WHERE ' + ' AND '.join(where_clauses) + ' ORDER BY created_at DESC LIMIT 1'
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            
+            if row:
+                return dict(row)
+            else:
+                # 如果没有配置，返回默认值
+                return {
+                    'id': None,
+                    'delivery_fee': 1.0,
+                    'free_delivery_threshold': 10.0,
+                    'is_active': True,
+                    'owner_id': owner_id
+                }
+    
+    @staticmethod
+    def create_or_update_settings(
+        owner_id: Optional[str],
+        delivery_fee: float,
+        free_delivery_threshold: float
+    ) -> str:
+        """创建或更新配送费设置"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 检查是否已存在配置
+            where_clauses = []
+            params = []
+            if owner_id is None:
+                where_clauses.append('owner_id IS NULL')
+            else:
+                where_clauses.append('owner_id = ?')
+                params.append(owner_id)
+            
+            query = 'SELECT id FROM delivery_settings WHERE ' + ' AND '.join(where_clauses) + ' LIMIT 1'
+            cursor.execute(query, params)
+            existing = cursor.fetchone()
+            
+            if existing:
+                # 更新现有配置
+                setting_id = existing['id']
+                cursor.execute('''
+                    UPDATE delivery_settings 
+                    SET delivery_fee = ?, free_delivery_threshold = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (delivery_fee, free_delivery_threshold, setting_id))
+            else:
+                # 创建新配置
+                import uuid
+                setting_id = f"delivery_{uuid.uuid4().hex}"
+                cursor.execute('''
+                    INSERT INTO delivery_settings 
+                    (id, delivery_fee, free_delivery_threshold, is_active, owner_id)
+                    VALUES (?, ?, ?, 1, ?)
+                ''', (setting_id, delivery_fee, free_delivery_threshold, owner_id))
+            
+            conn.commit()
+            return setting_id
+    
+    @staticmethod
+    def get_delivery_config(owner_id: Optional[str]) -> Dict[str, Any]:
+        """获取配送费配置（简化版本，仅返回费用和门槛）"""
+        settings = DeliverySettingsDB.get_settings(owner_id)
+        return {
+            'delivery_fee': float(settings.get('delivery_fee', 1.0)),
+            'free_delivery_threshold': float(settings.get('free_delivery_threshold', 10.0))
+        }
+
+
 class GiftThresholdDB:
     """满额赠品门槛配置数据库操作类"""
     
@@ -4527,6 +4635,7 @@ class GiftThresholdDB:
             })
         
         return results
+
 
 
 # 代理状态相关操作
