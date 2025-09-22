@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
@@ -8,6 +8,8 @@ import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 
+const SHIPPING_THRESHOLD = 10;
+
 export default function Checkout() {
   const router = useRouter();
   const { user } = useAuth();
@@ -15,7 +17,7 @@ export default function Checkout() {
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
   
-  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
+  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -50,7 +52,22 @@ export default function Checkout() {
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
     : '未选择地址';
-  
+
+  const lotteryThreshold = useMemo(() => {
+    const raw = cart?.lottery_threshold;
+    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return 10;
+  }, [cart?.lottery_threshold]);
+
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
+
   // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
   const handlePayLater = async () => {
     if (!locationReady) {
@@ -111,7 +128,7 @@ export default function Checkout() {
 
     if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
       setIsLoading(false);
-      setCart({ items: [], total_quantity: 0, total_price: 0 });
+      setCart({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
       setEligibleRewards([]);
       setAutoGifts([]);
       setCoupons([]);
@@ -730,26 +747,36 @@ export default function Checkout() {
                         <span className="text-sm font-medium text-gray-900">抽奖奖品</span>
                       </div>
                       <div className="space-y-1">
-                        {eligibleRewards.map((r) => (
-                          <div key={r.id} className={`flex justify-between items-baseline text-sm ${cart.total_price >= 10 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            <span className="flex flex-col">
-                              <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
-                              {(r.prize_product_name || r.prize_variant_name) && (
-                                <span className="text-[11px] text-gray-500">
-                                  {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-right text-xs">
-                              <span className="text-sm">¥0.00</span>
-                              <span className="text-[11px] text-gray-500">赠品</span>
-                            </span>
-                          </div>
-                        ))}
+                        {eligibleRewards.map((r) => {
+                          const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
+                          return (
+                            <div key={r.id} className={`flex justify-between items-baseline text-sm ${meet ? 'text-gray-900' : 'text-gray-400'}`}>
+                              <span className="flex flex-col">
+                                <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
+                                {(r.prize_product_name || r.prize_variant_name) && (
+                                  <span className="text-[11px] text-gray-500">
+                                    {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-right text-xs">
+                                <span className="text-sm">¥0.00</span>
+                                <span className="text-[11px] text-gray-500">赠品</span>
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <p className={`mt-2 text-xs ${cart.total_price >= 10 ? 'text-green-600' : 'text-gray-500'}`}>
-                        {cart.total_price >= 10 ? '本单满10元，将自动随单配送抽奖奖品（免费）' : '订单满10元将自动随下单配送抽奖奖品（免费）'}
-                      </p>
+                      {(() => {
+                        const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
+                        return (
+                          <p className={`mt-2 text-xs ${meet ? 'text-green-600' : 'text-gray-500'}`}>
+                            {meet
+                              ? `本单满${formattedLotteryThreshold}元，将自动随单配送抽奖奖品（免费）`
+                              : `订单满${formattedLotteryThreshold}元将自动随下单配送抽奖奖品（免费）`}
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                   {cart.items && cart.items.length > 0 && autoGifts.length > 0 && (
@@ -899,7 +926,7 @@ export default function Checkout() {
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
             </div>
             <div className="h-20 flex items-center justify-center mb-4">
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi } from '../hooks/useAuth';
@@ -9,6 +9,8 @@ import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
+
+const SHIPPING_THRESHOLD = 10;
 
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
@@ -113,11 +115,17 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true, lotteryThreshold = 10 }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
   const base = (cart?.payable_total ?? cart.total_price) || 0;
   const total = Math.max(0, base - discount);
+  const validLotteryThreshold = Number.isFinite(lotteryThreshold) && lotteryThreshold > 0 ? lotteryThreshold : 10;
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < SHIPPING_THRESHOLD;
+  const needsLottery = cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
+  const missingShipping = needsShipping ? Math.max(0, SHIPPING_THRESHOLD - cart.total_price) : 0;
+  const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
+  const sameTarget = needsShipping && needsLottery && Math.abs(missingShipping - missingLottery) < 0.0001;
   return (
     <div className="bg-white border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-6 pb-3 border-b border-gray-100">订单摘要</h3>
@@ -136,12 +144,31 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
           <span className="text-gray-900 font-medium">{cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : '免费'}</span>
         </div>
         
-        {cart.total_quantity > 0 && cart.total_price < 10 && (
+        {(needsShipping || needsLottery) && (
           <div className="bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700">
-            还差 <span className="font-semibold text-gray-900">¥{(10 - cart.total_price).toFixed(2)}</span> 
-            <span className="font-semibold text-red-500"> 免运费</span>
-            和
-            <span className="font-semibold text-red-500">抽奖资格</span>
+            <span>还差 </span>
+            {sameTarget ? (
+              <>
+                <span className="font-semibold text-gray-900">¥{missingShipping.toFixed(2)}</span>
+                <span className="font-semibold text-red-500"> 免运费和抽奖资格</span>
+              </>
+            ) : (
+              <>
+                {needsShipping && (
+                  <>
+                    <span className="font-semibold text-gray-900">¥{missingShipping.toFixed(2)}</span>
+                    <span className="font-semibold text-red-500"> 免运费</span>
+                  </>
+                )}
+                {needsShipping && needsLottery && <span className="text-gray-400 mx-1">·</span>}
+                {needsLottery && (
+                  <>
+                    <span className="font-semibold text-gray-900">¥{missingLottery.toFixed(2)}</span>
+                    <span className="font-semibold text-red-500"> 抽奖资格</span>
+                  </>
+                )}
+              </>
+            )}
             <a href="/shop" className="ml-2 text-gray-900 underline hover:no-underline">去凑单</a>
           </div>
         )}
@@ -232,7 +259,7 @@ export default function Cart() {
   const { apiRequest } = useApi();
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
 
-  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
+  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
@@ -252,6 +279,21 @@ export default function Cart() {
     : '请选择配送地址';
   const locationRevisionRef = useRef(locationRevision);
 
+  const lotteryThreshold = useMemo(() => {
+    const raw = cart?.lottery_threshold;
+    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return 10;
+  }, [cart?.lottery_threshold]);
+
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
+
   // 检查登录状态
   useEffect(() => {
     if (!user) {
@@ -267,7 +309,7 @@ export default function Cart() {
 
     try {
       if (!locationReady) {
-        setCart({ items: [], total_quantity: 0, total_price: 0, payable_total: 0, shipping_fee: 0 });
+        setCart({ items: [], total_quantity: 0, total_price: 0, payable_total: 0, shipping_fee: 0, lottery_threshold: 10 });
         setEligibleRewards([]);
         setAutoGifts([]);
         setCoupons([]);
@@ -594,7 +636,7 @@ export default function Cart() {
                       ))}
                     </div>
 
-                    {/* 抽奖奖品展示（不计入金额，满10自动附带）*/}
+                    {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
                     {eligibleRewards.length > 0 && (
                       <div className="mt-8">
                         <div className="mb-2 flex items-center gap-2">
@@ -605,7 +647,7 @@ export default function Cart() {
                         </div>
 
                         {eligibleRewards.map((r) => {
-                          const meet = (cart?.total_price ?? 0) >= 10;
+                          const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
                           return (
                             <div
                               key={r.id}
@@ -626,7 +668,9 @@ export default function Cart() {
                                     </p>
                                   )}
                                   <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
-                                    {meet ? '满10，本单将自动附带并随单配送' : '未满10，本单结算不会附带；满10自动附带并配送'}
+                                    {meet
+                                      ? `满${formattedLotteryThreshold}元，本单将自动附带并随单配送`
+                                      : `未满${formattedLotteryThreshold}元，本单结算不会附带；达标后自动附带并配送`}
                                   </p>
                                 </div>
                                 <div className="text-right">
@@ -718,6 +762,7 @@ export default function Cart() {
                         applyCoupon={applyCoupon}
                         setApplyCoupon={setApplyCoupon}
                         locationReady={locationReady}
+                        lotteryThreshold={lotteryThreshold}
                       />
                     </div>
                   </div>

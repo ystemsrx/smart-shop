@@ -67,9 +67,13 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
   const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [thresholdAmount, setThresholdAmount] = useState('10');
+  const [thresholdSaving, setThresholdSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPrize, setEditingPrize] = useState(null);
   const [collapsedPrizes, setCollapsedPrizes] = useState(new Set());
+
+  const MIN_THRESHOLD = 0.01;
 
   const loadPrizes = async () => {
     setLoading(true);
@@ -84,6 +88,14 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
       setPrizes(prizesData);
       // 默认折叠所有奖项
       setCollapsedPrizes(new Set(prizesData.map(p => p.id)));
+      const rawThreshold = res?.data?.threshold_amount;
+      if (rawThreshold !== undefined && rawThreshold !== null) {
+        const numeric = Number(rawThreshold);
+        if (Number.isFinite(numeric)) {
+          const display = Number.isInteger(numeric) ? numeric.toString() : numeric.toFixed(2);
+          setThresholdAmount(display);
+        }
+      }
     } catch (e) {
       alert(e.message || '加载抽奖配置失败');
       setPrizes([]);
@@ -159,6 +171,36 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
     }
   };
 
+  const handleSaveThreshold = async () => {
+    const value = Number.parseFloat(thresholdAmount);
+    if (!Number.isFinite(value) || value < MIN_THRESHOLD) {
+      alert(`请输入不少于 ${MIN_THRESHOLD} 的抽奖门槛`);
+      return;
+    }
+    setThresholdSaving(true);
+    try {
+      const resp = await apiRequest(`${apiPrefix}/lottery-config/threshold`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold_amount: value })
+      });
+      if (!resp?.success) {
+        throw new Error(resp?.message || '更新抽奖门槛失败');
+      }
+      const serverValue = Number(resp?.data?.threshold_amount ?? value);
+      if (Number.isFinite(serverValue)) {
+        const display = Number.isInteger(serverValue)
+          ? serverValue.toString()
+          : serverValue.toFixed(2);
+        setThresholdAmount(display);
+      }
+    } catch (e) {
+      alert(e.message || '更新抽奖门槛失败');
+    } finally {
+      setThresholdSaving(false);
+    }
+  };
+
   const handleSavePrize = async (payload) => {
     const weightValue = Number.parseFloat(payload.weight);
     if (Number.isNaN(weightValue)) {
@@ -211,7 +253,26 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
           <h3 className="text-lg font-medium text-gray-900">抽奖奖项配置</h3>
           <p className="text-sm text-gray-600">根据库存权重自动抽取，可组合多种商品。</p>
         </div>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
+        <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap justify-end">
+          <div className="flex items-center gap-2">
+            <span>抽奖门槛</span>
+            <input
+              type="number"
+              min={MIN_THRESHOLD}
+              step="0.01"
+              value={thresholdAmount}
+              disabled={thresholdSaving}
+              onChange={(e) => setThresholdAmount(e.target.value)}
+              className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button
+              onClick={handleSaveThreshold}
+              disabled={thresholdSaving}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {thresholdSaving ? '保存中...' : '保存'}
+            </button>
+          </div>
           <span>合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
           <span className={totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
           <button
@@ -317,7 +378,7 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
           })}
         </div>
       )}
-      {saving && <div className="px-6 py-2 text-xs text-gray-400">正在保存更改...</div>}
+      {(saving || thresholdSaving) && <div className="px-6 py-2 text-xs text-gray-400">正在保存更改...</div>}
       <LotteryPrizeModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}

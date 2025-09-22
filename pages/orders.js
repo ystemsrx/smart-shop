@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Nav from '../components/Nav';
@@ -87,6 +87,12 @@ export default function Orders() {
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
+  const [lotteryThreshold, setLotteryThreshold] = useState(10);
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
 
   useEffect(() => {
     if (!user) {
@@ -165,6 +171,10 @@ export default function Orders() {
     try {
       const resp = await apiRequest(`/orders/${orderId}/lottery/draw`, { method: 'POST' });
       if (resp.success) {
+        const thresholdValue = Number(resp.data?.threshold_amount);
+        if (Number.isFinite(thresholdValue) && thresholdValue > 0) {
+          setLotteryThreshold(thresholdValue);
+        }
         const resultName = resp.data?.prize_name || '';
         const list = (resp.data?.names && resp.data.names.length > 0)
           ? resp.data.names
@@ -673,7 +683,7 @@ export default function Orders() {
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
             </div>
             <div className="h-20 flex items-center justify-center mb-4">
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
