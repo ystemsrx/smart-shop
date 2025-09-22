@@ -324,12 +324,13 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
         onSave={handleSavePrize}
         initialPrize={editingPrize}
         apiRequest={apiRequest}
+        apiPrefix={apiPrefix}
       />
     </div>
   );
 };
 
-const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) => {
+const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, apiPrefix }) => {
   const [displayName, setDisplayName] = useState('');
   const [weight, setWeight] = useState('0');
   const [isActive, setIsActive] = useState(true);
@@ -395,7 +396,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest }) 
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-  }, [searchTerm, open, apiRequest]);
+  }, [searchTerm, open, apiRequest, apiPrefix]);
 
 
   const handleAddItem = (item) => {
