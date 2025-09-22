@@ -73,6 +73,9 @@ def auto_migrate_database(conn) -> None:
             'building_id': 'TEXT',
             'agent_id': 'TEXT'
         },
+        'settings': {
+            'owner_id': 'TEXT'
+        },
         'lottery_prizes': {
             'owner_id': 'TEXT'
         },
@@ -83,6 +86,12 @@ def auto_migrate_database(conn) -> None:
             'owner_id': 'TEXT'
         },
         'coupons': {
+            'owner_id': 'TEXT'
+        },
+        'lottery_draws': {
+            'owner_id': 'TEXT'
+        },
+        'user_rewards': {
             'owner_id': 'TEXT'
         }
     }
@@ -105,19 +114,75 @@ def auto_migrate_database(conn) -> None:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_auto_gift_items_owner ON auto_gift_items(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_thresholds_owner ON gift_thresholds(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_owner ON coupons(owner_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_settings_owner ON settings(owner_id)')
         logger.info("创建依赖新列的索引完成")
     except sqlite3.OperationalError as e:
         logger.warning(f"创建新索引时出错: {e}")
 
+    # 修复旧数据中 owner_id 为 NULL 的配置记录，分配给默认的 'admin'
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE lottery_prizes SET owner_id = NULL WHERE owner_id IS NULL")
-        cursor.execute("UPDATE auto_gift_items SET owner_id = NULL WHERE owner_id IS NULL")
-        cursor.execute("UPDATE gift_thresholds SET owner_id = NULL WHERE owner_id IS NULL")
-        cursor.execute("UPDATE coupons SET owner_id = NULL WHERE owner_id IS NULL")
+        # 为缺失 owner_id 的配置数据分配默认值 'admin'
+        logger.info("开始修复旧配置数据的 owner_id...")
+        
+        # 修复抽奖奖项配置
+        cursor.execute("UPDATE lottery_prizes SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+        lottery_fixed = cursor.rowcount
+        
+        # 修复自动赠品配置
+        cursor.execute("UPDATE auto_gift_items SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+        gift_fixed = cursor.rowcount
+        
+        # 修复满额门槛配置
+        cursor.execute("UPDATE gift_thresholds SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+        threshold_fixed = cursor.rowcount
+        
+        # 修复优惠券配置
+        cursor.execute("UPDATE coupons SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+        coupon_fixed = cursor.rowcount
+        
+        # 修复设置配置
+        cursor.execute("UPDATE settings SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
+        settings_fixed = cursor.rowcount
+        
+        conn.commit()
+        
+        if lottery_fixed + gift_fixed + threshold_fixed + coupon_fixed + settings_fixed > 0:
+            logger.info(f"修复配置数据完成: 抽奖{lottery_fixed}项, 赠品{gift_fixed}项, 门槛{threshold_fixed}项, 优惠券{coupon_fixed}项, 设置{settings_fixed}项")
+        else:
+            logger.info("未发现需要修复的配置数据")
+            
+    except sqlite3.OperationalError as e:
+        logger.warning(f"修复配置数据时出错: {e}")
+    except Exception as e:
+        logger.error(f"修复配置数据失败: {e}")
+
+    try:
+        cursor.execute('''
+            UPDATE lottery_draws
+            SET owner_id = (
+                SELECT agent_id FROM orders WHERE orders.id = lottery_draws.order_id
+            )
+            WHERE owner_id IS NULL
+              AND order_id IN (
+                  SELECT id FROM orders WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+              )
+        ''')
+        cursor.execute('''
+            UPDATE user_rewards
+            SET owner_id = (
+                SELECT agent_id FROM orders WHERE orders.id = user_rewards.source_order_id
+            )
+            WHERE owner_id IS NULL
+              AND source_order_id IN (
+                  SELECT id FROM orders WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+              )
+        ''')
         conn.commit()
     except sqlite3.OperationalError:
         pass
+    except Exception as e:
+        logger.warning(f"回填抽奖归属失败: {e}")
 
 def init_database():
     """初始化数据库表结构"""
@@ -451,6 +516,7 @@ def init_database():
                     prize_name TEXT NOT NULL,
                     prize_product_id TEXT,
                     prize_quantity INTEGER DEFAULT 1,
+                    owner_id TEXT,
                     prize_group_id TEXT,
                     prize_product_name TEXT,
                     prize_variant_id TEXT,
@@ -582,6 +648,7 @@ def init_database():
                     prize_variant_id TEXT,
                     prize_variant_name TEXT,
                     prize_unit_price REAL DEFAULT 0,
+                    owner_id TEXT,
                     prize_group_id TEXT,
                     prize_quantity INTEGER DEFAULT 1,
                     source_order_id TEXT NOT NULL,
@@ -3384,6 +3451,7 @@ class LotteryDB:
         prize_product_id: Optional[str] = None,
         prize_quantity: int = 1,
         *,
+        owner_id: Optional[str] = None,
         prize_group_id: Optional[str] = None,
         prize_product_name: Optional[str] = None,
         prize_variant_id: Optional[str] = None,
@@ -3415,6 +3483,7 @@ class LotteryDB:
                 prize_name,
                 prize_product_id,
                 int(prize_quantity or 1),
+                owner_id,
                 prize_group_id,
                 prize_product_name,
                 prize_variant_id,
@@ -3596,6 +3665,7 @@ class RewardDB:
         quantity: int,
         source_order_id: str,
         *,
+        owner_id: Optional[str] = None,
         prize_group_id: Optional[str] = None,
         prize_product_name: Optional[str] = None,
         prize_variant_id: Optional[str] = None,
@@ -3610,6 +3680,7 @@ class RewardDB:
             exists = cursor.fetchone()
             if exists:
                 return None
+            normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else None
             rid = f"rwd_{int(datetime.now().timestamp()*1000)}"
             cursor.execute('''
                 INSERT INTO user_rewards (
@@ -3621,6 +3692,7 @@ class RewardDB:
                     prize_variant_id,
                     prize_variant_name,
                     prize_unit_price,
+                    owner_id,
                     prize_group_id,
                     prize_quantity,
                     source_order_id,
@@ -3636,6 +3708,7 @@ class RewardDB:
                 prize_variant_id,
                 prize_variant_name,
                 float(prize_unit_price or 0.0),
+                normalized_owner,
                 prize_group_id,
                 int(quantity or 1),
                 source_order_id
@@ -3644,24 +3717,54 @@ class RewardDB:
             return rid
 
     @staticmethod
-    def get_eligible_rewards(student_id: str) -> List[Dict]:
+    def get_eligible_rewards(
+        student_id: str,
+        owner_id: Optional[str] = None,
+        restrict_owner: bool = False
+    ) -> List[Dict]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM user_rewards WHERE student_id = ? AND status = \"eligible\" ORDER BY created_at ASC', (student_id,))
+            clauses = [
+                'student_id = ?',
+                "status = 'eligible'"
+            ]
+            params: List[Any] = [student_id]
+
+            if restrict_owner:
+                if owner_id is None or (isinstance(owner_id, str) and owner_id.strip() == ''):
+                    clauses.append('(owner_id IS NULL OR TRIM(owner_id) = "")')
+                else:
+                    clauses.append('owner_id = ?')
+                    params.append(owner_id)
+
+            query = 'SELECT * FROM user_rewards WHERE ' + ' AND '.join(clauses) + ' ORDER BY created_at ASC'
+            cursor.execute(query, params)
             return [dict(r) for r in cursor.fetchall()]
 
     @staticmethod
-    def consume_rewards(student_id: str, reward_ids: List[str], consumed_order_id: str) -> int:
+    def consume_rewards(
+        student_id: str,
+        reward_ids: List[str],
+        consumed_order_id: str,
+        owner_id: Optional[str] = None
+    ) -> int:
         if not reward_ids:
             return 0
         with get_db_connection() as conn:
             cursor = conn.cursor()
             placeholders = ','.join('?' * len(reward_ids))
             try:
-                cursor.execute(f'''UPDATE user_rewards
-                                   SET status = 'consumed', consumed_order_id = ?, updated_at = CURRENT_TIMESTAMP
-                                   WHERE id IN ({placeholders}) AND student_id = ? AND status = 'eligible' ''',
-                               [consumed_order_id, *reward_ids, student_id])
+                normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else None
+                if normalized_owner is None:
+                    owner_condition = '(owner_id IS NULL OR TRIM(owner_id) = "")'
+                    params: List[Any] = [consumed_order_id, *reward_ids, student_id]
+                else:
+                    owner_condition = 'owner_id = ?'
+                    params = [consumed_order_id, *reward_ids, student_id, normalized_owner]
+                query = f'''UPDATE user_rewards
+                             SET status = 'consumed', consumed_order_id = ?, updated_at = CURRENT_TIMESTAMP
+                             WHERE id IN ({placeholders}) AND student_id = ? AND status = 'eligible' AND {owner_condition} '''
+                cursor.execute(query, params)
                 affected = cursor.rowcount or 0
                 conn.commit()
                 return affected
