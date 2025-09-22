@@ -137,6 +137,22 @@ def create_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+    # 收款码表（支持管理员和代理多个收款码）
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS payment_qr_codes (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            owner_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            image_path TEXT NOT NULL,
+            is_enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
     # 索引
     cur.execute("CREATE INDEX IF NOT EXISTS idx_carts_student_id ON carts(student_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_student_id ON chat_logs(student_id)")
@@ -148,6 +164,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner ON payment_qr_codes(owner_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner_type ON payment_qr_codes(owner_type)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_enabled ON payment_qr_codes(is_enabled)")
 
     conn.commit()
 
