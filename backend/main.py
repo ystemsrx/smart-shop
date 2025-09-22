@@ -4707,14 +4707,14 @@ async def draw_lottery(order_id: str, request: Request):
             available_items = [item for item in selected_group.get("items", []) if item.get("available")]
             total_stock = sum(max(0, int(item.get("stock") or 0)) for item in available_items)
             if total_stock > 0:
-                rnd_item = random.random() * total_stock
-                stock_acc = 0.0
+                # 选择库存数量最多的商品，而不是随机选择
+                max_stock = 0
+                selected_item = None
                 for item in available_items:
                     stock_val = max(0, int(item.get("stock") or 0))
-                    stock_acc += stock_val
-                    if rnd_item <= stock_acc:
+                    if stock_val > max_stock:
+                        max_stock = stock_val
                         selected_item = item
-                        break
             if not selected_item:
                 selected_group = None
 
