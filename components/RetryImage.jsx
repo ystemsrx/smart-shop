@@ -4,7 +4,6 @@ const RetryImage = ({
   src, 
   alt, 
   className, 
-  fallbackSrc = '/placeholder-product.svg',
   maxRetries = 3,
   onFinalError,
   ...props 
