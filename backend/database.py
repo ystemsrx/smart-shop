@@ -342,6 +342,20 @@ def init_database():
             )
         ''')
         
+        # 代理独立打烊状态表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS agent_status (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                is_open INTEGER DEFAULT 1,  -- 1: 营业, 0: 打烊
+                closed_note TEXT DEFAULT '',  -- 打烊提示语
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES admins(id),
+                UNIQUE(agent_id)
+            )
+        ''')
+        
         # 创建基础索引（不依赖于可能缺失的列）
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_carts_student_id ON carts(student_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_student_id ON chat_logs(student_id)')
@@ -361,6 +375,8 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_agent ON agent_buildings(agent_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_building ON agent_buildings(building_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_address ON agent_buildings(address_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_agent ON agent_status(agent_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_is_open ON agent_status(is_open)')
         
         # 为现有表添加新字段（如果不存在的话）
         try:
@@ -4410,6 +4426,95 @@ class GiftThresholdDB:
             })
         
         return results
+
+
+# 代理状态相关操作
+class AgentStatusDB:
+    @staticmethod
+    def get_agent_status(agent_id: str) -> Dict[str, Any]:
+        """获取代理的营业状态"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    SELECT * FROM agent_status WHERE agent_id = ?
+                ''', (agent_id,))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                else:
+                    # 如果没有记录，默认为营业状态
+                    return {
+                        'agent_id': agent_id,
+                        'is_open': 1,
+                        'closed_note': '',
+                        'updated_at': None,
+                        'created_at': None
+                    }
+            except Exception as e:
+                logger.error(f"获取代理状态失败: {e}")
+                return {
+                    'agent_id': agent_id,
+                    'is_open': 1,
+                    'closed_note': '',
+                    'updated_at': None,
+                    'created_at': None
+                }
+
+    @staticmethod
+    def update_agent_status(agent_id: str, is_open: bool, closed_note: str = '') -> bool:
+        """更新代理的营业状态"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # 使用 UPSERT 语法
+                cursor.execute('''
+                    INSERT INTO agent_status (id, agent_id, is_open, closed_note, updated_at, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                        is_open = excluded.is_open,
+                        closed_note = excluded.closed_note,
+                        updated_at = CURRENT_TIMESTAMP
+                ''', (f"agent_status_{agent_id}", agent_id, 1 if is_open else 0, closed_note))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新代理状态失败: {e}")
+                conn.rollback()
+                return False
+
+    @staticmethod
+    def is_agent_open(agent_id: str) -> bool:
+        """检查代理是否营业中"""
+        status = AgentStatusDB.get_agent_status(agent_id)
+        return bool(status.get('is_open', 1))
+
+    @staticmethod
+    def get_agent_closed_note(agent_id: str) -> str:
+        """获取代理的打烊提示语"""
+        status = AgentStatusDB.get_agent_status(agent_id)
+        return status.get('closed_note', '')
+
+    @staticmethod
+    def get_all_agent_status() -> List[Dict[str, Any]]:
+        """获取所有代理的状态"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    SELECT a.id as agent_id, a.name as agent_name, 
+                           COALESCE(s.is_open, 1) as is_open,
+                           COALESCE(s.closed_note, '') as closed_note,
+                           s.updated_at
+                    FROM admins a
+                    LEFT JOIN agent_status s ON a.id = s.agent_id
+                    WHERE a.role = 'agent' AND COALESCE(a.is_active, 1) = 1
+                    ORDER BY a.name
+                ''')
+                return [dict(row) for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"获取所有代理状态失败: {e}")
+                return []
 
 
 if __name__ == "__main__":

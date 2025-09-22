@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
 
+
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
   <div className="bg-gradient-to-br from-white to-gray-50/50 rounded-3xl p-8 shadow-lg border border-gray-100/50 hover:shadow-xl hover:border-gray-200/50 transition-all duration-500 group backdrop-blur-sm relative overflow-hidden">
@@ -906,6 +907,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">{headingSubtitle}</p>
             <div className="mt-6 w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mx-auto"></div>
           </div>
+
 
           {/* 统计卡片 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-12">

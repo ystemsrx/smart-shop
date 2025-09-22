@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useCart, useApi } from '../hooks/useAuth';
+import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
@@ -257,6 +257,7 @@ export default function Cart() {
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
   const { getShopStatus } = useProducts();
   const { apiRequest } = useApi();
+  const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
 
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
@@ -464,16 +465,31 @@ export default function Cart() {
     }
   }, [applyCoupon, coupons, cart?.total_price]);
 
-  // 加载店铺状态
+  // 加载店铺/代理状态
   useEffect(() => {
     (async () => {
       try {
-        const s = await getShopStatus();
-        setShopOpen(!!s.data?.is_open);
-        setShopNote(s.data?.note || '当前打烊，暂不支持结算，仅可加入购物车');
-      } catch (e) {}
+        const addressId = location?.address_id;
+        const buildingId = location?.building_id;
+        const res = await getUserAgentStatus(addressId, buildingId);
+        
+        setShopOpen(!!res.data?.is_open);
+        
+        if (res.data?.is_open) {
+          setShopNote('');
+        } else {
+          const defaultNote = res.data?.is_agent 
+            ? '当前区域代理已暂停营业，暂不支持结算，仅可加入购物车' 
+            : '店铺已暂停营业，暂不支持结算，仅可加入购物车';
+          setShopNote(res.data?.note || defaultNote);
+        }
+      } catch (e) {
+        // 出错时默认为营业状态
+        setShopOpen(true);
+        setShopNote('');
+      }
     })();
-  }, []);
+  }, [location]);
 
   // 如果用户未登录，不渲染内容
   if (!user) {

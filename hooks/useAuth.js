@@ -295,3 +295,33 @@ export function useAdminShop() {
   });
   return { getStatus, updateStatus };
 }
+
+// 代理状态管理 hook
+export function useAgentStatus() {
+  const { apiRequest } = useApi();
+  
+  const getStatus = async () => apiRequest('/agent/status');
+  
+  const updateStatus = async (isOpen, closedNote = '') => apiRequest('/agent/status', {
+    method: 'PATCH',
+    body: JSON.stringify({ is_open: !!isOpen, closed_note: closedNote })
+  });
+  
+  return { getStatus, updateStatus };
+}
+
+// 用户获取所属代理状态的 hook
+export function useUserAgentStatus() {
+  const { apiRequest } = useApi();
+  
+  const getStatus = async (addressId = null, buildingId = null) => {
+    const params = new URLSearchParams();
+    if (addressId) params.append('address_id', addressId);
+    if (buildingId) params.append('building_id', buildingId);
+    const queryString = params.toString();
+    const url = `/shop/agent-status${queryString ? '?' + queryString : ''}`;
+    return apiRequest(url);
+  };
+  
+  return { getStatus };
+}
