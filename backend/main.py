@@ -19,7 +19,7 @@ from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
     VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB,
-    PaymentQrDB
+    PaymentQrDB, DeliverySettingsDB
 )
 from database import AgentAssignmentDB
 from auth import (
@@ -2191,8 +2191,13 @@ async def get_cart(request: Request):
                 
         logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
         
-        # 运费：不足10元收1元，满10元免运费（购物车为空不收取）
-        shipping_fee = 0.0 if total_quantity == 0 or total_price >= 10.0 else 1.0
+        # 获取配送费配置
+        scope = resolve_shopping_scope(request)
+        owner_id = get_owner_id_from_scope(scope)
+        delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
+        
+        # 运费计算：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
+        shipping_fee = 0.0 if total_quantity == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
         cart_result = {
             "items": cart_items,
             "total_quantity": total_quantity,
@@ -3235,8 +3240,13 @@ async def create_order(
             except Exception as e:
                 logger.warning(f"附加抽奖奖品失败: {e}")
 
-        # 运费规则：不足10元收取1元，满10元免运费（仅计算上架商品金额）
-        shipping_fee = 0.0 if items_subtotal >= 10.0 else (1.0 if items_subtotal > 0 else 0.0)
+        # 获取配送费配置并计算运费（仅基于上架商品金额）
+        scope = resolve_shopping_scope(request)
+        owner_id = get_owner_id_from_scope(scope)
+        delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
+        
+        # 运费规则：达到免配送费门槛免费，否则收取基础配送费（商品金额为0时不收取）
+        shipping_fee = 0.0 if items_subtotal >= delivery_config['free_delivery_threshold'] else (delivery_config['delivery_fee'] if items_subtotal > 0 else 0.0)
 
         # 处理优惠券（每单最多1张；仅当商品金额严格大于券额时可用）
         discount_amount = 0.0
@@ -3582,6 +3592,12 @@ class GiftThresholdUpdate(BaseModel):
     coupon_amount: Optional[float] = None
     is_active: Optional[bool] = None
     items: Optional[List[AutoGiftItemInput]] = None
+
+
+# 配送费设置模型
+class DeliverySettingsCreate(BaseModel):
+    delivery_fee: float = 1.0
+    free_delivery_threshold: float = 10.0
 
 
 def _persist_lottery_prize_from_payload(
@@ -3980,6 +3996,95 @@ async def public_get_gift_thresholds(request: Request):
     except Exception as e:
         logger.error(f"获取满额门槛配置失败: {e}")
         return error_response("获取满额门槛配置失败", 500)
+
+
+@app.get("/delivery-config")
+async def get_delivery_config(request: Request):
+    """获取当前配送范围内的配送费配置"""
+    try:
+        scope = resolve_shopping_scope(request)
+        owner_id = get_owner_id_from_scope(scope)
+        delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
+        return success_response("获取配送费配置成功", {"delivery_config": delivery_config})
+    except Exception as e:
+        logger.error(f"获取配送费配置失败: {e}")
+        return error_response("获取配送费配置失败", 500)
+
+
+@app.get("/admin/delivery-settings")
+async def admin_get_delivery_settings(request: Request):
+    """获取配送费设置（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("获取配送费设置成功", {"settings": settings})
+    except Exception as e:
+        logger.error(f"获取配送费设置失败: {e}")
+        return error_response("获取配送费设置失败", 500)
+
+
+@app.post("/admin/delivery-settings")
+async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCreate, request: Request):
+    """创建或更新配送费设置（管理员）"""
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        if payload.delivery_fee < 0:
+            return error_response("配送费不能为负数", 400)
+
+        if payload.free_delivery_threshold < 0:
+            return error_response("免配送费门槛不能为负数", 400)
+
+        setting_id = DeliverySettingsDB.create_or_update_settings(
+            owner_id=owner_id,
+            delivery_fee=payload.delivery_fee,
+            free_delivery_threshold=payload.free_delivery_threshold
+        )
+
+        settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("配送费设置保存成功", {"settings": settings})
+    except Exception as e:
+        logger.error(f"保存配送费设置失败: {e}")
+        return error_response("保存配送费设置失败", 500)
+
+
+@app.get("/agent/delivery-settings")
+async def agent_get_delivery_settings(request: Request):
+    """获取配送费设置（代理）"""
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("获取配送费设置成功", {"settings": settings})
+    except Exception as e:
+        logger.error(f"获取配送费设置失败: {e}")
+        return error_response("获取配送费设置失败", 500)
+
+
+@app.post("/agent/delivery-settings")
+async def agent_create_or_update_delivery_settings(payload: DeliverySettingsCreate, request: Request):
+    """创建或更新配送费设置（代理）"""
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        if payload.delivery_fee < 0:
+            return error_response("配送费不能为负数", 400)
+
+        if payload.free_delivery_threshold < 0:
+            return error_response("免配送费门槛不能为负数", 400)
+
+        setting_id = DeliverySettingsDB.create_or_update_settings(
+            owner_id=owner_id,
+            delivery_fee=payload.delivery_fee,
+            free_delivery_threshold=payload.free_delivery_threshold
+        )
+
+        settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("配送费设置保存成功", {"settings": settings})
+    except Exception as e:
+        logger.error(f"保存配送费设置失败: {e}")
+        return error_response("保存配送费设置失败", 500)
 
 
 @app.post("/admin/lottery-prizes")
@@ -4593,7 +4698,7 @@ async def ai_chat(
             logger.info(f"AI聊天请求 - 用户未登录: {e}")
         
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-        return await stream_chat(user, messages)
+        return await stream_chat(user, messages, http_request)
     except Exception as e:
         logger.error(f"AI聊天失败: {e}")
         raise HTTPException(status_code=500, detail="AI聊天服务暂时不可用")

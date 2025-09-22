@@ -10,8 +10,6 @@ import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
 
-const SHIPPING_THRESHOLD = 10;
-
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
   const [quantity, setQuantity] = useState(item.quantity);
@@ -115,15 +113,16 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true, lotteryThreshold = 10 }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true, lotteryThreshold = 10, deliveryConfig = { free_delivery_threshold: 10 } }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
   const base = (cart?.payable_total ?? cart.total_price) || 0;
   const total = Math.max(0, base - discount);
   const validLotteryThreshold = Number.isFinite(lotteryThreshold) && lotteryThreshold > 0 ? lotteryThreshold : 10;
-  const needsShipping = cart.total_quantity > 0 && cart.total_price < SHIPPING_THRESHOLD;
+  const shippingThreshold = deliveryConfig?.free_delivery_threshold || 10;
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold;
   const needsLottery = cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
-  const missingShipping = needsShipping ? Math.max(0, SHIPPING_THRESHOLD - cart.total_price) : 0;
+  const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
   const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
   const sameTarget = needsShipping && needsLottery && Math.abs(missingShipping - missingLottery) < 0.0001;
   return (
@@ -273,6 +272,7 @@ export default function Cart() {
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
+  const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
 
   const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
   const displayLocation = location
@@ -334,6 +334,16 @@ export default function Cart() {
         setAutoGifts(giftsResp?.data?.thresholds || []);
       } catch (e) {
         setAutoGifts([]);
+      }
+      // 加载配送费配置
+      try {
+        const deliveryResp = await apiRequest('/delivery-config');
+        const config = deliveryResp?.data?.delivery_config;
+        if (config) {
+          setDeliveryConfig(config);
+        }
+      } catch (e) {
+        console.warn('获取配送费配置失败:', e);
       }
       // 加载我的优惠券 + 默认选择规则
       try {
@@ -779,6 +789,7 @@ export default function Cart() {
                         setApplyCoupon={setApplyCoupon}
                         locationReady={locationReady}
                         lotteryThreshold={lotteryThreshold}
+                        deliveryConfig={deliveryConfig}
                       />
                     </div>
                   </div>
