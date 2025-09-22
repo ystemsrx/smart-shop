@@ -678,7 +678,14 @@ export default function Shop() {
   // 初始化和分类变化时加载数据
   useEffect(() => {
     loadData();
-  }, [selectedCategory, locationRevision, user, forceSelection]);
+  }, [
+    selectedCategory,
+    locationRevision,
+    user,
+    forceSelection,
+    location?.address_id,
+    location?.building_id,
+  ]);
 
   // 用户登录状态变化时加载购物车
   useEffect(() => {

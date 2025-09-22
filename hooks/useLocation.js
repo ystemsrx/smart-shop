@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import LocationModal from '../components/LocationModal';
 
@@ -25,6 +25,22 @@ export function LocationProvider({ children }) {
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
 
+  const addressesRef = useRef(addresses);
+  const addressesLoadedRef = useRef(addressesLoaded);
+  const buildingCacheRef = useRef(buildingCache);
+
+  useEffect(() => {
+    addressesRef.current = addresses;
+  }, [addresses]);
+
+  useEffect(() => {
+    addressesLoadedRef.current = addressesLoaded;
+  }, [addressesLoaded]);
+
+  useEffect(() => {
+    buildingCacheRef.current = buildingCache;
+  }, [buildingCache]);
+
   const fetchJSON = useCallback(async (url, options = {}) => {
     const resp = await fetch(url, {
       credentials: 'include',
@@ -43,33 +59,42 @@ export function LocationProvider({ children }) {
   }, []);
 
   const ensureAddressesLoaded = useCallback(async () => {
-    if (addressesLoaded) return addresses;
+    if (addressesLoadedRef.current) {
+      return addressesRef.current;
+    }
     try {
       const data = await fetchJSON(`${API_BASE}/addresses`);
       const list = data.data?.addresses || [];
       setAddresses(list);
       setAddressesLoaded(true);
+      addressesRef.current = list;
+      addressesLoadedRef.current = true;
       return list;
     } catch (err) {
       console.error('获取地址列表失败:', err.message);
       setAddressesLoaded(false);
+      addressesLoadedRef.current = false;
       throw err;
     }
-  }, [addressesLoaded, addresses, fetchJSON]);
+  }, [fetchJSON]);
 
   const loadBuildingsFor = useCallback(async (addressId) => {
     if (!addressId) {
       setBuildingOptions([]);
       return [];
     }
-    if (buildingCache[addressId]) {
-      setBuildingOptions(buildingCache[addressId]);
-      return buildingCache[addressId];
+    if (buildingCacheRef.current[addressId]) {
+      setBuildingOptions(buildingCacheRef.current[addressId]);
+      return buildingCacheRef.current[addressId];
     }
     try {
       const data = await fetchJSON(`${API_BASE}/buildings?address_id=${encodeURIComponent(addressId)}`);
       const list = data.data?.buildings || [];
-      setBuildingCache(prev => ({ ...prev, [addressId]: list }));
+      setBuildingCache(prev => {
+        const next = { ...prev, [addressId]: list };
+        buildingCacheRef.current = next;
+        return next;
+      });
       setBuildingOptions(list);
       return list;
     } catch (err) {
@@ -77,7 +102,7 @@ export function LocationProvider({ children }) {
       setBuildingOptions([]);
       throw err;
     }
-  }, [buildingCache, fetchJSON]);
+  }, [fetchJSON]);
 
   const loadProfile = useCallback(async () => {
     if (!user || user.type !== 'user') {
@@ -94,7 +119,7 @@ export function LocationProvider({ children }) {
       setLocation(profile);
       const hasLocation = profile && profile.address_id && profile.building_id;
       if (!hasLocation) {
-        const addrList = await ensureAddressesLoaded() || addresses;
+        const addrList = await ensureAddressesLoaded();
         const defaultAddressId = profile?.address_id || addrList?.[0]?.id;
         const addrId = defaultAddressId || '';
         setSelectedAddressId(addrId);
@@ -124,7 +149,7 @@ export function LocationProvider({ children }) {
     } finally {
       setIsLoading(false);
     }
-  }, [user, fetchJSON, ensureAddressesLoaded, loadBuildingsFor, addresses]);
+  }, [user, fetchJSON, ensureAddressesLoaded, loadBuildingsFor]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -140,7 +165,7 @@ export function LocationProvider({ children }) {
   const openLocationModal = useCallback(async () => {
     if (!user || user.type !== 'user') return;
     try {
-      const addrList = await ensureAddressesLoaded() || addresses;
+      const addrList = await ensureAddressesLoaded();
       const addrId = location?.address_id || addrList?.[0]?.id || '';
       setSelectedAddressId(addrId);
       const buildings = addrId ? await loadBuildingsFor(addrId) : [];
@@ -154,7 +179,7 @@ export function LocationProvider({ children }) {
       setModalOpen(true);
       setForceSelection(true);
     }
-  }, [user, location, ensureAddressesLoaded, addresses, loadBuildingsFor]);
+  }, [user, location, ensureAddressesLoaded, loadBuildingsFor]);
 
   const closeLocationModal = useCallback(() => {
     if (forceSelection) return;
