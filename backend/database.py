@@ -1923,6 +1923,19 @@ class AddressDB:
         return AddressDB.get_all_addresses(include_disabled=False)
 
     @staticmethod
+    def get_enabled_addresses_with_buildings() -> List[Dict]:
+        """获取启用且有启用楼栋的地址列表"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT DISTINCT a.* FROM addresses a
+                INNER JOIN buildings b ON a.id = b.address_id
+                WHERE a.enabled = 1 AND b.enabled = 1
+                ORDER BY a.sort_order ASC, a.name ASC
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
     def get_by_id(address_id: str) -> Optional[Dict]:
         with get_db_connection() as conn:
             cursor = conn.cursor()

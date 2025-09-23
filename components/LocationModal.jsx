@@ -66,23 +66,31 @@ export default function LocationModal({
               </div>
             ) : (
               <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                    <i className="fas fa-tree-city text-emerald-500"></i>
-                    请选择园区
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={selectedAddressId}
-                      onChange={(e) => onSelectAddress(e.target.value)}
-                      className="w-full appearance-none px-4 py-3 rounded-2xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                    >
-                      <option value="" disabled>请选择所在园区</option>
-                      {(addresses || []).map(addr => (
-                        <option key={addr.id} value={addr.id}>{addr.name}</option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
+                {(!addresses || addresses.length === 0) ? (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-6 rounded-2xl text-center">
+                    <i className="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                    <p className="font-medium mb-1">暂无可选择的配送地址</p>
+                    <p className="text-sm text-amber-600">请联系管理员</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                        <i className="fas fa-tree-city text-emerald-500"></i>
+                        请选择园区
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={selectedAddressId}
+                          onChange={(e) => onSelectAddress(e.target.value)}
+                          className="w-full appearance-none px-4 py-3 rounded-2xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                        >
+                          <option value="" disabled>请选择所在园区</option>
+                          {addresses.map(addr => (
+                            <option key={addr.id} value={addr.id}>{addr.name}</option>
+                          ))}
+                        </select>
+                        <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                       <i className="fas fa-chevron-down"></i>
                     </div>
                   </div>
@@ -110,10 +118,12 @@ export default function LocationModal({
                   </div>
                 </div>
 
-                <div className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3 flex items-start gap-2">
-                  <i className="fas fa-info-circle text-amber-500 mt-0.5"></i>
-                  <span>切换地址后，系统会自动清空当前购物车并展示对应园区的商品，请重新添加所需商品。</span>
-                </div>
+                    <div className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3 flex items-start gap-2">
+                      <i className="fas fa-info-circle text-amber-500 mt-0.5"></i>
+                      <span>切换地址后，系统会自动清空当前购物车并展示对应园区的商品，请重新添加所需商品。</span>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

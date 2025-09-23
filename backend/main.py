@@ -1457,19 +1457,24 @@ async def get_categories(request: Request, address_id: Optional[str] = None, bui
 
 @app.get("/addresses")
 async def get_enabled_addresses():
-    """获取启用的地址列表；若为空，返回默认 '桃园' 作为回退"""
+    """获取启用且有启用楼栋的地址列表"""
     try:
-        addrs = AddressDB.get_enabled_addresses()
+        # 获取有启用楼栋的地址
+        addrs = AddressDB.get_enabled_addresses_with_buildings()
+        
+        # 如果没有找到有楼栋的地址，记录日志但返回空列表
         if not addrs:
-            # 回退默认值，不写入数据库，仅供前端选择
-            addrs = [{
-                "id": "addr_default_taoyuan",
-                "name": "桃园",
-                "enabled": 1,
-                "sort_order": 0,
-                "created_at": None,
-                "updated_at": None
-            }]
+            # 获取所有启用的地址
+            all_enabled_addrs = AddressDB.get_enabled_addresses()
+            if all_enabled_addrs:
+                # 有启用的地址但没有楼栋，不返回任何地址
+                # 这样用户界面就不会显示没有楼栋的园区
+                logger.info(f"发现 {len(all_enabled_addrs)} 个启用地址但无可用楼栋，不向用户显示")
+            else:
+                # 完全没有地址
+                logger.info("没有找到任何启用的地址")
+            addrs = []
+            
         return success_response("获取地址成功", {"addresses": addrs})
     except Exception as e:
         logger.error(f"获取地址失败: {e}")
