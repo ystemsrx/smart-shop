@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 
 // 创建认证上下文
 const AuthContext = createContext(null);
@@ -179,7 +179,7 @@ export function useAuth() {
 export function useApi() {
   const { user, refreshToken } = useAuth();
 
-  const apiRequest = async (endpoint, options = {}) => {
+  const apiRequest = useCallback(async (endpoint, options = {}) => {
     const url = `${API_BASE}${endpoint}`;
     const isFormData = (options && options.body && typeof FormData !== 'undefined' && options.body instanceof FormData);
     const headers = isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -210,7 +210,7 @@ export function useApi() {
     } catch (err) {
       throw new Error(err.message || '请求失败');
     }
-  };
+  }, [refreshToken]); // 添加依赖数组，只有在 refreshToken 变化时才重新创建函数
 
   return { apiRequest };
 }
