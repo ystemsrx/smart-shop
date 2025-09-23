@@ -469,7 +469,7 @@ async def handle_product_update(
         return error_response("没有提供更新数据", 400)
 
     try:
-        success = SettingsDB.update_product(product_id, update_data)
+        success = ProductDB.update_product(product_id, update_data)
         if not success:
             return error_response("更新商品失败", 500)
     except Exception as e:
@@ -514,7 +514,7 @@ async def handle_product_image_update(
         return error_response(exc.detail, exc.status_code)
 
     try:
-        ok = SettingsDB.update_image_path(product_id, img_path)
+        ok = ProductDB.update_image_path(product_id, img_path)
     except Exception as e:
         ok = False
         logger.error(f"商品图片数据库更新失败: {e}")
@@ -2827,7 +2827,7 @@ async def bulk_update_products(payload: BulkProductUpdateRequest, request: Reque
             if not p:
                 not_found.append(pid)
                 continue
-            ok = SettingsDB.update_product(pid, update_fields)
+            ok = ProductDB.update_product(pid, update_fields)
             if ok:
                 updated += 1
         return success_response("批量更新完成", {"updated": updated, "not_found": not_found})

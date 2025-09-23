@@ -1371,6 +1371,154 @@ class ProductDB:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    @staticmethod
+    def update_product(product_id: str, product_data: Dict) -> bool:
+        """更新商品信息"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取原商品信息以便后续清理
+            cursor.execute('SELECT category FROM products WHERE id = ?', (product_id,))
+            old_product = cursor.fetchone()
+            if not old_product:
+                return False
+            old_category = old_product[0]
+            
+            # 如果要更新分类，自动创建新分类（如果不存在）
+            if 'category' in product_data:
+                new_category = product_data['category']
+                cursor.execute('SELECT id FROM categories WHERE name = ?', (new_category,))
+                if not cursor.fetchone():
+                    category_id = f"cat_{int(datetime.now().timestamp())}"
+                    cursor.execute('''
+                        INSERT INTO categories (id, name, description)
+                        VALUES (?, ?, ?)
+                    ''', (category_id, new_category, f"自动创建的分类：{new_category}"))
+            
+            # 构建动态更新SQL
+            update_fields = []
+            values = []
+            
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id']:
+                if field in product_data:
+                    update_fields.append(f"{field} = ?")
+                    values.append(product_data[field])
+            
+            if not update_fields:
+                return False
+            
+            # 添加更新时间
+            update_fields.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(product_id)
+            
+            sql = f"UPDATE products SET {', '.join(update_fields)} WHERE id = ?"
+            cursor.execute(sql, values)
+            
+            success = cursor.rowcount > 0
+            
+            # 如果更新成功且更改了分类，统一清理空分类
+            if success and 'category' in product_data and product_data['category'] != old_category:
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
+            
+            conn.commit()
+            return success
+
+    @staticmethod
+    def update_stock(product_id: str, new_stock: int) -> bool:
+        """更新商品库存"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE products 
+                SET stock = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (new_stock, product_id))
+            
+            success = cursor.rowcount > 0
+            conn.commit()
+            return success
+
+    @staticmethod
+    def update_image_path(product_id: str, new_img_path: str) -> bool:
+        """仅更新商品图片路径"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE products 
+                SET img_path = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (new_img_path, product_id))
+            ok = cursor.rowcount > 0
+            conn.commit()
+            return ok
+    
+    @staticmethod
+    def delete_product(product_id: str) -> bool:
+        """删除商品"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取商品分类以便后续清理
+            cursor.execute('SELECT category FROM products WHERE id = ?', (product_id,))
+            product = cursor.fetchone()
+            if not product:
+                return False
+            
+            category_name = product[0]
+            
+            cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+            success = cursor.rowcount > 0
+            
+            # 如果删除成功，统一清理空分类
+            if success:
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
+            
+            conn.commit()
+            return success
+    
+    @staticmethod
+    def batch_delete_products(product_ids: List[str]) -> Dict[str, Any]:
+        """批量删除商品"""
+        if not product_ids:
+            return {"success": False, "deleted_count": 0, "message": "没有提供要删除的商品ID"}
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取要删除的商品分类
+            placeholders = ','.join('?' for _ in product_ids)
+            cursor.execute(f'SELECT DISTINCT category FROM products WHERE id IN ({placeholders})', product_ids)
+            categories = [row[0] for row in cursor.fetchall()]
+            
+            # 批量删除商品
+            cursor.execute(f'DELETE FROM products WHERE id IN ({placeholders})', product_ids)
+            deleted_count = cursor.rowcount
+            
+            success = deleted_count > 0
+            
+            # 如果删除成功，统一清理空分类
+            if success:
+                conn.commit()
+                try:
+                    CategoryDB.cleanup_orphan_categories()
+                except Exception:
+                    pass
+                
+            conn.commit()
+            return {
+                "success": success,
+                "deleted_count": deleted_count,
+                "message": f"成功删除 {deleted_count} 个商品" if success else "删除失败"
+            }
+
 class VariantDB:
     @staticmethod
     def get_by_product(product_id: str) -> List[Dict]:
@@ -1458,170 +1606,6 @@ class SettingsDB:
             cursor.execute('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, value))
             conn.commit()
             return True
-    
-    @staticmethod
-    def update_product(product_id: str, product_data: Dict) -> bool:
-        """更新商品信息"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # 获取原商品信息以便后续清理
-            cursor.execute('SELECT category FROM products WHERE id = ?', (product_id,))
-            old_product = cursor.fetchone()
-            if not old_product:
-                return False
-            old_category = old_product[0]
-            
-            # 如果要更新分类，自动创建新分类（如果不存在）
-            if 'category' in product_data:
-                new_category = product_data['category']
-                cursor.execute('SELECT id FROM categories WHERE name = ?', (new_category,))
-                if not cursor.fetchone():
-                    category_id = f"cat_{int(datetime.now().timestamp())}"
-                    cursor.execute('''
-                        INSERT INTO categories (id, name, description)
-                        VALUES (?, ?, ?)
-                    ''', (category_id, new_category, f"自动创建的分类：{new_category}"))
-            
-            # 构建动态更新SQL
-            update_fields = []
-            values = []
-            
-        for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id']:
-            if field in product_data:
-                update_fields.append(f"{field} = ?")
-                values.append(product_data[field])
-            
-            if not update_fields:
-                return False
-            
-            # 添加更新时间
-            update_fields.append("updated_at = CURRENT_TIMESTAMP")
-            values.append(product_id)
-            
-            sql = f"UPDATE products SET {', '.join(update_fields)} WHERE id = ?"
-            cursor.execute(sql, values)
-            
-            success = cursor.rowcount > 0
-            
-            # 如果更新成功且更改了分类，统一清理空分类
-            if success and 'category' in product_data and product_data['category'] != old_category:
-                conn.commit()
-                try:
-                    CategoryDB.cleanup_orphan_categories()
-                except Exception:
-                    pass
-            
-            conn.commit()
-            return success
-    
-    @staticmethod
-    def update_stock(product_id: str, new_stock: int) -> bool:
-        """更新商品库存"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE products 
-                SET stock = ?, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            ''', (new_stock, product_id))
-            
-            success = cursor.rowcount > 0
-            conn.commit()
-            return success
-
-    @staticmethod
-    def update_image_path(product_id: str, new_img_path: str) -> bool:
-        """仅更新商品图片路径"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE products 
-                SET img_path = ?, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            ''', (new_img_path, product_id))
-            ok = cursor.rowcount > 0
-            conn.commit()
-            return ok
-    
-    @staticmethod
-    def delete_product(product_id: str) -> bool:
-        """删除商品"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # 获取商品分类以便后续清理
-            cursor.execute('SELECT category FROM products WHERE id = ?', (product_id,))
-            product = cursor.fetchone()
-            if not product:
-                return False
-            
-            category_name = product[0]
-            
-            cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
-            success = cursor.rowcount > 0
-            
-            # 如果删除成功，统一清理空分类
-            if success:
-                conn.commit()
-                try:
-                    CategoryDB.cleanup_orphan_categories()
-                except Exception:
-                    pass
-            
-            conn.commit()
-            return success
-    
-    @staticmethod
-    def batch_delete_products(product_ids: List[str]) -> Dict[str, Any]:
-        """批量删除商品"""
-        if not product_ids:
-            return {"success": False, "deleted_count": 0, "message": "没有提供要删除的商品ID"}
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            try:
-                # 获取所有要删除的商品的信息（包括图片路径）
-                placeholders = ','.join('?' * len(product_ids))
-                cursor.execute(f'SELECT id, category, img_path FROM products WHERE id IN ({placeholders})', product_ids)
-                existing_products = cursor.fetchall()
-                
-                if not existing_products:
-                    return {"success": False, "deleted_count": 0, "message": "没有找到要删除的商品"}
-                
-                existing_ids = [row[0] for row in existing_products]
-                categories_to_check = list(set([row[1] for row in existing_products]))
-                img_paths = [row[2] for row in existing_products if row[2] and row[2].strip()]
-                
-                # 执行批量删除
-                cursor.execute(f'DELETE FROM products WHERE id IN ({placeholders})', existing_ids)
-                deleted_count = cursor.rowcount
-                
-                # 统一清理空分类（删除后再全量清理）
-                conn.commit()
-                try:
-                    CategoryDB.cleanup_orphan_categories()
-                except Exception:
-                    pass
-                
-                conn.commit()
-                
-                return {
-                    "success": True, 
-                    "deleted_count": deleted_count,
-                    "message": f"成功删除 {deleted_count} 件商品",
-                    "deleted_ids": existing_ids,
-                    "not_found_ids": list(set(product_ids) - set(existing_ids)),
-                    "deleted_img_paths": img_paths
-                }
-                
-            except Exception as e:
-                conn.rollback()
-                return {"success": False, "deleted_count": 0, "message": f"批量删除失败: {str(e)}"}
-    
-    
-    # 旧的分类清理方法已废弃，统一使用 CategoryDB.cleanup_orphan_categories()
 
 # 购物车相关操作
 class CartDB:
