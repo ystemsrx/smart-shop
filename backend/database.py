@@ -192,6 +192,104 @@ def auto_migrate_database(conn) -> None:
     
     # 收款码数据迁移将在 init_database 完成后进行
 
+def migrate_user_profile_addresses(conn):
+    """
+    迁移用户配置文件的地址数据
+    将老的 dormitory + building 字段数据迁移到新的 address_id + building_id 字段
+    """
+    cursor = conn.cursor()
+    
+    try:
+        # 检查是否需要迁移（查找有老地址数据但缺少新ID字段的记录）
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM user_profiles 
+            WHERE (address_id IS NULL OR building_id IS NULL) 
+            AND dormitory IS NOT NULL 
+            AND building IS NOT NULL
+            AND TRIM(dormitory) != ''
+            AND TRIM(building) != ''
+        """)
+        
+        need_migration_count = cursor.fetchone()[0]
+        
+        if need_migration_count == 0:
+            logger.info("用户配置文件地址数据无需迁移")
+            return
+        
+        logger.info(f"发现 {need_migration_count} 个用户配置需要地址数据迁移")
+        
+        # 获取所有地址映射
+        cursor.execute("SELECT id, name FROM addresses WHERE enabled = 1")
+        address_map = {name: id for id, name in cursor.fetchall()}
+        
+        if not address_map:
+            logger.warning("地址表为空，无法进行迁移")
+            return
+        
+        # 获取所有楼栋映射
+        cursor.execute("SELECT id, address_id, name FROM buildings WHERE enabled = 1")
+        building_rows = cursor.fetchall()
+        building_map = {}  # {(address_id, building_name): building_id}
+        for building_id, address_id, building_name in building_rows:
+            building_map[(address_id, building_name)] = building_id
+        
+        if not building_map:
+            logger.warning("楼栋表为空，无法进行迁移")
+            return
+        
+        # 获取需要迁移的用户配置
+        cursor.execute("""
+            SELECT student_id, dormitory, building 
+            FROM user_profiles 
+            WHERE (address_id IS NULL OR building_id IS NULL) 
+            AND dormitory IS NOT NULL 
+            AND building IS NOT NULL
+            AND TRIM(dormitory) != ''
+            AND TRIM(building) != ''
+        """)
+        
+        profiles_to_migrate = cursor.fetchall()
+        migrated_count = 0
+        failed_count = 0
+        
+        for student_id, dormitory, building in profiles_to_migrate:
+            try:
+                # 查找对应的address_id
+                address_id = address_map.get(dormitory.strip())
+                if not address_id:
+                    logger.warning(f"用户 {student_id} 的宿舍区 '{dormitory}' 在地址表中未找到")
+                    failed_count += 1
+                    continue
+                
+                # 查找对应的building_id
+                building_id = building_map.get((address_id, building.strip()))
+                if not building_id:
+                    logger.warning(f"用户 {student_id} 的楼栋 '{building}' 在地址 '{dormitory}' 下未找到")
+                    failed_count += 1
+                    continue
+                
+                # 更新用户配置
+                cursor.execute("""
+                    UPDATE user_profiles 
+                    SET address_id = ?, building_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE student_id = ?
+                """, (address_id, building_id, student_id))
+                
+                migrated_count += 1
+                
+            except Exception as e:
+                logger.error(f"迁移用户 {student_id} 地址数据失败: {e}")
+                failed_count += 1
+        
+        conn.commit()
+        logger.info(f"用户配置文件地址数据迁移完成: 成功 {migrated_count} 个, 失败 {failed_count} 个")
+        
+    except Exception as e:
+        logger.error(f"用户配置文件地址数据迁移失败: {e}")
+        conn.rollback()
+        raise
+
 def init_database():
     """初始化数据库表结构"""
     conn = sqlite3.connect(DB_PATH)
@@ -844,6 +942,12 @@ def init_database():
             conn.rollback()
         
         # 收款码数据迁移将在模块加载完成后单独处理
+        
+        # 用户配置文件地址数据自动迁移
+        try:
+            migrate_user_profile_addresses(conn)
+        except Exception as e:
+            logger.warning(f"用户配置文件地址数据迁移失败: {e}")
         
         # 初始化示例数据（仅在显式允许时）
         if os.getenv("DB_SEED_DEMO") == "1":
