@@ -1866,12 +1866,23 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
   const [categories, setCategories] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value || '');
+  const [isLoading, setIsLoading] = useState(false);
   const { apiRequest } = useApi();
 
   useEffect(() => {
+    // 只在组件首次挂载时加载分类数据
+    let isMounted = true;
+    
     const loadCategories = async () => {
+      if (isLoading) return; // 防止重复请求
+      
+      setIsLoading(true);
       try {
         const response = await apiRequest('/products/categories');
+        
+        // 检查组件是否仍然挂载
+        if (!isMounted) return;
+        
         const cats = response.data.categories || [];
         const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
         const firstSigChar = (s) => {
@@ -1935,10 +1946,20 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
         setCategories(cats);
       } catch (error) {
         console.error('获取分类失败:', error);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
+
     loadCategories();
-  }, [apiRequest]);
+
+    // 清理函数
+    return () => {
+      isMounted = false;
+    };
+  }, []); // 移除 apiRequest 依赖，只在组件挂载时执行一次
 
   useEffect(() => {
     setInputValue(value || '');
