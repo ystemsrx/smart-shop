@@ -916,6 +916,52 @@ _static_cors = CORSMiddleware(
 )
 app.mount("/items", _static_cors, name="items")
 
+# Mount public directory for payment QR codes and other dynamically generated static assets
+_public_static = CachedStaticFiles(directory=public_dir)
+_public_static_cors = CORSMiddleware(
+    _public_static,
+    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=True,
+    expose_headers=["Content-Length", "Content-Type"]
+)
+app.mount("/public", _public_static_cors, name="public")
+
+# Also serve public files directly at root level (for compatibility with Next.js public directory behavior)
+from fastapi import HTTPException
+from starlette.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+import mimetypes
+
+@app.get("/{filename}")
+async def serve_public_file_at_root(filename: str):
+    """Serve public directory files at root level for compatibility (e.g., /logo.png, /payment_qr_*.jpg)"""
+    # Only serve specific file patterns for security
+    if not (filename.startswith('logo.') or 
+            filename.startswith('payment_qr_') or 
+            filename.startswith('favicon.') or
+            filename.startswith('tencent')):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    file_path = os.path.join(public_dir, filename)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Determine media type
+    media_type = mimetypes.guess_type(file_path)[0]
+    
+    return FileResponse(
+        file_path, 
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=2592000, immutable",  # 30 days cache
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
+
 # Pydantic模型
 class LoginRequest(BaseModel):
     student_id: str
@@ -1822,7 +1868,7 @@ async def admin_create_payment_qr(
         with open(target_path, 'wb') as f:
             f.write(content)
 
-        web_path = f"/{filename}"
+        web_path = f"/public/{filename}"
         
         # 创建收款码记录（所有管理员统一使用 'admin' 作为 owner_id）
         qr_id = PaymentQrDB.create_payment_qr('admin', 'admin', name, web_path)
@@ -1865,7 +1911,7 @@ async def agent_create_payment_qr(
         with open(target_path, 'wb') as f:
             f.write(content)
         
-        web_path = f"/{filename}"
+        web_path = f"/public/{filename}"
         
         # 创建收款码记录
         qr_id = PaymentQrDB.create_payment_qr(staff['id'], 'agent', name, web_path)
