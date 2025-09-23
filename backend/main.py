@@ -934,33 +934,6 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 import mimetypes
 
-@app.get("/{filename}")
-async def serve_public_file_at_root(filename: str):
-    """Serve public directory files at root level for compatibility (e.g., /logo.png, /payment_qr_*.jpg)"""
-    # Only serve specific file patterns for security
-    if not (filename.startswith('logo.') or 
-            filename.startswith('payment_qr_') or 
-            filename.startswith('favicon.') or
-            filename.startswith('tencent')):
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    file_path = os.path.join(public_dir, filename)
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    # Determine media type
-    media_type = mimetypes.guess_type(file_path)[0]
-    
-    return FileResponse(
-        file_path, 
-        media_type=media_type,
-        headers={
-            "Cache-Control": "public, max-age=2592000, immutable",  # 30 days cache
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
-        }
-    )
 
 # Pydantic模型
 class LoginRequest(BaseModel):
@@ -5156,6 +5129,67 @@ async def update_profile_location(payload: LocationUpdateRequest, request: Reque
     except Exception as e:
         logger.error(f"更新配送地址失败: {e}")
         return error_response("更新配送地址失败", 500)
+
+# 在所有API路由之后添加静态文件路由，避免冲突
+@app.get("/logo.{extension}")
+async def serve_logo(extension: str):
+    """Serve logo files"""
+    filename = f"logo.{extension}"
+    file_path = os.path.join(public_dir, filename)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    media_type = mimetypes.guess_type(file_path)[0]
+    return FileResponse(
+        file_path, 
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=2592000, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
+
+@app.get("/payment_qr_{payment_id}.{extension}")
+async def serve_payment_qr(payment_id: str, extension: str):
+    """Serve payment QR code files"""
+    filename = f"payment_qr_{payment_id}.{extension}"
+    file_path = os.path.join(public_dir, filename)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    media_type = mimetypes.guess_type(file_path)[0]
+    return FileResponse(
+        file_path, 
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=2592000, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
+
+@app.get("/tencent{filename}")
+async def serve_tencent_verification(filename: str):
+    """Serve Tencent verification files"""
+    full_filename = f"tencent{filename}"
+    file_path = os.path.join(public_dir, full_filename)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    media_type = mimetypes.guess_type(file_path)[0] or "text/plain"
+    return FileResponse(
+        file_path, 
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=2592000, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
 
 if __name__ == "__main__":
     uvicorn.run(
