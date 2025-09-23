@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useCart, useApi } from '../hooks/useAuth';
+import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
@@ -112,11 +113,18 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon }) => {
+const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true, lotteryThreshold = 10, deliveryConfig = { free_delivery_threshold: 10 } }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
   const base = (cart?.payable_total ?? cart.total_price) || 0;
   const total = Math.max(0, base - discount);
+  const validLotteryThreshold = Number.isFinite(lotteryThreshold) && lotteryThreshold > 0 ? lotteryThreshold : 10;
+  const shippingThreshold = deliveryConfig?.free_delivery_threshold || 10;
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold;
+  const needsLottery = cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
+  const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
+  const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
+  const sameTarget = needsShipping && needsLottery && Math.abs(missingShipping - missingLottery) < 0.0001;
   return (
     <div className="bg-white border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-6 pb-3 border-b border-gray-100">订单摘要</h3>
@@ -135,12 +143,31 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
           <span className="text-gray-900 font-medium">{cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : '免费'}</span>
         </div>
         
-        {cart.total_quantity > 0 && cart.total_price < 10 && (
+        {(needsShipping || needsLottery) && (
           <div className="bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700">
-            还差 <span className="font-semibold text-gray-900">¥{(10 - cart.total_price).toFixed(2)}</span> 
-            <span className="font-semibold text-red-500"> 免运费</span>
-            和
-            <span className="font-semibold text-red-500">抽奖资格</span>
+            <span>还差 </span>
+            {sameTarget ? (
+              <>
+                <span className="font-semibold text-gray-900">¥{missingShipping.toFixed(2)}</span>
+                <span className="font-semibold text-red-500"> 免运费和抽奖资格</span>
+              </>
+            ) : (
+              <>
+                {needsShipping && (
+                  <>
+                    <span className="font-semibold text-gray-900">¥{missingShipping.toFixed(2)}</span>
+                    <span className="font-semibold text-red-500"> 免运费</span>
+                  </>
+                )}
+                {needsShipping && needsLottery && <span className="text-gray-400 mx-1">·</span>}
+                {needsLottery && (
+                  <>
+                    <span className="font-semibold text-gray-900">¥{missingLottery.toFixed(2)}</span>
+                    <span className="font-semibold text-red-500"> 抽奖资格</span>
+                  </>
+                )}
+              </>
+            )}
             <a href="/shop" className="ml-2 text-gray-900 underline hover:no-underline">去凑单</a>
           </div>
         )}
@@ -210,10 +237,14 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
       
       <button
         onClick={onCheckout}
-        disabled={isLoading || cart.total_quantity === 0 || isClosed}
+        disabled={isLoading || cart.total_quantity === 0 || isClosed || !locationReady}
         className="w-full bg-gray-900 text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
       >
-        {isLoading ? '处理中...' : (isClosed ? '打烊中 · 暂停结算' : '去结算')}
+        {isLoading
+          ? '处理中...'
+          : (isClosed
+              ? '打烊中 · 暂停结算'
+              : (!locationReady ? '请选择配送地址' : '去结算'))}
       </button>
     </div>
   );
@@ -225,8 +256,10 @@ export default function Cart() {
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
   const { getShopStatus } = useProducts();
   const { apiRequest } = useApi();
-  
-  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
+  const { getStatus: getUserAgentStatus } = useUserAgentStatus();
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
+
+  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
@@ -238,6 +271,29 @@ export default function Cart() {
   const [couponExpanded, setCouponExpanded] = useState(false);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
+  const [infoMessage, setInfoMessage] = useState('');
+  const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
+
+  const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '请选择配送地址';
+  const locationRevisionRef = useRef(locationRevision);
+
+  const lotteryThreshold = useMemo(() => {
+    const raw = cart?.lottery_threshold;
+    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return 10;
+  }, [cart?.lottery_threshold]);
+
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
 
   // 检查登录状态
   useEffect(() => {
@@ -251,8 +307,19 @@ export default function Cart() {
   const loadCart = async () => {
     setIsLoading(true);
     setError('');
-    
+
     try {
+      if (!locationReady) {
+        setCart({ items: [], total_quantity: 0, total_price: 0, payable_total: 0, shipping_fee: 0, lottery_threshold: 10 });
+        setEligibleRewards([]);
+        setAutoGifts([]);
+        setCoupons([]);
+        setSelectedCouponId(null);
+        setApplyCoupon(false);
+        setIsLoading(false);
+        return;
+      }
+
       const data = await getCart();
       setCart(data.data);
       // 加载可用抽奖奖品
@@ -267,6 +334,16 @@ export default function Cart() {
         setAutoGifts(giftsResp?.data?.thresholds || []);
       } catch (e) {
         setAutoGifts([]);
+      }
+      // 加载配送费配置
+      try {
+        const deliveryResp = await apiRequest('/delivery-config');
+        const config = deliveryResp?.data?.delivery_config;
+        if (config) {
+          setDeliveryConfig(config);
+        }
+      } catch (e) {
+        console.warn('获取配送费配置失败:', e);
       }
       // 加载我的优惠券 + 默认选择规则
       try {
@@ -294,6 +371,25 @@ export default function Cart() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (locationRevisionRef.current === undefined) {
+      locationRevisionRef.current = locationRevision;
+      return;
+    }
+    if (locationRevisionRef.current !== locationRevision) {
+      locationRevisionRef.current = locationRevision;
+      if (user?.type === 'user' && locationReady) {
+        setInfoMessage(`已切换至 ${displayLocation}，购物车已清空，请重新挑选商品。`);
+      }
+    }
+  }, [locationRevision, user, locationReady, displayLocation]);
+
+  useEffect(() => {
+    if (user?.type === 'user' && !locationReady) {
+      setInfoMessage('请选择配送地址以查看购物车。');
+    }
+  }, [user, locationReady]);
 
   // 更新商品数量
   const handleUpdateQuantity = async (productId, quantity, variantId = null) => {
@@ -344,7 +440,16 @@ export default function Cart() {
       alert(shopNote || '当前打烊，暂不支持结算，仅可加入购物车');
       return;
     }
-    router.push('/checkout');
+    if (!locationReady) {
+      alert('请先选择配送地址以完成结算');
+      openLocationModal();
+      return;
+    }
+    if (applyCoupon && selectedCouponId) {
+      router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+    } else {
+      router.push('/checkout?apply=0');
+    }
   };
 
   // 初始化加载
@@ -352,7 +457,7 @@ export default function Cart() {
     if (user) {
       loadCart();
     }
-  }, [user]);
+  }, [user, locationReady, locationRevision]);
 
   // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
   useEffect(() => {
@@ -370,16 +475,31 @@ export default function Cart() {
     }
   }, [applyCoupon, coupons, cart?.total_price]);
 
-  // 加载店铺状态
+  // 加载店铺/代理状态
   useEffect(() => {
     (async () => {
       try {
-        const s = await getShopStatus();
-        setShopOpen(!!s.data?.is_open);
-        setShopNote(s.data?.note || '当前打烊，暂不支持结算，仅可加入购物车');
-      } catch (e) {}
+        const addressId = location?.address_id;
+        const buildingId = location?.building_id;
+        const res = await getUserAgentStatus(addressId, buildingId);
+        
+        setShopOpen(!!res.data?.is_open);
+        
+        if (res.data?.is_open) {
+          setShopNote('');
+        } else {
+          const defaultNote = res.data?.is_agent 
+            ? '当前区域代理已暂停营业，暂不支持结算，仅可加入购物车' 
+            : '店铺已暂停营业，暂不支持结算，仅可加入购物车';
+          setShopNote(res.data?.note || defaultNote);
+        }
+      } catch (e) {
+        // 出错时默认为营业状态
+        setShopOpen(true);
+        setShopNote('');
+      }
     })();
-  }, []);
+  }, [location]);
 
   // 如果用户未登录，不渲染内容
   if (!user) {
@@ -415,6 +535,38 @@ export default function Cart() {
               </button>
             )}
           </div>
+
+          {user?.type === 'user' && (
+            <div className="mb-6">
+              <button
+                onClick={openLocationModal}
+                className="w-full sm:w-auto flex items-center gap-3 px-4 py-3 bg-white border border-emerald-200 rounded-2xl text-emerald-700 hover:shadow-lg transition-all duration-300"
+              >
+                <span className="flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-600">
+                  <i className="fas fa-location-dot"></i>
+                </span>
+                <div className="text-left">
+                  <div className="text-xs text-emerald-600">当前配送地址</div>
+                  <div className="text-sm font-semibold text-emerald-700 mt-0.5">{displayLocation}</div>
+                </div>
+                <span className="ml-auto text-xs text-emerald-600 font-medium">修改</span>
+              </button>
+            </div>
+          )}
+
+          {infoMessage && (
+            <div className="mb-6 bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-3 rounded-xl flex items-start gap-2">
+              <i className="fas fa-info-circle mt-0.5"></i>
+              <span>{infoMessage}</span>
+              <button
+                onClick={() => setInfoMessage('')}
+                className="ml-auto text-emerald-500 hover:text-emerald-700"
+                aria-label="关闭提示"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+          )}
 
           {/* 错误提示 */}
           {error && (
@@ -510,7 +662,7 @@ export default function Cart() {
                       ))}
                     </div>
 
-                    {/* 抽奖奖品展示（不计入金额，满10自动附带）*/}
+                    {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
                     {eligibleRewards.length > 0 && (
                       <div className="mt-8">
                         <div className="mb-2 flex items-center gap-2">
@@ -521,7 +673,7 @@ export default function Cart() {
                         </div>
 
                         {eligibleRewards.map((r) => {
-                          const meet = (cart?.total_price ?? 0) >= 10;
+                          const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
                           return (
                             <div
                               key={r.id}
@@ -542,7 +694,9 @@ export default function Cart() {
                                     </p>
                                   )}
                                   <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
-                                    {meet ? '满10，本单将自动附带并随单配送' : '未满10，本单结算不会附带；满10自动附带并配送'}
+                                    {meet
+                                      ? `满${formattedLotteryThreshold}元，本单将自动附带并随单配送`
+                                      : `未满${formattedLotteryThreshold}元，本单结算不会附带；达标后自动附带并配送`}
                                   </p>
                                 </div>
                                 <div className="text-right">
@@ -625,14 +779,7 @@ export default function Cart() {
                     <div className="lg:sticky lg:top-24">
                       <OrderSummary
                         cart={cart}
-                        onCheckout={() => {
-                          // 保持用户在订单摘要中的“使用优惠券”勾选状态
-                          if (applyCoupon && selectedCouponId) {
-                            router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
-                          } else {
-                            router.push('/checkout?apply=0');
-                          }
-                        }}
+                        onCheckout={handleCheckout}
                         isLoading={actionLoading}
                         isClosed={!shopOpen}
                         coupons={coupons}
@@ -640,6 +787,9 @@ export default function Cart() {
                         setSelectedCouponId={setSelectedCouponId}
                         applyCoupon={applyCoupon}
                         setApplyCoupon={setApplyCoupon}
+                        locationReady={locationReady}
+                        lotteryThreshold={lotteryThreshold}
+                        deliveryConfig={deliveryConfig}
                       />
                     </div>
                   </div>

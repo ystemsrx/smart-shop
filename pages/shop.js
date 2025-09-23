@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 // Link 不再使用，导航由通用组件处理
-import { useProducts, useCart, useAuth } from '../hooks/useAuth';
+import { useProducts, useCart, useAuth, useUserAgentStatus } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
@@ -355,6 +356,9 @@ export default function Shop() {
   const { user } = useAuth();
   const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
+  const { getStatus: getUserAgentStatus } = useUserAgentStatus();
+  const navActive = user && (user.type === 'admin' || user.type === 'agent') ? 'staff-shop' : 'shop';
   
   const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
@@ -369,7 +373,12 @@ export default function Shop() {
   const [prevQty, setPrevQty] = useState(0);
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '请选择配送地址';
+
   // 规格选择弹窗状态
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [specModalProduct, setSpecModalProduct] = useState(null);
@@ -489,9 +498,16 @@ export default function Shop() {
 
   // 加载商品和分类
   const loadData = async () => {
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setProducts([]);
+      setCategories([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError('');
-    
+
     try {
       const [productsData, categoriesData] = await Promise.all([
         getProducts(selectedCategory),
@@ -576,6 +592,11 @@ export default function Shop() {
 
   // 搜索商品
   const handleSearch = async () => {
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setError('请先选择配送地址');
+      return;
+    }
+
     if (!searchQuery.trim()) {
       loadData();
       return;
@@ -659,25 +680,47 @@ export default function Shop() {
   // 初始化和分类变化时加载数据
   useEffect(() => {
     loadData();
-  }, [selectedCategory]);
+  }, [
+    selectedCategory,
+    locationRevision,
+    user,
+    forceSelection,
+    location?.address_id,
+    location?.building_id,
+  ]);
 
   // 用户登录状态变化时加载购物车
   useEffect(() => {
     loadCart();
-  }, [user]);
+  }, [user, locationRevision]);
 
-  // 加载店铺状态（打烊提示）
+  // 加载店铺/代理状态（打烊提示）
   useEffect(() => {
     (async () => {
       try {
-        const res = await getShopStatus();
+        const addressId = location?.address_id;
+        const buildingId = location?.building_id;
+        const res = await getUserAgentStatus(addressId, buildingId);
+        
         setShopOpen(!!res.data?.is_open);
-        setShopNote(res.data?.note || '当前打烊，暂不支持结算，仅可加入购物车');
+        setIsAgent(!!res.data?.is_agent);
+        
+        if (res.data?.is_open) {
+          setShopNote('');
+        } else {
+          const defaultNote = res.data?.is_agent 
+            ? '店铺已暂停营业，暂不支持结算，仅可加入购物车' 
+            : '店铺已暂停营业，暂不支持结算，仅可加入购物车';
+          setShopNote(res.data?.note || defaultNote);
+        }
       } catch (e) {
-        // ignore
+        // 出错时默认为营业状态
+        setShopOpen(true);
+        setShopNote('');
+        setIsAgent(false);
       }
     })();
-  }, []);
+  }, [location]);
 
   // 购物车数量变化时，角标弹跳（仅在数量增加时）
   useEffect(() => {
@@ -696,7 +739,7 @@ export default function Shop() {
       </Head>
 
       {/* 顶部导航（移动端优化） */}
-      <Nav active="shop" />
+      <Nav active={navActive} />
 
       <div className="min-h-screen pt-16" style={{
         background: 'linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)'
@@ -717,7 +760,7 @@ export default function Shop() {
                   <i className="fas fa-exclamation-triangle text-orange-600"></i>
                 </div>
                 <div>
-                  <p className="font-medium">店铺提醒</p>
+                  <p className="font-medium">{isAgent ? '店铺提醒' : '店铺提醒'}</p>
                   <p className="text-sm text-orange-700">{shopNote}</p>
                 </div>
               </div>
@@ -758,6 +801,30 @@ export default function Shop() {
                 <span>商品优质保证</span>
               </div>
             </div>
+
+            {user?.type === 'user' && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={openLocationModal}
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/80 text-gray-700 border border-white/40 shadow-md hover:shadow-lg transition-all duration-300"
+                >
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-600">
+                    <i className="fas fa-location-dot"></i>
+                  </span>
+                  <div className="text-left">
+                    <div className="text-xs text-gray-500">当前配送地址</div>
+                    <div className="text-sm font-semibold text-gray-900 mt-0.5">{displayLocation}</div>
+                  </div>
+                  <span className="text-xs text-emerald-600 font-medium ml-2">更改</span>
+                </button>
+              </div>
+            )}
+
+            {user?.type === 'user' && forceSelection && (
+              <div className="mt-3 text-sm text-orange-600 flex justify-center">
+                为了展示可售商品，请先选择您的配送地址。
+              </div>
+            )}
           </div>
 
           {/* 搜索栏 */}

@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
 
+
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
   <div className="bg-gradient-to-br from-white to-gray-50/50 rounded-3xl p-8 shadow-lg border border-gray-100/50 hover:shadow-xl hover:border-gray-200/50 transition-all duration-500 group backdrop-blur-sm relative overflow-hidden">
@@ -697,9 +698,9 @@ const TimePeriodSelector = ({ period, onChange, className = "" }) => (
   </div>
 );
 
-export default function AdminDashboard() {
+function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', viewAllOrdersHref }) {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, isInitialized } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState({
     stats: {},
@@ -716,24 +717,37 @@ export default function AdminDashboard() {
   });
   const [customersLoading, setCustomersLoading] = useState(false);
 
+  const expectedRole = role === 'agent' ? 'agent' : 'admin';
+  const isAdmin = expectedRole === 'admin';
+  const isAgent = expectedRole === 'agent';
+  const ordersListHref = viewAllOrdersHref || (isAdmin ? '/admin' : '/agent/orders');
+  const staffPrefix = isAgent ? '/agent' : '/admin';
+
   // 验证管理员权限
   useEffect(() => {
-    if (user && user.type !== 'admin') {
-      router.push('/');
+    if (!isInitialized) return;
+    if (!user) {
+      router.replace('/login');
       return;
     }
-    if (user && user.type === 'admin') {
-      loadDashboardData();
-      loadCustomersData(0);
+    if (user.type !== expectedRole) {
+      const fallback = user.type === 'admin'
+        ? '/admin/dashboard'
+        : user.type === 'agent'
+          ? '/agent/dashboard'
+          : '/';
+      router.replace(fallback);
+      return;
     }
-  }, [user, router]);
+    loadDashboardData();
+    loadCustomersData(0);
+  }, [isInitialized, user, expectedRole]);
 
   // 当时间段改变时重新加载数据
   useEffect(() => {
-    if (user && user.type === 'admin') {
-      loadDashboardData();
-    }
-  }, [timePeriod]);
+    if (!user || user.type !== expectedRole) return;
+    loadDashboardData();
+  }, [timePeriod, user, expectedRole]);
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -744,7 +758,7 @@ export default function AdminDashboard() {
           ? "http://localhost:9099"
           : "https://chatapi.your_domain.com");
       
-      const dashboardRes = await fetch(`${API_BASE}/admin/dashboard-stats?period=${timePeriod}`, {
+      const dashboardRes = await fetch(`${API_BASE}${staffPrefix}/dashboard-stats?period=${timePeriod}`, {
         credentials: 'include'
       });
       const dashboardData = await dashboardRes.json();
@@ -756,7 +770,7 @@ export default function AdminDashboard() {
       const statsData = await statsRes.json();
 
       // 获取最近订单
-      const ordersRes = await fetch(`${API_BASE}/admin/orders?limit=5`, {
+      const ordersRes = await fetch(`${API_BASE}${staffPrefix}/orders?limit=5`, {
         credentials: 'include'
       });
       const ordersData = await ordersRes.json();
@@ -789,6 +803,9 @@ export default function AdminDashboard() {
   };
 
   const loadCustomersData = async (page = 0) => {
+    if (!user || user.type !== expectedRole) {
+      return;
+    }
     setCustomersLoading(true);
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
@@ -825,7 +842,7 @@ export default function AdminDashboard() {
 
 
   // 如果不是管理员，不渲染内容
-  if (!user || user.type !== 'admin') {
+  if (!user || user.type !== expectedRole) {
     return null;
   }
 
@@ -841,7 +858,12 @@ export default function AdminDashboard() {
   }
 
   const { dashboardStats, basicStats } = dashboardData;
-  
+  const pageTitle = isAdmin ? '管理仪表盘 - [商店名称]' : '代理仪表盘 - [商店名称]';
+  const headingTitle = isAdmin ? '管理仪表盘' : '代理仪表盘';
+  const headingSubtitle = isAdmin
+    ? '实时监控商城运营数据和关键指标，助力业务决策优化'
+    : '查看您负责区域的订单和销售表现，及时掌握业务动态';
+
   // 计算增长类型
   const getChangeType = (value) => {
     if (!value || isNaN(value)) return 'same';
@@ -866,12 +888,12 @@ export default function AdminDashboard() {
   return (
     <>
       <Head>
-        <title>管理仪表盘 - [商店名称]</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
       {/* 通用导航栏 */}
-      <Nav active="dashboard" />
+      <Nav active={navActive} />
 
       <div className="min-h-screen pt-16 bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50">
 
@@ -880,11 +902,12 @@ export default function AdminDashboard() {
           {/* 页面标题 */}
           <div className="mb-12 text-center">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-purple-800 bg-clip-text text-transparent mb-4">
-              管理仪表盘
+              {headingTitle}
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">实时监控商城运营数据和关键指标，助力业务决策优化</p>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">{headingSubtitle}</p>
             <div className="mt-6 w-24 h-1 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mx-auto"></div>
           </div>
+
 
           {/* 统计卡片 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-12">
@@ -1130,7 +1153,7 @@ export default function AdminDashboard() {
                   最近订单
                 </h3>
                 <Link 
-                  href="/admin"
+                  href={ordersListHref}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/50 border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 hover:shadow-sm"
                 >
                   查看全部
@@ -1352,5 +1375,19 @@ export default function AdminDashboard() {
         </div>
       </div>
     </>
+  );
+}
+
+export function StaffDashboard(props) {
+  return <StaffDashboardPage {...props} />;
+}
+
+export default function AdminDashboardPage() {
+  return (
+    <StaffDashboardPage
+      role="admin"
+      navActive="staff-dashboard"
+      viewAllOrdersHref="/admin"
+    />
   );
 }
