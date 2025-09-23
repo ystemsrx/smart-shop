@@ -120,11 +120,23 @@ export function LocationProvider({ children }) {
       const hasLocation = profile && profile.address_id && profile.building_id;
       if (!hasLocation) {
         const addrList = await ensureAddressesLoaded();
-        const defaultAddressId = profile?.address_id || addrList?.[0]?.id;
-        const addrId = defaultAddressId || '';
-        setSelectedAddressId(addrId);
-        if (addrId) {
-          const buildings = await loadBuildingsFor(addrId);
+        
+        // 如果没有可用的地址（即管理员只创建了园区但没有楼栋）
+        if (!addrList || addrList.length === 0) {
+          setSelectedAddressId('');
+          setSelectedBuildingId('');
+          setBuildingOptions([]);
+          setForceSelection(true);
+          setModalOpen(true);
+          return;
+        }
+        
+        // 只有当有可用地址时，才设置默认值
+        const defaultAddressId = profile?.address_id || addrList[0]?.id;
+        setSelectedAddressId(defaultAddressId);
+        
+        if (defaultAddressId) {
+          const buildings = await loadBuildingsFor(defaultAddressId);
           const fallbackBuildingId = profile?.building_id || buildings[0]?.id || '';
           setSelectedBuildingId(fallbackBuildingId);
         } else {
@@ -166,7 +178,19 @@ export function LocationProvider({ children }) {
     if (!user || user.type !== 'user') return;
     try {
       const addrList = await ensureAddressesLoaded();
-      const addrId = location?.address_id || addrList?.[0]?.id || '';
+      
+      // 如果没有可用的地址
+      if (!addrList || addrList.length === 0) {
+        setSelectedAddressId('');
+        setSelectedBuildingId('');
+        setBuildingOptions([]);
+        setForceSelection(true);
+        setModalOpen(true);
+        return;
+      }
+      
+      // 只有当有可用地址时，才设置默认值
+      const addrId = location?.address_id || addrList[0]?.id;
       setSelectedAddressId(addrId);
       const buildings = addrId ? await loadBuildingsFor(addrId) : [];
       const buildingId = location?.building_id || buildings[0]?.id || '';

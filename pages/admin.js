@@ -5297,7 +5297,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   </div>
                   <h3 className="text-lg font-semibold text-gray-700 mb-2">暂无配送地址</h3>
                   <p className="text-gray-500 mb-4">请添加第一个配送地址开始管理</p>
-                  <p className="text-sm text-gray-400">默认情况下，系统会向用户展示"桃园"作为配送地址</p>
+                  <p className="text-sm text-gray-400">用户只能看到有具体楼栋的园区地址</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -5382,7 +5382,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                                 <i className="fas fa-building text-gray-400 text-lg"></i>
                               </div>
                               <p className="text-gray-500 text-sm mb-1">暂无楼栋</p>
-                              <p className="text-xs text-gray-400">用户默认看到"六舍"</p>
                             </div>
                           ) : (
                             <div className="space-y-3 mb-4">
