@@ -959,7 +959,9 @@ export default function Shop() {
 
             {/* 规格选项 */}
             <div className="space-y-3 max-h-60 overflow-y-auto mb-6">
-              {(specModalProduct.variants || []).map((variant, index) => (
+              {(specModalProduct.variants || [])
+                .sort((a, b) => (b.stock || 0) - (a.stock || 0)) // 按库存倒序排列，库存高的在前
+                .map((variant, index) => (
                 <label 
                   key={variant.id} 
                   className={`block transform transition-all duration-200 animate-apple-slide-up ${

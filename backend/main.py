@@ -591,7 +591,9 @@ def build_product_listing_for_staff(
     product_ids = [p['id'] for p in products if p.get('id')]
     variant_map = VariantDB.get_for_products(product_ids)
     for p in products:
-        p['variants'] = variant_map.get(p.get('id'), [])
+        variants = variant_map.get(p.get('id'), [])
+        p['variants'] = variants
+        p['has_variants'] = len(variants) > 0  # 设置 has_variants 字段
 
     categories = sorted({p.get('category') for p in products if p.get('category')})
     active_count = sum(1 for p in products if is_active(p))
