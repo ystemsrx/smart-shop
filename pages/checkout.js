@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useAuth, useCart, useApi } from '../hooks/useAuth';
+import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
+import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
@@ -13,8 +14,10 @@ export default function Checkout() {
   const { getCart, clearCart } = useCart();
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
+  const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   
-  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
+  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
+  const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -26,10 +29,7 @@ export default function Checkout() {
     room: '',
     note: ''
   });
-  const [addressOptions, setAddressOptions] = useState([]);
-  const [addrLoading, setAddrLoading] = useState(false);
-  const [buildingOptions, setBuildingOptions] = useState([]);
-  const [bldLoading, setBldLoading] = useState(false);
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading } = useLocation();
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -43,22 +43,55 @@ export default function Checkout() {
   // 抽奖弹窗
   const [lotteryOpen, setLotteryOpen] = useState(false);
   const [lotteryNames, setLotteryNames] = useState([]);
+  // 支付收款码
+  const [paymentQr, setPaymentQr] = useState(null);
   const [lotteryResult, setLotteryResult] = useState('');
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
-  
-  // 稍后支付：仅在点击按钮时创建订单（未付款），清空购物车并跳转到我的订单
+
+  const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
+  const displayLocation = location
+    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
+    : '未选择地址';
+
+  const lotteryThreshold = useMemo(() => {
+    const raw = cart?.lottery_threshold;
+    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return 10;
+  }, [cart?.lottery_threshold]);
+
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
+
+  // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
+    if (!locationReady) {
+      alert('请先选择配送地址');
+      openLocationModal();
+      return;
+    }
+    
     try {
+      // 创建订单（但不标记为已付款）
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
-        dormitory: formData.dormitory,
-        building: formData.building,
+        dormitory: location?.dormitory || formData.dormitory,
+        building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
+        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || '',
+        building_id: location?.building_id || '',
+        agent_id: location?.agent_id || ''
       };
+      
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -69,9 +102,17 @@ export default function Checkout() {
           apply_coupon: !!applyCoupon
         })
       });
-      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
+      
+      if (!orderResponse.success) {
+        throw new Error(orderResponse.message || '订单创建失败');
+      }
+      
+      // 清空购物车并跳转
       try { await clearCart(); } catch (e) {}
+      setShowPayModal(false);
+      setPaymentQr(null);
       router.push('/orders');
+      
     } catch (e) {
       alert(e.message || '创建订单失败');
     }
@@ -83,21 +124,47 @@ export default function Checkout() {
       router.push('/login');
       return;
     }
-    // 同步店铺状态
+    // 同步店铺/代理状态
     (async () => {
       try {
-        const s = await getShopStatus();
-        setShopOpen(!!s.data?.is_open);
-        setShopNote(s.data?.note || '当前打烊，暂不支持结算');
-      } catch (e) {}
+        const addressId = location?.address_id;
+        const buildingId = location?.building_id;
+        const res = await getUserAgentStatus(addressId, buildingId);
+        
+        setShopOpen(!!res.data?.is_open);
+        
+        if (res.data?.is_open) {
+          setShopNote('');
+        } else {
+          const defaultNote = res.data?.is_agent 
+            ? '当前区域代理已暂停营业，暂不支持结算' 
+            : '店铺已暂停营业，暂不支持结算';
+          setShopNote(res.data?.note || defaultNote);
+        }
+      } catch (e) {
+        // 出错时默认为营业状态
+        setShopOpen(true);
+        setShopNote('');
+      }
     })();
-  }, [user, router]);
+  }, [user, router, location]);
 
   // 加载购物车数据
   const loadCart = async () => {
     setIsLoading(true);
     setError('');
-    
+
+    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setIsLoading(false);
+      setCart({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
+      setEligibleRewards([]);
+      setAutoGifts([]);
+      setCoupons([]);
+      setSelectedCouponId(null);
+      setApplyCoupon(false);
+      return;
+    }
+
     try {
       const data = await getCart();
       setCart(data.data);
@@ -123,15 +190,12 @@ export default function Checkout() {
         const fromQuery = (router?.query?.coupon_id || '').toString();
         const applyParam = (router?.query?.apply || router?.query?.apply_coupon || '').toString().toLowerCase();
         if (applyParam === '0' || applyParam === 'false') {
-          // 用户在购物车未勾选使用券：保持不勾选
           setSelectedCouponId(null);
           setApplyCoupon(false);
         } else if (fromQuery && list.some(x => x.id === fromQuery) && sub > (parseFloat(list.find(x => x.id === fromQuery).amount) || 0)) {
-          // 明确指定了券并选择使用
           setSelectedCouponId(fromQuery);
           setApplyCoupon(true);
         } else {
-          // 未指定，则默认选择最高可用（保留原有体验）
           const applicable = list.filter(x => sub > (parseFloat(x.amount) || 0));
           if (applicable.length > 0) {
             applicable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
@@ -189,56 +253,12 @@ export default function Checkout() {
     if (!isCreatingPayment && shopOpen) handleCreatePayment();
   };
 
-  // 加载可选地址（宿舍区）
-  const loadAddresses = async () => {
-    setAddrLoading(true);
-    try {
-      const res = await apiRequest('/addresses');
-      const addrs = res?.data?.addresses || [];
-      setAddressOptions(addrs);
-      // 如果当前未选择，默认选第一个
-      if (!formData.dormitory && addrs.length > 0) {
-        setFormData(prev => ({ ...prev, dormitory: addrs[0].name }));
-      }
-    } catch (e) {
-      // 回退一个默认值：桃园
-      const fallback = [{ id: 'addr_default_taoyuan', name: '桃园' }];
-      setAddressOptions(fallback);
-      if (!formData.dormitory) {
-        setFormData(prev => ({ ...prev, dormitory: '桃园' }));
-      }
-    } finally {
-      setAddrLoading(false);
-    }
-  };
-
-  // 根据选中的园区加载楼栋
-  const loadBuildings = async (addrName, addrId) => {
-    setBldLoading(true);
-    try {
-      const query = addrId ? `?address_id=${encodeURIComponent(addrId)}` : (addrName ? `?address_name=${encodeURIComponent(addrName)}` : '');
-      const res = await apiRequest(`/buildings${query}`);
-      const blds = res?.data?.buildings || [];
-      setBuildingOptions(blds);
-      if (!formData.building && blds.length > 0) {
-        setFormData(prev => ({ ...prev, building: blds[0].name }));
-      }
-    } catch (e) {
-      const fallback = [{ id: 'bld_default_6she', name: '六舍' }];
-      setBuildingOptions(fallback);
-      if (!formData.building) {
-        setFormData(prev => ({ ...prev, building: '六舍' }));
-      }
-    } finally {
-      setBldLoading(false);
-    }
-  };
-
-  // 打开支付弹窗（不创建订单，直到点击按钮）
+  // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
     // 验证必填字段
-    if (!formData.name || !formData.phone || !formData.dormitory || !formData.building || !formData.room) {
-      alert('请填写完整的收货信息');
+    if (!formData.name || !formData.phone || !location || !location.address_id || !location.building_id || !formData.room) {
+      alert('请填写完整的收货信息并选择配送地址');
+      openLocationModal();
       return;
     }
     
@@ -251,24 +271,62 @@ export default function Checkout() {
 
     setIsCreatingPayment(true);
     setError('');
+    setPaymentQr(null); // 重置收款码
+    
     try {
+      // 获取收款码（基于当前地址信息）
+      const buildingId = location?.building_id;
+      const addressId = location?.address_id;
+      
+      const qrResponse = await apiRequest(`/payment-qr?building_id=${buildingId || ''}&address_id=${addressId || ''}`);
+      
+      if (qrResponse.success && qrResponse.data?.payment_qr) {
+        setPaymentQr(qrResponse.data.payment_qr);
+      } else {
+        // 没有收款码
+        setPaymentQr({
+          owner_type: 'default',
+          name: "无收款码"
+        });
+      }
+      
+      // 显示支付弹窗
+      setShowPayModal(true);
+      
+    } catch (error) {
+      console.warn('获取收款码失败:', error);
+      setPaymentQr({
+        owner_type: 'default',
+        name: "无收款码"
+      });
       setShowPayModal(true);
     } finally {
       setIsCreatingPayment(false);
     }
   };
 
-  // 用户点击“已付款”：创建订单并标记为待验证，清空购物车并跳转订单页
+  // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
+    if (!locationReady) {
+      alert('请先选择配送地址');
+      openLocationModal();
+      return;
+    }
+    
     try {
+      // 创建订单
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
-        dormitory: formData.dormitory,
-        building: formData.building,
+        dormitory: location?.dormitory || formData.dormitory,
+        building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${formData.dormitory} ${formData.building} ${formData.room}`
+        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || '',
+        building_id: location?.building_id || '',
+        agent_id: location?.agent_id || ''
       };
+      
       const orderResponse = await apiRequest('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -279,12 +337,21 @@ export default function Checkout() {
           apply_coupon: !!applyCoupon
         })
       });
-      if (!orderResponse.success) throw new Error(orderResponse.message || '订单创建失败');
+      
+      if (!orderResponse.success) {
+        throw new Error(orderResponse.message || '订单创建失败');
+      }
+      
       const createdOrderId = orderResponse.data.order_id;
       setOrderId(createdOrderId);
+      
+      // 标记订单为已付款
       const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
+        setShowPayModal(false);
+        setPaymentQr(null);
+        
         // 触发抽奖动画并自动跳转到订单页
         let willRedirect = false;
         try {
@@ -331,37 +398,46 @@ export default function Checkout() {
 
   // 初始化加载
   useEffect(() => {
-    if (user) {
-      loadCart();
-      loadAddresses();
-      // 读取最近一次成功付款的收货信息
-      (async () => {
-        try {
-          const res = await apiRequest('/profile/shipping');
-          const ship = res?.data?.shipping;
-          if (ship) {
-            setFormData(prev => ({
-              ...prev,
-              name: ship.name || prev.name,
-              phone: ship.phone || prev.phone,
-              dormitory: ship.dormitory || prev.dormitory,
-              building: ship.building || prev.building,
-              room: ship.room || prev.room,
-            }));
-          }
-        } catch (e) {
-          // 忽略
+    if (!user) return;
+    loadCart();
+    (async () => {
+      try {
+        const res = await apiRequest('/profile/shipping');
+        const ship = res?.data?.shipping;
+        if (ship) {
+          setFormData(prev => ({
+            ...prev,
+            name: ship.name || prev.name,
+            phone: ship.phone || prev.phone,
+            room: ship.room || prev.room,
+          }));
         }
-      })();
-    }
-  }, [user]);
+      } catch (e) {
+        // ignore
+      }
+      
+      // 获取配送费配置
+      try {
+        const deliveryRes = await apiRequest('/delivery-config');
+        const config = deliveryRes?.data?.delivery_config;
+        if (config) {
+          setDeliveryConfig(config);
+        }
+      } catch (e) {
+        console.warn('获取配送费配置失败:', e);
+      }
+    })();
+  }, [user, locationRevision]);
 
-  // 当园区变化时，刷新楼栋
   useEffect(() => {
-    if (!formData.dormitory) return;
-    const addr = addressOptions.find(a => a.name === formData.dormitory);
-    loadBuildings(formData.dormitory, addr?.id);
-  }, [formData.dormitory, addressOptions]);
+    if (location) {
+      setFormData(prev => ({
+        ...prev,
+        dormitory: location.dormitory || '',
+        building: location.building || '',
+      }));
+    }
+  }, [location]);
 
   // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
   useEffect(() => {
@@ -505,43 +581,23 @@ export default function Checkout() {
                     
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div>
-                        <label htmlFor="dormitory" className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-building mr-2"></i>宿舍区 *
                         </label>
-                        <select
-                          id="dormitory"
-                          name="dormitory"
-                          required
-                          value={formData.dormitory}
-                          onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900"
-                        >
-                          <option value="" className="text-gray-900">{addrLoading ? '加载中...' : '请选择'}</option>
-                          {addressOptions.map(a => (
-                            <option key={a.id || a.name} value={a.name} className="text-gray-900">{a.name}</option>
-                          ))}
-                        </select>
+                        <div className="input-glass w-full text-gray-900">
+                          {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}
+                        </div>
                       </div>
-                      
+
                       <div>
-                        <label htmlFor="building" className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-home mr-2"></i>楼栋 *
                         </label>
-                        <select
-                          id="building"
-                          name="building"
-                          required
-                          value={formData.building}
-                          onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900"
-                        >
-                          <option value="" className="text-gray-900">{bldLoading ? '加载中...' : '请选择'}</option>
-                          {buildingOptions.map(b => (
-                            <option key={b.id || b.name} value={b.name} className="text-gray-900">{b.name}</option>
-                          ))}
-                        </select>
+                        <div className="input-glass w-full text-gray-900">
+                          {locationLoading ? '加载中...' : (location?.building || '未选择')}
+                        </div>
                       </div>
-                      
+
                       <div>
                         <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-door-open mr-2"></i>房间号 *
@@ -558,6 +614,19 @@ export default function Checkout() {
                         />
                       </div>
                     </div>
+
+                    {user?.type === 'user' && (
+                      <div className="mt-3 flex items-center justify-between text-xs text-gray-500 bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl">
+                        <span>若需修改园区或楼栋，请先更新配送地址。</span>
+                        <button
+                          type="button"
+                          onClick={openLocationModal}
+                          className="text-indigo-600 hover:text-indigo-800"
+                        >
+                          修改地址
+                        </button>
+                      </div>
+                    )}
                     
                     <div>
                       <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
@@ -597,7 +666,7 @@ export default function Checkout() {
                           <i className="fab fa-weixin text-green-400 text-lg"></i>
                           <span className="text-sm font-medium text-gray-900">微信扫码支付</span>
                         </div>
-                        <p className="text-xs text-gray-700">创建支付后会弹出收款码，请使用微信长按扫码付款</p>
+                        <p className="text-xs text-gray-700">点击立即支付获取收款码，扫码付款后点击"已完成付款"</p>
                       </div>
                     </div>
                   </div>
@@ -676,6 +745,11 @@ export default function Checkout() {
                         )}
                       </span>
                     </div>
+                    {cart.shipping_fee > 0 && (
+                      <div className="text-xs text-gray-500 flex justify-end">
+                        满 ¥{deliveryConfig.free_delivery_threshold} 免配送费
+                      </div>
+                    )}
                     {/* 优惠券选择（结算区域） */}
                     <div className="flex items-center justify-between text-sm">
                       <label className="flex items-center gap-2">
@@ -756,26 +830,36 @@ export default function Checkout() {
                         <span className="text-sm font-medium text-gray-900">抽奖奖品</span>
                       </div>
                       <div className="space-y-1">
-                        {eligibleRewards.map((r) => (
-                          <div key={r.id} className={`flex justify-between items-baseline text-sm ${cart.total_price >= 10 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            <span className="flex flex-col">
-                              <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
-                              {(r.prize_product_name || r.prize_variant_name) && (
-                                <span className="text-[11px] text-gray-500">
-                                  {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-right text-xs">
-                              <span className="text-sm">¥0.00</span>
-                              <span className="text-[11px] text-gray-500">赠品</span>
-                            </span>
-                          </div>
-                        ))}
+                        {eligibleRewards.map((r) => {
+                          const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
+                          return (
+                            <div key={r.id} className={`flex justify-between items-baseline text-sm ${meet ? 'text-gray-900' : 'text-gray-400'}`}>
+                              <span className="flex flex-col">
+                                <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
+                                {(r.prize_product_name || r.prize_variant_name) && (
+                                  <span className="text-[11px] text-gray-500">
+                                    {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-right text-xs">
+                                <span className="text-sm">¥0.00</span>
+                                <span className="text-[11px] text-gray-500">赠品</span>
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <p className={`mt-2 text-xs ${cart.total_price >= 10 ? 'text-green-600' : 'text-gray-500'}`}>
-                        {cart.total_price >= 10 ? '本单满10元，将自动随单配送抽奖奖品（免费）' : '订单满10元将自动随下单配送抽奖奖品（免费）'}
-                      </p>
+                      {(() => {
+                        const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
+                        return (
+                          <p className={`mt-2 text-xs ${meet ? 'text-green-600' : 'text-gray-500'}`}>
+                            {meet
+                              ? `本单满${formattedLotteryThreshold}元，将自动随单配送抽奖奖品（免费）`
+                              : `订单满${formattedLotteryThreshold}元将自动随下单配送抽奖奖品（免费）`}
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                   {cart.items && cart.items.length > 0 && autoGifts.length > 0 && (
@@ -824,7 +908,7 @@ export default function Checkout() {
                     {isCreatingPayment ? (
                       <>
                         <div className="loading-dots text-white"></div>
-                        <span>创建支付中...</span>
+                        <span>获取收款码中...</span>
                       </>
                     ) : (
                       <>
@@ -857,7 +941,10 @@ export default function Checkout() {
       {/* 微信收款码弹窗 */}
       {showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
-          <div className="absolute inset-0" onClick={() => setShowPayModal(false)}></div>
+          <div className="absolute inset-0" onClick={() => {
+            setShowPayModal(false);
+            setPaymentQr(null);
+          }}></div>
           <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
             {/* 弹窗标题 */}
             <div className="text-center mb-6">
@@ -869,11 +956,31 @@ export default function Checkout() {
 
             {/* 二维码区域 */}
             <div className="mb-6 text-center">
-              <img 
-                src={Math.random() < 0.5 ? "/1_wx.png" : "/2_wx.png"} 
-                alt="微信收款码" 
-                className="mx-auto w-64 h-64 object-contain" 
-              />
+              {paymentQr ? (
+                paymentQr.owner_type === 'default' ? (
+                  <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                    <div className="text-center">
+                      <div className="text-4xl mb-4">⚠️</div>
+                      <p className="text-gray-600 text-lg font-medium">暂不可付款，请联系管理员</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <img 
+                      src={paymentQr.image_path} 
+                      alt={paymentQr.name || "收款码"} 
+                      className="mx-auto w-80 h-80 object-contain" 
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-100 rounded">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
+                    <p className="text-gray-600 text-sm">正在加载收款码...</p>
+                  </div>
+                </div>
+              )}
             </div>
 
 
@@ -881,7 +988,8 @@ export default function Checkout() {
             <div className="flex gap-3">
               <button
                 onClick={handleMarkPaid}
-                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm"
+                disabled={paymentQr && paymentQr.owner_type === 'default'}
+                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
                 <span>我已完成付款</span>
@@ -889,9 +997,9 @@ export default function Checkout() {
               
               <button
                 onClick={handlePayLater}
-                className="flex-1 bg-gray-100 text-gray-900 py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+                className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
               >
-                <i className="fas fa-clock"></i>
+                <i className="fas fa-clock text-black"></i>
                 <span>稍后支付</span>
               </button>
             </div>
@@ -909,7 +1017,10 @@ export default function Checkout() {
 
             {/* 关闭按钮 */}
             <button
-              onClick={() => setShowPayModal(false)}
+              onClick={() => {
+                setShowPayModal(false);
+                setPaymentQr(null);
+              }}
               className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 transition-all duration-200"
             >
               <i className="fas fa-times"></i>
@@ -925,7 +1036,7 @@ export default function Checkout() {
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
             </div>
             <div className="h-20 flex items-center justify-center mb-4">
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>

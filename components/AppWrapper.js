@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider } from '../hooks/useAuth';
+import { LocationProvider } from '../hooks/useLocation';
 
 // 应用包装器组件 - 只在客户端渲染
 export default function AppWrapper({ Component, pageProps }) {
@@ -26,7 +27,9 @@ export default function AppWrapper({ Component, pageProps }) {
 
   return (
     <AuthProvider>
-      <Component {...pageProps} />
+      <LocationProvider>
+        <Component {...pageProps} />
+      </LocationProvider>
     </AuthProvider>
   );
 }

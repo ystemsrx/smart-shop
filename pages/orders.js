@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Nav from '../components/Nav';
@@ -87,6 +87,13 @@ export default function Orders() {
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
+  const [lotteryThreshold, setLotteryThreshold] = useState(10);
+  const [paymentQr, setPaymentQr] = useState(null);
+  const formattedLotteryThreshold = useMemo(() => (
+    Number.isInteger(lotteryThreshold)
+      ? lotteryThreshold.toString()
+      : lotteryThreshold.toFixed(2)
+  ), [lotteryThreshold]);
 
   useEffect(() => {
     if (!user) {
@@ -165,6 +172,10 @@ export default function Orders() {
     try {
       const resp = await apiRequest(`/orders/${orderId}/lottery/draw`, { method: 'POST' });
       if (resp.success) {
+        const thresholdValue = Number(resp.data?.threshold_amount);
+        if (Number.isFinite(thresholdValue) && thresholdValue > 0) {
+          setLotteryThreshold(thresholdValue);
+        }
         const resultName = resp.data?.prize_name || '';
         const list = (resp.data?.names && resp.data.names.length > 0)
           ? resp.data.names
@@ -194,12 +205,38 @@ export default function Orders() {
     }
   };
 
+  const handleShowPayModal = async (orderId) => {
+    setPayOrderId(orderId);
+    setPaymentQr(null);
+    
+    // 获取订单对应的收款码
+    try {
+      const qrResponse = await apiRequest(`/orders/${orderId}/payment-qr`);
+      if (qrResponse.success && qrResponse.data?.payment_qr) {
+        setPaymentQr(qrResponse.data.payment_qr);
+      } else {
+        // 没有收款码
+        setPaymentQr({
+          owner_type: 'default',
+          name: "无收款码"
+        });
+      }
+    } catch (e) {
+      console.warn('获取收款码失败:', e);
+      setPaymentQr({
+        owner_type: 'default',
+        name: "无收款码"
+      });
+    }
+  };
+
   const handleMarkPaid = async (orderId) => {
     try {
       const res = await apiRequest(`/orders/${orderId}/mark-paid`, { method: 'POST' });
       if (res.success) {
         try { await clearCart(); } catch (e) {}
         setPayOrderId(null);
+        setPaymentQr(null);
         // 重新加载订单数据以刷新页面状态
         await loadOrders();
       } else {
@@ -431,7 +468,7 @@ export default function Orders() {
                         <div className="flex flex-col gap-3">
                           {us === '未付款' && (
                             <button 
-                              onClick={() => setPayOrderId(o.id)} 
+                              onClick={() => handleShowPayModal(o.id)} 
                               className="btn-primary px-6 py-2 text-sm flex items-center gap-2 transform hover:scale-105 transition-all duration-300"
                             >
                               <i className="fas fa-credit-card"></i>
@@ -616,7 +653,7 @@ export default function Orders() {
       {/* 微信收款码弹窗 */}
       {payOrderId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
-          <div className="absolute inset-0" onClick={() => setPayOrderId(null)}></div>
+          <div className="absolute inset-0" onClick={() => { setPayOrderId(null); setPaymentQr(null); }}></div>
           <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
             {/* 弹窗标题 */}
             <div className="text-center mb-6">
@@ -629,25 +666,46 @@ export default function Orders() {
 
             {/* 二维码区域 */}
             <div className="bg-white rounded-2xl p-4 mb-6 shadow-lg">
-              <img 
-                src={Math.random() < 0.5 ? "/1_wx.png" : "/2_wx.png"} 
-                alt="微信收款码" 
-                className="w-full h-64 object-contain rounded-xl" 
-              />
+              {paymentQr ? (
+                paymentQr.owner_type === 'default' ? (
+                  <div className="w-full h-80 flex items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                    <div className="text-center">
+                      <div className="text-4xl mb-4">⚠️</div>
+                      <p className="text-gray-600 text-lg font-medium">暂不可付款，请联系管理员</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <img 
+                      src={paymentQr.image_path} 
+                      alt={paymentQr.name || "收款码"} 
+                      className="w-full h-80 object-contain rounded-xl" 
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="w-full h-80 flex items-center justify-center bg-gray-100 rounded-xl">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
+                    <p className="text-gray-600 text-sm">正在加载收款码...</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 操作按钮 */}
             <div className="space-y-3">
               <button
                 onClick={() => handleMarkPaid(payOrderId)}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2"
+                disabled={paymentQr && paymentQr.owner_type === 'default'}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
                 <span>我已完成付款</span>
               </button>
               
               <button
-                onClick={() => setPayOrderId(null)}
+                onClick={() => { setPayOrderId(null); setPaymentQr(null); }}
                 className="w-full bg-white/20 backdrop-blur-sm text-white py-3 px-4 rounded-xl font-medium hover:bg-white/30 border border-white/30 transition-all duration-300 flex items-center justify-center gap-2"
               >
                 <i className="fas fa-clock"></i>
@@ -657,7 +715,7 @@ export default function Orders() {
 
             {/* 关闭按钮 */}
             <button
-              onClick={() => setPayOrderId(null)}
+              onClick={() => { setPayOrderId(null); setPaymentQr(null); }}
               className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white/80 hover:text-white transition-all duration-200"
             >
               <i className="fas fa-times"></i>
@@ -673,7 +731,7 @@ export default function Orders() {
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满10元即可参与抽奖</p>
+              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
             </div>
             <div className="h-20 flex items-center justify-center mb-4">
               <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
