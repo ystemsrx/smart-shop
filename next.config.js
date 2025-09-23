@@ -25,8 +25,6 @@ const nextConfig = {
           { source: '/items/:path*', destination: `${cleanBase}/items/:path*` },
           // 将 /public/* 代理到后端，用于收款码等动态生成的静态文件
           { source: '/public/:path*', destination: `${cleanBase}/public/:path*` },
-          // 将根路径的收款码文件代理到后端（兼容直接访问 /payment_qr_xxx.jpg）
-          { source: '/payment_qr_:path*', destination: `${cleanBase}/payment_qr_:path*` },
         ]
       : [];
   }
