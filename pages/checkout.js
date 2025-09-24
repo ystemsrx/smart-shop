@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
@@ -7,6 +7,20 @@ import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
+
+const createDefaultValidation = () => ({
+  is_valid: true,
+  reason: null,
+  message: '',
+  should_force_reselect: false,
+});
+
+const createMissingValidation = () => ({
+  is_valid: false,
+  reason: 'missing_address',
+  message: '请选择配送地址',
+  should_force_reselect: true,
+});
 
 export default function Checkout() {
   const router = useRouter();
@@ -29,7 +43,7 @@ export default function Checkout() {
     room: '',
     note: ''
   });
-  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading } = useLocation();
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceReselectAddress } = useLocation();
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -40,6 +54,7 @@ export default function Checkout() {
   const [coupons, setCoupons] = useState([]);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
+  const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
   // 抽奖弹窗
   const [lotteryOpen, setLotteryOpen] = useState(false);
   const [lotteryNames, setLotteryNames] = useState([]);
@@ -49,6 +64,18 @@ export default function Checkout() {
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
+
+  const normalizeValidation = useCallback((raw) => {
+    if (!raw) {
+      return createDefaultValidation();
+    }
+    return {
+      is_valid: raw.is_valid !== false,
+      reason: raw.reason || null,
+      message: raw.message || '',
+      should_force_reselect: !!raw.should_force_reselect,
+    };
+  }, []);
 
   const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
   const displayLocation = location
@@ -70,6 +97,38 @@ export default function Checkout() {
       : lotteryThreshold.toFixed(2)
   ), [lotteryThreshold]);
 
+  const addressInvalid = useMemo(() => (
+    locationReady && addressValidation && addressValidation.is_valid === false
+  ), [locationReady, addressValidation]);
+
+  const addressAlertMessage = useMemo(() => (
+    addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
+  ), [addressInvalid, addressValidation]);
+
+  const lastInvalidKeyRef = useRef(null);
+  const reselectInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const shouldForce = !!(addressValidation && addressValidation.should_force_reselect);
+    if (!shouldForce) {
+      reselectInFlightRef.current = false;
+      lastInvalidKeyRef.current = null;
+      return;
+    }
+
+    if (!addressInvalid) {
+      return;
+    }
+
+    const key = `${addressValidation.reason || 'unknown'}|${location?.address_id || ''}|${location?.building_id || ''}`;
+    if (lastInvalidKeyRef.current === key || reselectInFlightRef.current) {
+      return;
+    }
+    lastInvalidKeyRef.current = key;
+    reselectInFlightRef.current = true;
+    forceReselectAddress();
+  }, [addressInvalid, addressValidation, location, forceReselectAddress]);
+
   // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
     if (!locationReady) {
@@ -77,7 +136,12 @@ export default function Checkout() {
       openLocationModal();
       return;
     }
-    
+    if (addressInvalid) {
+      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      openLocationModal();
+      return;
+    }
+
     try {
       // 创建订单（但不标记为已付款）
       const shippingInfo = {
@@ -162,12 +226,14 @@ export default function Checkout() {
       setCoupons([]);
       setSelectedCouponId(null);
       setApplyCoupon(false);
+      setAddressValidation(createMissingValidation());
       return;
     }
 
     try {
       const data = await getCart();
       setCart(data.data);
+      setAddressValidation(normalizeValidation(data?.data?.address_validation));
       // 加载可用抽奖奖品
       try {
         const rw = await apiRequest('/rewards/eligible');
@@ -227,6 +293,7 @@ export default function Checkout() {
       }
     } catch (err) {
       setError(err.message || '加载购物车失败');
+      setAddressValidation(createDefaultValidation());
     } finally {
       setIsLoading(false);
     }
@@ -255,6 +322,11 @@ export default function Checkout() {
 
   // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
+    if (addressInvalid) {
+      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      openLocationModal();
+      return;
+    }
     // 验证必填字段
     if (!formData.name || !formData.phone || !location || !location.address_id || !location.building_id || !formData.room) {
       alert('请填写完整的收货信息并选择配送地址');
@@ -277,7 +349,7 @@ export default function Checkout() {
       // 获取收款码（基于当前地址信息）
       const buildingId = location?.building_id;
       const addressId = location?.address_id;
-      
+
       const qrResponse = await apiRequest(`/payment-qr?building_id=${buildingId || ''}&address_id=${addressId || ''}`);
       
       if (qrResponse.success && qrResponse.data?.payment_qr) {
@@ -292,8 +364,15 @@ export default function Checkout() {
       
       // 显示支付弹窗
       setShowPayModal(true);
-      
+
     } catch (error) {
+      const message = error?.message || '获取收款码失败';
+      if (/地址不存在|未启用/.test(message)) {
+        alert('地址不存在或未启用，请联系管理员');
+        setShowPayModal(false);
+        setPaymentQr(null);
+        return;
+      }
       console.warn('获取收款码失败:', error);
       setPaymentQr({
         owner_type: 'default',
@@ -312,7 +391,12 @@ export default function Checkout() {
       openLocationModal();
       return;
     }
-    
+    if (addressInvalid) {
+      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      openLocationModal();
+      return;
+    }
+
     try {
       // 创建订单
       const shippingInfo = {
@@ -618,20 +702,34 @@ export default function Checkout() {
                     {user?.type === 'user' && (
                       <div className="mt-3 flex items-center justify-between text-xs text-gray-500 bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl">
                         <span>若需修改园区或楼栋，请先更新配送地址。</span>
-                        <button
-                          type="button"
-                          onClick={openLocationModal}
-                          className="text-indigo-600 hover:text-indigo-800"
-                        >
-                          修改地址
-                        </button>
-                      </div>
-                    )}
-                    
-                    <div>
-                      <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="fas fa-comment mr-2"></i>备注信息
-                      </label>
+                    <button
+                      type="button"
+                      onClick={openLocationModal}
+                      className="text-indigo-600 hover:text-indigo-800"
+                    >
+                      修改地址
+                    </button>
+                  </div>
+                )}
+
+                {addressInvalid && (
+                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    <i className="fas fa-exclamation-triangle mt-0.5"></i>
+                    <span className="flex-1">{addressAlertMessage}</span>
+                    <button
+                      type="button"
+                      onClick={openLocationModal}
+                      className="ml-3 text-rose-600 hover:text-rose-800 underline"
+                    >
+                      重新选择
+                    </button>
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
+                    <i className="fas fa-comment mr-2"></i>备注信息
+                  </label>
                       <textarea
                         id="note"
                         name="note"
@@ -902,7 +1000,7 @@ export default function Checkout() {
                   {/* 支付按钮 */}
                   <button
                     onClick={handleCreatePayment}
-                    disabled={isCreatingPayment || !shopOpen}
+                    disabled={isCreatingPayment || !shopOpen || !locationReady || addressInvalid}
                     className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transform hover:scale-105 transition-all duration-300 text-white shadow-2xl flex items-center justify-center gap-2"
                   >
                     {isCreatingPayment ? (
@@ -916,6 +1014,8 @@ export default function Checkout() {
                         <span>
                           {(() => {
                             if (!shopOpen) return '打烊中 · 暂停结算';
+                            if (!locationReady) return '请选择配送地址';
+                            if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
                             const base = (cart?.payable_total ?? cart.total_price) || 0;
                             const disc = (applyCoupon && selectedCouponId) ? (parseFloat((coupons.find(x => x.id === selectedCouponId)?.amount) || 0)) : 0;
                             const total = Math.max(0, base - disc);
@@ -988,7 +1088,7 @@ export default function Checkout() {
             <div className="flex gap-3">
               <button
                 onClick={handleMarkPaid}
-                disabled={paymentQr && paymentQr.owner_type === 'default'}
+                disabled={(paymentQr && paymentQr.owner_type === 'default') || addressInvalid}
                 className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
@@ -997,7 +1097,8 @@ export default function Checkout() {
               
               <button
                 onClick={handlePayLater}
-                className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+                disabled={addressInvalid || !locationReady}
+                className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <i className="fas fa-clock text-black"></i>
                 <span>稍后支付</span>

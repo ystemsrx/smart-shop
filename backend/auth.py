@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from database import UserDB, AdminDB
+from database import UserDB, AdminDB, AddressDB, AgentAssignmentDB, BuildingDB
 
 # 配置
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
@@ -19,6 +19,13 @@ LOGIN_API = "https://your-login-api.com"
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
+
+
+class AuthError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 class AuthManager:
     """认证管理器"""
@@ -354,11 +361,35 @@ class AuthManager:
         role = admin.get('role') or 'admin'
         account_type = 'admin' if role in ('admin', 'super_admin') else 'agent'
 
+        if account_type == 'agent':
+            assignments = AgentAssignmentDB.get_buildings_for_agent(admin_id)
+            if not assignments:
+                raise AuthError("地址不存在，请联系管理员")
+            has_valid_assignment = False
+            for item in assignments:
+                address_id = item.get('address_id')
+                building_id = item.get('building_id')
+                if not address_id or not building_id:
+                    continue
+                addr_flag = str(item.get('address_enabled', 1)).strip().lower()
+                bld_flag = str(item.get('building_enabled', 1)).strip().lower()
+                if addr_flag not in ('1', 'true'):
+                    continue
+                if bld_flag not in ('1', 'true'):
+                    continue
+                has_valid_assignment = True
+                break
+            if not has_valid_assignment:
+                raise AuthError("地址不存在，请联系管理员")
+
+        token_version = int(admin.get('token_version', 0) or 0)
+
         token_data = {
             "sub": admin_id,
             "type": account_type,
             "name": admin['name'],
-            "role": role
+            "role": role,
+            "token_version": token_version
         }
         access_token = AuthManager.create_access_token(token_data)
 
@@ -368,7 +399,8 @@ class AuthManager:
             "role": role,
             "type": account_type,
             "created_at": admin.get('created_at'),
-            "payment_qr_path": admin.get('payment_qr_path')
+            "payment_qr_path": admin.get('payment_qr_path'),
+            "token_version": token_version
         }
 
         result: Dict[str, Any] = {
@@ -422,15 +454,12 @@ def get_current_admin(
         raise HTTPException(status_code=401, detail="需要管理员权限")
 
     payload = AuthManager.verify_token(credentials.credentials)
-    if not payload or payload.get("type") != "admin":
+    staff = _load_staff_from_payload(payload)
+    if not staff:
+        raise HTTPException(status_code=401, detail="认证已失效，请重新登录")
+    if staff.get('type') != 'admin':
         raise HTTPException(status_code=403, detail="需要管理员权限")
-
-    return {
-        "id": payload.get("sub"),
-        "name": payload.get("name"),
-        "role": payload.get("role"),
-        "type": "admin"
-    }
+    return staff
 
 def get_current_staff(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
@@ -440,15 +469,10 @@ def get_current_staff(
         raise HTTPException(status_code=401, detail="需要工作人员权限")
 
     payload = AuthManager.verify_token(credentials.credentials)
-    if not payload or payload.get("type") not in ("admin", "agent"):
-        raise HTTPException(status_code=403, detail="需要工作人员权限")
-
-    return {
-        "id": payload.get("sub"),
-        "name": payload.get("name"),
-        "role": payload.get("role"),
-        "type": payload.get("type")
-    }
+    staff = _load_staff_from_payload(payload)
+    if not staff:
+        raise HTTPException(status_code=401, detail="认证已失效，请重新登录")
+    return staff
 
 def set_auth_cookie(response: Response, token: str):
     """设置认证Cookie（30天有效）"""
@@ -466,6 +490,53 @@ def set_auth_cookie(response: Response, token: str):
 def get_token_from_cookie(request: Request) -> Optional[str]:
     """从Cookie获取令牌"""
     return request.cookies.get("auth_token")
+
+
+def _load_staff_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not payload:
+        return None
+    staff_type = payload.get("type")
+    if staff_type not in ("admin", "agent"):
+        return None
+    admin_id = payload.get("sub")
+    if not admin_id:
+        return None
+
+    admin = AdminDB.get_admin(admin_id, include_disabled=True)
+    if not admin:
+        return None
+
+    try:
+        if int(admin.get('is_active', 1) or 1) != 1:
+            return None
+    except Exception:
+        return None
+
+    expected_type = 'agent' if (admin.get('role') or '').lower() == 'agent' else 'admin'
+    if expected_type != staff_type:
+        return None
+
+    try:
+        token_version_db = int(admin.get('token_version', 0) or 0)
+    except Exception:
+        token_version_db = 0
+    try:
+        token_version_payload = int(payload.get('token_version', 0) or 0)
+    except Exception:
+        token_version_payload = 0
+
+    if token_version_db != token_version_payload:
+        return None
+
+    return {
+        "id": admin.get('id'),
+        "name": admin.get('name'),
+        "role": admin.get('role'),
+        "type": expected_type,
+        "payment_qr_path": admin.get('payment_qr_path'),
+        "token_version": token_version_db,
+        "created_at": admin.get('created_at')
+    }
 
 def get_current_user_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
     """从Cookie获取当前用户"""
@@ -490,15 +561,10 @@ def get_current_admin_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
         return None
 
     payload = AuthManager.verify_token(token)
-    if not payload or payload.get("type") != "admin":
+    staff = _load_staff_from_payload(payload)
+    if not staff or staff.get('type') != 'admin':
         return None
-
-    return {
-        "id": payload.get("sub"),
-        "name": payload.get("name"),
-        "role": payload.get("role"),
-        "type": "admin"
-    }
+    return staff
 
 def get_current_staff_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
     """从Cookie获取当前工作人员（管理员/代理）"""
@@ -507,15 +573,7 @@ def get_current_staff_from_cookie(request: Request) -> Optional[Dict[str, Any]]:
         return None
 
     payload = AuthManager.verify_token(token)
-    if not payload or payload.get("type") not in ("admin", "agent"):
-        return None
-
-    return {
-        "id": payload.get("sub"),
-        "name": payload.get("name"),
-        "role": payload.get("role"),
-        "type": payload.get("type")
-    }
+    return _load_staff_from_payload(payload)
 
 def get_current_admin_required_from_cookie(request: Request) -> Dict[str, Any]:
     """从Cookie获取当前管理员（必需）"""

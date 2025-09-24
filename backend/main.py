@@ -30,7 +30,7 @@ from auth import (
     get_current_user_from_cookie, get_current_admin_required_from_cookie,
     get_current_user_required_from_cookie, success_response, error_response,
     get_current_staff_required_from_cookie, get_current_super_admin_required_from_cookie,
-    get_current_staff_from_cookie, get_current_agent_from_cookie, is_super_admin_role
+    get_current_staff_from_cookie, get_current_agent_from_cookie, is_super_admin_role, AuthError
 )
 
 
@@ -160,6 +160,101 @@ def get_owner_id_from_scope(scope: Optional[Dict[str, Any]]) -> Optional[str]:
     else:
         # 如果没有agent_id，说明是admin用户，使用'admin'作为owner_id
         return 'admin'
+
+
+def check_address_and_building(address_id: Optional[str], building_id: Optional[str]) -> Dict[str, Any]:
+    """校验地址与楼栋状态，返回可供前端与后端共用的结构"""
+    result: Dict[str, Any] = {
+        "is_valid": False,
+        "reason": "missing_address",
+        "message": "请先选择配送地址",
+        "address": None,
+        "building": None,
+        "address_id": address_id,
+        "building_id": building_id,
+        "should_force_reselect": True
+    }
+
+    if not address_id:
+        return result
+
+    address = AddressDB.get_by_id(address_id)
+    if not address:
+        result.update({
+            "reason": "address_missing",
+            "message": "地址不存在，请联系管理员",
+            "address": None
+        })
+        return result
+
+    result["address"] = address
+
+    address_enabled = str(address.get('enabled', 1)).strip().lower() in ('1', 'true')
+    if not address_enabled:
+        result.update({
+            "reason": "address_disabled",
+            "message": "该地址未启用，请重新选择"
+        })
+        return result
+
+    if not building_id:
+        result.update({
+            "reason": "missing_building",
+            "message": "请先选择配送地址"
+        })
+        return result
+
+    building = BuildingDB.get_by_id(building_id)
+    if not building:
+        result.update({
+            "reason": "building_missing",
+            "message": "楼栋不存在或未启用，请重新选择",
+            "building": None
+        })
+        return result
+
+    result["building"] = building
+
+    if building.get('address_id') != address_id:
+        result.update({
+            "reason": "building_mismatch",
+            "message": "配送地址信息已失效，请重新选择"
+        })
+        return result
+
+    building_enabled = str(building.get('enabled', 1)).strip().lower() in ('1', 'true')
+    if not building_enabled:
+        result.update({
+            "reason": "building_disabled",
+            "message": "楼栋未启用，请重新选择"
+        })
+        return result
+
+    result.update({
+        "is_valid": True,
+        "reason": None,
+        "message": "",
+        "should_force_reselect": False
+    })
+    return result
+
+
+def expire_agent_tokens_for_address(address_id: str, agent_ids: Optional[List[str]] = None) -> int:
+    """让指定地址下代理的登录token立即失效"""
+    if not address_id and not agent_ids:
+        return 0
+    ids = agent_ids if agent_ids is not None else AgentAssignmentDB.get_agent_ids_for_address(address_id)
+    expired = 0
+    seen: Set[str] = set()
+    for agent_id in ids or []:
+        if not agent_id or agent_id in seen:
+            continue
+        seen.add(agent_id)
+        if AdminDB.bump_token_version(agent_id):
+            expired += 1
+    if expired:
+        logger.info(f"地址 {address_id} 已使 {expired} 个代理登录状态失效")
+    return expired
 
 
 def fix_legacy_product_ownership():
@@ -788,6 +883,14 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
             if not resolved_building_id:
                 resolved_building_id = profile.get('building_id')
 
+    if resolved_address_id or resolved_building_id:
+        validation = check_address_and_building(resolved_address_id, resolved_building_id)
+        if not validation["is_valid"]:
+            resolved_address_id = None
+            resolved_building_id = None
+    else:
+        validation = check_address_and_building(None, None)
+
     # 修复Agent商品权限控制：
     # 1. 如果选择了具体楼栋，检查该楼栋是否分配给Agent
     # 2. 如果选择了地址但没有具体楼栋，检查该地址下是否有Agent分配
@@ -831,7 +934,8 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
         "agent_id": agent_id,
         "address_id": resolved_address_id,
         "building_id": resolved_building_id,
-        "owner_ids": owner_ids
+        "owner_ids": owner_ids,
+        "address_validation": validation
     }
 
 
@@ -1141,7 +1245,10 @@ async def expired_unpaid_cleanup():
 async def login(request: LoginRequest, response: Response):
     """用户登录"""
     try:
-        staff_result = AuthManager.login_admin(request.student_id, request.password)
+        try:
+            staff_result = AuthManager.login_admin(request.student_id, request.password)
+        except AuthError as exc:
+            return error_response(exc.message, exc.status_code)
         if staff_result:
             set_auth_cookie(response, staff_result["access_token"])
             return success_response("登录成功", staff_result)
@@ -1163,7 +1270,10 @@ async def login(request: LoginRequest, response: Response):
 async def admin_login(request: AdminLoginRequest, response: Response):
     """管理员登录"""
     try:
-        result = AuthManager.login_admin(request.admin_id, request.password)
+        try:
+            result = AuthManager.login_admin(request.admin_id, request.password)
+        except AuthError as exc:
+            return error_response(exc.message, exc.status_code)
         if not result:
             return error_response("账号或密码错误", 401)
 
@@ -1532,9 +1642,20 @@ async def admin_update_address(address_id: str, payload: AddressUpdateRequest, r
         if payload.name and payload.name != existing.get("name"):
             if AddressDB.get_by_name(payload.name):
                 return error_response("地址名称已存在", 400)
+        agent_ids_to_expire: Optional[List[str]] = None
+        if payload.enabled is not None:
+            try:
+                was_enabled = 1 if int(existing.get('enabled', 1) or 1) == 1 else 0
+            except Exception:
+                was_enabled = 1
+            will_enable = 1 if payload.enabled else 0
+            if was_enabled == 1 and will_enable == 0:
+                agent_ids_to_expire = AgentAssignmentDB.get_agent_ids_for_address(address_id)
         ok = AddressDB.update_address(address_id, payload.name, payload.enabled, payload.sort_order)
         if not ok:
             return error_response("更新地址失败", 400)
+        if agent_ids_to_expire:
+            expire_agent_tokens_for_address(address_id, agent_ids_to_expire)
         return success_response("地址更新成功")
     except Exception as e:
         logger.error(f"更新地址失败: {e}")
@@ -1548,10 +1669,13 @@ async def admin_delete_address(address_id: str, request: Request):
         existing = AddressDB.get_by_id(address_id)
         if not existing:
             return error_response("地址不存在", 404)
+        agent_ids_to_expire = AgentAssignmentDB.get_agent_ids_for_address(address_id)
         # 允许级联删除：先删除楼栋，再删除地址（由 AddressDB 实现）
         ok = AddressDB.delete_address(address_id)
         if not ok:
             return error_response("删除地址失败", 400)
+        if agent_ids_to_expire:
+            expire_agent_tokens_for_address(address_id, agent_ids_to_expire)
         return success_response("地址删除成功")
     except Exception as e:
         logger.error(f"删除地址失败: {e}")
@@ -2073,12 +2197,32 @@ async def get_payment_qr(address_id: str = None, building_id: str = None, reques
     user = get_current_user_from_cookie(request)
     if not user:
         return error_response("未登录", 401)
-    
+
     try:
+        query_address_id = address_id
+        query_building_id = building_id
+        if not query_address_id or not query_building_id:
+            profile = UserProfileDB.get_shipping(user['id'])
+            if profile:
+                query_address_id = query_address_id or profile.get('address_id')
+                query_building_id = query_building_id or profile.get('building_id')
+
+        validation = check_address_and_building(query_address_id, query_building_id)
+        if not validation.get('is_valid'):
+            reason = validation.get('reason')
+            if reason in ('missing_address', 'missing_building'):
+                message = validation.get('message') or '请先选择配送地址'
+            else:
+                message = '地址不存在或未启用，请联系管理员'
+            return error_response(message, 400)
+
+        address_id = validation.get('address', {}).get('id') if validation.get('address') else query_address_id
+        building_id = validation.get('building', {}).get('id') if validation.get('building') else query_building_id
+
         # 确定收款码所有者
         qr_owner_id = None
         qr_owner_type = None
-        
+
         # 如果提供了地址信息，尝试查找对应的代理
         if building_id:
             from database import AgentAssignmentDB
@@ -2171,6 +2315,7 @@ async def get_cart(request: Request):
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
         owner_scope_id = get_owner_id_from_scope(scope)
+        address_validation = scope.get('address_validation') or check_address_and_building(None, None)
 
         # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
         include_unassigned = False
@@ -2183,7 +2328,8 @@ async def get_cart(request: Request):
                 "total_quantity": 0, 
                 "total_price": 0.0,
                 "scope": scope,
-                "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id)
+                "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+                "address_validation": address_validation
             })
 
         # 获取购物车中的商品信息
@@ -2240,8 +2386,8 @@ async def get_cart(request: Request):
         logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
         
         # 获取配送费配置
-        scope = resolve_shopping_scope(request)
-        owner_id = get_owner_id_from_scope(scope)
+        delivery_scope = scope
+        owner_id = get_owner_id_from_scope(delivery_scope)
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
         
         # 运费计算：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
@@ -2252,10 +2398,11 @@ async def get_cart(request: Request):
             "total_price": round(total_price, 2),
             "shipping_fee": round(shipping_fee, 2),
             "payable_total": round(total_price + shipping_fee, 2),
-            "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id)
+            "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+            "address_validation": address_validation
         }
-        
-        cart_result["scope"] = scope
+
+        cart_result["scope"] = delivery_scope
         return success_response("获取购物车成功", cart_result)
     
     except Exception as e:
@@ -3104,6 +3251,18 @@ async def create_order(
             building_id=shipping_info.get('building_id')
         )
 
+        validation = scope.get('address_validation') or check_address_and_building(
+            shipping_info.get('address_id'),
+            shipping_info.get('building_id')
+        )
+        if not validation.get('is_valid'):
+            reason = validation.get('reason')
+            if reason in ('missing_address', 'missing_building'):
+                message = validation.get('message') or '请先选择收货地址'
+            else:
+                message = validation.get('message') or '地址不存在或未启用，请联系管理员'
+            return error_response(message, 400)
+
         # 检查代理打烊状态
         agent_id = scope.get('agent_id')
         if agent_id:
@@ -3122,9 +3281,6 @@ async def create_order(
         cart_data = CartDB.get_cart(user["id"])
         if not cart_data or not cart_data["items"]:
             return error_response("购物车为空，无法创建订单", 400)
-
-        if not scope.get('building_id'):
-            return error_response("请先选择收货地址", 400)
 
         owner_ids = scope["owner_ids"]
         include_unassigned = False if owner_ids else True

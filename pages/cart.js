@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
@@ -9,6 +9,20 @@ import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
+
+const createDefaultValidation = () => ({
+  is_valid: true,
+  reason: null,
+  message: '',
+  should_force_reselect: false,
+});
+
+const createMissingValidation = () => ({
+  is_valid: false,
+  reason: 'missing_address',
+  message: '请选择配送地址',
+  should_force_reselect: true,
+});
 
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
@@ -113,7 +127,22 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
 };
 
 // 订单摘要组件
-const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], selectedCouponId, setSelectedCouponId, applyCoupon, setApplyCoupon, locationReady = true, lotteryThreshold = 10, deliveryConfig = { free_delivery_threshold: 10 } }) => {
+const OrderSummary = ({
+  cart,
+  onCheckout,
+  isLoading,
+  isClosed,
+  coupons = [],
+  selectedCouponId,
+  setSelectedCouponId,
+  applyCoupon,
+  setApplyCoupon,
+  addressValidation = createDefaultValidation(),
+  onFixAddress,
+  locationReady = true,
+  lotteryThreshold = 10,
+  deliveryConfig = { free_delivery_threshold: 10 }
+}) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
   const base = (cart?.payable_total ?? cart.total_price) || 0;
@@ -125,6 +154,11 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
   const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
   const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
   const sameTarget = needsShipping && needsLottery && Math.abs(missingShipping - missingLottery) < 0.0001;
+  const addressInvalid = locationReady && addressValidation && addressValidation.is_valid === false;
+  const addressAlertMessage = addressInvalid
+    ? (addressValidation.message || '配送地址不可用，请重新选择')
+    : '';
+  const checkoutDisabled = isLoading || cart.total_quantity === 0 || isClosed || !locationReady || addressInvalid;
   return (
     <div className="bg-white border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-6 pb-3 border-b border-gray-100">订单摘要</h3>
@@ -227,24 +261,42 @@ const OrderSummary = ({ cart, onCheckout, isLoading, isClosed, coupons = [], sel
           })()}
         </div>
         
-        <div className="border-t border-gray-200 pt-4 mt-4">
-          <div className="flex justify-between items-center">
-            <span className="text-lg font-medium text-gray-900">总计</span>
-            <AnimatedPrice value={total} className="text-2xl font-semibold text-gray-900" />
-          </div>
+      <div className="border-t border-gray-200 pt-4 mt-4">
+        <div className="flex justify-between items-center">
+          <span className="text-lg font-medium text-gray-900">总计</span>
+          <AnimatedPrice value={total} className="text-2xl font-semibold text-gray-900" />
         </div>
       </div>
-      
+    </div>
+
+      {addressInvalid && (
+        <div className="mt-4 mb-2 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <i className="fas fa-exclamation-triangle mt-0.5"></i>
+          <span className="flex-1">{addressAlertMessage}</span>
+          {typeof onFixAddress === 'function' && (
+            <button
+              type="button"
+              onClick={onFixAddress}
+              className="ml-2 text-rose-600 hover:text-rose-800 underline"
+            >
+              重新选择
+            </button>
+          )}
+        </div>
+      )}
+
       <button
         onClick={onCheckout}
-        disabled={isLoading || cart.total_quantity === 0 || isClosed || !locationReady}
+        disabled={checkoutDisabled}
         className="w-full bg-gray-900 text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
       >
         {isLoading
           ? '处理中...'
           : (isClosed
               ? '打烊中 · 暂停结算'
-              : (!locationReady ? '请选择配送地址' : '去结算'))}
+              : (!locationReady
+                  ? '请选择配送地址'
+                  : (addressInvalid ? addressAlertMessage : '去结算')))}
       </button>
     </div>
   );
@@ -257,7 +309,7 @@ export default function Cart() {
   const { getShopStatus } = useProducts();
   const { apiRequest } = useApi();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
-  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
+  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection, forceReselectAddress } = useLocation();
 
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
@@ -273,6 +325,19 @@ export default function Cart() {
   const [applyCoupon, setApplyCoupon] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
+  const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
+
+  const normalizeValidation = useCallback((raw) => {
+    if (!raw) {
+      return createDefaultValidation();
+    }
+    return {
+      is_valid: raw.is_valid !== false,
+      reason: raw.reason || null,
+      message: raw.message || '',
+      should_force_reselect: !!raw.should_force_reselect,
+    };
+  }, []);
 
   const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
   const displayLocation = location
@@ -295,6 +360,38 @@ export default function Cart() {
       : lotteryThreshold.toFixed(2)
   ), [lotteryThreshold]);
 
+  const addressInvalid = useMemo(() => (
+    locationReady && addressValidation && addressValidation.is_valid === false
+  ), [locationReady, addressValidation]);
+
+  const addressAlertMessage = useMemo(() => (
+    addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
+  ), [addressInvalid, addressValidation]);
+
+  const lastInvalidKeyRef = useRef(null);
+  const reselectInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const shouldForce = !!(addressValidation && addressValidation.should_force_reselect);
+    if (!shouldForce) {
+      reselectInFlightRef.current = false;
+      lastInvalidKeyRef.current = null;
+      return;
+    }
+
+    if (!addressInvalid) {
+      return;
+    }
+
+    const key = `${addressValidation.reason || 'unknown'}|${location?.address_id || ''}|${location?.building_id || ''}`;
+    if (lastInvalidKeyRef.current === key || reselectInFlightRef.current) {
+      return;
+    }
+    lastInvalidKeyRef.current = key;
+    reselectInFlightRef.current = true;
+    forceReselectAddress();
+  }, [addressInvalid, addressValidation, location, forceReselectAddress]);
+
   // 检查登录状态
   useEffect(() => {
     if (!user) {
@@ -316,12 +413,14 @@ export default function Cart() {
         setCoupons([]);
         setSelectedCouponId(null);
         setApplyCoupon(false);
+        setAddressValidation(createMissingValidation());
         setIsLoading(false);
         return;
       }
 
       const data = await getCart();
       setCart(data.data);
+      setAddressValidation(normalizeValidation(data?.data?.address_validation));
       // 加载可用抽奖奖品
       try {
         const rw = await apiRequest('/rewards/eligible');
@@ -367,6 +466,7 @@ export default function Cart() {
       }
     } catch (err) {
       setError(err.message || '加载购物车失败');
+      setAddressValidation(createDefaultValidation());
     } finally {
       setIsLoading(false);
     }
@@ -438,6 +538,11 @@ export default function Cart() {
   const handleCheckout = () => {
     if (!shopOpen) {
       alert(shopNote || '当前打烊，暂不支持结算，仅可加入购物车');
+      return;
+    }
+    if (addressInvalid) {
+      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      openLocationModal();
       return;
     }
     if (!locationReady) {
@@ -550,6 +655,19 @@ export default function Cart() {
                   <div className="text-sm font-semibold text-emerald-700 mt-0.5">{displayLocation}</div>
                 </div>
                 <span className="ml-auto text-xs text-emerald-600 font-medium">修改</span>
+              </button>
+            </div>
+          )}
+
+          {addressInvalid && (
+            <div className="mb-6 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <i className="fas fa-exclamation-triangle mt-0.5"></i>
+              <span className="flex-1">{addressAlertMessage}</span>
+              <button
+                onClick={openLocationModal}
+                className="ml-3 text-rose-600 hover:text-rose-800 underline"
+              >
+                重新选择
               </button>
             </div>
           )}
@@ -787,6 +905,8 @@ export default function Cart() {
                         setSelectedCouponId={setSelectedCouponId}
                         applyCoupon={applyCoupon}
                         setApplyCoupon={setApplyCoupon}
+                        addressValidation={addressValidation}
+                        onFixAddress={openLocationModal}
                         locationReady={locationReady}
                         lotteryThreshold={lotteryThreshold}
                         deliveryConfig={deliveryConfig}

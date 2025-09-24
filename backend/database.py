@@ -53,7 +53,8 @@ def auto_migrate_database(conn) -> None:
     table_migrations = {
         'admins': {
             'payment_qr_path': 'TEXT',
-            'is_active': 'INTEGER DEFAULT 1'
+            'is_active': 'INTEGER DEFAULT 1',
+            'token_version': 'INTEGER DEFAULT 0'
         },
         'products': {
             'is_active': 'INTEGER DEFAULT 1',
@@ -1985,6 +1986,8 @@ class AddressDB:
             try:
                 # 先删除该地址下所有楼栋
                 cursor.execute('DELETE FROM buildings WHERE address_id = ?', (address_id,))
+                # 同步删除代理分配关系
+                cursor.execute('DELETE FROM agent_buildings WHERE address_id = ?', (address_id,))
                 # 再删除地址本身
                 cursor.execute('DELETE FROM addresses WHERE id = ?', (address_id,))
                 ok = cursor.rowcount > 0
@@ -2220,6 +2223,27 @@ class AdminDB:
                 return cursor.rowcount > 0
             except Exception as e:
                 logger.error(f"更新管理员信息失败: {e}")
+                return False
+
+    @staticmethod
+    def bump_token_version(admin_id: str) -> bool:
+        if not admin_id:
+            return False
+        with get_db_connection() as conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    UPDATE admins
+                    SET token_version = COALESCE(token_version, 0) + 1
+                    WHERE id = ?
+                    ''',
+                    (admin_id,)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception as e:
+                logger.error(f"提升管理员 token_version 失败: {e}")
                 return False
 
     @staticmethod
