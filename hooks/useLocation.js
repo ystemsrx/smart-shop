@@ -58,8 +58,8 @@ export function LocationProvider({ children }) {
     return data;
   }, []);
 
-  const ensureAddressesLoaded = useCallback(async () => {
-    if (addressesLoadedRef.current) {
+  const ensureAddressesLoaded = useCallback(async (force = false) => {
+    if (!force && addressesLoadedRef.current) {
       return addressesRef.current;
     }
     try {
@@ -174,11 +174,16 @@ export function LocationProvider({ children }) {
     loadProfile();
   }, [user, isInitialized, loadProfile]);
 
-  const openLocationModal = useCallback(async () => {
+  const openLocationModal = useCallback(async (options = {}) => {
     if (!user || user.type !== 'user') return;
     try {
-      const addrList = await ensureAddressesLoaded();
-      
+      const {
+        forceReload = false,
+        resetSelection = false,
+        enforceSelection = false,
+      } = options;
+      const addrList = await ensureAddressesLoaded(forceReload);
+
       // 如果没有可用的地址
       if (!addrList || addrList.length === 0) {
         setSelectedAddressId('');
@@ -188,14 +193,14 @@ export function LocationProvider({ children }) {
         setModalOpen(true);
         return;
       }
-      
+
       // 只有当有可用地址时，才设置默认值
-      const addrId = location?.address_id || addrList[0]?.id;
+      const addrId = resetSelection ? (addrList[0]?.id || '') : (location?.address_id || addrList[0]?.id || '');
       setSelectedAddressId(addrId);
       const buildings = addrId ? await loadBuildingsFor(addrId) : [];
-      const buildingId = location?.building_id || buildings[0]?.id || '';
+      const buildingId = resetSelection ? (buildings[0]?.id || '') : (location?.building_id || buildings[0]?.id || '');
       setSelectedBuildingId(buildingId);
-      setForceSelection(false);
+      setForceSelection(enforceSelection);
       setModalOpen(true);
       setError('');
     } catch (err) {
@@ -252,6 +257,48 @@ export function LocationProvider({ children }) {
     }
   }, [selectedAddressId, selectedBuildingId, fetchJSON]);
 
+  const forceReselectAddress = useCallback(async () => {
+    if (!user || user.type !== 'user') return;
+    setLocation(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        dormitory: '',
+        building: '',
+        full_address: '',
+        address_id: '',
+        building_id: '',
+        agent_id: '',
+      };
+    });
+    setRevision(prev => prev + 1);
+    addressesLoadedRef.current = false;
+    setAddressesLoaded(false);
+    setForceSelection(true);
+    setError('');
+    setModalOpen(true);
+    setIsLoading(true);
+    try {
+      const addrList = await ensureAddressesLoaded(true);
+      const nextAddressId = addrList[0]?.id || '';
+      setSelectedAddressId(nextAddressId);
+      if (nextAddressId) {
+        const buildings = await loadBuildingsFor(nextAddressId);
+        setSelectedBuildingId(buildings[0]?.id || '');
+      } else {
+        setSelectedBuildingId('');
+        setBuildingOptions([]);
+      }
+    } catch (err) {
+      setSelectedAddressId('');
+      setSelectedBuildingId('');
+      setBuildingOptions([]);
+      setError(err.message || '无法加载地址，请稍后重试');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, ensureAddressesLoaded, loadBuildingsFor]);
+
   const value = {
     location,
     isLoading,
@@ -270,6 +317,7 @@ export function LocationProvider({ children }) {
     selectBuilding,
     saveLocation,
     reloadLocation: loadProfile,
+    forceReselectAddress,
   };
 
   return (
