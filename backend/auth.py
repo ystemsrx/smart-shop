@@ -528,6 +528,22 @@ def _load_staff_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict
     if token_version_db != token_version_payload:
         return None
 
+    if expected_type == 'agent':
+        assignments = AgentAssignmentDB.get_buildings_for_agent(admin_id)
+        has_active_assignment = False
+        for assignment in assignments or []:
+            addr_flag = str(assignment.get('address_enabled', 1)).strip().lower()
+            bld_flag = str(assignment.get('building_enabled', 1)).strip().lower()
+            addr_enabled = addr_flag in ('1', 'true')
+            bld_enabled = bld_flag in ('1', 'true')
+            if addr_enabled and bld_enabled:
+                has_active_assignment = True
+                break
+        if not has_active_assignment:
+            logger.warning(f"代理 {admin_id} 没有可用的启用地址/楼栋，强制登出")
+            AdminDB.bump_token_version(admin_id)
+            return None
+
     return {
         "id": admin.get('id'),
         "name": admin.get('name'),
