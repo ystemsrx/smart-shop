@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
+import { getShopName } from '../utils/runtimeConfig';
 
 export default function Login() {
   const router = useRouter();
   const { login, isLoading, user, error } = useAuth();
+  const shopName = getShopName();
   const [formData, setFormData] = useState({
     student_id: '',
     password: ''
@@ -45,7 +47,7 @@ export default function Login() {
   return (
     <>
       <Head>
-        <title>登录 - [商店名称]</title>
+        <title>登录 - {shopName}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       
@@ -89,7 +91,7 @@ export default function Login() {
                 欢迎回来
               </h1>
               <p className="text-lg text-white/80 mb-2">
-                [商店名称]智能商城
+                {shopName}
               </p>
               <p className="text-sm text-white/60">
                 使用学号和密码登录您的账户

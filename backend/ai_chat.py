@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 MODEL_CANDIDATES = settings.model_order
 API_URL = settings.api_url
+SHOP_NAME = settings.shop_name
 
 if not settings.api_key:
     logger.warning("AI API key is not configured; upstream requests may be rejected.")
@@ -188,12 +189,12 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         
         return f"""# Role
 
-Smart Shopping Assistant for *[商店名称]铺*
+Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *[商店名称]铺*
+* Professional, friendly, helps users shop in *{SHOP_NAME}*
 
 ## Goals
 
@@ -274,15 +275,15 @@ async def make_request_with_fallback(messages, tools, stream=True):
     raise Exception("所有模型都不可用")
 
 # 系统提示词
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 # Role
 
-Smart Shopping Assistant for *[商店名称]铺*
+Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *[商店名称]铺*
+* Professional, friendly, helps users shop in *{SHOP_NAME}*
 
 ## Goals
 

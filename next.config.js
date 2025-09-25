@@ -24,16 +24,22 @@ const getFileBaseUrl = () => {
   return process.env.NEXT_PUBLIC_FILE_BASE_URL
 }
 
+const getShopName = () => {
+  return (process.env.SHOP_NAME || '').trim()
+}
+
 const resolvedApiUrl = getApiUrl()
 const resolvedImageBaseUrl = getImageBaseUrl()
 const resolvedFileBaseUrl = getFileBaseUrl()
+const resolvedShopName = getShopName()
 
 // 生产环境检查必需的环境变量
 if (!isDevEnv) {
   const requiredEnvs = {
     'NEXT_PUBLIC_API_URL': resolvedApiUrl,
     'NEXT_PUBLIC_IMAGE_BASE_URL': resolvedImageBaseUrl,
-    'NEXT_PUBLIC_FILE_BASE_URL': resolvedFileBaseUrl
+    'NEXT_PUBLIC_FILE_BASE_URL': resolvedFileBaseUrl,
+    'SHOP_NAME': resolvedShopName,
   }
   
   const missingEnvs = Object.entries(requiredEnvs)
@@ -56,7 +62,8 @@ const nextConfig = {
     NEXT_PUBLIC_ENV: envFlag,
     NEXT_PUBLIC_API_URL: resolvedApiUrl,
     NEXT_PUBLIC_IMAGE_BASE_URL: resolvedImageBaseUrl,
-    NEXT_PUBLIC_FILE_BASE_URL: resolvedFileBaseUrl
+    NEXT_PUBLIC_FILE_BASE_URL: resolvedFileBaseUrl,
+    SHOP_NAME: resolvedShopName,
   },
   // 允许外部CDN资源
   images: {
