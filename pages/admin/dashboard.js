@@ -298,6 +298,44 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
   const safeMaxLeftAxis = maxLeftAxis > 0 ? maxLeftAxis : 1;
   const safeMaxOrders = maxOrders > 0 ? maxOrders : 1;
 
+  const isAllZero = maxRevenue === 0 && maxProfit === 0 && maxOrders === 0;
+  const hasMetrics = (item) => {
+    if (!item) {
+      return false;
+    }
+    const revenue = Number(item.revenue) || 0;
+    const profit = Number(item.profit) || 0;
+    const orders = Number(item.orders) || 0;
+    return revenue !== 0 || profit !== 0 || orders !== 0;
+  };
+
+  const showEmptyDayState = period === 'day' && isAllZero;
+  const plottedData = useMemo(() => {
+    if (showEmptyDayState) {
+      return [];
+    }
+    if (period === 'day') {
+      return chartData.filter(hasMetrics);
+    }
+    return chartData;
+  }, [chartData, period, showEmptyDayState]);
+
+  const visibleDayInfo = useMemo(() => {
+    if (period !== 'day' || chartData.length === 0) {
+      return null;
+    }
+    const firstWithDate = chartData.find(item => parsePeriodValueToDate(item.period));
+    if (!firstWithDate) {
+      return null;
+    }
+    const parsed = parsePeriodValueToDate(firstWithDate.period);
+    if (!parsed) {
+      return null;
+    }
+    const display = `${parsed.getFullYear()}.${parsed.getMonth() + 1}.${parsed.getDate()}`;
+    return { display };
+  }, [chartData, period]);
+
   const hasPrev = startIndex > 0;
   const hasNext = endIndex < dataset.length;
 
@@ -317,7 +355,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
   const leftPadding = 40;
   const rightPadding = 40; // 为右侧Y轴预留空间
   const topPadding = 40;
-  const bottomPadding = period === 'month' ? 60 : 40;
+  const bottomPadding = period === 'month' ? 60 : period === 'day' ? 80 : 50;
   const chartWidth = svgWidth - leftPadding - rightPadding;
   const chartHeight = svgHeight - topPadding - bottomPadding;
   
@@ -335,14 +373,33 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
     });
   };
 
-  const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), safeMaxLeftAxis);
-  const profitPoints = getPoints(chartData.map(d => d.profit || 0), safeMaxLeftAxis);
-  const ordersPoints = getPoints(chartData.map(d => d.orders || 0), safeMaxOrders);
+  const revenuePoints = getPoints(plottedData.map(d => d.revenue || 0), safeMaxLeftAxis);
+  const profitPoints = getPoints(plottedData.map(d => d.profit || 0), safeMaxLeftAxis);
+  const ordersPoints = getPoints(plottedData.map(d => d.orders || 0), safeMaxOrders);
 
-  const showDetailedDayLabel = period === 'day' && dataset.length > 24;
+  const dayLabelY = (() => {
+    if (period === 'month') return svgHeight - 30;
+    if (period === 'day') return svgHeight - 35;
+    return svgHeight - 20;
+  })();
+  const monthLabelY = svgHeight - 10;
+  const dateLabelY = svgHeight - 15;
 
-  const formatAxisLabel = (periodValue) => {
+  const formatAxisLabel = (dataPoint) => {
+    if (!dataPoint) {
+      return '';
+    }
+
+    const periodValue = dataPoint.period;
     const parsedDate = parsePeriodValueToDate(periodValue);
+
+    if (period === 'day') {
+      if (!parsedDate || !hasMetrics(dataPoint)) {
+        return '';
+      }
+      return `${parsedDate.getHours()}时`;
+    }
+
     if (!parsedDate) {
       if (period === 'month') {
         const parts = String(periodValue || '').split('-');
@@ -350,16 +407,6 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
         return dayPart.replace(/^0/, '') || periodValue || '';
       }
       return periodValue || '';
-    }
-
-    if (period === 'day') {
-      const hourLabel = `${parsedDate.getHours()}时`;
-      if (!showDetailedDayLabel) {
-        return hourLabel;
-      }
-      const month = parsedDate.getMonth() + 1;
-      const day = parsedDate.getDate();
-      return `${month}/${day} ${hourLabel}`;
     }
 
     if (period === 'month') {
@@ -371,10 +418,10 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
 
   const monthLabels = [];
 
-  if (period === 'month' && chartData.length > 0) {
+  if (period === 'month' && plottedData.length > 0) {
     const monthBuckets = new Map();
 
-    chartData.forEach((item, index) => {
+    plottedData.forEach((item, index) => {
       const parsedDate = parsePeriodValueToDate(item.period);
       if (!parsedDate) {
         return;
@@ -400,9 +447,6 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
     });
   }
 
-  const dayLabelY = period === 'month' ? svgHeight - 30 : svgHeight - 10;
-  const monthLabelY = svgHeight - 10;
-  
   // 生成平滑曲线路径
   const createSmoothPath = (points) => {
     if (points.length === 0) return '';
@@ -562,12 +606,23 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
           {/* 折线图 - 调整高度匹配左侧 */}
           <div className="lg:col-span-2 flex flex-col">
             <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner flex-1">
-              <svg 
-                width="100%" 
-                height="100%" 
-                viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-                className="overflow-visible h-full"
-              >
+              {showEmptyDayState ? (
+                <div className="flex h-full flex-col items-center justify-center text-gray-500">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-blue-200 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+                    <i className="fas fa-chart-line text-blue-400 text-2xl"></i>
+                  </div>
+                  <p className="text-lg font-medium">该日暂无数据</p>
+                  {visibleDayInfo && (
+                    <p className="mt-2 text-sm text-gray-400">{visibleDayInfo.display}</p>
+                  )}
+                </div>
+              ) : (
+                <svg 
+                  width="100%" 
+                  height="100%" 
+                  viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                  className="overflow-visible h-full"
+                >
                 <defs>
                   {/* 渐变定义 */}
                   <linearGradient id="revenueAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -653,7 +708,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                   <path
                     d={`${revenuePath} L ${revenuePoints[revenuePoints.length - 1].x} ${topPadding + chartHeight} L ${revenuePoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#revenueAreaGradient)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -662,7 +717,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                   <path
                     d={`${profitPath} L ${profitPoints[profitPoints.length - 1].x} ${topPadding + chartHeight} L ${profitPoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#profitAreaGradient)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -671,7 +726,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                   <path
                     d={`${ordersPath} L ${ordersPoints[ordersPoints.length - 1].x} ${topPadding + chartHeight} L ${ordersPoints[0].x} ${topPadding + chartHeight} Z`}
                     fill="url(#ordersAreaGradient)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -685,7 +740,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     filter="url(#dropShadow)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -699,7 +754,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     filter="url(#dropShadow)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -713,7 +768,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     filter="url(#dropShadow)"
-                    className="transition-all duration-1000"
+                    className="transition-all duration-500 ease-out"
                   />
                 )}
                 
@@ -738,10 +793,14 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 
                 {/* 数据点和标签 - 销售额 */}
                 {period !== 'month' && revenuePoints.map((point, index) => {
+                  const source = plottedData[index];
+                  if (!source || (Number(source.revenue) || 0) === 0) {
+                    return null;
+                  }
                   const labelY = getSmartLabelPosition(point, index, revenuePoints, 'revenue');
                   
                   return (
-                    <g key={`revenue-${index}`} className="transition-all duration-300">
+                    <g key={`revenue-${index}`} className="transition-all duration-500 ease-out">
                       {/* 数据点 */}
                       <circle
                         cx={point.x}
@@ -766,10 +825,14 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 
                 {/* 数据点和标签 - 净利润 */}
                 {period !== 'month' && profitPoints.map((point, index) => {
+                  const source = plottedData[index];
+                  if (!source || (Number(source.profit) || 0) === 0) {
+                    return null;
+                  }
                   const labelY = getSmartLabelPosition(point, index, profitPoints, 'profit');
                   
                   return (
-                    <g key={`profit-${index}`} className="transition-all duration-300">
+                    <g key={`profit-${index}`} className="transition-all duration-500 ease-out">
                       {/* 数据点 */}
                       <circle
                         cx={point.x}
@@ -794,10 +857,14 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 
                 {/* 数据点和标签 - 订单数 */}
                 {ordersPoints.map((point, index) => {
+                  const source = plottedData[index];
+                  if (!source || (Number(source.orders) || 0) === 0) {
+                    return null;
+                  }
                   const labelY = getSmartLabelPosition(point, index, ordersPoints, 'orders');
                   
                   return (
-                    <g key={`orders-${index}`} className="transition-all duration-300">
+                    <g key={`orders-${index}`} className="transition-all duration-500 ease-out">
                       {/* 数据点 */}
                       <circle
                         cx={point.x}
@@ -821,14 +888,18 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 })}
                 
                 {/* X轴标签 */}
-                {chartData.map((item, index) => {
-                  const length = chartData.length;
+                {plottedData.map((item, index) => {
+                  const length = plottedData.length;
                   const x = length === 1
                     ? leftPadding + chartWidth / 2
                     : leftPadding + (index / (length - 1)) * chartWidth;
+                  const label = formatAxisLabel(item);
+                  if (!label) {
+                    return null;
+                  }
 
                   return (
-                    <g key={index}>
+                    <g key={`axis-${item.period}-${index}`}>
                       {/* X轴标签文字 */}
                       <text
                         x={x}
@@ -837,7 +908,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                         className="text-xs fill-gray-500 font-medium filter drop-shadow-sm"
                         style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
                       >
-                        {formatAxisLabel(item.period)}
+                        {label}
                       </text>
                     </g>
                   );
@@ -855,7 +926,20 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                     {label}
                   </text>
                 ))}
-              </svg>
+
+                {period === 'day' && visibleDayInfo && (
+                  <text
+                    x={leftPadding + chartWidth / 2}
+                    y={dateLabelY}
+                    textAnchor="middle"
+                    className="text-xs font-semibold fill-gray-400 tracking-wide"
+                    style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                  >
+                    {visibleDayInfo.display}
+                  </text>
+                )}
+                </svg>
+              )}
             </div>
           </div>
         </div>
