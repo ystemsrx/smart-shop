@@ -89,7 +89,7 @@ export default function Login() {
                 欢迎回来
               </h1>
               <p className="text-lg text-white/80 mb-2">
-                LaZy智能零食商城
+                [商店名称]智能商城
               </p>
               <p className="text-sm text-white/60">
                 使用学号和密码登录您的账户

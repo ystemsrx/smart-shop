@@ -8,14 +8,16 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import UserDB, AdminDB, AddressDB, AgentAssignmentDB, BuildingDB
+from config import get_settings
 
 # 配置
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30  # 30天免登录
+settings = get_settings()
+SECRET_KEY = settings.jwt_secret_key
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_DAYS = settings.access_token_expire_days
 
 # 第三方登录API配置
-LOGIN_API = "https://your-login-api.com"
+LOGIN_API = settings.swu_login_api
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)

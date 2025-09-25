@@ -781,7 +781,7 @@ export default function Shop() {
               [商店名称]商城
             </h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              精选优质零食，为您提供贴心的宿舍配送服务，让美味触手可及
+              精选优质零食，为您提供贴心配送服务，让美味触手可及
             </p>
             
             {/* 统计信息 */}
