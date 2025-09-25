@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
 import Nav from '../components/Nav';
+import { getShopName } from '../utils/runtimeConfig';
 
 
 // 代理状态卡片（打烊/营业）
@@ -3639,6 +3640,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const isAdmin = expectedRole === 'admin';
   const isAgent = expectedRole === 'agent';
   const staffPrefix = isAgent ? '/agent' : '/admin';
+  const shopName = getShopName();
   const allowedTabs = isAdmin
     ? ['products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs']
     : ['products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
@@ -4613,7 +4615,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   return (
     <>
       <Head>
-        <title>{isAdmin ? '管理后台 - [商店名称]' : '代理后台 - [商店名称]'}</title>
+        <title>{isAdmin ? `管理后台 - ${shopName}` : `代理后台 - ${shopName}`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 

@@ -7,6 +7,7 @@ import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
+import { getShopName } from '../utils/runtimeConfig';
 
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, itemsMap = {}, isLoading }) => {
@@ -359,6 +360,7 @@ export default function Shop() {
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const navActive = user && (user.type === 'admin' || user.type === 'agent') ? 'staff-shop' : 'shop';
+  const shopName = getShopName();
   
   const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
@@ -734,7 +736,7 @@ export default function Shop() {
   return (
     <>
       <Head>
-        <title>[商店名称] - 宿舍智能小超市</title>
+        <title>{shopName} - 智能小超市</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -778,7 +780,7 @@ export default function Shop() {
               </div>
             </div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-3">
-              [商店名称]商城
+              {shopName}
             </h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               精选优质零食，为您提供贴心配送服务，让美味触手可及

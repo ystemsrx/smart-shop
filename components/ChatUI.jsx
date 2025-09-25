@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getApiBaseUrl } from "../utils/runtimeConfig";
+import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -12,6 +12,7 @@ import { getApiBaseUrl } from "../utils/runtimeConfig";
  */
 
 const cx = (...xs) => xs.filter(Boolean).join(" ");
+const SHOP_NAME = getShopName();
 
 // 智能自动滚动 Hook - 支持用户滚动检测和固定底栏适配
 const useSmartAutoScroll = (dep) => {
@@ -925,7 +926,7 @@ export default function ChatModern({ user }) {
         <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
           <img 
             src="/logo.png" 
-            alt="[商店名称]" 
+            alt={SHOP_NAME}
             className="h-8 w-auto object-contain"
           />
           <span>AI Chat</span>

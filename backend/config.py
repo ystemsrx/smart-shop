@@ -76,10 +76,11 @@ class Settings:
     log_level: str
     db_path: Path
     db_reset: bool
+    shop_name: str
     jwt_secret_key: str
     jwt_algorithm: str
     access_token_expire_days: int
-    swu_login_api: str
+    login_api: str
     admin_accounts: List[AdminAccount]
     allowed_origins: List[str]
     static_cache_max_age: int
@@ -120,8 +121,8 @@ def get_settings() -> Settings:
     jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256").strip() or "HS256"
     access_days = _as_int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS"), 30)
 
-    swu_login_api = os.getenv("LOGIN_API")
-    if not swu_login_api:
+    login_api = os.getenv("LOGIN_API")
+    if not login_api:
         raise RuntimeError("LOGIN_API environment variable is required")
 
     usernames = _split_csv(os.getenv("ADMIN_USERNAME"))
@@ -151,6 +152,11 @@ def get_settings() -> Settings:
 
     cache_max_age = _as_int(os.getenv("STATIC_CACHE_MAX_AGE"), 60 * 60 * 24 * 30)
 
+    raw_shop_name = os.getenv("SHOP_NAME")
+    shop_name = (raw_shop_name or "").strip()
+    if not shop_name:
+        raise RuntimeError("SHOP_NAME environment variable is required")
+
     api_key = os.getenv("API_KEY")
     if not api_key:
         raise RuntimeError("API_KEY environment variable is required")
@@ -176,10 +182,11 @@ def get_settings() -> Settings:
         log_level=log_level,
         db_path=db_path,
         db_reset=db_reset,
+        shop_name=shop_name,
         jwt_secret_key=jwt_secret,
         jwt_algorithm=jwt_algorithm,
         access_token_expire_days=access_days,
-        swu_login_api=swu_login_api,
+    login_api=login_api,
         admin_accounts=admin_accounts,
         allowed_origins=allowed_origins,
         static_cache_max_age=cache_max_age,
@@ -190,4 +197,3 @@ def get_settings() -> Settings:
 
 
 __all__ = ["AdminAccount", "ModelConfig", "Settings", "get_settings"]
-

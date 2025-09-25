@@ -5,10 +5,12 @@ import { useRouter } from 'next/router'
 import ChatModern from '../components/ChatUI'
 import { useAuth } from '../hooks/useAuth'
 import Nav from '../components/Nav'
+import { getShopName } from '../utils/runtimeConfig'
 
 export default function Home() {
   const { user, logout, isInitialized } = useAuth()
   const router = useRouter()
+  const shopName = getShopName()
 
   // 等待认证状态初始化
   if (!isInitialized) {
@@ -34,9 +36,12 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>{user ? `${user.name} - ` : ''}[商店名称]</title>
+        <title>{user ? `${user.name} - ` : ''}{shopName}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="description" content="[商店名称]的AI购物助手，帮您搜索商品、管理购物车、提供购物建议" />
+        <meta
+          name="description"
+          content={`${shopName}的AI购物助手，帮您搜索商品、管理购物车、提供购物建议`}
+        />
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
       </Head>
       

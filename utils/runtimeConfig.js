@@ -26,9 +26,14 @@ const getFileUrl = () => {
 const apiBase = getApiUrl()
 const imageBase = getImageUrl() || apiBase
 const fileBase = getFileUrl() || imageBase
+const shopName = (process.env.SHOP_NAME || '').trim()
 
 if (!apiBase) {
   throw new Error('API URL environment variable is required (NEXT_PUBLIC_API_URL or DEV_NEXT_PUBLIC_API_URL for development)')
+}
+
+if (!shopName) {
+  throw new Error('SHOP_NAME environment variable is required')
 }
 
 export const runtimeConfig = Object.freeze({
@@ -37,6 +42,7 @@ export const runtimeConfig = Object.freeze({
   apiUrl: apiBase,
   imageBaseUrl: imageBase,
   fileBaseUrl: fileBase,
+  shopName,
 })
 
 export function getRuntimeConfig() {
@@ -53,4 +59,8 @@ export function getImageBaseUrl() {
 
 export function getFileBaseUrl() {
   return runtimeConfig.fileBaseUrl
+}
+
+export function getShopName() {
+  return runtimeConfig.shopName
 }

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Nav from '../components/Nav';
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
+import { getShopName } from '../utils/runtimeConfig';
 
 // 统一状态计算（与管理端保持一致）
 const getUnifiedStatus = (order) => {
@@ -73,6 +74,7 @@ export default function Orders() {
   const { user } = useAuth();
   const { apiRequest } = useApi();
   const { clearCart } = useCart();
+  const shopName = getShopName();
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -274,7 +276,7 @@ export default function Orders() {
   return (
     <>
       <Head>
-        <title>我的订单 - [商店名称]</title>
+        <title>我的订单 - {shopName}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
