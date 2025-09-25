@@ -270,7 +270,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
 };
 
 // 分类过滤器组件
-const CategoryFilter = ({ categories, selectedCategory, onCategoryChange }) => {
+const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHotProducts = false }) => {
   const isActive = (value) => selectedCategory === value;
 
   return (
@@ -282,19 +282,21 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange }) => {
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
       </div>
       <div className="flex flex-wrap gap-3">
-        <button
-          onClick={() => onCategoryChange('hot')}
-          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-            isActive('hot')
-              ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
-              : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <i className="fas fa-fire"></i>
-            <span>热销</span>
-          </div>
-        </button>
+        {hasHotProducts && (
+          <button
+            onClick={() => onCategoryChange('hot')}
+            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+              isActive('hot')
+                ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
+                : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <i className="fas fa-fire"></i>
+              <span>热销</span>
+            </div>
+          </button>
+        )}
         <button
           onClick={() => onCategoryChange('all')}
           className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
@@ -393,6 +395,7 @@ export default function Shop() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('hot');
+  const [initialCategorySet, setInitialCategorySet] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [cartLoading, setCartLoading] = useState(false);
@@ -543,6 +546,20 @@ export default function Shop() {
     setError('');
 
     try {
+      // 首次加载时，先检查是否有热销商品
+      if (!initialCategorySet && selectedCategory === 'hot') {
+        const allProductsData = await getProducts({ hotOnly: false });
+        const allProducts = allProductsData.data.products || [];
+        const hasHotProducts = allProducts.some(p => Boolean(p.is_hot));
+        
+        if (!hasHotProducts) {
+          setSelectedCategory('all');
+          setInitialCategorySet(true);
+          return; // 返回，让useEffect重新触发loadData
+        }
+        setInitialCategorySet(true);
+      }
+
       const productFilters = {
         category: selectedCategory && selectedCategory.startsWith('category:')
           ? selectedCategory.slice('category:'.length)
@@ -728,6 +745,7 @@ export default function Shop() {
     forceSelection,
     location?.address_id,
     location?.building_id,
+    initialCategorySet,
   ]);
 
   // 用户登录状态变化时加载购物车
@@ -881,6 +899,7 @@ export default function Shop() {
               categories={categories}
               selectedCategory={selectedCategory}
               onCategoryChange={handleCategoryChange}
+              hasHotProducts={products.some(p => Boolean(p.is_hot))}
             />
           )}
 
