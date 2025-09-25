@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useApi, useAdminShop, useAgentStatus } from '../hooks/useAuth';
@@ -152,7 +152,7 @@ const ShopStatusCard = () => {
 };
 
 // 抽奖配置管理面板
-const LotteryConfigPanel = ({ apiPrefix }) => {
+const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const { apiRequest } = useApi();
   const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +164,21 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
   const [collapsedPrizes, setCollapsedPrizes] = useState(new Set());
 
   const MIN_THRESHOLD = 0.01;
+
+  // 计算是否有奖项存在库存问题
+  const checkForStockWarnings = useCallback((prizesData) => {
+    const hasStockWarnings = prizesData.some(prize => {
+      if (!prize.is_active) return false; // 只检查启用的奖项
+      const itemList = prize.items || [];
+      if (itemList.length === 0) return false; // 没有关联商品的奖项不算
+      // 检查是否所有商品的库存都为0
+      return itemList.every(item => (item.stock || 0) === 0);
+    });
+    
+    if (onWarningChange && typeof onWarningChange === 'function') {
+      onWarningChange(hasStockWarnings);
+    }
+  }, [onWarningChange]);
 
   const loadPrizes = async () => {
     setLoading(true);
@@ -186,10 +201,15 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
           setThresholdAmount(display);
         }
       }
+      // 检查库存警告
+      checkForStockWarnings(prizesData);
     } catch (e) {
       alert(e.message || '加载抽奖配置失败');
       setPrizes([]);
       setCollapsedPrizes(new Set());
+      if (onWarningChange) {
+        onWarningChange(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -353,15 +373,13 @@ const LotteryConfigPanel = ({ apiPrefix }) => {
               value={thresholdAmount}
               disabled={thresholdSaving}
               onChange={(e) => setThresholdAmount(e.target.value)}
-              className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              onBlur={handleSaveThreshold}
+              className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
+              title="失焦时自动保存"
             />
-            <button
-              onClick={handleSaveThreshold}
-              disabled={thresholdSaving}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {thresholdSaving ? '保存中...' : '保存'}
-            </button>
+            {thresholdSaving && (
+              <span className="text-xs text-gray-400">保存中...</span>
+            )}
           </div>
           <span>合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
           <span className={totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
@@ -3700,6 +3718,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   // 代理管理相关状态
   const initialAgentForm = { account: '', password: '', name: '', building_ids: [], is_active: true };
   const [agents, setAgents] = useState([]);
+  
+  // 抽奖警告状态
+  const [lotteryHasStockWarning, setLotteryHasStockWarning] = useState(false);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
@@ -3763,6 +3784,40 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       router.replace(fallback);
     }
   }, [isInitialized, user, expectedRole, router]);
+
+  // 预加载抽奖警告状态
+  useEffect(() => {
+    const preloadLotteryWarning = async () => {
+      if (!user || user.type !== expectedRole) return;
+      
+      try {
+        const response = await apiRequest(`${staffPrefix}/lottery-config`);
+        const list = response?.data?.prizes || [];
+        const prizesData = list.map((p) => ({
+          ...p,
+          weight: parseFloat(p.weight || 0),
+          is_active: p.is_active === 1 || p.is_active === true
+        }));
+        
+        // 检查是否有启用的奖项的所有商品都没有库存
+        const hasWarning = prizesData.some(prize => {
+          if (!prize.is_active) return false; // 只检查启用的奖项
+          const itemList = prize.items || [];
+          if (itemList.length === 0) return false; // 没有关联商品的奖项不算
+          // 检查是否所有商品的库存都为0
+          return itemList.every(item => (item.stock || 0) === 0);
+        });
+        
+        setLotteryHasStockWarning(hasWarning);
+      } catch (error) {
+        console.error('预加载抽奖警告检查失败:', error);
+      }
+    };
+
+    if (user && user.type === expectedRole) {
+      preloadLotteryWarning();
+    }
+  }, [user, expectedRole, staffPrefix, apiRequest]);
 
   // 加载统计数据和商品列表
   const loadData = async (agentFilterValue = orderAgentFilter, shouldReloadOrders = true) => {
@@ -4752,6 +4807,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     }`}
                   >
                     抽奖配置
+                    {lotteryHasStockWarning && (
+                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <i className="fas fa-exclamation text-red-600"></i>
+                      </span>
+                    )}
                   </button>
                 )}
                 {allowedTabs.includes('autoGifts') && (
@@ -5573,7 +5633,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 <h2 className="text-lg font-medium text-gray-900">抽奖配置</h2>
                 <p className="text-sm text-gray-600 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
               </div>
-              <LotteryConfigPanel apiPrefix={staffPrefix} />
+              <LotteryConfigPanel 
+                apiPrefix={staffPrefix} 
+                onWarningChange={setLotteryHasStockWarning}
+              />
             </>
           )}
 
