@@ -7,6 +7,7 @@ import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
+import { getShopName } from '../utils/runtimeConfig';
 
 const createDefaultValidation = () => ({
   is_valid: true,
@@ -29,6 +30,7 @@ export default function Checkout() {
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
+  const shopName = getShopName();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
@@ -547,7 +549,7 @@ export default function Checkout() {
   return (
     <>
       <Head>
-        <title>结算 - [商店名称]</title>
+        <title>结算 - {shopName}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -666,7 +668,7 @@ export default function Checkout() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-building mr-2"></i>宿舍区 *
+                          <i className="fas fa-building mr-2"></i>配送区 *
                         </label>
                         <div className="input-glass w-full text-gray-900">
                           {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}

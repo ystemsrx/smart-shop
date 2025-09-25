@@ -1,0 +1,43 @@
+FROM node:20-bullseye AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install locale support and common Chinese fonts
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends locales tzdata fonts-noto-cjk \
+    && sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen zh_CN.UTF-8 \
+    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=zh_CN.UTF-8 \
+    LANGUAGE=zh_CN:zh \
+    LC_ALL=zh_CN.UTF-8 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . ./
+COPY .env ./.env
+RUN npm run build
+
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./package.json
+COPY next.config.js ./next.config.js
+COPY .env ./.env
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]

@@ -9,6 +9,7 @@ import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import { getProductImage } from '../utils/urls';
+import { getShopName } from '../utils/runtimeConfig';
 
 const createDefaultValidation = () => ({
   is_valid: true,
@@ -326,6 +327,7 @@ export default function Cart() {
   const [infoMessage, setInfoMessage] = useState('');
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
   const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
+  const shopName = getShopName();
 
   const normalizeValidation = useCallback((raw) => {
     if (!raw) {
@@ -614,7 +616,7 @@ export default function Cart() {
   return (
     <>
       <Head>
-        <title>购物车 - [商店名称]</title>
+        <title>购物车 - {shopName}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
