@@ -3686,9 +3686,23 @@ class LotteryDB:
                 product_name = product.get('name') if product else None
                 variant_name = variant.get('name') if variant else None
 
-                try:
-                    is_active = 1 if int((product or {}).get('is_active', 1) or 1) == 1 else 0
-                except Exception:
+                raw_is_active = (product or {}).get('is_active', 1)
+                if isinstance(raw_is_active, bool):
+                    is_active = 1 if raw_is_active else 0
+                elif isinstance(raw_is_active, (int, float)):
+                    is_active = 1 if int(raw_is_active) != 0 else 0
+                elif isinstance(raw_is_active, str):
+                    normalized_flag = raw_is_active.strip().lower()
+                    if normalized_flag in {'1', 'true', 'yes', 'on', 'active'}:
+                        is_active = 1
+                    elif normalized_flag in {'0', 'false', 'no', 'off', 'inactive'}:
+                        is_active = 0
+                    else:
+                        try:
+                            is_active = 1 if float(normalized_flag) != 0 else 0
+                        except Exception:
+                            is_active = 1
+                else:
                     is_active = 1
 
                 if variant:
