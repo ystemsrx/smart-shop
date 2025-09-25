@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getApiBaseUrl } from "../utils/runtimeConfig";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -709,12 +710,8 @@ export default function ChatModern({ user }) {
 
   // SSE客户端实现
   const sendMessage = async (messages) => {
-    // Next.js环境变量支持
-    // 支持本地开发和生产环境
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 
-      (process.env.NODE_ENV === 'development' 
-        ? "http://localhost:9099/ai/chat"
-        : "https://chatapi.your_domain.com/ai/chat");
+    const baseUrl = getApiBaseUrl();
+    const API_URL = `${baseUrl.replace(/\/$/, '')}/ai/chat`;
     
     const controller = new AbortController();
     abortControllerRef.current = controller;

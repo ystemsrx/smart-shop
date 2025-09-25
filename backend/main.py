@@ -32,6 +32,10 @@ from auth import (
     get_current_staff_required_from_cookie, get_current_super_admin_required_from_cookie,
     get_current_staff_from_cookie, get_current_agent_from_cookie, is_super_admin_role, AuthError
 )
+from config import get_settings
+
+
+settings = get_settings()
 
 
 def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) -> int:
@@ -75,20 +79,22 @@ def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) 
         return int(time.time() - 3600)
 
 # 配置日志
-import os
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = settings.log_level.upper()
 logging.basicConfig(
-    level=getattr(logging, log_level),
+    level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# 为特定模块设置更详细的日志级别
 auth_logger = logging.getLogger("auth")
-if log_level == "DEBUG":
-    auth_logger.setLevel(logging.DEBUG)
+auth_logger.setLevel(getattr(logging, log_level, logging.INFO))
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_ORIGINS = settings.allowed_origins
+STATIC_ALLOWED_ORIGINS = [origin for origin in ALLOWED_ORIGINS if origin != "*"]
+ALLOW_ALL_ORIGINS = "*" in ALLOWED_ORIGINS
+STATIC_CACHE_MAX_AGE = settings.static_cache_max_age
 
 # FastAPI应用实例
 app = FastAPI(
@@ -966,10 +972,16 @@ def staff_can_access_order(staff: Dict[str, Any], order: Optional[Dict[str, Any]
     return False
 
 # CORS配置
+cors_allow_origins = ["*"] if ALLOW_ALL_ORIGINS else ALLOWED_ORIGINS
+cors_allow_credentials = not ALLOW_ALL_ORIGINS
+
+if ALLOW_ALL_ORIGINS and not cors_allow_credentials:
+    logger.warning("检测到通配符跨域设置，已禁用凭据共享以符合CORS规范。")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"],  # 生产环境应限制具体域名
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -983,7 +995,7 @@ public_dir = os.path.join(project_root, "public")
 os.makedirs(public_dir, exist_ok=True)
 
 class CachedStaticFiles(StaticFiles):
-    def __init__(self, *args, max_age: int = 60 * 60 * 24 * 30, **kwargs):
+    def __init__(self, *args, max_age: int = STATIC_CACHE_MAX_AGE, **kwargs):
         super().__init__(*args, **kwargs)
         self._max_age = max_age
 
@@ -998,12 +1010,16 @@ class CachedStaticFiles(StaticFiles):
                     if k.decode().lower() == 'origin':
                         origin = v.decode()
                         break
-                allowed = ["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"]
+                allowed = STATIC_ALLOWED_ORIGINS
                 if origin and origin in allowed:
                     resp.headers["Access-Control-Allow-Origin"] = origin
                     resp.headers["Vary"] = "Origin"
+                elif ALLOW_ALL_ORIGINS:
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    resp.headers.pop("Vary", None)
                 else:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
+                    resp.headers.pop("Vary", None)
                 resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
                 resp.headers["Access-Control-Allow-Headers"] = "*"
             except Exception:
@@ -1011,25 +1027,25 @@ class CachedStaticFiles(StaticFiles):
         return resp
 
 # Wrap static app with CORS to ensure ACAO header is set for images
-_static = CachedStaticFiles(directory=items_dir)
+_static = CachedStaticFiles(directory=items_dir, max_age=STATIC_CACHE_MAX_AGE)
 _static_cors = CORSMiddleware(
     _static,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_origins=cors_allow_origins,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=cors_allow_credentials,
     expose_headers=["Content-Length", "Content-Type"]
 )
 app.mount("/items", _static_cors, name="items")
 
 # Mount public directory for payment QR codes and other dynamically generated static assets
-_public_static = CachedStaticFiles(directory=public_dir)
+_public_static = CachedStaticFiles(directory=public_dir, max_age=STATIC_CACHE_MAX_AGE)
 _public_static_cors = CORSMiddleware(
     _public_static,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_origins=cors_allow_origins,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=cors_allow_credentials,
     expose_headers=["Content-Length", "Content-Type"]
 )
 app.mount("/public", _public_static_cors, name="public")
@@ -5307,7 +5323,7 @@ async def serve_logo(extension: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5327,7 +5343,7 @@ async def serve_payment_qr(payment_id: str, extension: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5347,7 +5363,7 @@ async def serve_tencent_verification(filename: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5357,8 +5373,8 @@ async def serve_tencent_verification(filename: str):
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=9099,
-        reload=True,
-        log_level="info"
+        host=settings.backend_host,
+        port=settings.backend_port,
+        reload=settings.is_development,
+        log_level=settings.log_level.lower()
     )

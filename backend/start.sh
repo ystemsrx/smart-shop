@@ -1,60 +1,97 @@
 #!/bin/bash
-# /backend/start.sh - 宿舍智能小商城后端启动脚本
+# /backend/start.sh - Smart Shop Backend Startup Script
 
 set -e
 
-# 获取脚本所在目录
+# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 配置环境变量
-export JWT_SECRET_KEY="${JWT_SECRET_KEY:-your JWT_SECRET_KEY}"
-export BIGMODEL_API_KEY="${BIGMODEL_API_KEY:-your_api_key}"
-export BIGMODEL_API_URL="${BIGMODEL_API_URL:-https://open.bigmodel.cn/api/paas/v4/chat/completions}"
+# Load environment variables from parent directory
+ENV_FILE="${SCRIPT_DIR%/}/../.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+fi
 
+ENV="${ENV:-production}"
+if [ "$ENV" = "devlopment" ]; then
+    ENV="development"
+fi
 
-export ENV="${ENV:-production}"
+BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
+BACKEND_PORT="${BACKEND_PORT:-9099}"
+DEV_BACKEND_HOST="${DEV_BACKEND_HOST:-$BACKEND_HOST}"
+DEV_BACKEND_PORT="${DEV_BACKEND_PORT:-$BACKEND_PORT}"
+LOG_LEVEL="${LOG_LEVEL:-INFO}"
+DEV_LOG_LEVEL="${DEV_LOG_LEVEL:-DEBUG}"
+DB_PATH_VALUE="${DB_PATH:-dorm_shop.db}"
 
-# 创建虚拟环境（如果不存在）
+# Parse database file path (supports relative paths)
+if [[ "$DB_PATH_VALUE" = /* ]]; then
+    DB_FILE="$DB_PATH_VALUE"
+else
+    DB_FILE="${SCRIPT_DIR%/}/$DB_PATH_VALUE"
+fi
+
+if [ "$ENV" = "development" ]; then
+    HOST="$DEV_BACKEND_HOST"
+    PORT="$DEV_BACKEND_PORT"
+    RUNTIME_LOG_LEVEL="$DEV_LOG_LEVEL"
+    START_MODE_LABEL="Starting in development mode..."
+    IS_DEV=1
+else
+    HOST="$BACKEND_HOST"
+    PORT="$BACKEND_PORT"
+    RUNTIME_LOG_LEVEL="$LOG_LEVEL"
+    START_MODE_LABEL="Starting in production mode..."
+    IS_DEV=0
+fi
+
+# Create virtual environment (if not exists)
 if [ ! -d "venv" ]; then
-    echo "创建Python虚拟环境..."
+    echo "Creating Python virtual environment..."
     python3 -m venv venv
 fi
 
-# 激活虚拟环境
+# Activate virtual environment
 source venv/bin/activate
 
-# 安装依赖
-echo "安装Python依赖..."
+# Install dependencies
+echo "Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 创建必要目录
+# Create necessary directories
 mkdir -p items
 mkdir -p logs
 
-# 初始化数据库（仅首次或显式重置）
-echo "检查数据库是否需要初始化..."
+# Initialize database (first time or explicit reset only)
+echo "Checking if database initialization is needed..."
 if [ "${DB_RESET}" = "1" ]; then
-    echo "检测到 DB_RESET=1，正在重置数据库..."
+    echo "DB_RESET=1 detected, resetting database..."
     python init_db.py
-elif [ ! -f "dorm_shop.db" ]; then
-    echo "首次启动，正在初始化数据库..."
+elif [ ! -f "$DB_FILE" ]; then
+    echo "First startup, initializing database..."
     python init_db.py
 else
-    echo "检测到现有数据库，跳过初始化。"
+    echo "Existing database detected, skipping initialization."
 fi
 
-# 启动应用
-echo "启动宿舍智能小商城API..."
-echo "服务将运行在 http://0.0.0.0:9099"
-echo "API文档: http://0.0.0.0:9099/docs"
+# Start application
+echo "Starting Dormitory Smart Shop API..."
+echo "Service will run on http://${HOST}:${PORT}"
+echo "API documentation: http://${HOST}:${PORT}/docs"
+echo "$START_MODE_LABEL"
 
-# 生产环境启动（多进程）
-if [ "$ENV" = "production" ]; then
-    echo "生产环境模式启动..."
-    nohup uvicorn main:app --host 0.0.0.0 --port 9099 --workers 4 --log-level info > logs/server.log 2>&1 &
+UVICORN_CMD=(uvicorn main:app --host "$HOST" --port "$PORT" --log-level "${RUNTIME_LOG_LEVEL,,}")
+
+if [ "$IS_DEV" -eq 1 ]; then
+    UVICORN_CMD+=(--reload)
 else
-    echo "开发环境模式启动..."
-    nohup uvicorn main:app --host 0.0.0.0 --port 9099 --reload --log-level debug > logs/server.log 2>&1 &
+    UVICORN_CMD+=(--workers 4)
 fi
+
+nohup "${UVICORN_CMD[@]}" > logs/server.log 2>&1 &

@@ -1,13 +1,11 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import LocationModal from '../components/LocationModal';
+import { getApiBaseUrl } from '../utils/runtimeConfig';
 
 const LocationContext = createContext(null);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:9099'
-    : 'https://chatapi.your_domain.com');
+const API_BASE = getApiBaseUrl();
 
 export function LocationProvider({ children }) {
   const { user, isInitialized } = useAuth();

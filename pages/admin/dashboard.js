@@ -4,7 +4,10 @@ import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
+import { getApiBaseUrl } from '../../utils/runtimeConfig';
 
+
+const API_BASE = getApiBaseUrl();
 
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
@@ -753,11 +756,6 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
     setLoading(true);
     try {
       // 获取详细的仪表盘统计数据  
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
-        (process.env.NODE_ENV === 'development' 
-          ? "http://localhost:9099"
-          : "https://chatapi.your_domain.com");
-      
       const dashboardRes = await fetch(`${API_BASE}${staffPrefix}/dashboard-stats?period=${timePeriod}`, {
         credentials: 'include'
       });
@@ -808,11 +806,6 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
     }
     setCustomersLoading(true);
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
-        (process.env.NODE_ENV === 'development' 
-          ? "http://localhost:9099"
-          : "https://chatapi.your_domain.com");
-
       const offset = page * 5;
       const customersRes = await fetch(`${API_BASE}/admin/customers?limit=5&offset=${offset}`, {
         credentials: 'include'

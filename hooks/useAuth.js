@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import { getApiBaseUrl } from '../utils/runtimeConfig';
 
 // 创建认证上下文
 const AuthContext = createContext(null);
@@ -7,10 +8,7 @@ const AuthContext = createContext(null);
 const isClient = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 // API基础URL
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
-  (process.env.NODE_ENV === 'development' 
-    ? "http://localhost:9099"
-  : "https://chatapi.your_domain.com");
+const API_BASE = getApiBaseUrl();
 
 // 认证提供者组件
 export function AuthProvider({ children }) {

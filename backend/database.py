@@ -8,12 +8,14 @@ from contextlib import contextmanager
 import os
 import uuid
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
+from config import get_settings
+
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # 数据库配置
-DB_PATH = os.path.join(os.path.dirname(__file__), "dorm_shop.db")
+DB_PATH = str(settings.db_path)
+_DB_WAS_RESET = False
 
 def ensure_table_columns(conn, table_name: str, required_columns: Dict[str, str]) -> None:
     """
@@ -54,7 +56,8 @@ def auto_migrate_database(conn) -> None:
         'admins': {
             'payment_qr_path': 'TEXT',
             'is_active': 'INTEGER DEFAULT 1',
-            'token_version': 'INTEGER DEFAULT 0'
+            'token_version': 'INTEGER DEFAULT 0',
+            'updated_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
         },
         'products': {
             'is_active': 'INTEGER DEFAULT 1',
@@ -193,6 +196,24 @@ def auto_migrate_database(conn) -> None:
     
     # 收款码数据迁移将在 init_database 完成后进行
 
+
+def ensure_admin_accounts(conn) -> None:
+    """Ensure administrator accounts defined in configuration exist and stay active."""
+    cursor = conn.cursor()
+    for account in settings.admin_accounts:
+        cursor.execute(
+            '''
+            INSERT INTO admins (id, password, name, role, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(id) DO UPDATE SET
+                password = excluded.password,
+                name = excluded.name,
+                role = excluded.role,
+                is_active = excluded.is_active,
+                updated_at = CURRENT_TIMESTAMP
+            ''',
+            (account.id, account.password, account.name, account.role)
+        )
 def migrate_user_profile_addresses(conn):
     """
     迁移用户配置文件的地址数据
@@ -293,9 +314,21 @@ def migrate_user_profile_addresses(conn):
 
 def init_database():
     """初始化数据库表结构"""
+    global _DB_WAS_RESET
+
+    if settings.db_reset and not _DB_WAS_RESET:
+        if os.path.exists(DB_PATH):
+            try:
+                os.remove(DB_PATH)
+                logger.info("数据库重置：已删除现有文件 %s", DB_PATH)
+            except OSError as exc:
+                logger.error(f"删除数据库文件失败: {exc}")
+                raise
+        _DB_WAS_RESET = True
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     try:
         # 用户表 (学号作为主键)
         cursor.execute('''
@@ -365,7 +398,11 @@ def init_database():
                 password TEXT NOT NULL,  -- 明文密码
                 name TEXT NOT NULL,
                 role TEXT DEFAULT 'admin',  -- admin, super_admin
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                payment_qr_path TEXT,
+                is_active INTEGER DEFAULT 1,
+                token_version INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -511,11 +548,6 @@ def init_database():
             pass
 
         # 保障超级管理员角色正确
-        try:
-            cursor.execute("UPDATE admins SET role = 'super_admin' WHERE id IN ('ADMIN_USERNAME1', 'ADMIN_USERNAME2')")
-        except Exception:
-            pass
-
         try:
             cursor.execute('ALTER TABLE user_profiles ADD COLUMN address_id TEXT')
         except sqlite3.OperationalError:
@@ -858,7 +890,8 @@ def init_database():
             logger.info("自动数据库迁移完成")
         except Exception as e:
             logger.warning(f"自动数据库迁移失败: {e}")
-        
+
+        ensure_admin_accounts(conn)
         conn.commit()
         logger.info("数据库表结构初始化成功")
         
@@ -2132,7 +2165,7 @@ class BuildingDB:
 
 # 管理员相关操作
 class AdminDB:
-    SAFE_SUPER_ADMINS = {"ADMIN_USERNAME1", "ADMIN_USERNAME2"}
+    SAFE_SUPER_ADMINS = {acc.id for acc in settings.admin_accounts if acc.role == 'super_admin'}
 
     @staticmethod
     def verify_admin(admin_id: str, password: str) -> Optional[Dict]:
