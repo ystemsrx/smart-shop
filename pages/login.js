@@ -104,10 +104,12 @@ export default function Login() {
             <div className="card-glass p-8 shadow-2xl border border-white/20">
               <form className="space-y-6" onSubmit={handleSubmit}>
                 {error && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-300 px-4 py-3 rounded-xl text-sm backdrop-blur-sm animate-apple-fade-in">
-                    <div className="flex items-center gap-2">
-                      <i className="fas fa-exclamation-triangle"></i>
-                      {error}
+                  <div className="bg-red-500/90 border-2 border-red-400/60 text-white px-4 py-3 rounded-xl text-sm shadow-xl animate-apple-fade-in relative overflow-hidden">
+                    {/* 背景光效 */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-red-500/80 to-red-600/80 rounded-xl"></div>
+                    <div className="relative z-10 flex items-center gap-2 font-medium">
+                      <i className="fas fa-exclamation-triangle text-yellow-200"></i>
+                      <span className="text-white drop-shadow-sm">{error}</span>
                     </div>
                   </div>
                 )}
