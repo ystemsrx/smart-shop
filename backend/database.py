@@ -3152,7 +3152,17 @@ class OrderDB:
                 prev_time_filter = "date(created_at, 'localtime') >= date('now', '-60 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-30 days', 'localtime')"
                 group_by = "date(created_at, 'localtime')"
                 date_format = "近30天"
-            
+
+            if period == 'day':
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-3 days', 'localtime')"
+                chart_window_config = {'window_size': 24, 'step': 24}
+            elif period == 'week':
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-28 days', 'localtime')"
+                chart_window_config = {'window_size': 7, 'step': 7}
+            else:
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-120 days', 'localtime')"
+                chart_window_config = {'window_size': 30, 'step': 30}
+
             # 当前时间段销售额
             where_clause, params = build_where(time_filter)
             cursor.execute(f'''
@@ -3165,6 +3175,21 @@ class OrderDB:
                 ORDER BY period
             ''', params)
             current_period_data = [
+                {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
+                for row in cursor.fetchall()
+            ]
+
+            chart_where, chart_params = build_where(chart_time_filter)
+            cursor.execute(f'''
+                SELECT {group_by} as period,
+                       COALESCE(SUM(total_amount), 0) as revenue,
+                       COUNT(*) as orders
+                FROM orders
+                {chart_where}
+                GROUP BY {group_by}
+                ORDER BY period
+            ''', chart_params)
+            chart_data = [
                 {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
                 for row in cursor.fetchall()
             ]
@@ -3270,11 +3295,13 @@ class OrderDB:
 
             # 计算当前时间段净利润
             current_profit, current_profit_by_period = calculate_profit_for_period(time_filter)
+            # 计算图表所需的历史净利润数据
+            _, chart_profit_by_period = calculate_profit_for_period(chart_time_filter)
             
             # 为current_period_data添加净利润数据
             for data_point in current_period_data:
                 period_value = data_point['period']
-                
+
                 # 处理时间格式转换，确保与calculate_profit_for_period中的格式一致
                 if period == 'day':
                     # period_value格式是 "YYYY-MM-DD HH:00:00"，直接使用完整格式匹配
@@ -3282,8 +3309,18 @@ class OrderDB:
                 else:
                     # 对于日期数据，直接使用period值
                     period_key = str(period_value)
-                
+
                 data_point['profit'] = round(current_profit_by_period.get(period_key, 0), 2)
+
+            for data_point in chart_data:
+                period_value = data_point['period']
+
+                if period == 'day':
+                    period_key = str(period_value)
+                else:
+                    period_key = str(period_value)
+
+                data_point['profit'] = round(chart_profit_by_period.get(period_key, 0), 2)
             
             # 对比时间段销售额和净利润
             prev_where, prev_params = build_where(prev_time_filter)
@@ -3393,6 +3430,8 @@ class OrderDB:
                 **basic_stats,
                 'period': period,
                 'period_name': date_format,
+                'chart_data': chart_data,
+                'chart_settings': chart_window_config,
                 'current_period': {
                     'revenue': current_revenue,
                     'orders': current_orders,

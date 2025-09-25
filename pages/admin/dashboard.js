@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Head from 'next/head';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
@@ -194,7 +194,7 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
 
 
 // 现代化的折线图组件
-const SalesTrendChart = ({ data, title, period }) => {
+const SalesTrendChart = ({ data, title, period, settings }) => {
   const dataset = useMemo(() => {
     if (!Array.isArray(data)) {
       return [];
@@ -215,14 +215,52 @@ const SalesTrendChart = ({ data, title, period }) => {
     return safeData;
   }, [data]);
 
-  const windowSize = period === 'month' ? 30 : 7;
-  const step = 7;
+  const chartConfig = useMemo(() => {
+    const defaults = {
+      day: { windowSize: 24, step: 24 },
+      week: { windowSize: 7, step: 7 },
+      month: { windowSize: 30, step: 30 }
+    };
+    const base = defaults[period] || defaults.week;
+    if (!settings) {
+      return base;
+    }
+    const normalizedWindowSize = settings.window_size ?? settings.windowSize ?? base.windowSize;
+    const normalizedStep = settings.step ?? settings.windowStep ?? base.step;
+    return {
+      windowSize: normalizedWindowSize > 0 ? normalizedWindowSize : base.windowSize,
+      step: normalizedStep > 0 ? normalizedStep : base.step
+    };
+  }, [period, settings]);
+
+  const windowSize = chartConfig.windowSize;
+  const step = chartConfig.step;
   const initialWindowStart = Math.max(dataset.length - windowSize, 0);
   const [windowStart, setWindowStart] = useState(initialWindowStart);
   const maxStart = Math.max(dataset.length - windowSize, 0);
 
+  const previousPeriodRef = useRef(period);
+  const previousMaxStartRef = useRef(maxStart);
+
   useEffect(() => {
-    setWindowStart(prev => (prev === maxStart ? prev : maxStart));
+    const periodChanged = previousPeriodRef.current !== period;
+    const prevMaxStart = previousMaxStartRef.current;
+
+    previousPeriodRef.current = period;
+    previousMaxStartRef.current = maxStart;
+
+    setWindowStart(prev => {
+      if (periodChanged) {
+        return maxStart;
+      }
+      if (prev > maxStart) {
+        return maxStart;
+      }
+      if (maxStart > prevMaxStart && prev === prevMaxStart) {
+        return maxStart;
+      }
+      return prev;
+    });
   }, [maxStart, period]);
 
   const startIndex = Math.max(0, Math.min(windowStart, maxStart));
@@ -301,6 +339,8 @@ const SalesTrendChart = ({ data, title, period }) => {
   const profitPoints = getPoints(chartData.map(d => d.profit || 0), safeMaxLeftAxis);
   const ordersPoints = getPoints(chartData.map(d => d.orders || 0), safeMaxOrders);
 
+  const showDetailedDayLabel = period === 'day' && dataset.length > 24;
+
   const formatAxisLabel = (periodValue) => {
     const parsedDate = parsePeriodValueToDate(periodValue);
     if (!parsedDate) {
@@ -313,7 +353,13 @@ const SalesTrendChart = ({ data, title, period }) => {
     }
 
     if (period === 'day') {
-      return `${parsedDate.getHours()}时`;
+      const hourLabel = `${parsedDate.getHours()}时`;
+      if (!showDetailedDayLabel) {
+        return hourLabel;
+      }
+      const month = parsedDate.getMonth() + 1;
+      const day = parsedDate.getDate();
+      return `${month}/${day} ${hourLabel}`;
     }
 
     if (period === 'month') {
@@ -1255,9 +1301,10 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           {/* 详细趋势图 */}
           <div className="grid grid-cols-1 mb-12">
             <SalesTrendChart 
-              data={dashboardStats.current_period?.data || []}
+              data={dashboardStats.chart_data || dashboardStats.current_period?.data || []}
               title={`销售趋势 - ${dashboardStats.period_name || ''}`}
               period={timePeriod}
+              settings={dashboardStats.chart_settings}
             />
           </div>
 
