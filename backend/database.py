@@ -2,7 +2,7 @@
 import sqlite3
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional, Dict, Any, List, Tuple
 from contextlib import contextmanager
 import os
@@ -3154,7 +3154,7 @@ class OrderDB:
                 date_format = "近30天"
 
             if period == 'day':
-                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-3 days', 'localtime')"
+                chart_time_filter = "1=1"
                 chart_window_config = {'window_size': 24, 'step': 24}
             elif period == 'week':
                 chart_time_filter = "date(created_at, 'localtime') >= date('now', '-28 days', 'localtime')"
@@ -3321,6 +3321,92 @@ class OrderDB:
                     period_key = str(period_value)
 
                 data_point['profit'] = round(chart_profit_by_period.get(period_key, 0), 2)
+
+            chart_day_labels: List[str] = []
+            if period == 'day':
+                existing_points = {entry['period']: entry for entry in chart_data}
+                filled_chart: List[Dict[str, Any]] = []
+
+                today_local = datetime.now().date()
+                if existing_points:
+                    try:
+                        earliest_key = min(existing_points.keys())
+                        latest_key = max(existing_points.keys())
+                        earliest_date = datetime.strptime(earliest_key, '%Y-%m-%d %H:%M:%S').date()
+                        latest_date = datetime.strptime(latest_key, '%Y-%m-%d %H:%M:%S').date()
+                    except ValueError:
+                        earliest_date = today_local
+                        latest_date = today_local
+                else:
+                    earliest_date = today_local
+                    latest_date = today_local
+
+                if latest_date < today_local:
+                    latest_date = today_local
+
+                current_date = earliest_date
+                while current_date <= latest_date:
+                    day_str = current_date.strftime('%Y-%m-%d')
+                    chart_day_labels.append(day_str)
+                    for hour in range(24):
+                        period_key = f"{day_str} {hour:02d}:00:00"
+                        entry = existing_points.get(period_key)
+                        if entry is not None:
+                            filled_chart.append(entry)
+                        else:
+                            filled_chart.append({
+                                'period': period_key,
+                                'revenue': 0,
+                                'orders': 0,
+                                'profit': 0
+                            })
+                    current_date += timedelta(days=1)
+
+                chart_data = filled_chart
+                if chart_day_labels:
+                    chart_window_config['days'] = chart_day_labels
+                    today_str = today_local.strftime('%Y-%m-%d')
+                    if today_str in chart_day_labels:
+                        chart_window_config['today_index'] = chart_day_labels.index(today_str)
+                    else:
+                        chart_window_config['today_index'] = len(chart_day_labels) - 1
+            else:
+                today_date = datetime.now().date()
+                window_span = chart_window_config.get('window_size', 7)
+                existing_points = {entry['period']: entry for entry in chart_data}
+                parsed_dates: List[date] = []
+                for entry in chart_data:
+                    try:
+                        parsed_dates.append(datetime.strptime(entry['period'], '%Y-%m-%d').date())
+                    except (ValueError, TypeError):
+                        continue
+
+                if parsed_dates:
+                    earliest = min(parsed_dates)
+                    latest = max(parsed_dates)
+                    start_date = min(earliest, today_date - timedelta(days=max(window_span - 1, 0)))
+                    end_date = max(latest, today_date)
+                else:
+                    start_date = today_date - timedelta(days=max(window_span - 1, 0))
+                    end_date = today_date
+
+                filled_chart: List[Dict[str, Any]] = []
+                current_date = start_date
+                while current_date <= end_date:
+                    period_key = current_date.strftime('%Y-%m-%d')
+                    entry = existing_points.get(period_key)
+                    if entry is not None:
+                        filled_chart.append(entry)
+                    else:
+                        filled_chart.append({
+                            'period': period_key,
+                            'revenue': 0,
+                            'orders': 0,
+                            'profit': 0
+                        })
+                    current_date += timedelta(days=1)
+
+                chart_data = filled_chart
             
             # 对比时间段销售额和净利润
             prev_where, prev_params = build_where(prev_time_filter)
