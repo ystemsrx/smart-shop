@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    env_file:
+      - .env
+    environment:
+      BACKEND_HOST: 0.0.0.0
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./backend/dorm_shop.db:/app/backend/dorm_shop.db
+      - ./backend/items:/app/backend/items
+      - ./backend/public:/app/backend/public
+      - ./backend/logs:/app/backend/logs
+    ports:
+      - "${BACKEND_PORT:-9099}:9099"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      NEXT_PUBLIC_ENV: ${ENV:-production}
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped

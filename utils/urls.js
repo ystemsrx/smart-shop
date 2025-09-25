@@ -1,12 +1,10 @@
 // Utility to resolve media/image URLs consistently on client
 
-const DEFAULT_API_BASE =
-  process.env.NEXT_PUBLIC_IMAGE_BASE_URL ||
-  process.env.NEXT_PUBLIC_FILE_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:9099'
-    : 'https://chatapi.your_domain.com');
+import { getRuntimeConfig } from './runtimeConfig'
+
+const { imageBaseUrl, fileBaseUrl, apiUrl } = getRuntimeConfig()
+
+const DEFAULT_API_BASE = imageBaseUrl || fileBaseUrl || apiUrl
 
 export function resolveImageUrl(path) {
   if (!path || typeof path !== 'string') return '';

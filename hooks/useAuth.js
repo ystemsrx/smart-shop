@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import { getApiBaseUrl } from '../utils/runtimeConfig';
 
 // 创建认证上下文
 const AuthContext = createContext(null);
@@ -7,10 +8,7 @@ const AuthContext = createContext(null);
 const isClient = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 // API基础URL
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 
-  (process.env.NODE_ENV === 'development' 
-    ? "http://localhost:9099"
-  : "https://chatapi.your_domain.com");
+const API_BASE = getApiBaseUrl();
 
 // 认证提供者组件
 export function AuthProvider({ children }) {
@@ -219,8 +217,16 @@ export function useApi() {
 export function useProducts() {
   const { apiRequest } = useApi();
 
-  const getProducts = async (category = null) => {
-    const url = category ? `/products?category=${encodeURIComponent(category)}` : '/products';
+  const getProducts = async ({ category = null, hotOnly = false } = {}) => {
+    const params = new URLSearchParams();
+    if (category) {
+      params.append('category', category);
+    }
+    if (hotOnly) {
+      params.append('hot_only', '1');
+    }
+    const query = params.toString();
+    const url = query ? `/products?${query}` : '/products';
     return await apiRequest(url);
   };
 

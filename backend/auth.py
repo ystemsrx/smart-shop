@@ -3,19 +3,21 @@ import os
 import jwt
 import httpx
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import UserDB, AdminDB, AddressDB, AgentAssignmentDB, BuildingDB
+from config import get_settings
 
 # 配置
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30  # 30天免登录
+settings = get_settings()
+SECRET_KEY = settings.jwt_secret_key
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_DAYS = settings.access_token_expire_days
 
 # 第三方登录API配置
-LOGIN_API = "https://your-login-api.com"
+LOGIN_API = settings.login_api
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -34,7 +36,7 @@ class AuthManager:
     def create_access_token(data: Dict[str, Any]) -> str:
         """创建JWT访问令牌"""
         to_encode = data.copy()
-        expire = datetime.utcnow() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
@@ -53,10 +55,10 @@ class AuthManager:
             return None
     
     @staticmethod
-    async def verify_swu_login(student_id: str, password: str) -> Optional[Dict[str, Any]]:
-        """验证西南大学登录API"""
+    async def verify_login(student_id: str, password: str) -> Optional[Dict[str, Any]]:
+        """验证登录API"""
         try:
-            # 构建完整的headers以模拟微信小程序环境
+            # 构建完整的headers以模拟微信小程序环境（可修改）
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "*/*",
@@ -87,8 +89,8 @@ class AuthManager:
                 )
                 
                 # 记录响应的基本信息用于调试
-                logger.debug(f"SWU API响应状态: {response.status_code}")
-                logger.debug(f"SWU API响应头: {dict(response.headers)}")
+                logger.debug(f"API响应状态: {response.status_code}")
+                logger.debug(f"API响应头: {dict(response.headers)}")
                 
                 if response.status_code == 200:
                     try:
@@ -145,8 +147,6 @@ class AuthManager:
                                     logger.info("💡 原始数据似乎是未压缩的JSON，可能是服务器配置错误")
                                 else:
                                     logger.error("⚠️  原始数据不是有效的JSON格式")
-                                
-                                # 继续使用原始内容
                         
                         # 如果响应内容看起来像压缩数据但没有明确的Content-Encoding头
                         # 检查前几个字节来识别gzip格式 (magic number: 1f 8b)
@@ -206,7 +206,7 @@ class AuthManager:
                         
                         # 检查响应内容是否为空或损坏
                         if not response_text.strip():
-                            logger.error("SWU API返回空响应")
+                            logger.error("API返回空响应")
                             return None
                         
                         # 尝试解析JSON
@@ -214,7 +214,7 @@ class AuthManager:
                             import json
                             data = json.loads(response_text)
                         except json.JSONDecodeError as e:
-                            logger.error(f"SWU API响应JSON解析失败: {e}")
+                            logger.error(f"API响应JSON解析失败: {e}")
                             logger.error(f"响应内容前100字符: {response_text[:100]}")
                             return None
                         
@@ -233,11 +233,11 @@ class AuthManager:
                         else:
                             # 登录失败（账号密码错误等）
                             error_msg = data.get("msg", "登录失败")
-                            logger.warning(f"SWU API登录失败: {student_id} - {error_msg}")
+                            logger.warning(f"API登录失败: {student_id} - {error_msg}")
                             return None
                             
                     except Exception as decode_error:
-                        logger.error(f"处理SWU API响应时发生错误: {decode_error}")
+                        logger.error(f"处理 API响应时发生错误: {decode_error}")
                         logger.error(f"响应状态码: {response.status_code}")
                         logger.error(f"响应头: {dict(response.headers)}")
                         # 记录原始字节内容的十六进制表示（仅前50字节）
@@ -247,10 +247,10 @@ class AuthManager:
                         return None
                         
                 elif response.status_code == 401:
-                    logger.warning(f"SWU API返回401: {student_id}")
+                    logger.warning(f"API返回401: {student_id}")
                     return None
                 else:
-                    logger.error(f"SWU API异常响应: {response.status_code}")
+                    logger.error(f"API异常响应: {response.status_code}")
                     try:
                         logger.error(f"错误响应内容: {response.text}")
                     except Exception:
@@ -258,10 +258,10 @@ class AuthManager:
                     return None
                     
         except httpx.TimeoutException:
-            logger.error("SWU API超时")
+            logger.error("API超时")
             return None
         except Exception as e:
-            logger.error(f"SWU API调用失败: {e}")
+            logger.error(f"API调用失败: {e}")
             return None
     
     @staticmethod
@@ -301,8 +301,8 @@ class AuthManager:
             logger.info(f"用户 {student_id} 不存在于本地数据库，尝试第三方API验证")
         
         # 2. 使用第三方API验证
-        swu_result = await AuthManager.verify_swu_login(student_id, password)
-        if not swu_result:
+        result = await AuthManager.verify_login(student_id, password)
+        if not result:
             logger.warning(f"用户 {student_id} 第三方API验证也失败")
             return None
         
@@ -316,8 +316,8 @@ class AuthManager:
             # 为了简单起见，我们可以直接更新
             UserDB.update_user_password(student_id, password)
             # 更新用户名（如果第三方返回的不同）
-            if local_user['name'] != swu_result['name']:
-                UserDB.update_user_name(student_id, swu_result['name'])
+            if local_user['name'] != result['name']:
+                UserDB.update_user_name(student_id, result['name'])
             # 重新获取更新后的用户信息
             local_user = UserDB.get_user(student_id)
         else:
@@ -326,7 +326,7 @@ class AuthManager:
             success = UserDB.create_user(
                 student_id=student_id,
                 password=password,
-                name=swu_result['name']
+                name=result['name']
             )
             if not success:
                 logger.error(f"创建用户失败: {student_id}")

@@ -32,7 +32,22 @@ from auth import (
     get_current_staff_required_from_cookie, get_current_super_admin_required_from_cookie,
     get_current_staff_from_cookie, get_current_agent_from_cookie, is_super_admin_role, AuthError
 )
+from config import get_settings
 
+
+settings = get_settings()
+
+
+def is_truthy(value: Optional[Any]) -> bool:
+    """将不同类型的输入转换为布尔值，识别常见真值表示"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    return text in {'1', 'true', 'yes', 'on'}
 
 def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) -> int:
     """
@@ -75,20 +90,22 @@ def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) 
         return int(time.time() - 3600)
 
 # 配置日志
-import os
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = settings.log_level.upper()
 logging.basicConfig(
-    level=getattr(logging, log_level),
+    level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# 为特定模块设置更详细的日志级别
 auth_logger = logging.getLogger("auth")
-if log_level == "DEBUG":
-    auth_logger.setLevel(logging.DEBUG)
+auth_logger.setLevel(getattr(logging, log_level, logging.INFO))
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_ORIGINS = settings.allowed_origins
+STATIC_ALLOWED_ORIGINS = [origin for origin in ALLOWED_ORIGINS if origin != "*"]
+ALLOW_ALL_ORIGINS = "*" in ALLOWED_ORIGINS
+STATIC_CACHE_MAX_AGE = settings.static_cache_max_age
 
 # FastAPI应用实例
 app = FastAPI(
@@ -473,7 +490,8 @@ async def handle_product_creation(
     description: str,
     cost: float,
     owner_id: Optional[str],
-    image: Optional[UploadFile]
+    image: Optional[UploadFile],
+    is_hot: bool = False
 ) -> Dict[str, Any]:
     new_file_path: Optional[str] = None
     try:
@@ -491,7 +509,8 @@ async def handle_product_creation(
             "description": description,
             "img_path": img_path,
             "cost": cost,
-            "owner_id": assigned_owner_id
+            "owner_id": assigned_owner_id,
+            "is_hot": 1 if is_hot else 0
         }
 
         product_id = ProductDB.create_product(product_data)
@@ -546,6 +565,8 @@ async def handle_product_update(
             return error_response("无效的折扣", 400)
     if payload.is_active is not None:
         update_data['is_active'] = 1 if payload.is_active else 0
+    if payload.is_hot is not None:
+        update_data['is_hot'] = 1 if payload.is_hot else 0
     if payload.cost is not None:
         if payload.cost < 0:
             return error_response("商品成本不能为负数", 400)
@@ -966,10 +987,16 @@ def staff_can_access_order(staff: Dict[str, Any], order: Optional[Dict[str, Any]
     return False
 
 # CORS配置
+cors_allow_origins = ["*"] if ALLOW_ALL_ORIGINS else ALLOWED_ORIGINS
+cors_allow_credentials = not ALLOW_ALL_ORIGINS
+
+if ALLOW_ALL_ORIGINS and not cors_allow_credentials:
+    logger.warning("检测到通配符跨域设置，已禁用凭据共享以符合CORS规范。")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"],  # 生产环境应限制具体域名
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -983,7 +1010,7 @@ public_dir = os.path.join(project_root, "public")
 os.makedirs(public_dir, exist_ok=True)
 
 class CachedStaticFiles(StaticFiles):
-    def __init__(self, *args, max_age: int = 60 * 60 * 24 * 30, **kwargs):
+    def __init__(self, *args, max_age: int = STATIC_CACHE_MAX_AGE, **kwargs):
         super().__init__(*args, **kwargs)
         self._max_age = max_age
 
@@ -998,12 +1025,16 @@ class CachedStaticFiles(StaticFiles):
                     if k.decode().lower() == 'origin':
                         origin = v.decode()
                         break
-                allowed = ["https://shop.your_domain.com", "http://localhost:3000", "https://chatapi.your_domain.com"]
+                allowed = STATIC_ALLOWED_ORIGINS
                 if origin and origin in allowed:
                     resp.headers["Access-Control-Allow-Origin"] = origin
                     resp.headers["Vary"] = "Origin"
+                elif ALLOW_ALL_ORIGINS:
+                    resp.headers["Access-Control-Allow-Origin"] = "*"
+                    resp.headers.pop("Vary", None)
                 else:
                     resp.headers["Access-Control-Allow-Origin"] = "*"
+                    resp.headers.pop("Vary", None)
                 resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
                 resp.headers["Access-Control-Allow-Headers"] = "*"
             except Exception:
@@ -1011,25 +1042,25 @@ class CachedStaticFiles(StaticFiles):
         return resp
 
 # Wrap static app with CORS to ensure ACAO header is set for images
-_static = CachedStaticFiles(directory=items_dir)
+_static = CachedStaticFiles(directory=items_dir, max_age=STATIC_CACHE_MAX_AGE)
 _static_cors = CORSMiddleware(
     _static,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_origins=cors_allow_origins,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=cors_allow_credentials,
     expose_headers=["Content-Length", "Content-Type"]
 )
 app.mount("/items", _static_cors, name="items")
 
 # Mount public directory for payment QR codes and other dynamically generated static assets
-_public_static = CachedStaticFiles(directory=public_dir)
+_public_static = CachedStaticFiles(directory=public_dir, max_age=STATIC_CACHE_MAX_AGE)
 _public_static_cors = CORSMiddleware(
     _public_static,
-    allow_origins=["https://shop.your_domain.com", "http://localhost:3000"],
+    allow_origins=cors_allow_origins,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=cors_allow_credentials,
     expose_headers=["Content-Length", "Content-Type"]
 )
 app.mount("/public", _public_static_cors, name="public")
@@ -1078,6 +1109,7 @@ class ProductUpdateRequest(BaseModel):
     discount: Optional[float] = None  # 折扣（以折为单位，10为不打折，0.5为五折）
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_hot: Optional[bool] = None
     cost: Optional[float] = None  # 商品成本
     owner_id: Optional[str] = None
 
@@ -1487,7 +1519,7 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
 # ==================== 商品路由 ====================
 
 @app.get("/products")
-async def get_products(request: Request, category: Optional[str] = None, address_id: Optional[str] = None, building_id: Optional[str] = None):
+async def get_products(request: Request, category: Optional[str] = None, address_id: Optional[str] = None, building_id: Optional[str] = None, hot_only: Optional[str] = None):
     """获取商品列表"""
     try:
         scope = resolve_shopping_scope(request, address_id, building_id)
@@ -1497,10 +1529,20 @@ async def get_products(request: Request, category: Optional[str] = None, address
         # 现在所有商品都有owner_id，所以统一使用owner_ids过滤，不再依赖include_unassigned
         include_unassigned = False
 
+        hot_filter = is_truthy(hot_only)
         if category:
-            products = ProductDB.get_products_by_category(category, owner_ids=owner_ids, include_unassigned=include_unassigned)
+            products = ProductDB.get_products_by_category(
+                category,
+                owner_ids=owner_ids,
+                include_unassigned=include_unassigned,
+                hot_only=hot_filter
+            )
         else:
-            products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+            products = ProductDB.get_all_products(
+                owner_ids=owner_ids,
+                include_unassigned=include_unassigned,
+                hot_only=hot_filter
+            )
         # 补充规格信息
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
@@ -2741,6 +2783,7 @@ async def create_product(
     description: str = Form(""),
     cost: float = Form(0.0),
     owner_id: Optional[str] = Form(None),
+    is_hot: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     """管理员创建商品"""
@@ -2755,7 +2798,8 @@ async def create_product(
         description=description,
         cost=cost,
         owner_id=owner_id,
-        image=image
+        image=image,
+        is_hot=is_truthy(is_hot)
     )
 
 
@@ -2768,6 +2812,7 @@ async def agent_create_product(
     stock: int = Form(0),
     description: str = Form(""),
     cost: float = Form(0.0),
+    is_hot: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     agent, _ = require_agent_with_scope(request)
@@ -2782,7 +2827,8 @@ async def agent_create_product(
         description=description,
         cost=cost,
         owner_id=agent_owner_id,
-        image=image
+        image=image,
+        is_hot=is_truthy(is_hot)
     )
 
 
@@ -5307,7 +5353,7 @@ async def serve_logo(extension: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5327,7 +5373,7 @@ async def serve_payment_qr(payment_id: str, extension: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5347,7 +5393,7 @@ async def serve_tencent_verification(filename: str):
         file_path, 
         media_type=media_type,
         headers={
-            "Cache-Control": "public, max-age=2592000, immutable",
+            "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -5357,8 +5403,8 @@ async def serve_tencent_verification(filename: str):
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=9099,
-        reload=True,
-        log_level="info"
+        host=settings.backend_host,
+        port=settings.backend_port,
+        reload=settings.is_development,
+        log_level=settings.log_level.lower()
     )

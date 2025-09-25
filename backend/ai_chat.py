@@ -14,30 +14,29 @@ from contextlib import asynccontextmanager
 # 导入数据库和认证模块
 from database import ProductDB, CartDB, ChatLogDB, CategoryDB, DeliverySettingsDB, GiftThresholdDB, UserProfileDB, AgentAssignmentDB, get_db_connection, LotteryConfigDB
 from auth import get_current_user_optional, get_current_staff_from_cookie, get_current_user_from_cookie
+from config import get_settings
 
 # 配置日志
 logger = logging.getLogger(__name__)
+settings = get_settings()
+MODEL_CANDIDATES = settings.model_order
+API_URL = settings.api_url
+SHOP_NAME = settings.shop_name
 
-# BigModel API 配置
-BIGMODEL_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-BIGMODEL_API_KEY = "your_api_key"  # 实际使用时应从环境变量获取
-BIGMODEL_MODEL = "glm-4.5-flash"
-
-# 模型故障转移配置
-FALLBACK_MODELS = [
-    {"model": "glm-4.5-flash", "supports_thinking": True},
-    {"model": "glm-4-flash-250414", "supports_thinking": False},
-    {"model": "glm-4-flash", "supports_thinking": False}
-]
+if not settings.api_key:
+    logger.warning("AI API key is not configured; upstream requests may be rejected.")
 
 # HTTP客户端配置
 transport = httpx.AsyncHTTPTransport(retries=0, http2=False)
 limits = httpx.Limits(max_connections=200, max_keepalive_connections=50)
+default_headers = {}
+if settings.api_key:
+    default_headers["Authorization"] = f"Bearer {settings.api_key}"
 client = httpx.AsyncClient(
     timeout=httpx.Timeout(300.0), 
     limits=limits, 
     transport=transport,
-    headers={"Authorization": f"Bearer {BIGMODEL_API_KEY}"}
+    headers=default_headers
 )
 
 UPSTREAM_SSE_HEADERS = {
@@ -190,12 +189,12 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         
         return f"""# Role
 
-Smart Shopping Assistant for *[商店名称]铺*
+Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *[商店名称]铺*
+* Professional, friendly, helps users shop in *{SHOP_NAME}*
 
 ## Goals
 
@@ -237,9 +236,9 @@ async def make_request_with_fallback(messages, tools, stream=True):
     使用故障转移机制调用模型API
     按顺序尝试不同的模型，如果某个模型返回非200状态码则尝试下一个
     """
-    for model_config in FALLBACK_MODELS:
-        model_name = model_config["model"]
-        supports_thinking = model_config["supports_thinking"]
+    for model_config in MODEL_CANDIDATES:
+        model_name = model_config.name
+        supports_thinking = model_config.supports_thinking
         
         # 构建请求payload
         payload = {
@@ -258,11 +257,11 @@ async def make_request_with_fallback(messages, tools, stream=True):
         try:
             if stream:
                 # 流式请求
-                response = client.stream("POST", BIGMODEL_API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS)
+                response = client.stream("POST", API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS)
                 return response, model_name
             else:
                 # 非流式请求
-                response = await client.post(BIGMODEL_API_URL, json=payload, headers={"Accept-Encoding":"identity"})
+                response = await client.post(API_URL, json=payload, headers={"Accept-Encoding":"identity"})
                 response.raise_for_status()
                 return response, model_name
         except httpx.HTTPStatusError as e:
@@ -276,15 +275,15 @@ async def make_request_with_fallback(messages, tools, stream=True):
     raise Exception("所有模型都不可用")
 
 # 系统提示词
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 # Role
 
-Smart Shopping Assistant for *[商店名称]铺*
+Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *[商店名称]铺*
+* Professional, friendly, helps users shop in *{SHOP_NAME}*
 
 ## Goals
 

@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
+import { getShopName } from '../utils/runtimeConfig';
 
 // 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders' | 'staff-shop' | 'staff-dashboard' | 'staff-backend'
 export default function Nav({ active = 'home' }) {
   const { user, logout } = useAuth();
   const { location, openLocationModal } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const shopName = getShopName();
   const closeMenu = () => setMobileOpen(false);
 
   const isAdmin = user?.type === 'admin';
@@ -70,7 +72,7 @@ export default function Nav({ active = 'home' }) {
                 <Link href="/" className="flex items-center group">
                   <img 
                     src="/logo.png" 
-                    alt="[商店名称]" 
+                    alt={shopName} 
                     className="h-10 w-auto object-contain"
                   />
                 </Link>
