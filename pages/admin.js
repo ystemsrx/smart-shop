@@ -9,6 +9,23 @@ import Nav from '../components/Nav';
 import { getShopName } from '../utils/runtimeConfig';
 
 
+const normalizeBooleanFlag = (value, defaultValue = false) => {
+  if (value === undefined || value === null) return defaultValue;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'active'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'off', 'inactive'].includes(normalized)) {
+      return false;
+    }
+  }
+  return defaultValue;
+};
+
+
 // 代理状态卡片（打烊/营业）
 const AgentStatusCard = () => {
   const { getStatus, updateStatus } = useAgentStatus();
@@ -170,13 +187,14 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const checkForStockWarnings = useCallback((prizesData) => {
     const hasStockWarnings = prizesData.some(prize => {
       if (!prize.is_active) return false; // 只检查启用的奖项
-      const itemList = prize.items || [];
+      const itemList = Array.isArray(prize.items) ? prize.items : [];
       if (itemList.length === 0) return false; // 没有关联商品的奖项不算
-      // 检查是否所有商品的库存都为0
-      return itemList.every(item => (item.stock || 0) === 0);
+      const hasAvailable = itemList.some(item => item && item.available);
+      if (hasAvailable) return false; // 仍有可抽取的奖品则不警告
+      return true; // 所有关联商品都不可用（下架或无库存）
     });
     
-    if (onWarningChange && typeof onWarningChange === 'function') {
+    if (typeof onWarningChange === 'function') {
       onWarningChange(hasStockWarnings);
     }
   }, [onWarningChange]);
@@ -186,11 +204,19 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     try {
       const res = await apiRequest(`${apiPrefix}/lottery-config`);
       const list = res?.data?.prizes || [];
-      const prizesData = list.map((p) => ({
-        ...p,
-        weight: parseFloat(p.weight || 0),
-        is_active: p.is_active === 1 || p.is_active === true
-      }));
+      const prizesData = list.map((p) => {
+        const normalizedItems = (p.items || []).map((item) => ({
+          ...item,
+          available: normalizeBooleanFlag(item?.available, false),
+          is_active: normalizeBooleanFlag(item?.is_active, true)
+        }));
+        return {
+          ...p,
+          weight: parseFloat(p.weight || 0),
+          is_active: normalizeBooleanFlag(p.is_active, true),
+          items: normalizedItems
+        };
+      });
       setPrizes(prizesData);
       // 默认折叠所有奖项
       setCollapsedPrizes(new Set(prizesData.map(p => p.id)));
@@ -401,7 +427,7 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
         <div className="divide-y">
           {prizes.map(prize => {
             const itemList = prize.items || [];
-            const availableItems = itemList.filter(it => it.available !== false);
+            const availableItems = itemList.filter(it => it.available);
             const isCollapsed = collapsedPrizes.has(prize.id);
             return (
               <div key={prize.id} className="px-6 py-4">
@@ -458,7 +484,7 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
                       itemList.map((item) => {
                         const label = item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || '未命名商品');
                         const stock = Number.parseInt(item.stock, 10);
-                        const available = item.available !== false && (!Number.isNaN(stock) ? stock > 0 : true);
+                        const available = item.available && (!Number.isNaN(stock) ? stock > 0 : true);
                         return (
                           <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`text-xs flex items-center justify-between rounded-md px-3 py-2 border ${available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
                             <div className="min-w-0">
@@ -520,7 +546,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
     variant_name: item.variant_name || null,
     stock: item.stock,
     retail_price: item.retail_price,
-    available: item.available !== false,
+    available: normalizeBooleanFlag(item.available, false),
     label: item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || item.label || ''),
   });
 
@@ -3877,19 +3903,28 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       try {
         const response = await apiRequest(`${staffPrefix}/lottery-config`);
         const list = response?.data?.prizes || [];
-        const prizesData = list.map((p) => ({
-          ...p,
-          weight: parseFloat(p.weight || 0),
-          is_active: p.is_active === 1 || p.is_active === true
-        }));
+        const prizesData = list.map((p) => {
+          const normalizedItems = (p.items || []).map((item) => ({
+            ...item,
+            available: normalizeBooleanFlag(item?.available, false),
+            is_active: normalizeBooleanFlag(item?.is_active, true)
+          }));
+          return {
+            ...p,
+            weight: parseFloat(p.weight || 0),
+            is_active: normalizeBooleanFlag(p.is_active, true),
+            items: normalizedItems
+          };
+        });
         
         // 检查是否有启用的奖项的所有商品都没有库存
         const hasWarning = prizesData.some(prize => {
           if (!prize.is_active) return false; // 只检查启用的奖项
-          const itemList = prize.items || [];
+          const itemList = Array.isArray(prize.items) ? prize.items : [];
           if (itemList.length === 0) return false; // 没有关联商品的奖项不算
-          // 检查是否所有商品的库存都为0
-          return itemList.every(item => (item.stock || 0) === 0);
+          const hasAvailable = itemList.some(item => item && item.available);
+          if (hasAvailable) return false;
+          return true;
         });
         
         setLotteryHasStockWarning(hasWarning);
