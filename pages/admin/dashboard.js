@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
@@ -9,6 +8,31 @@ import { getApiBaseUrl, getShopName } from '../../utils/runtimeConfig';
 
 const API_BASE = getApiBaseUrl();
 const SHOP_NAME = getShopName();
+
+const parsePeriodValueToDate = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === 'number') {
+    const timestamp = value > 1e12 ? value : value * 1000;
+    const parsed = new Date(timestamp);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const candidates = [trimmed, trimmed.replace(' ', 'T'), trimmed.replace(/-/g, '/')];
+    for (const candidate of candidates) {
+      const parsed = new Date(candidate);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+};
 
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
@@ -171,7 +195,41 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
 
 // 现代化的折线图组件
 const SalesTrendChart = ({ data, title, period }) => {
-  if (!data || data.length === 0) {
+  const dataset = useMemo(() => {
+    if (!Array.isArray(data)) {
+      return [];
+    }
+    const safeData = data
+      .filter(Boolean)
+      .map(item => ({ ...item }));
+    safeData.sort((a, b) => {
+      const dateA = parsePeriodValueToDate(a?.period);
+      const dateB = parsePeriodValueToDate(b?.period);
+      if (dateA && dateB) {
+        return dateA.getTime() - dateB.getTime();
+      }
+      if (dateA) return 1;
+      if (dateB) return -1;
+      return 0;
+    });
+    return safeData;
+  }, [data]);
+
+  const windowSize = period === 'month' ? 30 : 7;
+  const step = 7;
+  const initialWindowStart = Math.max(dataset.length - windowSize, 0);
+  const [windowStart, setWindowStart] = useState(initialWindowStart);
+  const maxStart = Math.max(dataset.length - windowSize, 0);
+
+  useEffect(() => {
+    setWindowStart(prev => (prev === maxStart ? prev : maxStart));
+  }, [maxStart, period]);
+
+  const startIndex = Math.max(0, Math.min(windowStart, maxStart));
+  const endIndex = Math.min(startIndex + windowSize, dataset.length);
+  const chartData = dataset.slice(startIndex, endIndex);
+
+  if (dataset.length === 0) {
     return (
       <div className="bg-gradient-to-br from-white via-slate-50/30 to-blue-50/50 rounded-3xl p-8 shadow-xl border border-gray-100/50 backdrop-blur-md">
         <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-3">
@@ -190,36 +248,114 @@ const SalesTrendChart = ({ data, title, period }) => {
     );
   }
 
-  const maxRevenue = Math.max(...data.map(d => d.revenue || 0));
-  const maxProfit = Math.max(...data.map(d => d.profit || 0));
-  const maxOrders = Math.max(...data.map(d => d.orders || 0));
-  const chartData = data.slice(-7);
+  const sliceRevenue = chartData.map(d => d.revenue || 0);
+  const sliceProfit = chartData.map(d => d.profit || 0);
+  const sliceOrders = chartData.map(d => d.orders || 0);
+  const maxRevenue = Math.max(0, ...sliceRevenue);
+  const maxProfit = Math.max(0, ...sliceProfit);
+  const maxOrders = Math.max(0, ...sliceOrders);
   
   // 销售额和净利润共用左侧Y轴，取两者的最大值
   const maxLeftAxis = Math.max(maxRevenue, maxProfit);
-  
+  const safeMaxLeftAxis = maxLeftAxis > 0 ? maxLeftAxis : 1;
+  const safeMaxOrders = maxOrders > 0 ? maxOrders : 1;
+
+  const hasPrev = startIndex > 0;
+  const hasNext = endIndex < dataset.length;
+
+  const handlePrev = () => {
+    if (!hasPrev) return;
+    setWindowStart(prev => Math.max(prev - step, 0));
+  };
+
+  const handleNext = () => {
+    if (!hasNext) return;
+    setWindowStart(prev => Math.min(prev + step, maxStart));
+  };
+
   // SVG 图表参数 - 调整以撑满卡片，为右侧Y轴预留空间
   const svgWidth = 600;
   const svgHeight = 400;
   const leftPadding = 40;
   const rightPadding = 40; // 为右侧Y轴预留空间
   const topPadding = 40;
-  const bottomPadding = 40;
+  const bottomPadding = period === 'month' ? 60 : 40;
   const chartWidth = svgWidth - leftPadding - rightPadding;
   const chartHeight = svgHeight - topPadding - bottomPadding;
   
   // 计算坐标点
   const getPoints = (values, maxValue) => {
+    const safeMaxValue = maxValue > 0 ? maxValue : 1;
+    const length = values.length;
+
     return values.map((value, index) => {
-      const x = leftPadding + (index / (values.length - 1)) * chartWidth;
-      const y = topPadding + chartHeight - ((value / maxValue) * chartHeight);
+      const x = length === 1
+        ? leftPadding + chartWidth / 2
+        : leftPadding + (index / (length - 1)) * chartWidth;
+      const y = topPadding + chartHeight - ((value / safeMaxValue) * chartHeight);
       return { x, y, value };
     });
   };
-  
-  const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), maxLeftAxis);
-  const profitPoints = getPoints(chartData.map(d => d.profit || 0), maxLeftAxis);
-  const ordersPoints = getPoints(chartData.map(d => d.orders || 0), maxOrders);
+
+  const revenuePoints = getPoints(chartData.map(d => d.revenue || 0), safeMaxLeftAxis);
+  const profitPoints = getPoints(chartData.map(d => d.profit || 0), safeMaxLeftAxis);
+  const ordersPoints = getPoints(chartData.map(d => d.orders || 0), safeMaxOrders);
+
+  const formatAxisLabel = (periodValue) => {
+    const parsedDate = parsePeriodValueToDate(periodValue);
+    if (!parsedDate) {
+      if (period === 'month') {
+        const parts = String(periodValue || '').split('-');
+        const dayPart = parts[parts.length - 1] || '';
+        return dayPart.replace(/^0/, '') || periodValue || '';
+      }
+      return periodValue || '';
+    }
+
+    if (period === 'day') {
+      return `${parsedDate.getHours()}时`;
+    }
+
+    if (period === 'month') {
+      return parsedDate.getDate();
+    }
+
+    return `${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
+  };
+
+  const monthLabels = [];
+
+  if (period === 'month' && chartData.length > 0) {
+    const monthBuckets = new Map();
+
+    chartData.forEach((item, index) => {
+      const parsedDate = parsePeriodValueToDate(item.period);
+      if (!parsedDate) {
+        return;
+      }
+      const key = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
+      if (!monthBuckets.has(key)) {
+        monthBuckets.set(key, {
+          label: `${parsedDate.getMonth() + 1}月`,
+          indices: []
+        });
+      }
+      monthBuckets.get(key).indices.push(index);
+    });
+
+    monthBuckets.forEach(({ label, indices }) => {
+      const positions = indices
+        .map(idx => revenuePoints[idx]?.x)
+        .filter(x => typeof x === 'number' && !Number.isNaN(x));
+      const averageX = positions.length > 0
+        ? positions.reduce((sum, value) => sum + value, 0) / positions.length
+        : leftPadding + chartWidth / 2;
+      monthLabels.push({ label, x: averageX });
+    });
+  }
+
+  const dayLabelY = period === 'month' ? svgHeight - 30 : svgHeight - 10;
+  const monthLabelY = svgHeight - 10;
   
   // 生成平滑曲线路径
   const createSmoothPath = (points) => {
@@ -303,12 +439,36 @@ const SalesTrendChart = ({ data, title, period }) => {
       <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-purple-100/15 to-transparent rounded-full transform -translate-x-16 translate-y-16"></div>
       
       <div className="relative z-10">
-        <h3 className="text-xl font-bold text-gray-900 mb-8 flex items-center gap-3">
-          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 via-indigo-500 to-purple-600 rounded-full shadow-lg"></div>
-          {title}
-        </h3>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {/* 标题和按钮在同一行 */}
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+            <div className="w-2 h-8 bg-gradient-to-b from-blue-500 via-indigo-500 to-purple-600 rounded-full shadow-lg"></div>
+            {title}
+          </h3>
+          
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handlePrev}
+              disabled={!hasPrev}
+              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-blue-100 text-blue-500 shadow-lg transition-all duration-200 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
+              aria-label="查看前7天数据"
+            >
+              <i className="fas fa-chevron-left"></i>
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={!hasNext}
+              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-blue-100 text-blue-500 shadow-lg transition-all duration-200 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
+              aria-label="查看后7天数据"
+            >
+              <i className="fas fa-chevron-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
           {/* 图例和汇总 */}
           <div className="space-y-6">
             {/* 图例 */}
@@ -353,14 +513,14 @@ const SalesTrendChart = ({ data, title, period }) => {
             </div>
           </div>
           
-          {/* 折线图 */}
-          <div className="lg:col-span-2">
-            <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner h-full">
+          {/* 折线图 - 调整高度匹配左侧 */}
+          <div className="lg:col-span-2 flex flex-col">
+            <div className="bg-white/80 rounded-2xl p-4 border border-gray-200/50 backdrop-blur-sm shadow-inner flex-1">
               <svg 
                 width="100%" 
-                height="480" 
+                height="100%" 
                 viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-                className="overflow-visible"
+                className="overflow-visible h-full"
               >
                 <defs>
                   {/* 渐变定义 */}
@@ -531,7 +691,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                 </defs>
                 
                 {/* 数据点和标签 - 销售额 */}
-                {revenuePoints.map((point, index) => {
+                {period !== 'month' && revenuePoints.map((point, index) => {
                   const labelY = getSmartLabelPosition(point, index, revenuePoints, 'revenue');
                   
                   return (
@@ -559,7 +719,7 @@ const SalesTrendChart = ({ data, title, period }) => {
                 })}
                 
                 {/* 数据点和标签 - 净利润 */}
-                {profitPoints.map((point, index) => {
+                {period !== 'month' && profitPoints.map((point, index) => {
                   const labelY = getSmartLabelPosition(point, index, profitPoints, 'profit');
                   
                   return (
@@ -616,62 +776,39 @@ const SalesTrendChart = ({ data, title, period }) => {
                 
                 {/* X轴标签 */}
                 {chartData.map((item, index) => {
-                  const x = leftPadding + (index / (chartData.length - 1)) * chartWidth;
-                  // 格式化日期，去掉年份
-                  const formatPeriod = (period) => {
-                    try {
-                      if (!period) return '';
-                      
-                      // 检查是否是时间戳格式 "YYYY-MM-DD HH:00:00"
-                      if (period.includes(':')) {
-                        // 提取小时部分
-                        const timePart = period.split(' ')[1];
-                        if (timePart) {
-                          const hour = timePart.split(':')[0];
-                          return `${hour}时`;
-                        }
-                      }
-                      
-                      // 检查是否是日期格式 "YYYY-MM-DD"
-                      if (period.includes('-') && !period.includes(':')) {
-                        const dateParts = period.split('-');
-                        if (dateParts.length === 3) {
-                          const year = parseInt(dateParts[0]);
-                          const month = parseInt(dateParts[1]) - 1;
-                          const day = parseInt(dateParts[2]);
-                          const date = new Date(year, month, day);
-                          
-                          if (!isNaN(date.getTime())) {
-                            return date.toLocaleDateString('zh-CN', {
-                              month: 'short',
-                              day: 'numeric'
-                            });
-                          }
-                        }
-                      }
-                      
-                      return period;
-                    } catch (error) {
-                      console.error('Format period error:', error);
-                      return period;
-                    }
-                  };
-                  
+                  const length = chartData.length;
+                  const x = length === 1
+                    ? leftPadding + chartWidth / 2
+                    : leftPadding + (index / (length - 1)) * chartWidth;
+
                   return (
                     <g key={index}>
                       {/* X轴标签文字 */}
                       <text
                         x={x}
-                        y={svgHeight - 10}
+                        y={dayLabelY}
                         textAnchor="middle"
                         className="text-xs fill-gray-500 font-medium filter drop-shadow-sm"
                         style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
                       >
-                        {formatPeriod(item.period)}
+                        {formatAxisLabel(item.period)}
                       </text>
                     </g>
                   );
                 })}
+
+                {period === 'month' && monthLabels.map(({ label, x }, index) => (
+                  <text
+                    key={`month-${label}-${index}`}
+                    x={x}
+                    y={monthLabelY}
+                    textAnchor="middle"
+                    className="text-xs font-semibold fill-gray-600 tracking-wide"
+                    style={{ textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}
+                  >
+                    {label}
+                  </text>
+                ))}
               </svg>
             </div>
           </div>
@@ -702,15 +839,15 @@ const TimePeriodSelector = ({ period, onChange, className = "" }) => (
   </div>
 );
 
-function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', viewAllOrdersHref }) {
+function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const router = useRouter();
   const { user, isInitialized } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState({
-    stats: {},
-    orderStats: {},
-    topProducts: [],
-    recentOrders: []
+    dashboardStats: {
+      current_period: { data: [] }
+    },
+    basicStats: {}
   });
   const [timePeriod, setTimePeriod] = useState('week');
   const [customersData, setCustomersData] = useState({
@@ -724,7 +861,6 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
   const expectedRole = role === 'agent' ? 'agent' : 'admin';
   const isAdmin = expectedRole === 'admin';
   const isAgent = expectedRole === 'agent';
-  const ordersListHref = viewAllOrdersHref || (isAdmin ? '/admin' : '/agent/orders');
   const staffPrefix = isAgent ? '/agent' : '/admin';
 
   // 验证管理员权限
@@ -768,18 +904,11 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
       });
       const statsData = await statsRes.json();
 
-      // 获取最近订单
-      const ordersRes = await fetch(`${API_BASE}${staffPrefix}/orders?limit=5`, {
-        credentials: 'include'
-      });
-      const ordersData = await ordersRes.json();
-
       const dashboardStats = dashboardData.data || {};
       
       setDashboardData({
         dashboardStats: dashboardStats,
-        basicStats: statsData.data || {},
-        recentOrders: ordersData.data?.orders || []
+        basicStats: statsData.data || {}
       });
     } catch (error) {
       console.error('加载仪表盘数据失败:', error);
@@ -793,8 +922,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
           top_products: [],
           users: { total: 0, new_this_week: 0 }
         },
-        basicStats: { total_products: 0, users_count: 0 },
-        recentOrders: []
+        basicStats: { total_products: 0, users_count: 0 }
       });
     } finally {
       setLoading(false);
@@ -1133,134 +1261,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard', vie
             />
           </div>
 
-          {/* 最近订单和客户信息 */}
+          {/* 客户信息 */}
           <div className="grid grid-cols-1 gap-8 mb-12">
-            {/* 最近订单 */}
-            <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
-            {/* 背景装饰 */}
-            <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-tr from-indigo-100/20 to-transparent rounded-full transform -translate-x-20 translate-y-20"></div>
-            
-            <div className="relative z-10">
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
-                  <div className="w-2 h-8 bg-gradient-to-b from-indigo-500 to-purple-600 rounded-full"></div>
-                  最近订单
-                </h3>
-                <Link 
-                  href={ordersListHref}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/50 border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 hover:shadow-sm"
-                >
-                  查看全部
-                  <i className="fas fa-arrow-right text-xs"></i>
-                </Link>
-              </div>
-              
-              <div className="overflow-hidden rounded-2xl border border-gray-200/50 bg-white/50 backdrop-blur-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gradient-to-r from-gray-50/80 to-gray-100/80 border-b border-gray-200/50">
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 uppercase tracking-wide">订单号</th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 uppercase tracking-wide">客户</th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 uppercase tracking-wide">金额</th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 uppercase tracking-wide">状态</th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 uppercase tracking-wide">时间</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200/50">
-                      {dashboardData.recentOrders?.map((order, index) => (
-                        <tr key={order.id} className="hover:bg-white/70 transition-all duration-200 group">
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-gradient-to-br from-indigo-100 to-indigo-200 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-receipt text-indigo-600 text-xs"></i>
-                              </div>
-                              <span className="text-sm font-mono font-medium text-gray-900">
-                                #{order.id?.slice(-8)}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center">
-                                <i className="fas fa-user text-blue-600 text-xs"></i>
-                              </div>
-                              <span className="text-sm font-medium text-gray-900">
-                                {order.customer_name || order.student_id}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-2">
-                              <i className="fas fa-yuan-sign text-emerald-600 text-xs"></i>
-                              <span className="text-sm font-bold text-gray-900">
-                                {order.total_amount}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border shadow-sm transition-all duration-200 ${
-                              order.status === 'delivered' ? 'bg-gradient-to-r from-emerald-50 to-emerald-100 text-emerald-700 border-emerald-200' :
-                              order.status === 'pending' ? 'bg-gradient-to-r from-amber-50 to-amber-100 text-amber-700 border-amber-200' :
-                              order.status === 'confirmed' ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 border-blue-200' :
-                              order.status === 'shipped' ? 'bg-gradient-to-r from-purple-50 to-purple-100 text-purple-700 border-purple-200' :
-                              order.status === 'cancelled' ? 'bg-gradient-to-r from-red-50 to-red-100 text-red-700 border-red-200' :
-                              'bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 border-gray-200'
-                            }`}>
-                              <div className={`w-2 h-2 rounded-full ${
-                                order.status === 'delivered' ? 'bg-emerald-500' :
-                                order.status === 'pending' ? 'bg-amber-500' :
-                                order.status === 'confirmed' ? 'bg-blue-500' :
-                                order.status === 'shipped' ? 'bg-purple-500' :
-                                order.status === 'cancelled' ? 'bg-red-500' : 'bg-gray-500'
-                              }`}></div>
-                              {order.status === 'delivered' ? '已完成' :
-                               order.status === 'pending' ? '待处理' :
-                               order.status === 'confirmed' ? '已确认' :
-                               order.status === 'shipped' ? '已发货' :
-                               order.status === 'cancelled' ? '已取消' : order.status}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-2">
-                              <i className="fas fa-clock text-gray-400 text-xs"></i>
-                              <span className="text-sm text-gray-600 font-medium">
-                                {(() => {
-                                  // 获取时间戳（秒），优先使用后端提供的timestamp，否则从字符串解析
-                                  const timestamp = order.created_at_timestamp || Math.floor(new Date(order.created_at).getTime() / 1000);
-                                  // 转换为毫秒并创建Date对象，使用本地时区
-                                  const date = new Date(timestamp * 1000);
-                                  // 格式化为本地时间
-                                  return date.toLocaleString('zh-CN', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    hour12: false
-                                  });
-                                })()}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {(!dashboardData.recentOrders || dashboardData.recentOrders.length === 0) && (
-                <div className="text-center py-16">
-                  <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-inbox text-gray-400 text-xl"></i>
-                  </div>
-                  <p className="text-lg font-medium text-gray-500 mb-2">暂无订单数据</p>
-                  <p className="text-sm text-gray-400">订单数据将在这里显示</p>
-                </div>
-              )}
-            </div>
-            </div>
-
             {/* 客户信息卡片 */}
             <div className="bg-gradient-to-br from-white to-cyan-50/30 rounded-3xl p-8 shadow-lg border border-gray-100/50 backdrop-blur-sm relative overflow-hidden">
             {/* 背景装饰 */}
@@ -1381,7 +1383,6 @@ export default function AdminDashboardPage() {
     <StaffDashboardPage
       role="admin"
       navActive="staff-dashboard"
-      viewAllOrdersHref="/admin"
     />
   );
 }
