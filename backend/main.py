@@ -38,6 +38,17 @@ from config import get_settings
 settings = get_settings()
 
 
+def is_truthy(value: Optional[Any]) -> bool:
+    """将不同类型的输入转换为布尔值，识别常见真值表示"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    return text in {'1', 'true', 'yes', 'on'}
+
 def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) -> int:
     """
     将SQLite的CURRENT_TIMESTAMP字符串转换为Unix时间戳（秒）
@@ -479,7 +490,8 @@ async def handle_product_creation(
     description: str,
     cost: float,
     owner_id: Optional[str],
-    image: Optional[UploadFile]
+    image: Optional[UploadFile],
+    is_hot: bool = False
 ) -> Dict[str, Any]:
     new_file_path: Optional[str] = None
     try:
@@ -497,7 +509,8 @@ async def handle_product_creation(
             "description": description,
             "img_path": img_path,
             "cost": cost,
-            "owner_id": assigned_owner_id
+            "owner_id": assigned_owner_id,
+            "is_hot": 1 if is_hot else 0
         }
 
         product_id = ProductDB.create_product(product_data)
@@ -552,6 +565,8 @@ async def handle_product_update(
             return error_response("无效的折扣", 400)
     if payload.is_active is not None:
         update_data['is_active'] = 1 if payload.is_active else 0
+    if payload.is_hot is not None:
+        update_data['is_hot'] = 1 if payload.is_hot else 0
     if payload.cost is not None:
         if payload.cost < 0:
             return error_response("商品成本不能为负数", 400)
@@ -1094,6 +1109,7 @@ class ProductUpdateRequest(BaseModel):
     discount: Optional[float] = None  # 折扣（以折为单位，10为不打折，0.5为五折）
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_hot: Optional[bool] = None
     cost: Optional[float] = None  # 商品成本
     owner_id: Optional[str] = None
 
@@ -1503,7 +1519,7 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
 # ==================== 商品路由 ====================
 
 @app.get("/products")
-async def get_products(request: Request, category: Optional[str] = None, address_id: Optional[str] = None, building_id: Optional[str] = None):
+async def get_products(request: Request, category: Optional[str] = None, address_id: Optional[str] = None, building_id: Optional[str] = None, hot_only: Optional[str] = None):
     """获取商品列表"""
     try:
         scope = resolve_shopping_scope(request, address_id, building_id)
@@ -1513,10 +1529,20 @@ async def get_products(request: Request, category: Optional[str] = None, address
         # 现在所有商品都有owner_id，所以统一使用owner_ids过滤，不再依赖include_unassigned
         include_unassigned = False
 
+        hot_filter = is_truthy(hot_only)
         if category:
-            products = ProductDB.get_products_by_category(category, owner_ids=owner_ids, include_unassigned=include_unassigned)
+            products = ProductDB.get_products_by_category(
+                category,
+                owner_ids=owner_ids,
+                include_unassigned=include_unassigned,
+                hot_only=hot_filter
+            )
         else:
-            products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+            products = ProductDB.get_all_products(
+                owner_ids=owner_ids,
+                include_unassigned=include_unassigned,
+                hot_only=hot_filter
+            )
         # 补充规格信息
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
@@ -2757,6 +2783,7 @@ async def create_product(
     description: str = Form(""),
     cost: float = Form(0.0),
     owner_id: Optional[str] = Form(None),
+    is_hot: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     """管理员创建商品"""
@@ -2771,7 +2798,8 @@ async def create_product(
         description=description,
         cost=cost,
         owner_id=owner_id,
-        image=image
+        image=image,
+        is_hot=is_truthy(is_hot)
     )
 
 
@@ -2784,6 +2812,7 @@ async def agent_create_product(
     stock: int = Form(0),
     description: str = Form(""),
     cost: float = Form(0.0),
+    is_hot: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     agent, _ = require_agent_with_scope(request)
@@ -2798,7 +2827,8 @@ async def agent_create_product(
         description=description,
         cost=cost,
         owner_id=agent_owner_id,
-        image=image
+        image=image,
+        is_hot=is_truthy(is_hot)
     )
 
 

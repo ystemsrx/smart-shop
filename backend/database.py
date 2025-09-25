@@ -63,7 +63,8 @@ def auto_migrate_database(conn) -> None:
             'is_active': 'INTEGER DEFAULT 1',
             'discount': 'REAL DEFAULT 10.0',
             'cost': 'REAL DEFAULT 0',
-            'owner_id': 'TEXT'
+            'owner_id': 'TEXT',
+            'is_hot': 'INTEGER DEFAULT 0'
         },
         'orders': {
             'payment_status': 'TEXT DEFAULT "pending"',
@@ -1292,8 +1293,8 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description, cost, owner_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -1304,10 +1305,63 @@ class ProductDB:
                 product_data.get('img_path', ''),
                 product_data.get('description', ''),
                 float(product_data.get('cost', 0.0)),
-                product_data.get('owner_id')
+                product_data.get('owner_id'),
+                1 if product_data.get('is_hot') else 0
             ))
             conn.commit()
             return product_id
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return float(int(value))
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _is_hot_product(product: Dict[str, Any]) -> bool:
+        value = product.get('is_hot')
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return int(value) == 1
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return False
+
+    @staticmethod
+    def _calc_effective_price(product: Dict[str, Any]) -> float:
+        price = ProductDB._safe_float(product.get('price'), 0.0)
+        discount_raw = product.get('discount')
+        discount = ProductDB._safe_float(discount_raw, 10.0)
+        if discount <= 0:
+            return 0.0
+        if discount >= 10:
+            return max(price, 0.0)
+        effective = price * (discount / 10.0)
+        return max(round(effective, 2), 0.0)
+
+    @staticmethod
+    def _sort_products_for_display(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not products:
+            return []
+
+        hot_items: List[Tuple[int, Dict[str, Any]]] = []
+        normal_items: List[Tuple[int, Dict[str, Any]]] = []
+
+        for idx, product in enumerate(products):
+            bucket = hot_items if ProductDB._is_hot_product(product) else normal_items
+            bucket.append((idx, product))
+
+        hot_items.sort(key=lambda item: (ProductDB._calc_effective_price(item[1]), item[0]))
+
+        ordered: List[Dict[str, Any]] = [item[1] for item in hot_items]
+        ordered.extend(product for _, product in normal_items)
+        return ordered
 
     @staticmethod
     def _build_owner_filter(owner_ids: Optional[List[str]], include_unassigned: bool) -> Tuple[str, List[Any]]:
@@ -1334,36 +1388,67 @@ class ProductDB:
         return where_clause, params
 
     @staticmethod
-    def get_all_products(owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+    def get_all_products(
+        owner_ids: Optional[List[str]] = None,
+        include_unassigned: bool = True,
+        *,
+        hot_only: bool = False
+    ) -> List[Dict]:
         """获取商品列表，可按归属过滤"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
-            if owner_ids is None:
-                cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
-            else:
-                if where_sql == '1=0':
-                    return []
-                cursor.execute(f'SELECT * FROM products WHERE {where_sql} ORDER BY created_at DESC', params)
-            return [dict(row) for row in cursor.fetchall()]
+            if where_sql == '1=0' and owner_ids is not None:
+                return []
+
+            clauses: List[str] = []
+            query_params: List[Any] = []
+
+            if owner_ids is not None and where_sql:
+                clauses.append(f'({where_sql})')
+                query_params.extend(params)
+
+            if hot_only:
+                clauses.append('is_hot = 1')
+
+            sql = 'SELECT * FROM products'
+            if clauses:
+                sql += ' WHERE ' + ' AND '.join(clauses)
+            sql += ' ORDER BY created_at DESC'
+
+            cursor.execute(sql, query_params)
+            rows = [dict(row) for row in cursor.fetchall()]
+            return ProductDB._sort_products_for_display(rows)
 
     @staticmethod
-    def get_products_by_category(category: str, owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+    def get_products_by_category(
+        category: str,
+        owner_ids: Optional[List[str]] = None,
+        include_unassigned: bool = True,
+        *,
+        hot_only: bool = False
+    ) -> List[Dict]:
         """按类别获取商品，可按归属过滤"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
-            if owner_ids is None:
-                cursor.execute(
-                    'SELECT * FROM products WHERE category = ? ORDER BY created_at DESC',
-                    (category,)
-                )
-            else:
-                if where_sql == '1=0':
-                    return []
-                sql = f'SELECT * FROM products WHERE category = ? AND ({where_sql}) ORDER BY created_at DESC'
-                cursor.execute(sql, [category, *params])
-            return [dict(row) for row in cursor.fetchall()]
+            if where_sql == '1=0' and owner_ids is not None:
+                return []
+
+            clauses: List[str] = ['category = ?']
+            query_params: List[Any] = [category]
+
+            if owner_ids is not None and where_sql:
+                clauses.append(f'({where_sql})')
+                query_params.extend(params)
+
+            if hot_only:
+                clauses.append('is_hot = 1')
+
+            sql = f"SELECT * FROM products WHERE {' AND '.join(clauses)} ORDER BY created_at DESC"
+            cursor.execute(sql, query_params)
+            rows = [dict(row) for row in cursor.fetchall()]
+            return ProductDB._sort_products_for_display(rows)
 
     @staticmethod
     def search_products(query: str, active_only: bool = False, owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
@@ -1394,7 +1479,8 @@ class ProductDB:
                     return []
                 sql, sql_params = build_base_sql(False)
                 cursor.execute(sql, sql_params)
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+            return ProductDB._sort_products_for_display(rows)
     
     @staticmethod
     def get_product_by_id(product_id: str) -> Optional[Dict]:
@@ -1433,7 +1519,7 @@ class ProductDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id', 'is_hot']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
