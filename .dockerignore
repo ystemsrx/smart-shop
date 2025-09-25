@@ -1,0 +1,25 @@
+# Node and build artifacts
+node_modules
+.next
+out
+
+# Python environment artifacts
+__pycache__
+*.pyc
+backend/venv
+backend/__pycache__
+
+# Logs and coverage
+*.log
+coverage
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Misc
+frontend.log
