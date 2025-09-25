@@ -77,6 +77,15 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           </div>
         )}
 
+        {Boolean(product.is_hot) && (
+          <div className="absolute right-3 top-3 z-20">
+            <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-full shadow-lg">
+              <i className="fas fa-fire"></i>
+              热销中
+            </span>
+          </div>
+        )}
+
         {imageSrc ? (
           <RetryImage
             src={imageSrc}
@@ -262,6 +271,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
 
 // 分类过滤器组件
 const CategoryFilter = ({ categories, selectedCategory, onCategoryChange }) => {
+  const isActive = (value) => selectedCategory === value;
+
   return (
     <div className="mb-8 animate-apple-slide-up animate-delay-200">
       <div className="flex items-center gap-3 mb-4">
@@ -271,36 +282,52 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange }) => {
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
       </div>
       <div className="flex flex-wrap gap-3">
-         <button
-           onClick={() => onCategoryChange(null)}
-           className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-             selectedCategory === null
-               ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
-               : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
-           }`}
-         >
+        <button
+          onClick={() => onCategoryChange('hot')}
+          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+            isActive('hot')
+              ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
+              : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <i className="fas fa-fire"></i>
+            <span>热销</span>
+          </div>
+        </button>
+        <button
+          onClick={() => onCategoryChange('all')}
+          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+            isActive('all')
+              ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
+              : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+          }`}
+        >
           <div className="flex items-center gap-2">
             <i className="fas fa-th-large"></i>
             <span>全部</span>
           </div>
         </button>
-        {categories.map((category, index) => (
-          <button
-            key={category.id}
-            onClick={() => onCategoryChange(category.name)}
-             className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
-               selectedCategory === category.name
-                 ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
-                 : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
-             }`}
-            style={{ animationDelay: `${index * 0.05}s` }}
-          >
-            <div className="flex items-center gap-2">
-              <i className="fas fa-tag"></i>
-              <span>{category.name}</span>
-            </div>
-          </button>
-        ))}
+        {categories.map((category, index) => {
+          const value = `category:${category.name}`;
+          return (
+            <button
+              key={category.id}
+              onClick={() => onCategoryChange(value)}
+              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
+                isActive(value)
+                  ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
+                  : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+              }`}
+              style={{ animationDelay: `${index * 0.05}s` }}
+            >
+              <div className="flex items-center gap-2">
+                <i className="fas fa-tag"></i>
+                <span>{category.name}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -365,7 +392,7 @@ export default function Shop() {
   const cartWidgetRef = useRef(null);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('hot');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [cartLoading, setCartLoading] = useState(false);
@@ -468,9 +495,18 @@ export default function Shop() {
       const isVariant = !!p.has_variants;
       if (isVariant) {
         const tvs = (p.total_variant_stock !== undefined && p.total_variant_stock !== null) ? p.total_variant_stock : null;
+        if (Array.isArray(p.variants) && p.variants.length > 0) {
+          return p.variants.every(v => (v.stock || 0) <= 0);
+        }
         return tvs !== null ? (tvs === 0) : false;
       }
       return (p.stock === 0);
+    };
+
+    const getPriceWithDiscount = (product) => {
+      const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
+      const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
+      return hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
     };
 
     products.forEach(p => {
@@ -481,21 +517,17 @@ export default function Shop() {
       }
     });
 
-    const sortAsc = (arr) => arr.sort((a, b) => {
-      // 计算最终价格（考虑折扣）
-      const getPriceWithDiscount = (product) => {
-        const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
-        const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
-        return hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
-      };
-      
-      const priceA = getPriceWithDiscount(a);
-      const priceB = getPriceWithDiscount(b);
-      
-      return priceA - priceB; // 升序排列
-    });
+    const sortByPriority = (arr) => {
+      const hotItems = [];
+      const normalItems = [];
+      arr.forEach(item => (Boolean(item.is_hot) ? hotItems : normalItems).push(item));
+      const byPrice = (a, b) => getPriceWithDiscount(a) - getPriceWithDiscount(b);
+      hotItems.sort(byPrice);
+      normalItems.sort(byPrice);
+      return [...hotItems, ...normalItems];
+    };
 
-    return [...sortAsc(available), ...sortAsc(deferred)];
+    return [...sortByPriority(available), ...sortByPriority(deferred)];
   };
 
   // 加载商品和分类
@@ -511,8 +543,15 @@ export default function Shop() {
     setError('');
 
     try {
+      const productFilters = {
+        category: selectedCategory && selectedCategory.startsWith('category:')
+          ? selectedCategory.slice('category:'.length)
+          : null,
+        hotOnly: selectedCategory === 'hot'
+      };
+
       const [productsData, categoriesData] = await Promise.all([
-        getProducts(selectedCategory),
+        getProducts(productFilters),
         getCategories()
       ]);
       
@@ -613,7 +652,7 @@ export default function Shop() {
       const sortedProducts = sortProductsByPrice([...products]);
       
       setProducts(sortedProducts);
-      setSelectedCategory(null); // 清除分类过滤
+      setSelectedCategory('all'); // 清除分类过滤
     } catch (err) {
       setError(err.message || '搜索失败');
     } finally {

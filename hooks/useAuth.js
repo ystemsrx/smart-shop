@@ -217,8 +217,16 @@ export function useApi() {
 export function useProducts() {
   const { apiRequest } = useApi();
 
-  const getProducts = async (category = null) => {
-    const url = category ? `/products?category=${encodeURIComponent(category)}` : '/products';
+  const getProducts = async ({ category = null, hotOnly = false } = {}) => {
+    const params = new URLSearchParams();
+    if (category) {
+      params.append('category', category);
+    }
+    if (hotOnly) {
+      params.append('hot_only', '1');
+    }
+    const query = params.toString();
+    const url = query ? `/products?${query}` : '/products';
     return await apiRequest(url);
   };
 

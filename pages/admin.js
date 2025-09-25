@@ -1616,7 +1616,26 @@ const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 商品表格组件
-const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, onBatchDelete, onBatchUpdateDiscount, selectedProducts, onSelectProduct, onSelectAll, onUpdateDiscount, onToggleActive, onOpenVariantStock }) => {
+const ProductTable = ({
+  products,
+  onRefresh,
+  onEdit,
+  onDelete,
+  onUpdateStock,
+  onBatchDelete,
+  onBatchUpdateDiscount,
+  selectedProducts,
+  onSelectProduct,
+  onSelectAll,
+  onUpdateDiscount,
+  onToggleActive,
+  onOpenVariantStock,
+  onToggleHot,
+  showOnlyOutOfStock,
+  showOnlyInactive,
+  onToggleOutOfStockFilter,
+  onToggleInactiveFilter
+}) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
   const [bulkZhe, setBulkZhe] = React.useState('');
@@ -1625,8 +1644,25 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-lg font-medium text-gray-900">商品列表</h3>
-        <div className="flex items-center space-x-3">
-          {/* 刷新按钮 */}
+        <div className="flex items-center space-x-4">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={showOnlyOutOfStock}
+              onChange={(e) => onToggleOutOfStockFilter(e.target.checked)}
+              className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+            />
+            <span>仅显示缺货</span>
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={showOnlyInactive}
+              onChange={(e) => onToggleInactiveFilter(e.target.checked)}
+              className="h-4 w-4 text-indigo-500 border-gray-300 rounded focus:ring-indigo-400"
+            />
+            <span>仅显示下架</span>
+          </label>
           <button
             onClick={onRefresh}
             className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -1636,40 +1672,38 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
           </button>
           {selectedProducts.length > 0 && (
             <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600">已选择 {selectedProducts.length} 件商品</span>
-            {/* 批量折扣设置 */}
-            <div className="flex items-center space-x-2">
-              <select
-                className="text-xs border border-gray-300 rounded px-1 py-0.5"
-                value={bulkZhe}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setBulkZhe(val);
-                  if (val === '') return; // 空白，不执行
-                  const v = parseFloat(val);
-                  onBatchUpdateDiscount(selectedProducts, v);
-                  // 重置为空，便于再次选择相同折扣（例如10折恢复）
-                  setBulkZhe('');
-                }}
-                title="批量设置折扣（单位：折）"
+              <span className="text-sm text-gray-600">已选择 {selectedProducts.length} 件商品</span>
+              <div className="flex items-center space-x-2">
+                <select
+                  className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                  value={bulkZhe}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setBulkZhe(val);
+                    if (val === '') return;
+                    const v = parseFloat(val);
+                    onBatchUpdateDiscount(selectedProducts, v);
+                    setBulkZhe('');
+                  }}
+                  title="批量设置折扣（单位：折）"
+                >
+                  <option value=""></option>
+                  {Array.from({ length: 20 }).map((_, i) => {
+                    const val = 10 - i * 0.5;
+                    const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                    return (
+                      <option key={v} value={String(v)}>{v}折</option>
+                    );
+                  })}
+                </select>
+              </div>
+              <button
+                onClick={() => onBatchDelete(selectedProducts)}
+                className="bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
               >
-                <option value=""></option>
-                {Array.from({ length: 20 }).map((_, i) => {
-                  const val = 10 - i * 0.5;
-                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
-                  return (
-                    <option key={v} value={String(v)}>{v}折</option>
-                  );
-                })}
-              </select>
+                批量删除
+              </button>
             </div>
-            <button
-              onClick={() => onBatchDelete(selectedProducts)}
-              className="bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-            >
-              批量删除
-            </button>
-          </div>
           )}
         </div>
       </div>
@@ -1696,64 +1730,86 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                 分类
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                热销
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 价格/折扣
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 库存
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
                 创建时间
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">
                 操作
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {products.map((product) => (
-              <tr key={product.id} className={`hover:bg-gray-50 ${selectedProducts.includes(product.id) ? 'bg-blue-50' : ''}`}>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={selectedProducts.includes(product.id)}
-                    onChange={(e) => onSelectProduct(product.id, e.target.checked)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                  />
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-10">
-                      {getProductImage(product) ? (
-                        <RetryImage
-                          className="h-10 w-10 rounded-md object-cover"
-                          src={getProductImage(product)}
-                          alt={product.name}
-                          maxRetries={3}
-                          onFinalError={() => {
-                            console.log(`管理员页面商品图片最终加载失败: ${product.name}`);
-                          }}
-                        />
-                      ) : (
-                        <div className="h-10 w-10 rounded-md bg-gray-100 flex items-center justify-center">
-                          <span className="text-gray-400 text-xs">图</span>
+            {products.map((product) => {
+              const isHot = Boolean(product.is_hot);
+              return (
+                <tr key={product.id} className={`hover:bg-gray-50 ${selectedProducts.includes(product.id) ? 'bg-blue-50' : ''}`}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.includes(product.id)}
+                      onChange={(e) => onSelectProduct(product.id, e.target.checked)}
+                      className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                    />
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 h-10 w-10">
+                        {getProductImage(product) ? (
+                          <RetryImage
+                            className="h-10 w-10 rounded-md object-cover"
+                            src={getProductImage(product)}
+                            alt={product.name}
+                            maxRetries={3}
+                            onFinalError={() => {
+                              console.log(`管理员页面商品图片最终加载失败: ${product.name}`);
+                            }}
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-md bg-gray-100 flex items-center justify-center">
+                            <span className="text-gray-400 text-xs">图</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="ml-4">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium text-gray-900">
+                            {product.name}
+                          </div>
+                          {isHot && (
+                            <span className="px-2 py-0.5 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full">
+                              热销
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">
-                        {product.name}
-                      </div>
-                      <div className="text-sm text-gray-500 max-w-xs truncate">
-                        {product.description}
+                        <div className="text-sm text-gray-500 max-w-xs truncate">
+                          {product.description}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                    {product.category}
-                  </span>
-                </td>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                      {product.category}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={isHot}
+                        onChange={(e) => onToggleHot(product, e.target.checked)}
+                        className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+                      />
+                    </label>
+                  </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   <div className="flex items-center gap-3">
                     {(() => {
@@ -1761,9 +1817,9 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                       const has = z && z > 0 && z < 10;
                       const finalPrice = has ? (Math.round(product.price * (z / 10) * 100) / 100) : product.price;
                       return (
-                        <div className="flex items-center gap-2">
-                          {has && (<span className="text-xs text-gray-400 line-through">¥{product.price}</span>)}
+                        <div className="flex flex-col">
                           <span className="font-semibold">¥{finalPrice}</span>
+                          {has && (<span className="text-xs text-gray-400 line-through">¥{product.price}</span>)}
                         </div>
                       );
                     })()}
@@ -1822,7 +1878,8 @@ const ProductTable = ({ products, onRefresh, onEdit, onDelete, onUpdateStock, on
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -2031,7 +2088,8 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
     price: product.price || '',
     stock: product.stock || '',
     description: product.description || '',
-    cost: product.cost || ''
+    cost: product.cost || '',
+    is_hot: product.is_hot === 1 || product.is_hot === true
   });
   const [imageFile, setImageFile] = useState(null);
 
@@ -2106,6 +2164,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
       ...formData,
       price,
       stock,
+      is_hot: !!formData.is_hot,
       image: imageFile
     });
   };
@@ -2183,6 +2242,16 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="0.00"
             />
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="add_is_hot"
+                checked={!!formData.is_hot}
+                onChange={(e) => setFormData(prev => ({ ...prev, is_hot: e.target.checked }))}
+                className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+              />
+              <label htmlFor="add_is_hot" className="text-sm text-gray-700">标记为热销商品</label>
+            </div>
             <p className="text-xs text-gray-500 mt-1">用于计算净利润，选填</p>
           </div>
           
@@ -2732,7 +2801,8 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
     price: '',
     stock: '',
     description: '',
-    cost: ''
+    cost: '',
+    is_hot: false
   });
   const [imageFile, setImageFile] = useState(null);
   const [variants, setVariants] = useState([]);
@@ -2906,6 +2976,16 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="0.00"
             />
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="edit_is_hot"
+                checked={!!formData.is_hot}
+                onChange={(e) => setFormData(prev => ({ ...prev, is_hot: e.target.checked }))}
+                className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+              />
+              <label htmlFor="edit_is_hot" className="text-sm text-gray-700">标记为热销商品</label>
+            </div>
             <p className="text-xs text-gray-500 mt-1">用于计算净利润，选填</p>
           </div>
           
@@ -3664,6 +3744,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [productCategoryFilter, setProductCategoryFilter] = useState('全部');
+  const [showOnlyOutOfStock, setShowOnlyOutOfStock] = useState(false);
+  const [showOnlyInactive, setShowOnlyInactive] = useState(false);
   const [variantStockProduct, setVariantStockProduct] = useState(null);
   
   // 订单管理相关状态
@@ -4278,6 +4360,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       formData.append('stock', productData.stock);
       formData.append('description', productData.description);
       formData.append('cost', productData.cost || '0');
+      formData.append('is_hot', productData.is_hot ? 'true' : 'false');
       
       if (productData.image) {
         formData.append('image', productData.image);
@@ -4316,7 +4399,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         price: productData.price,
         stock: productData.stock,
         description: productData.description,
-        cost: productData.cost || 0
+        cost: productData.cost || 0,
+        is_hot: !!productData.is_hot
       };
       
       await apiRequest(`${staffPrefix}/products/${editingProduct.id}`, {
@@ -4389,6 +4473,18 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       await loadData();
     } catch (e) {
       alert(e.message || '更新上下架状态失败');
+    }
+  };
+
+  const handleToggleHot = async (product, nextHot) => {
+    try {
+      await apiRequest(`${staffPrefix}/products/${product.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_hot: !!nextHot })
+      });
+      await loadData();
+    } catch (e) {
+      alert(e.message || '更新热销状态失败');
     }
   };
 
@@ -4610,7 +4706,25 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   }
 
   // 按分类筛选后的产品（用于当前页面显示）
-  const visibleProducts = productCategoryFilter === '全部' ? products : products.filter(p => p.category === productCategoryFilter);
+  const filteredByCategory = productCategoryFilter === '全部' ? products : products.filter(p => p.category === productCategoryFilter);
+  const isProductInactive = (product) => (product.is_active === 0 || product.is_active === false);
+  const isProductOutOfStock = (product) => {
+    if (product.has_variants) {
+      if (Array.isArray(product.variants) && product.variants.length > 0) {
+        return product.variants.every(variant => (variant.stock || 0) <= 0);
+      }
+      if (typeof product.total_variant_stock === 'number') {
+        return product.total_variant_stock <= 0;
+      }
+      return false;
+    }
+    return (product.stock || 0) <= 0;
+  };
+  const visibleProducts = filteredByCategory.filter((product) => {
+    if (showOnlyOutOfStock && !isProductOutOfStock(product)) return false;
+    if (showOnlyInactive && !isProductInactive(product)) return false;
+    return true;
+  });
 
   return (
     <>
@@ -4860,7 +4974,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   onSelectAll={handleSelectAll}
                   onUpdateDiscount={handleUpdateDiscount}
                   onToggleActive={handleToggleActive}
-              onOpenVariantStock={(p) => setVariantStockProduct(p)}
+                  onOpenVariantStock={(p) => setVariantStockProduct(p)}
+                  onToggleHot={handleToggleHot}
+                  showOnlyOutOfStock={showOnlyOutOfStock}
+                  showOnlyInactive={showOnlyInactive}
+                  onToggleOutOfStockFilter={setShowOnlyOutOfStock}
+                  onToggleInactiveFilter={setShowOnlyInactive}
             />
           )}
             </>
@@ -5660,4 +5779,3 @@ export default function AdminPage() {
     />
   );
 }
-
