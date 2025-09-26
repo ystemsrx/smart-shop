@@ -34,6 +34,23 @@ const parsePeriodValueToDate = (value) => {
   return null;
 };
 
+// 数字格式化函数，处理浮点数精度问题
+const formatNumber = (value, decimals = 2) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  const num = Number(value);
+  if (num === 0) return 0;
+  
+  // 对于整数，直接返回整数显示
+  if (Number.isInteger(num)) {
+    return num;
+  }
+  
+  // 对于小数，保留指定位数并去除尾部零
+  return parseFloat(num.toFixed(decimals));
+};
+
 // 现代化的StatCard组件
 const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
   <div className="bg-gradient-to-br from-white to-gray-50/50 rounded-3xl p-8 shadow-lg border border-gray-100/50 hover:shadow-xl hover:border-gray-200/50 transition-all duration-500 group backdrop-blur-sm relative overflow-hidden">
@@ -144,11 +161,11 @@ const SimpleBarChart = ({ data, title, height = 200, type = 'quantity' }) => {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-sm font-bold text-gray-900">
-                      {type === 'quantity' ? value : `¥${value}`}
+                      {type === 'quantity' ? value : `¥${formatNumber(value)}`}
                     </div>
                     {item.revenue && (
                       <div className="text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded-lg">
-                        ¥{item.revenue}
+                        ¥{formatNumber(item.revenue)}
                       </div>
                     )}
                   </div>
@@ -580,22 +597,28 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             {/* 当前数据汇总 */}
             <div className="space-y-3">
               <div className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/70 rounded-xl border border-blue-200/40 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="text-xs text-blue-600 font-medium uppercase tracking-wide">最新销售额</div>
-                <div className="text-2xl font-bold text-blue-700 mt-1">¥{chartData[chartData.length - 1]?.revenue || 0}</div>
+                <div className="text-xs text-blue-600 font-medium uppercase tracking-wide">
+                  {period === 'day' ? '当日销售额' : period === 'week' ? '当周销售额' : '当月销售额'}
+                </div>
+                <div className="text-2xl font-bold text-blue-700 mt-1">¥{formatNumber(chartData.reduce((sum, item) => sum + (Number(item.revenue) || 0), 0))}</div>
                 <div className="w-full h-1 bg-blue-200/50 rounded-full mt-2 overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full w-3/4 transition-all duration-1000"></div>
                 </div>
               </div>
               <div className="p-4 bg-gradient-to-br from-amber-50/80 to-amber-100/70 rounded-xl border border-amber-200/40 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="text-xs text-amber-600 font-medium uppercase tracking-wide">最新净利润</div>
-                <div className="text-2xl font-bold text-amber-700 mt-1">¥{chartData[chartData.length - 1]?.profit || 0}</div>
+                <div className="text-xs text-amber-600 font-medium uppercase tracking-wide">
+                  {period === 'day' ? '当日净利润' : period === 'week' ? '当周净利润' : '当月净利润'}
+                </div>
+                <div className="text-2xl font-bold text-amber-700 mt-1">¥{formatNumber(chartData.reduce((sum, item) => sum + (Number(item.profit) || 0), 0))}</div>
                 <div className="w-full h-1 bg-amber-200/50 rounded-full mt-2 overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-amber-400 to-orange-600 rounded-full w-2/3 transition-all duration-1000"></div>
                 </div>
               </div>
               <div className="p-4 bg-gradient-to-br from-emerald-50/80 to-emerald-100/70 rounded-xl border border-emerald-200/40 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">最新订单</div>
-                <div className="text-2xl font-bold text-emerald-700 mt-1">{chartData[chartData.length - 1]?.orders || 0}</div>
+                <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">
+                  {period === 'day' ? '当日订单数' : period === 'week' ? '当周订单数' : '当月订单数'}
+                </div>
+                <div className="text-2xl font-bold text-emerald-700 mt-1">{formatNumber(chartData.reduce((sum, item) => sum + (Number(item.orders) || 0), 0), 0)}</div>
                 <div className="w-full h-1 bg-emerald-200/50 rounded-full mt-2 overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full w-2/3 transition-all duration-1000"></div>
                 </div>
@@ -1173,18 +1196,18 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
             />
             <StatCard
               title="总销售额"
-              value={`¥${dashboardStats.total_revenue || 0}`}
+              value={`¥${formatNumber(dashboardStats.total_revenue || 0)}`}
               change={formatChange(dashboardStats.comparison?.revenue_growth)}
               changeType={getChangeType(dashboardStats.comparison?.revenue_growth)}
-              subtitle={`${dashboardStats.period_name || '本期'}销售额: ¥${dashboardStats.current_period?.revenue || 0}`}
+              subtitle={`${dashboardStats.period_name || '本期'}销售额: ¥${formatNumber(dashboardStats.current_period?.revenue || 0)}`}
               icon={{ class: "fas fa-dollar-sign", bg: "bg-gradient-to-br from-emerald-500 to-emerald-600" }}
             />
             <StatCard
               title="净利润"
-              value={`¥${dashboardStats.profit_stats?.total_profit || 0}`}
+              value={`¥${formatNumber(dashboardStats.profit_stats?.total_profit || 0)}`}
               change={formatChange(dashboardStats.comparison?.profit_growth)}
               changeType={getChangeType(dashboardStats.comparison?.profit_growth)}
-              subtitle={`今日净利润: ¥${dashboardStats.profit_stats?.today_profit || 0}`}
+              subtitle={`今日净利润: ¥${formatNumber(dashboardStats.profit_stats?.today_profit || 0)}`}
               icon={{ class: "fas fa-chart-line", bg: "bg-gradient-to-br from-amber-500 to-amber-600" }}
             />
             <StatCard
@@ -1439,7 +1462,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                                 <span className="text-sm text-gray-500 font-mono">({customer.id})</span>
                               </div>
                               <div className="text-sm text-gray-600 mt-1">
-                                共 {customer.order_count} 笔订单 · 平均 ¥{customer.avg_order_amount}
+                                共 {customer.order_count} 笔订单 · 平均 ¥{formatNumber(customer.avg_order_amount)}
                               </div>
                             </div>
                           </div>
@@ -1447,7 +1470,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                           {/* 总消费 */}
                           <div className="text-right">
                             <div className="text-2xl font-bold text-cyan-600">
-                              ¥{Number(customer.total_spent).toFixed(2)}
+                              ¥{formatNumber(customer.total_spent)}
                             </div>
                             <div className="text-sm text-gray-500">
                               总消费
