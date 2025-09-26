@@ -11,7 +11,7 @@ services:
     volumes:
       - ./backend/dorm_shop.db:/app/backend/dorm_shop.db
       - ./backend/items:/app/backend/items
-      - ./backend/public:/app/backend/public
+      - ./public:/app/public
       - ./backend/logs:/app/backend/logs
     ports:
       - "${BACKEND_PORT:-9099}:9099"

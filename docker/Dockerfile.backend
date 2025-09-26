@@ -29,7 +29,7 @@ COPY .env /app/backend/.env
 
 # Ensure directories that require persistence always exist
 RUN mkdir -p /app/backend/items \
-    && mkdir -p /app/backend/public \
+    && mkdir -p /app/public \
     && mkdir -p /app/backend/logs
 
 EXPOSE 9099
