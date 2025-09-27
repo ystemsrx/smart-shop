@@ -116,6 +116,81 @@ const AgentStatusCard = () => {
   );
 };
 
+// 注册设置卡片
+const RegistrationSettingsCard = () => {
+  const { apiRequest } = useApi();
+  const [loading, setLoading] = useState(true);
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    loadRegistrationStatus();
+  }, []);
+
+  const loadRegistrationStatus = async () => {
+    try {
+      const response = await apiRequest('/auth/registration-status');
+      if (response.success) {
+        setEnabled(response.data.enabled);
+      }
+    } catch (e) {
+      console.error('获取注册状态失败:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleRegistration = async () => {
+    const newEnabled = !enabled;
+    setEnabled(newEnabled);
+    try {
+      const response = await apiRequest(`/admin/registration-settings?enabled=${newEnabled}`, {
+        method: 'POST'
+      });
+      if (!response.success) {
+        throw new Error(response.message);
+      }
+      // 移除了 alert 提示
+    } catch (e) {
+      console.error('更新注册设置失败:', e);
+      setEnabled(!newEnabled); // 恢复原状态
+      // 保留错误提示
+      alert('更新注册设置失败');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+          <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div className="text-sm text-gray-600 mb-2">用户注册</div>
+      <div className="flex items-center justify-between">
+        <div className={`text-lg font-semibold ${enabled ? 'text-green-700' : 'text-gray-700'}`}>
+          {enabled ? '已启用' : '已关闭'}
+        </div>
+        <button
+          onClick={toggleRegistration}
+          className={`px-4 py-2 rounded-md text-white font-semibold ${
+            enabled 
+              ? 'bg-red-600 hover:bg-red-700' 
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
+        >
+          {enabled ? '关闭注册' : '启用注册'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // 店铺状态卡片（打烊/营业）
 const ShopStatusCard = () => {
   const { getStatus, updateStatus } = useAdminShop();
@@ -145,26 +220,50 @@ const ShopStatusCard = () => {
     try { await updateStatus(isOpen, note); alert('提示已更新'); } catch (e) {}
   };
 
-  return (
-    <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
-      <div>
-        <div className="text-sm text-gray-600">店铺状态</div>
-        <div className="mt-1 text-lg font-semibold">{isOpen ? '营业中' : '打烊中'}</div>
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="打烊提示语（可选）"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
-          />
-          <button onClick={saveNote} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">保存提示</button>
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+          <div className="h-6 bg-gray-200 rounded w-1/3"></div>
         </div>
       </div>
-      <button
-        onClick={toggle}
-        className={isOpen ? 'px-4 py-2 rounded-md bg-red-600 text-white' : 'px-4 py-2 rounded-md bg-green-600 text-white'}
-      >{isOpen ? '设为打烊' : '设为营业'}</button>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div className="text-sm text-gray-600 mb-2">店铺状态</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className={`text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
+          {isOpen ? '营业中' : '打烊中'}
+        </div>
+        <button
+          onClick={toggle}
+          className={`px-4 py-2 rounded-md text-white font-semibold ${
+            isOpen 
+              ? 'bg-red-600 hover:bg-red-700' 
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
+        >
+          {isOpen ? '设为打烊' : '设为营业'}
+        </button>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="打烊提示语（可选）"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm flex-1"
+        />
+        <button 
+          onClick={saveNote} 
+          className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
+        >
+          保存提示
+        </button>
+      </div>
     </div>
   );
 };
@@ -4835,7 +4934,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           </div>
 
           {/* 状态开关 */}
-          {isAdmin && <ShopStatusCard />}
+          {isAdmin && (
+            <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ShopStatusCard />
+              <RegistrationSettingsCard />
+            </div>
+          )}
           {isAgent && <AgentStatusCard />}
 
 
