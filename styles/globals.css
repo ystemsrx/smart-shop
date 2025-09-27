@@ -662,6 +662,17 @@ body {
   font-synthesis: weight style small-caps;
 }
 
+/* SimpleMarkdown 组件的斜体样式 */
+.simple-markdown-italic {
+  font-style: italic !important;
+  font-synthesis: weight style small-caps;
+}
+
+/* 如果字体不支持斜体，使用倾斜变换作为备用 */
+.simple-markdown-italic:not([style*="font-style"]) {
+  transform: skew(-12deg);
+}
+
 /* 强制斜体 - 如果字体不支持斜体，使用倾斜 */
 .markdown-content em:not([style*="font-style"]),
 .markdown-content i:not([style*="font-style"]) {
