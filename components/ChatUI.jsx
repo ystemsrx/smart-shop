@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
+import TextType from './TextType';
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -941,7 +942,18 @@ export default function ChatModern({ user }) {
       {first ? (
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">
-            <h1 className="text-center text-3xl font-semibold">你需要什么？让我帮你查询</h1>
+            <div className="text-center">
+              <TextType 
+                text={["你需要什么？", "让我帮你查询", "我可以怎么帮你？", "有什么需要帮忙的？"]}
+                typingSpeed={75}
+                pauseDuration={1500}
+                deletingSpeed={50}
+                cursorBlinkDuration={0.5}
+                showCursor={true}
+                cursorCharacter="_"
+                randomOrder={true}
+              />
+            </div>
             <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
           </section>
         </main>
