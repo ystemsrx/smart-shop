@@ -101,6 +101,9 @@ def auto_migrate_database(conn) -> None:
         },
         'user_rewards': {
             'owner_id': 'TEXT'
+        },
+        'lottery_configs': {
+            'is_enabled': 'INTEGER DEFAULT 1'
         }
     }
     
@@ -3708,10 +3711,49 @@ class LotteryConfigDB:
     def get_config(owner_id: Optional[str]) -> Dict[str, Any]:
         normalized = LotteryConfigDB.normalize_owner(owner_id)
         threshold = LotteryConfigDB.get_threshold(normalized)
+        is_enabled = LotteryConfigDB.get_enabled(normalized)
         return {
             'owner_id': normalized,
-            'threshold_amount': threshold
+            'threshold_amount': threshold,
+            'is_enabled': is_enabled
         }
+
+    @staticmethod
+    def get_enabled(owner_id: Optional[str]) -> bool:
+        """获取抽奖功能是否启用"""
+        normalized = LotteryConfigDB.normalize_owner(owner_id)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT is_enabled FROM lottery_configs WHERE owner_id = ?',
+                (normalized,)
+            )
+            row = cursor.fetchone()
+            if not row or row[0] is None:
+                return True  # 默认启用
+            return bool(row[0])
+
+    @staticmethod
+    def set_enabled(owner_id: Optional[str], is_enabled: bool) -> bool:
+        """设置抽奖功能启用状态"""
+        normalized = LotteryConfigDB.normalize_owner(owner_id)
+        enabled_value = 1 if is_enabled else 0
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                    INSERT INTO lottery_configs (owner_id, threshold_amount, is_enabled, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(owner_id) DO UPDATE SET
+                        is_enabled = excluded.is_enabled,
+                        updated_at = CURRENT_TIMESTAMP
+                ''',
+                (normalized, LotteryConfigDB.get_threshold(normalized), enabled_value)
+            )
+            conn.commit()
+        
+        return is_enabled
 
 
 class LotteryDB:

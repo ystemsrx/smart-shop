@@ -438,10 +438,12 @@ export default function Checkout() {
         setShowPayModal(false);
         setPaymentQr(null);
         
-        // 触发抽奖动画并自动跳转到订单页
+        // 触发抽奖动画并自动跳转到订单页（仅在抽奖启用时）
         let willRedirect = false;
-        try {
-          const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
+        const lotteryEnabled = cart?.lottery_enabled !== false;
+        if (lotteryEnabled) {
+          try {
+            const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
           if (draw.success) {
             const resultName = draw.data?.prize_name || '';
             const names = (draw.data?.names && draw.data.names.length > 0)
@@ -468,8 +470,9 @@ export default function Checkout() {
               // 不再自动跳转，让用户看到抽奖结果
             }, duration + 200);
           }
-        } catch (e) {
-          setLotteryPrize(null);
+          } catch (e) {
+            setLotteryPrize(null);
+          }
         }
         if (!willRedirect) {
           router.push('/orders');
@@ -923,7 +926,7 @@ export default function Checkout() {
                     </div>
                   </div>
                   {/* 抽奖奖品（仅展示，不计入金额；达标则自动随单配送）*/}
-                  {eligibleRewards && eligibleRewards.length > 0 && (
+                  {eligibleRewards && eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
                     <div className="mb-6 border-t border-white/20 pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <i className="fas fa-gift text-pink-500"></i>
