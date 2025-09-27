@@ -159,6 +159,16 @@ export default function Nav({ active = 'home' }) {
                     </button>
                   )}
 
+                  <a
+                    href="https://github.com/ystemsrx/smart-shop"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    title="查看GitHub源码"
+                  >
+                    <i className="fab fa-github text-lg"></i>
+                  </a>
+
                   <button
                     onClick={() => { logout(); closeMenu(); }}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 text-sm font-medium transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
@@ -168,13 +178,25 @@ export default function Nav({ active = 'home' }) {
                   </button>
                 </div>
               ) : (
-                <Link 
-                  href="/login" 
-                   className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 text-white font-medium hover:from-emerald-600 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg"
-                >
-                  <i className="fas fa-sign-in-alt"></i>
-                  <span>登录</span>
-                </Link>
+                <div className="flex items-center space-x-3">
+                  <a
+                    href="https://github.com/ystemsrx/smart-shop"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    title="查看GitHub源码"
+                  >
+                    <i className="fab fa-github text-lg"></i>
+                  </a>
+                  
+                  <Link 
+                    href="/login" 
+                     className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 text-white font-medium hover:from-emerald-600 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg"
+                  >
+                    <i className="fas fa-sign-in-alt"></i>
+                    <span>登录</span>
+                  </Link>
+                </div>
               )}
 
             </div>
@@ -191,8 +213,8 @@ export default function Nav({ active = 'home' }) {
         />
         
         {/* 侧边栏 */}
-        <div className={`absolute top-0 left-0 h-full w-80 max-w-sm bg-white/95 backdrop-blur-xl border-r border-white/20 shadow-2xl transform transition-all duration-300 ease-out ${mobileNavOpen} pt-20`}>
-          <div className="p-6 space-y-4">
+        <div className={`absolute top-0 left-0 h-full w-80 max-w-sm bg-white/95 backdrop-blur-xl border-r border-white/20 shadow-2xl transform transition-all duration-300 ease-out ${mobileNavOpen} pt-20 flex flex-col`}>
+          <div className="flex-1 p-6 space-y-4 overflow-y-auto">
             {/* 用户信息卡片 */}
             {user && (
               <div className="card-glass p-4 mb-6 animate-apple-slide-up">
@@ -311,6 +333,20 @@ export default function Nav({ active = 'home' }) {
                 </Link>
               )}
             </div>
+          </div>
+
+          {/* GitHub链接 - 固定在侧边栏最底部 */}
+          <div className="p-6 border-t border-gray-200/50">
+            <a
+              href="https://github.com/ystemsrx/smart-shop"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium transition-all duration-200"
+              onClick={closeMenu}
+            >
+              <i className="fab fa-github"></i>
+              <span>查看源码</span>
+            </a>
           </div>
         </div>
       </div>
