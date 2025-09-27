@@ -1081,6 +1081,10 @@ class AdminLoginRequest(BaseModel):
     admin_id: str
     password: str
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
 class ProductCreate(BaseModel):
     name: str
     category: str
@@ -1372,6 +1376,85 @@ async def refresh_token(request: Request, response: Response):
         return success_response("管理员令牌刷新成功", {"access_token": new_token})
     
     return error_response("令牌无效", 401)
+
+# ==================== 注册相关接口 ====================
+
+@app.get("/auth/registration-status")
+async def get_registration_status():
+    """获取注册功能是否启用"""
+    try:
+        # 默认关闭注册功能，管理员可手动开启
+        enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
+        return success_response("获取注册状态成功", {"enabled": enabled})
+    except Exception as e:
+        logger.error(f"获取注册状态失败: {e}")
+        return error_response("获取注册状态失败", 500)
+
+@app.post("/auth/register")
+async def register_user(request: RegisterRequest, response: Response):
+    """用户注册"""
+    try:
+        # 检查注册功能是否启用（默认关闭）
+        enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
+        if not enabled:
+            return error_response("注册功能未启用", 403)
+        
+        # 验证用户名和密码
+        username = request.username.strip()
+        password = request.password.strip()
+        
+        # 用户名验证：至少2个字符
+        if len(username) < 2:
+            return error_response("用户名至少需要2个字符", 400)
+        
+        # 密码验证：需包含数字和字母
+        import re
+        if len(password) < 6:
+            return error_response("密码至少需要6个字符", 400)
+        
+        has_letter = bool(re.search(r'[a-zA-Z]', password))
+        has_digit = bool(re.search(r'\d', password))
+        
+        if not (has_letter and has_digit):
+            return error_response("密码必须包含数字和字母", 400)
+        
+        # 检查用户名是否已存在（包括普通用户、管理员和代理）
+        existing_user = UserDB.get_user(username)
+        if existing_user:
+            return error_response("用户名已存在", 400)
+        
+        # 检查管理员表中是否存在相同用户名
+        existing_admin = AdminDB.get_admin(username)
+        if existing_admin:
+            return error_response("用户名已存在", 400)
+        
+        # 创建用户
+        success = UserDB.create_user(username, password, username)  # 使用用户名作为姓名
+        if not success:
+            return error_response("注册失败，请稍后重试", 500)
+        
+        # 自动登录
+        result = await AuthManager.login_user(username, password)
+        if result:
+            set_auth_cookie(response, result["access_token"])
+            return success_response("注册成功，已自动登录", result)
+        else:
+            return error_response("注册成功但自动登录失败，请手动登录", 500)
+            
+    except Exception as e:
+        logger.error(f"用户注册失败: {e}")
+        return error_response("注册失败，请稍后重试", 500)
+
+@app.post("/admin/registration-settings")
+async def update_registration_settings(request: Request, enabled: bool):
+    """管理员更新注册设置"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        SettingsDB.set('registration_enabled', 'true' if enabled else 'false')
+        return success_response("注册设置更新成功", {"enabled": enabled})
+    except Exception as e:
+        logger.error(f"更新注册设置失败: {e}")
+        return error_response("更新注册设置失败", 500)
 
 # ==================== 学号搜索（管理员） ====================
 
@@ -2371,6 +2454,7 @@ async def get_cart(request: Request):
                 "total_price": 0.0,
                 "scope": scope,
                 "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+                "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
                 "address_validation": address_validation
             })
 
@@ -2441,6 +2525,7 @@ async def get_cart(request: Request):
             "shipping_fee": round(shipping_fee, 2),
             "payable_total": round(total_price + shipping_fee, 2),
             "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+            "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
             "address_validation": address_validation
         }
 
@@ -3444,9 +3529,10 @@ async def create_order(
         except Exception as e:
             logger.warning(f"处理满额赠品配置失败: {e}")
 
-        # 若已达满10门槛，则自动附加可用抽奖奖品（不计入总价）
+        # 若已达满门槛且抽奖已启用，则自动附加可用抽奖奖品（不计入总价）
         rewards_attached_ids: List[str] = []
-        if items_subtotal >= lottery_threshold:
+        lottery_enabled = LotteryConfigDB.get_enabled(owner_scope_id)
+        if lottery_enabled and items_subtotal >= lottery_threshold:
             try:
                 rewards = RewardDB.get_eligible_rewards(
                     user["id"],
@@ -3768,10 +3854,11 @@ async def admin_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(admin)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        threshold = LotteryConfigDB.get_threshold(owner_id)
+        config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {
             "prizes": prizes,
-            "threshold_amount": threshold
+            "threshold_amount": config["threshold_amount"],
+            "is_enabled": config["is_enabled"]
         })
     except Exception as e:
         logger.error(f"读取抽奖配置失败: {e}")
@@ -3784,10 +3871,11 @@ async def agent_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(agent)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        threshold = LotteryConfigDB.get_threshold(owner_id)
+        config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {
             "prizes": prizes,
-            "threshold_amount": threshold
+            "threshold_amount": config["threshold_amount"],
+            "is_enabled": config["is_enabled"]
         })
     except Exception as e:
         logger.error(f"代理读取抽奖配置失败: {e}")
@@ -3815,6 +3903,10 @@ class LotteryConfigUpdateRequest(BaseModel):
 
 class LotteryThresholdUpdateRequest(BaseModel):
     threshold_amount: float
+
+
+class LotteryEnabledUpdateRequest(BaseModel):
+    is_enabled: bool
 
 
 class AutoGiftItemInput(BaseModel):
@@ -4051,6 +4143,30 @@ async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
     except Exception as e:
         logger.error(f"代理更新抽奖门槛失败: {e}")
         return error_response("更新抽奖门槛失败", 500)
+
+
+@app.patch("/admin/lottery-config/enabled")
+async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
+    except Exception as e:
+        logger.error(f"更新抽奖启用状态失败: {e}")
+        return error_response("更新抽奖启用状态失败", 500)
+
+
+@app.patch("/agent/lottery-config/enabled")
+async def agent_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request):
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
+    except Exception as e:
+        logger.error(f"代理更新抽奖启用状态失败: {e}")
+        return error_response("更新抽奖启用状态失败", 500)
 
 
 @app.get("/admin/auto-gifts")
@@ -5008,6 +5124,9 @@ async def draw_lottery(order_id: str, request: Request):
             except Exception:
                 pass
         owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
+        lottery_enabled = LotteryConfigDB.get_enabled(owner_id)
+        if not lottery_enabled:
+            return error_response("抽奖功能已禁用", 400)
         threshold_amount = LotteryConfigDB.get_threshold(owner_id)
         if items_subtotal < threshold_amount:
             return error_response(f"本单商品金额未满{threshold_amount:.2f}元，不参与抽奖", 400)
