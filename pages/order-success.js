@@ -57,28 +57,28 @@ export default function OrderSuccess() {
                   <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">
                     1
                   </span>
-                  <span>我们会通过短信或电话与您确认订单详情</span>
+                  <span>我们会尽快备齐商品</span>
                 </div>
                 
                 <div className="flex items-start">
                   <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">
                     2
                   </span>
-                  <span>商品备齐后，我们会安排配送</span>
+                  <span>备齐后，我们会安排配送</span>
                 </div>
                 
                 <div className="flex items-start">
                   <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">
                     3
                   </span>
-                  <span>配送员会提前联系您确认收货时间</span>
+                  <span>若有问题，我们会及时联系</span>
                 </div>
               </div>
             </div>
             
             {payment_status === 'processing' && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <p className="text-sm text-blue-800 text-center">请保持手机畅通，管理员将尽快核验付款并处理订单。</p>
+                <p className="text-sm text-blue-800 text-center">我们将尽快核验付款并处理订单。</p>
               </div>
             )}
             

@@ -3,7 +3,7 @@ import sqlite3
 import json
 import logging
 from datetime import datetime, timedelta, date
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Union
 from contextlib import contextmanager
 import os
 import uuid
@@ -37,9 +37,19 @@ def ensure_table_columns(conn, table_name: str, required_columns: Dict[str, str]
         for column_name, column_definition in required_columns.items():
             if column_name not in existing_columns:
                 try:
-                    alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+                    # 对于包含 CURRENT_TIMESTAMP 的列定义，替换为 NULL
+                    safe_definition = column_definition.replace('DEFAULT CURRENT_TIMESTAMP', 'DEFAULT NULL')
+                    alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {safe_definition}"
                     cursor.execute(alter_sql)
                     logger.info(f"自动添加列: {table_name}.{column_name}")
+                    
+                    # 如果原定义包含 CURRENT_TIMESTAMP，添加后立即更新现有记录
+                    if 'CURRENT_TIMESTAMP' in column_definition:
+                        try:
+                            cursor.execute(f"UPDATE {table_name} SET {column_name} = datetime('now') WHERE {column_name} IS NULL")
+                            logger.info(f"初始化时间戳列: {table_name}.{column_name}")
+                        except sqlite3.OperationalError:
+                            pass  # 忽略更新失败
                 except sqlite3.OperationalError as e:
                     logger.warning(f"无法添加列 {table_name}.{column_name}: {e}")
                     
@@ -51,6 +61,9 @@ def auto_migrate_database(conn) -> None:
     """
     自动迁移数据库结构，确保所有必需的列都存在
     """
+    # 先确保用户ID相关结构已经准备好
+    ensure_user_id_schema(conn)
+
     # 定义所有表需要的列
     table_migrations = {
         'admins': {
@@ -200,6 +213,113 @@ def auto_migrate_database(conn) -> None:
     
     # 收款码数据迁移将在 init_database 完成后进行
 
+
+def ensure_user_id_schema(conn) -> None:
+    """确保所有用户相关表拥有 user_id 外键结构，并迁移旧数据。"""
+    cursor = conn.cursor()
+
+    def _table_columns(table: str) -> List[sqlite3.Row]:
+        cursor.execute(f"PRAGMA table_info({table})")
+        return cursor.fetchall()
+
+    def _ensure_user_table():
+        columns = _table_columns('users')
+        column_names = {row[1] for row in columns}
+        has_user_id_primary = False
+        for row in columns:
+            if row[1] == 'user_id':
+                if row[5] == 1:  # pk
+                    has_user_id_primary = True
+                break
+
+        try:
+            if not has_user_id_primary:
+                logger.info("检测到 users 表缺少 user_id 主键，开始重建...")
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS __users_new (
+                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                has_created_at = any(row[1] == 'created_at' for row in columns)
+                if has_created_at:
+                    cursor.execute('''
+                        INSERT INTO __users_new (user_id, id, password, name, created_at)
+                        SELECT rowid, id, password, name, created_at FROM users
+                    ''')
+                else:
+                    cursor.execute('''
+                        INSERT INTO __users_new (user_id, id, password, name)
+                        SELECT rowid, id, password, name FROM users
+                    ''')
+
+                cursor.execute('ALTER TABLE users RENAME TO __users_old')
+                cursor.execute('ALTER TABLE __users_new RENAME TO users')
+                cursor.execute('DROP TABLE __users_old')
+                logger.info("users 表重建完成")
+            else:
+                # 为缺失 user_id 的旧记录补齐
+                cursor.execute('UPDATE users SET user_id = rowid WHERE user_id IS NULL OR user_id = 0')
+
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_student_id ON users(id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)')
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            logger.warning(f"重建 users 表失败: {e}")
+        except Exception as e:
+            logger.error(f"重建 users 表时发生异常: {e}")
+            conn.rollback()
+            raise
+
+    def _ensure_reference(table: str, student_column: str, allow_null: bool = True, unique_index: bool = False):
+        try:
+            columns = _table_columns(table)
+            column_names = {row[1] for row in columns}
+            if 'user_id' not in column_names:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
+                logger.info(f"为 {table} 表添加 user_id 列")
+            # 回填 user_id
+            cursor.execute(f'''
+                UPDATE {table}
+                SET user_id = (
+                    SELECT user_id FROM users WHERE users.id = {table}.{student_column}
+                )
+                WHERE (user_id IS NULL OR user_id = 0)
+                  AND {table}.{student_column} IS NOT NULL
+                  AND TRIM({table}.{student_column}) != ''
+            ''')
+
+            if not allow_null:
+                cursor.execute(f'''
+                    UPDATE {table}
+                    SET user_id = (
+                        SELECT user_id FROM users WHERE users.id = {table}.{student_column}
+                    )
+                    WHERE user_id IS NULL
+                ''')
+
+            cursor.execute(f'CREATE INDEX IF NOT EXISTS idx_{table}_user_id ON {table}(user_id)')
+            if unique_index:
+                cursor.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_user_id_unique ON {table}(user_id)')
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            logger.warning(f"为表 {table} 添加 user_id 列失败: {e}")
+        except Exception as e:
+            logger.error(f"回填 {table}.user_id 时出错: {e}")
+            conn.rollback()
+
+    _ensure_user_table()
+    _ensure_reference('carts', 'student_id', allow_null=False)
+    _ensure_reference('chat_logs', 'student_id', allow_null=True)
+    _ensure_reference('orders', 'student_id', allow_null=False)
+    _ensure_reference('user_profiles', 'student_id', allow_null=False, unique_index=True)
+    _ensure_reference('coupons', 'student_id', allow_null=False)
+    _ensure_reference('lottery_draws', 'student_id', allow_null=False)
+    _ensure_reference('user_rewards', 'student_id', allow_null=False)
 
 def ensure_admin_accounts(conn) -> None:
     """Ensure administrator accounts defined in configuration exist and stay active."""
@@ -1212,6 +1332,64 @@ class UserDB:
             )
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    @staticmethod
+    def get_user_by_user_id(user_id: int) -> Optional[Dict]:
+        """根据 user_id 获取用户信息"""
+        if user_id is None:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM users WHERE user_id = ?',
+                (user_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def resolve_user_reference(user_identifier: Union[str, int, None]) -> Optional[Dict[str, Any]]:
+        """根据学号或 user_id 解析用户，返回 {'user_id': int, 'student_id': str}"""
+        if user_identifier is None:
+            return None
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if isinstance(user_identifier, int):
+                cursor.execute(
+                    'SELECT user_id, id FROM users WHERE user_id = ?',
+                    (user_identifier,),
+                )
+            else:
+                cursor.execute(
+                    'SELECT user_id, id FROM users WHERE id = ?',
+                    (str(user_identifier),),
+                )
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            has_keys = hasattr(row, "keys")
+            user_id = row["user_id"] if has_keys and "user_id" in row.keys() else row[0]
+            student_id = row["id"] if has_keys and "id" in row.keys() else row[1]
+
+            if user_id in (None, 0):
+                try:
+                    cursor.execute(
+                        'UPDATE users SET user_id = rowid WHERE (user_id IS NULL OR user_id = 0) AND id = ?',
+                        (student_id,),
+                    )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    return None
+                return UserDB.resolve_user_reference(student_id)
+
+            return {
+                "user_id": int(user_id),
+                "student_id": student_id,
+            }
     
     @staticmethod
     def verify_user(student_id: str, password: str) -> Optional[Dict]:
@@ -1733,15 +1911,54 @@ class SettingsDB:
 # 购物车相关操作
 class CartDB:
     @staticmethod
-    def get_cart(student_id: str) -> Optional[Dict]:
-        """获取用户购物车"""
+    def _resolve_user_identifier(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if isinstance(user_identifier, int):
+            # 如果是整数，当作user_id处理
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            # 如果是字符串，当作student_id处理
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
+    def get_cart(user_identifier: Union[str, int]) -> Optional[Dict]:
+        """获取用户购物车 - 支持student_id或user_id"""
+        user_ref = CartDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            # 优先使用user_id查询
             cursor.execute(
-                'SELECT * FROM carts WHERE student_id = ? ORDER BY updated_at DESC LIMIT 1',
-                (student_id,)
+                'SELECT * FROM carts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+                (user_ref['user_id'],)
             )
             row = cursor.fetchone()
+            
+            # 如果user_id查询没有结果，尝试用student_id查询（向后兼容）
+            if not row:
+                cursor.execute(
+                    'SELECT * FROM carts WHERE student_id = ? ORDER BY updated_at DESC LIMIT 1',
+                    (user_ref['student_id'],)
+                )
+                row = cursor.fetchone()
+                
+                # 如果找到了基于student_id的记录，立即迁移到user_id
+                if row:
+                    cart_id = row[0] if hasattr(row, '__getitem__') else row['id']
+                    try:
+                        cursor.execute(
+                            'UPDATE carts SET user_id = ? WHERE id = ?',
+                            (user_ref['user_id'], cart_id)
+                        )
+                        conn.commit()
+                        logger.info(f"自动迁移购物车记录: cart_id={cart_id}, user_id={user_ref['user_id']}")
+                    except Exception as e:
+                        logger.warning(f"迁移购物车记录失败: {e}")
+                        conn.rollback()
+            
             if row:
                 cart_data = dict(row)
                 cart_data['items'] = json.loads(cart_data['items'])
@@ -1749,44 +1966,63 @@ class CartDB:
             return None
     
     @staticmethod
-    def update_cart(student_id: str, items: Dict) -> bool:
-        """更新用户购物车"""
+    def update_cart(user_identifier: Union[str, int], items: Dict) -> bool:
+        """更新用户购物车 - 支持student_id或user_id"""
+        user_ref = CartDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            logger.error(f"无法解析用户标识符: {user_identifier}")
+            return False
+            
         items_json = json.dumps(items)
+        user_id = user_ref['user_id']
+        student_id = user_ref['student_id']
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             try:
                 # 检查是否已有购物车
-                existing = CartDB.get_cart(student_id)
+                existing = CartDB.get_cart(user_identifier)
                 
                 if existing:
+                    # 更新时优先使用user_id
+                    # 更新购物车，优先使用user_id（更高效）
                     cursor.execute('''
                         UPDATE carts 
                         SET items = ?, updated_at = CURRENT_TIMESTAMP 
-                        WHERE student_id = ?
-                    ''', (items_json, student_id))
-                    logger.info(f"更新购物车 - 用户ID: {student_id}, 影响行数: {cursor.rowcount}")
+                        WHERE user_id = ?
+                    ''', (items_json, user_id))
+                    
+                    # 如果user_id更新没有影响行数，尝试用student_id更新（向后兼容）
+                    if cursor.rowcount == 0:
+                        cursor.execute('''
+                            UPDATE carts 
+                            SET items = ?, updated_at = CURRENT_TIMESTAMP 
+                            WHERE student_id = ?
+                        ''', (items_json, student_id))
+                    
+                    logger.info(f"更新购物车 - user_id: {user_id}, student_id: {student_id}, 影响行数: {cursor.rowcount}")
                 else:
+                    # 创建新购物车时同时设置user_id和student_id
                     cursor.execute('''
-                        INSERT INTO carts (student_id, items) 
-                        VALUES (?, ?)
-                    ''', (student_id, items_json))
-                    logger.info(f"创建新购物车 - 用户ID: {student_id}, 影响行数: {cursor.rowcount}")
+                        INSERT INTO carts (student_id, user_id, items) 
+                        VALUES (?, ?, ?)
+                    ''', (student_id, user_id, items_json))
+                    logger.info(f"创建新购物车 - user_id: {user_id}, student_id: {student_id}, 影响行数: {cursor.rowcount}")
                 
                 conn.commit()
                 
                 # 验证更新是否成功
-                updated_cart = CartDB.get_cart(student_id)
+                updated_cart = CartDB.get_cart(user_identifier)
                 if updated_cart:
                     logger.info(f"购物车更新验证成功 - 当前内容: {updated_cart['items']}")
                     return True
                 else:
-                    logger.error(f"购物车更新验证失败 - 用户ID: {student_id}")
+                    logger.error(f"购物车更新验证失败 - user_id: {user_id}")
                     return False
                     
             except Exception as e:
-                logger.error(f"数据库操作失败 - 用户ID: {student_id}, 错误: {e}")
+                logger.error(f"数据库操作失败 - user_id: {user_id}, 错误: {e}")
                 conn.rollback()
                 return False
 
@@ -1835,31 +2071,55 @@ class CartDB:
 # 聊天记录相关操作
 class ChatLogDB:
     @staticmethod
-    def add_log(student_id: Optional[str], role: str, content: str):
-        """添加聊天记录"""
+    def _resolve_user_identifier(user_identifier: Optional[Union[str, int]]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if user_identifier is None:
+            return None
+        if isinstance(user_identifier, int):
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
+    def add_log(user_identifier: Optional[Union[str, int]], role: str, content: str):
+        """添加聊天记录 - 支持student_id或user_id"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO chat_logs (student_id, role, content) VALUES (?, ?, ?)',
-                (student_id, role, content)
-            )
+            if user_ref:
+                # 如果用户存在，同时保存user_id和student_id
+                cursor.execute(
+                    'INSERT INTO chat_logs (student_id, user_id, role, content) VALUES (?, ?, ?, ?)',
+                    (user_ref['student_id'], user_ref['user_id'], role, content)
+                )
+            else:
+                # 匿名聊天记录
+                cursor.execute(
+                    'INSERT INTO chat_logs (student_id, user_id, role, content) VALUES (?, ?, ?, ?)',
+                    (None, None, role, content)
+                )
             conn.commit()
     
     @staticmethod
-    def get_recent_logs(student_id: Optional[str], limit: int = 50) -> List[Dict]:
-        """获取最近的聊天记录"""
+    def get_recent_logs(user_identifier: Optional[Union[str, int]], limit: int = 50) -> List[Dict]:
+        """获取最近的聊天记录 - 支持student_id或user_id"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            if student_id:
+            if user_ref:
+                # 优先使用user_id查询，向后兼容student_id
                 cursor.execute('''
                     SELECT * FROM chat_logs 
-                    WHERE student_id = ? OR student_id IS NULL
+                    WHERE (user_id = ? OR student_id = ?) OR (student_id IS NULL AND user_id IS NULL)
                     ORDER BY timestamp DESC LIMIT ?
-                ''', (student_id, limit))
+                ''', (user_ref['user_id'], user_ref['student_id'], limit))
             else:
+                # 只获取匿名聊天记录
                 cursor.execute('''
                     SELECT * FROM chat_logs 
-                    WHERE student_id IS NULL
+                    WHERE student_id IS NULL AND user_id IS NULL
                     ORDER BY timestamp DESC LIMIT ?
                 ''', (limit,))
             return [dict(row) for row in cursor.fetchall()]
@@ -2578,8 +2838,16 @@ class OrderDB:
         return '(' + connector.join(clauses) + ')', params
 
     @staticmethod
+    def _resolve_user_identifier(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if isinstance(user_identifier, int):
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
     def create_order(
-        student_id: str,
+        user_identifier: Union[str, int],
         total_amount: float,
         shipping_info: dict,
         items: list,
@@ -2591,18 +2859,25 @@ class OrderDB:
         building_id: Optional[str] = None,
         agent_id: Optional[str] = None
     ) -> str:
-        """创建新订单（但不扣减库存，等待支付成功）"""
+        """创建新订单（但不扣减库存，等待支付成功）- 支持student_id或user_id"""
+        user_ref = OrderDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            raise ValueError(f"无法解析用户标识符: {user_identifier}")
+            
         order_id = f"order_{int(datetime.now().timestamp())}"
+        user_id = user_ref['user_id']
+        student_id = user_ref['student_id']
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO orders 
-                (id, student_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id, address_id, building_id, agent_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, user_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id, address_id, building_id, agent_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 order_id,
                 student_id,
+                user_id,
                 total_amount,
                 json.dumps(shipping_info),
                 json.dumps(items),
@@ -2914,20 +3189,57 @@ class OrderDB:
             return { 'orders': orders, 'total': total }
     
     @staticmethod
-    def get_orders_by_student(student_id: str) -> List[Dict]:
-        """获取用户的订单"""
+    def get_orders_by_student(user_identifier: Union[str, int]) -> List[Dict]:
+        """获取用户的订单 - 支持student_id或user_id"""
+        user_ref = OrderDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return []
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            # 优先使用user_id查询
             cursor.execute(
-                'SELECT * FROM orders WHERE student_id = ? ORDER BY created_at DESC',
-                (student_id,)
+                'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
+                (user_ref['user_id'],)
             )
-            orders = []
-            for row in cursor.fetchall():
-                order = dict(row)
-                order['shipping_info'] = json.loads(order['shipping_info'])
-                order['items'] = json.loads(order['items'])
-                orders.append(order)
+            orders = [dict(row) for row in cursor.fetchall()]
+            
+            # 如果user_id查询没有结果，尝试用student_id查询（向后兼容）
+            if not orders:
+                cursor.execute(
+                    'SELECT * FROM orders WHERE student_id = ? ORDER BY created_at DESC',
+                    (user_ref['student_id'],)
+                )
+                old_orders = cursor.fetchall()
+                
+                # 找到基于student_id的记录，立即迁移到user_id
+                if old_orders:
+                    order_ids = [dict(row)['id'] for row in old_orders]
+                    try:
+                        placeholders = ','.join('?' * len(order_ids))
+                        cursor.execute(
+                            f'UPDATE orders SET user_id = ? WHERE id IN ({placeholders})',
+                            [user_ref['user_id']] + order_ids
+                        )
+                        conn.commit()
+                        logger.info(f"自动迁移{len(order_ids)}个订单记录到user_id={user_ref['user_id']}")
+                    except Exception as e:
+                        logger.warning(f"迁移订单记录失败: {e}")
+                        conn.rollback()
+                
+                orders = [dict(row) for row in old_orders]
+            
+            # 处理JSON字段
+            for order in orders:
+                try:
+                    order['shipping_info'] = json.loads(order['shipping_info'])
+                except Exception:
+                    order['shipping_info'] = {}
+                try:
+                    order['items'] = json.loads(order['items'])
+                except Exception:
+                    order['items'] = []
             return orders
     
     @staticmethod
@@ -3610,15 +3922,48 @@ class OrderDB:
 # 用户资料缓存（收货信息）
 class UserProfileDB:
     @staticmethod
-    def get_shipping(student_id: str) -> Optional[Dict]:
+    def _resolve_user_identifier(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if isinstance(user_identifier, int):
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
+    def get_shipping(user_identifier: Union[str, int]) -> Optional[Dict]:
+        user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM user_profiles WHERE student_id = ?', (student_id,))
+            
+            # 优先使用user_id查询
+            cursor.execute('SELECT * FROM user_profiles WHERE user_id = ?', (user_ref['user_id'],))
             row = cursor.fetchone()
+            
+            # 如果user_id查询没有结果，尝试用student_id查询（向后兼容）
+            if not row:
+                cursor.execute('SELECT * FROM user_profiles WHERE student_id = ?', (user_ref['student_id'],))
+                row = cursor.fetchone()
+                
+                # 如果找到了基于student_id的记录，立即迁移到user_id
+                if row:
+                    try:
+                        cursor.execute(
+                            'UPDATE user_profiles SET user_id = ? WHERE student_id = ?',
+                            (user_ref['user_id'], user_ref['student_id'])
+                        )
+                        conn.commit()
+                        logger.info(f"自动迁移用户配置记录: student_id={user_ref['student_id']}, user_id={user_ref['user_id']}")
+                    except Exception as e:
+                        logger.warning(f"迁移用户配置记录失败: {e}")
+                        conn.rollback()
+            
             return dict(row) if row else None
 
     @staticmethod
-    def upsert_shipping(student_id: str, shipping: Dict[str, Any]) -> bool:
+    def upsert_shipping(user_identifier: Union[str, int], shipping: Dict[str, Any]) -> bool:
         name = shipping.get('name')
         phone = shipping.get('phone')
         dormitory = shipping.get('dormitory')
@@ -3628,21 +3973,46 @@ class UserProfileDB:
         address_id = shipping.get('address_id')
         building_id = shipping.get('building_id')
         agent_id = shipping.get('agent_id')
+        user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return False
+            
+        user_id = user_ref['user_id']
+        student_id = user_ref['student_id']
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT student_id FROM user_profiles WHERE student_id = ?', (student_id,))
+            
+            # 优先检查user_id是否存在
+            cursor.execute('SELECT student_id FROM user_profiles WHERE user_id = ?', (user_id,))
             exists = cursor.fetchone() is not None
-            if exists:
+            
+            # 如果user_id不存在，检查student_id是否存在（向后兼容）
+            if not exists:
+                cursor.execute('SELECT student_id FROM user_profiles WHERE student_id = ?', (student_id,))
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # 如果找到基于student_id的记录，先更新为user_id
+                    cursor.execute('''
+                        UPDATE user_profiles
+                        SET user_id = ?, name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE student_id = ?
+                    ''', (user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, student_id))
+                else:
+                    # 创建新记录
+                    cursor.execute('''
+                        INSERT INTO user_profiles (student_id, user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (student_id, user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id))
+            else:
+                # 使用user_id更新现有记录
                 cursor.execute('''
                     UPDATE user_profiles
                     SET name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE student_id = ?
-                ''', (name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, student_id))
-            else:
-                cursor.execute('''
-                    INSERT INTO user_profiles (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id))
+                    WHERE user_id = ?
+                ''', (name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, user_id))
+            
             conn.commit()
             return True
 
@@ -4304,8 +4674,16 @@ class AutoGiftDB:
 
 class RewardDB:
     @staticmethod
+    def _resolve_user_identifier(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if isinstance(user_identifier, int):
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
     def add_reward_from_order(
-        student_id: str,
+        user_identifier: Union[str, int],
         prize_name: str,
         prize_product_id: Optional[str],
         quantity: int,
@@ -4318,7 +4696,11 @@ class RewardDB:
         prize_variant_name: Optional[str] = None,
         prize_unit_price: Optional[float] = None
     ) -> Optional[str]:
-        """从成功订单生成可用奖品；同一订单只会生成一次。"""
+        """从成功订单生成可用奖品；同一订单只会生成一次 - 支持student_id或user_id"""
+        user_ref = RewardDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
             # 防止重复
@@ -4330,11 +4712,16 @@ class RewardDB:
                 normalized_owner = LotteryConfigDB.normalize_owner(owner_id)
             except Exception:
                 normalized_owner = owner_id.strip() if isinstance(owner_id, str) and owner_id.strip() else 'admin'
+            
             rid = f"rwd_{int(datetime.now().timestamp()*1000)}"
+            user_id = user_ref['user_id']
+            student_id = user_ref['student_id']
+            
             cursor.execute('''
                 INSERT INTO user_rewards (
                     id,
                     student_id,
+                    user_id,
                     prize_name,
                     prize_product_id,
                     prize_product_name,
@@ -4347,10 +4734,11 @@ class RewardDB:
                     source_order_id,
                     status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'eligible')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'eligible')
             ''', (
                 rid,
                 student_id,
+                user_id,
                 prize_name,
                 prize_product_id,
                 prize_product_name,
@@ -4367,17 +4755,23 @@ class RewardDB:
 
     @staticmethod
     def get_eligible_rewards(
-        student_id: str,
+        user_identifier: Union[str, int],
         owner_id: Optional[str] = None,
         restrict_owner: bool = False
     ) -> List[Dict]:
+        user_ref = RewardDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return []
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            # 优先使用user_id查询，向后兼容student_id
             clauses = [
-                'student_id = ?',
+                '(user_id = ? OR student_id = ?)',
                 "status = 'eligible'"
             ]
-            params: List[Any] = [student_id]
+            params: List[Any] = [user_ref['user_id'], user_ref['student_id']]
 
             if restrict_owner:
                 normalized_owner = None
@@ -4404,13 +4798,21 @@ class RewardDB:
 
     @staticmethod
     def consume_rewards(
-        student_id: str,
+        user_identifier: Union[str, int],
         reward_ids: List[str],
         consumed_order_id: str,
         owner_id: Optional[str] = None
     ) -> int:
         if not reward_ids:
             return 0
+            
+        # 解析user_identifier为student_id，因为SQL查询使用student_id字段
+        user_ref = UserDB.resolve_user_reference(user_identifier)
+        if not user_ref:
+            logger.warning(f"无法解析用户标识符: {user_identifier}")
+            return 0
+        student_id = user_ref['student_id']
+            
         with get_db_connection() as conn:
             cursor = conn.cursor()
             placeholders = ','.join('?' * len(reward_ids))
@@ -4470,30 +4872,42 @@ class RewardDB:
 # 优惠券相关操作
 class CouponDB:
     @staticmethod
+    def _resolve_user_identifier(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """解析用户标识符，返回user_id和student_id"""
+        if isinstance(user_identifier, int):
+            return UserDB.resolve_user_reference(user_identifier)
+        else:
+            return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
     def issue_coupons(
-        student_id: str,
+        user_identifier: Union[str, int],
         amount: float,
         quantity: int = 1,
         expires_at: Optional[str] = None,
         owner_id: Optional[str] = None
     ) -> List[str]:
-        """发放优惠券（返回生成的优惠券ID列表）。学号必须存在于 users 表。"""
+        """发放优惠券（返回生成的优惠券ID列表）- 支持student_id或user_id"""
         if quantity <= 0:
             return []
+            
+        user_ref = CouponDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return []
+            
         ids: List[str] = []
+        user_id = user_ref['user_id']
+        student_id = user_ref['student_id']
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # 确认用户存在
-            cursor.execute('SELECT id FROM users WHERE id = ?', (student_id,))
-            if not cursor.fetchone():
-                return []
             for i in range(quantity):
                 cid = f"cpn_{int(datetime.now().timestamp()*1000)}_{i}"
                 try:
                     cursor.execute('''
-                        INSERT INTO coupons (id, student_id, amount, expires_at, status, owner_id)
-                        VALUES (?, ?, ?, ?, 'active', ?)
-                    ''', (cid, student_id, float(amount), expires_at, owner_id))
+                        INSERT INTO coupons (id, student_id, user_id, amount, expires_at, status, owner_id)
+                        VALUES (?, ?, ?, ?, ?, 'active', ?)
+                    ''', (cid, student_id, user_id, float(amount), expires_at, owner_id))
                     ids.append(cid)
                 except Exception:
                     # 跳过单条失败，继续
@@ -4502,15 +4916,23 @@ class CouponDB:
         return ids
 
     @staticmethod
-    def list_all(student_id: Optional[str] = None, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """列出所有优惠券（管理员查看），包含 active/revoked；不包含已使用（因为已删除）。"""
+    def list_all(user_identifier: Optional[Union[str, int]] = None, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """列出所有优惠券（管理员查看），包含 active/revoked；不包含已使用（因为已删除）- 支持student_id或user_id"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             clauses = []
             params: List[Any] = []
-            if student_id:
-                clauses.append('student_id = ?')
-                params.append(student_id)
+            
+            if user_identifier is not None:
+                user_ref = CouponDB._resolve_user_identifier(user_identifier)
+                if user_ref:
+                    # 优先使用user_id查询，向后兼容student_id
+                    clauses.append('(user_id = ? OR student_id = ?)')
+                    params.extend([user_ref['user_id'], user_ref['student_id']])
+                else:
+                    # 如果无法解析，返回空结果
+                    return []
+                    
             if owner_id is None:
                 clauses.append('owner_id IS NULL')
             else:
@@ -4626,12 +5048,28 @@ class CouponDB:
             return ok
 
     @staticmethod
-    def check_valid_for_student(coupon_id: str, student_id: str, owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """校验优惠券是否可用（归属、状态、未过期）。返回券信息或None。"""
+    def check_valid_for_student(coupon_id: str, user_identifier: Union[str, int], owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """校验优惠券是否可用（归属、状态、未过期）。返回券信息或None - 支持student_id或user_id"""
+        user_ref = CouponDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+            
         c = CouponDB.get_by_id(coupon_id)
         if not c:
             return None
-        if c.get('student_id') != student_id:
+            
+        # 检查优惠券归属（优先user_id，向后兼容student_id）
+        coupon_user_id = c.get('user_id')
+        coupon_student_id = c.get('student_id')
+        
+        if coupon_user_id and coupon_user_id == user_ref['user_id']:
+            # 匹配user_id
+            pass
+        elif coupon_student_id and coupon_student_id == user_ref['student_id']:
+            # 匹配student_id（向后兼容）
+            pass
+        else:
+            # 不匹配
             return None
         existing_owner = c.get('owner_id')
         if owner_id is None:

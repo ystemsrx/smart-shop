@@ -2833,7 +2833,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
                     <div className="text-sm font-medium text-gray-900">
-                      学号: {order.student_id || '未知'}
+                      用户: {order.student_id || '未知'}
                     </div>
                     <div className="text-sm text-gray-500">
                       姓名: {order.shipping_info?.name || order.customer_name || '未知'}
@@ -3387,7 +3387,7 @@ const CouponsPanel = ({ apiPrefix }) => {
 
   const handleIssue = async () => {
     const sid = selected || (suggests[0]?.id || '');
-    if (!sid) { alert('请选择学号'); return; }
+    if (!sid) { alert('请选择用户'); return; }
     const amt = parseFloat(amount);
     if (!(amt > 0)) { alert('请输入正确金额'); return; }
     let expires = null;
@@ -3439,16 +3439,16 @@ const CouponsPanel = ({ apiPrefix }) => {
     <div>
       <div className="mb-6">
         <h2 className="text-lg font-medium text-gray-900">优惠券管理</h2>
-        <p className="text-sm text-gray-600 mt-1">基于已有学号发放与管理优惠券</p>
+        <p className="text-sm text-gray-600 mt-1">基于已有用户名发放与管理优惠券</p>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div className="relative">
-            <label className="block text-sm text-gray-700 mb-1">搜索/选择学号</label>
+            <label className="block text-sm text-gray-700 mb-1">搜索/选择用户</label>
             <input 
               className="w-full px-3 py-2 border rounded" 
-              placeholder="输入学号前缀..." 
+              placeholder="输入用户名前缀..." 
               value={q} 
               onChange={(e) => setQ(e.target.value)}
               onFocus={() => {
