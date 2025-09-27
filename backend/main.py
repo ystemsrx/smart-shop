@@ -1081,6 +1081,10 @@ class AdminLoginRequest(BaseModel):
     admin_id: str
     password: str
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
 class ProductCreate(BaseModel):
     name: str
     category: str
@@ -1372,6 +1376,85 @@ async def refresh_token(request: Request, response: Response):
         return success_response("管理员令牌刷新成功", {"access_token": new_token})
     
     return error_response("令牌无效", 401)
+
+# ==================== 注册相关接口 ====================
+
+@app.get("/auth/registration-status")
+async def get_registration_status():
+    """获取注册功能是否启用"""
+    try:
+        # 默认关闭注册功能，管理员可手动开启
+        enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
+        return success_response("获取注册状态成功", {"enabled": enabled})
+    except Exception as e:
+        logger.error(f"获取注册状态失败: {e}")
+        return error_response("获取注册状态失败", 500)
+
+@app.post("/auth/register")
+async def register_user(request: RegisterRequest, response: Response):
+    """用户注册"""
+    try:
+        # 检查注册功能是否启用（默认关闭）
+        enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
+        if not enabled:
+            return error_response("注册功能未启用", 403)
+        
+        # 验证用户名和密码
+        username = request.username.strip()
+        password = request.password.strip()
+        
+        # 用户名验证：至少2个字符
+        if len(username) < 2:
+            return error_response("用户名至少需要2个字符", 400)
+        
+        # 密码验证：需包含数字和字母
+        import re
+        if len(password) < 6:
+            return error_response("密码至少需要6个字符", 400)
+        
+        has_letter = bool(re.search(r'[a-zA-Z]', password))
+        has_digit = bool(re.search(r'\d', password))
+        
+        if not (has_letter and has_digit):
+            return error_response("密码必须包含数字和字母", 400)
+        
+        # 检查用户名是否已存在（包括普通用户、管理员和代理）
+        existing_user = UserDB.get_user(username)
+        if existing_user:
+            return error_response("用户名已存在", 400)
+        
+        # 检查管理员表中是否存在相同用户名
+        existing_admin = AdminDB.get_admin(username)
+        if existing_admin:
+            return error_response("用户名已存在", 400)
+        
+        # 创建用户
+        success = UserDB.create_user(username, password, username)  # 使用用户名作为姓名
+        if not success:
+            return error_response("注册失败，请稍后重试", 500)
+        
+        # 自动登录
+        result = await AuthManager.login_user(username, password)
+        if result:
+            set_auth_cookie(response, result["access_token"])
+            return success_response("注册成功，已自动登录", result)
+        else:
+            return error_response("注册成功但自动登录失败，请手动登录", 500)
+            
+    except Exception as e:
+        logger.error(f"用户注册失败: {e}")
+        return error_response("注册失败，请稍后重试", 500)
+
+@app.post("/admin/registration-settings")
+async def update_registration_settings(request: Request, enabled: bool):
+    """管理员更新注册设置"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        SettingsDB.set('registration_enabled', 'true' if enabled else 'false')
+        return success_response("注册设置更新成功", {"enabled": enabled})
+    except Exception as e:
+        logger.error(f"更新注册设置失败: {e}")
+        return error_response("更新注册设置失败", 500)
 
 # ==================== 学号搜索（管理员） ====================
 
