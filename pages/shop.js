@@ -7,6 +7,7 @@ import RetryImage from '../components/RetryImage';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
+import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName } from '../utils/runtimeConfig';
 
 // 商品卡片组件
@@ -814,13 +815,15 @@ export default function Shop() {
         <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {!shopOpen && (
             <div className="mb-6 card-glass p-4 border border-orange-200/50 text-orange-800 animate-apple-fade-in">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <i className="fas fa-exclamation-triangle text-orange-600"></i>
                 </div>
-                <div>
-                  <p className="font-medium">{isAgent ? '店铺提醒' : '店铺提醒'}</p>
-                  <p className="text-sm text-orange-700">{shopNote}</p>
+                <div className="flex-1">
+                  <p className="font-medium mb-1">{isAgent ? '店铺提醒' : '店铺提醒'}</p>
+                  <SimpleMarkdown className="text-sm text-orange-700">
+                    {shopNote || '当前打烊，暂不支持结算，仅可加入购物车'}
+                  </SimpleMarkdown>
                 </div>
               </div>
             </div>
