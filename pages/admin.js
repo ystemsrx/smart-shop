@@ -276,6 +276,8 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const [saving, setSaving] = useState(false);
   const [thresholdAmount, setThresholdAmount] = useState('10');
   const [thresholdSaving, setThresholdSaving] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [enabledSaving, setEnabledSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPrize, setEditingPrize] = useState(null);
   const [collapsedPrizes, setCollapsedPrizes] = useState(new Set());
@@ -327,6 +329,9 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
           setThresholdAmount(display);
         }
       }
+      // 设置启用状态
+      const rawEnabled = res?.data?.is_enabled;
+      setIsEnabled(rawEnabled !== false);
       // 检查库存警告
       checkForStockWarnings(prizesData);
     } catch (e) {
@@ -437,6 +442,25 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     }
   };
 
+  const handleToggleEnabled = async () => {
+    setEnabledSaving(true);
+    try {
+      const resp = await apiRequest(`${apiPrefix}/lottery-config/enabled`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: !isEnabled })
+      });
+      if (!resp?.success) {
+        throw new Error(resp?.message || '更新抽奖启用状态失败');
+      }
+      setIsEnabled(!isEnabled);
+    } catch (e) {
+      alert(e.message || '更新抽奖启用状态失败');
+    } finally {
+      setEnabledSaving(false);
+    }
+  };
+
   const handleSavePrize = async (payload) => {
     const weightValue = Number.parseFloat(payload.weight);
     if (Number.isNaN(weightValue)) {
@@ -491,13 +515,28 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap justify-end">
           <div className="flex items-center gap-2">
+            <span>抽奖功能</span>
+            <button
+              onClick={handleToggleEnabled}
+              disabled={enabledSaving}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                isEnabled 
+                  ? 'bg-green-100 text-green-700 border border-green-200 hover:bg-green-200' 
+                  : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
+              } disabled:opacity-50`}
+              title="点击切换抽奖功能启用状态"
+            >
+              {enabledSaving ? '保存中...' : (isEnabled ? '已启用' : '已禁用')}
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
             <span>抽奖门槛</span>
             <input
               type="number"
               min={MIN_THRESHOLD}
               step="0.01"
               value={thresholdAmount}
-              disabled={thresholdSaving}
+              disabled={thresholdSaving || !isEnabled}
               onChange={(e) => setThresholdAmount(e.target.value)}
               onBlur={handleSaveThreshold}
               className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
@@ -511,7 +550,13 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
           <span className={totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
           <button
             onClick={() => openModal(null)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+            disabled={!isEnabled}
+            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
+              isEnabled 
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+            title={!isEnabled ? '请先启用抽奖功能' : ''}
           >
             <i className="fas fa-plus text-xs"></i>
             新增奖项
@@ -1083,6 +1128,12 @@ const DeliverySettingsPanel = ({ apiPrefix }) => {
     setSaving(true);
     try {
       const newSettings = { ...originalSettings, [field]: numericValue };
+      
+      // 当基础配送费设为0时，自动将免配送费门槛也设为0
+      if (field === 'delivery_fee' && numericValue === 0) {
+        newSettings.free_delivery_threshold = 0;
+      }
+      
       await apiRequest(`${apiPrefix}/delivery-settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1176,8 +1227,16 @@ const DeliverySettingsPanel = ({ apiPrefix }) => {
           
           <div className="mt-4">
             <p className="text-sm text-gray-600">
-              当商品金额达到 <span className="font-medium text-gray-800">¥{settings.free_delivery_threshold}</span> 时免收配送费，
-              否则收取 <span className="font-medium text-gray-800">¥{settings.delivery_fee}</span> 配送费
+              {settings.delivery_fee === 0 || settings.delivery_fee === '0' ? (
+                <>
+                  基础配送费已设为0，所有订单均享受免费配送
+                </>
+              ) : (
+                <>
+                  当商品金额达到 <span className="font-medium text-gray-800">¥{settings.free_delivery_threshold}</span> 时免收配送费，
+                  否则收取 <span className="font-medium text-gray-800">¥{settings.delivery_fee}</span> 配送费
+                </>
+              )}
               {saving && (
                 <span className="ml-3 text-indigo-600">
                   <i className="fas fa-spinner fa-spin mr-1"></i>
@@ -5063,7 +5122,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   >
                     抽奖配置
                     {lotteryHasStockWarning && (
-                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                         <i className="fas fa-exclamation text-red-600"></i>
                       </span>
                     )}

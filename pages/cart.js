@@ -142,6 +142,7 @@ const OrderSummary = ({
   onFixAddress,
   locationReady = true,
   lotteryThreshold = 10,
+  lotteryEnabled = true,
   deliveryConfig = { free_delivery_threshold: 10 }
 }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
@@ -150,8 +151,8 @@ const OrderSummary = ({
   const total = Math.max(0, base - discount);
   const validLotteryThreshold = Number.isFinite(lotteryThreshold) && lotteryThreshold > 0 ? lotteryThreshold : 10;
   const shippingThreshold = deliveryConfig?.free_delivery_threshold || 10;
-  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold;
-  const needsLottery = cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold && (deliveryConfig?.delivery_fee > 0);
+  const needsLottery = lotteryEnabled && cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
   const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
   const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
   const sameTarget = needsShipping && needsLottery && Math.abs(missingShipping - missingLottery) < 0.0001;
@@ -783,7 +784,7 @@ export default function Cart() {
                     </div>
 
                     {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
-                    {eligibleRewards.length > 0 && (
+                    {eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
                       <div className="mt-8">
                         <div className="mb-2 flex items-center gap-2">
                           <div className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center">
@@ -911,6 +912,7 @@ export default function Cart() {
                         onFixAddress={openLocationModal}
                         locationReady={locationReady}
                         lotteryThreshold={lotteryThreshold}
+                        lotteryEnabled={cart?.lottery_enabled !== false}
                         deliveryConfig={deliveryConfig}
                       />
                     </div>
