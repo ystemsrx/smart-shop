@@ -1492,7 +1492,7 @@ async def admin_list_coupons(request: Request, student_id: Optional[str] = None)
     admin = get_current_admin_required_from_cookie(request)
     owner_id = get_owner_id_for_staff(admin)
     try:
-        items = CouponDB.list_all(student_id, owner_id=owner_id)
+        items = CouponDB.list_all(student_id, owner_id=owner_id)  # student_id参数名保持不变，但内部已支持user_id
         return success_response("获取优惠券列表成功", {"coupons": items})
     except Exception as e:
         logger.error(f"管理员获取优惠券失败: {e}")
@@ -1504,7 +1504,7 @@ async def agent_list_coupons(request: Request, student_id: Optional[str] = None)
     agent, _ = require_agent_with_scope(request)
     owner_id = get_owner_id_for_staff(agent)
     try:
-        items = CouponDB.list_all(student_id, owner_id=owner_id)
+        items = CouponDB.list_all(student_id, owner_id=owner_id)  # student_id参数名保持不变，但内部已支持user_id
         return success_response("获取优惠券列表成功", {"coupons": items})
     except Exception as e:
         logger.error(f"代理获取优惠券失败: {e}")
@@ -1533,7 +1533,7 @@ async def admin_issue_coupons(payload: CouponIssueRequest, request: Request):
                 expires_at = dt.strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 return error_response("无效的过期时间格式", 400)
-        ids = CouponDB.issue_coupons(payload.student_id, amt, qty, expires_at, owner_id=owner_id)
+        ids = CouponDB.issue_coupons(payload.student_id, amt, qty, expires_at, owner_id=owner_id)  # student_id会自动解析为user_id
         if not ids:
             return error_response("发放失败，学号不存在或其他错误", 400)
         return success_response("发放成功", {"issued": len(ids), "coupon_ids": ids})
@@ -1564,7 +1564,7 @@ async def agent_issue_coupons(payload: CouponIssueRequest, request: Request):
                 expires_at = dt.strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 return error_response("无效的过期时间格式", 400)
-        ids = CouponDB.issue_coupons(payload.student_id, amt, qty, expires_at, owner_id=owner_id)
+        ids = CouponDB.issue_coupons(payload.student_id, amt, qty, expires_at, owner_id=owner_id)  # student_id会自动解析为user_id
         if not ids:
             return error_response("发放失败，学号不存在或其他错误", 400)
         return success_response("发放成功", {"issued": len(ids), "coupon_ids": ids})
@@ -3609,7 +3609,7 @@ async def create_order(
 
         # 创建订单（暂不扣减库存，等待支付成功）
         order_id = OrderDB.create_order(
-            student_id=user["id"],
+            user_identifier=user["id"],  # 使用学号，数据库会自动解析为user_id
             total_amount=round(total_amount, 2),
             shipping_info=shipping_info,
             items=order_items,
@@ -5305,11 +5305,11 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
             order_owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
             try:
                 # 清空该用户购物车
-                CartDB.update_cart(order["student_id"], {})
+                CartDB.update_cart(order["student_id"], {})  # student_id会自动解析为user_id
                 # 缓存用户最近的收货信息
                 if isinstance(order.get("shipping_info"), dict):
                     try:
-                        UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
+                        UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])  # student_id会自动解析为user_id
                     except Exception as e:
                         logger.warning(f"缓存用户收货信息失败: {e}")
                 # 若该订单曾进行抽奖，确认成功后生成可用奖品（排除谢谢参与）
@@ -5317,7 +5317,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                     draw = LotteryDB.get_draw_by_order(order_id)
                     if draw and draw.get("prize_name") != "谢谢参与":
                         RewardDB.add_reward_from_order(
-                            student_id=order["student_id"],
+                            user_identifier=order["student_id"],  # student_id会自动解析为user_id
                             prize_name=draw.get("prize_name"),
                             prize_product_id=draw.get("prize_product_id"),
                             quantity=int(draw.get("prize_quantity") or 1),
@@ -5354,7 +5354,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                         if gift_coupon and coupon_amount > 0 and applicable_times > 0:
                             for _ in range(applicable_times):
                                 coupon_ids = CouponDB.issue_coupons(
-                                    student_id=order["student_id"],
+                                    user_identifier=order["student_id"],  # student_id会自动解析为user_id
                                     amount=coupon_amount,
                                     quantity=1,
                                     expires_at=None,
