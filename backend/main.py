@@ -2454,6 +2454,7 @@ async def get_cart(request: Request):
                 "total_price": 0.0,
                 "scope": scope,
                 "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+                "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
                 "address_validation": address_validation
             })
 
@@ -2524,6 +2525,7 @@ async def get_cart(request: Request):
             "shipping_fee": round(shipping_fee, 2),
             "payable_total": round(total_price + shipping_fee, 2),
             "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
+            "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
             "address_validation": address_validation
         }
 
@@ -3527,9 +3529,10 @@ async def create_order(
         except Exception as e:
             logger.warning(f"处理满额赠品配置失败: {e}")
 
-        # 若已达满10门槛，则自动附加可用抽奖奖品（不计入总价）
+        # 若已达满门槛且抽奖已启用，则自动附加可用抽奖奖品（不计入总价）
         rewards_attached_ids: List[str] = []
-        if items_subtotal >= lottery_threshold:
+        lottery_enabled = LotteryConfigDB.get_enabled(owner_scope_id)
+        if lottery_enabled and items_subtotal >= lottery_threshold:
             try:
                 rewards = RewardDB.get_eligible_rewards(
                     user["id"],
@@ -3851,10 +3854,11 @@ async def admin_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(admin)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        threshold = LotteryConfigDB.get_threshold(owner_id)
+        config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {
             "prizes": prizes,
-            "threshold_amount": threshold
+            "threshold_amount": config["threshold_amount"],
+            "is_enabled": config["is_enabled"]
         })
     except Exception as e:
         logger.error(f"读取抽奖配置失败: {e}")
@@ -3867,10 +3871,11 @@ async def agent_get_lottery_config(request: Request):
     owner_id = get_owner_id_for_staff(agent)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
-        threshold = LotteryConfigDB.get_threshold(owner_id)
+        config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {
             "prizes": prizes,
-            "threshold_amount": threshold
+            "threshold_amount": config["threshold_amount"],
+            "is_enabled": config["is_enabled"]
         })
     except Exception as e:
         logger.error(f"代理读取抽奖配置失败: {e}")
@@ -3898,6 +3903,10 @@ class LotteryConfigUpdateRequest(BaseModel):
 
 class LotteryThresholdUpdateRequest(BaseModel):
     threshold_amount: float
+
+
+class LotteryEnabledUpdateRequest(BaseModel):
+    is_enabled: bool
 
 
 class AutoGiftItemInput(BaseModel):
@@ -4134,6 +4143,30 @@ async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
     except Exception as e:
         logger.error(f"代理更新抽奖门槛失败: {e}")
         return error_response("更新抽奖门槛失败", 500)
+
+
+@app.patch("/admin/lottery-config/enabled")
+async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
+    except Exception as e:
+        logger.error(f"更新抽奖启用状态失败: {e}")
+        return error_response("更新抽奖启用状态失败", 500)
+
+
+@app.patch("/agent/lottery-config/enabled")
+async def agent_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request):
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
+    except Exception as e:
+        logger.error(f"代理更新抽奖启用状态失败: {e}")
+        return error_response("更新抽奖启用状态失败", 500)
 
 
 @app.get("/admin/auto-gifts")
@@ -5091,6 +5124,9 @@ async def draw_lottery(order_id: str, request: Request):
             except Exception:
                 pass
         owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
+        lottery_enabled = LotteryConfigDB.get_enabled(owner_id)
+        if not lottery_enabled:
+            return error_response("抽奖功能已禁用", 400)
         threshold_amount = LotteryConfigDB.get_threshold(owner_id)
         if items_subtotal < threshold_amount:
             return error_response(f"本单商品金额未满{threshold_amount:.2f}元，不参与抽奖", 400)

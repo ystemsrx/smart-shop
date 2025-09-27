@@ -147,7 +147,9 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         gift_thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=False)
         
         # 获取抽奖配置
-        lottery_threshold = LotteryConfigDB.get_threshold(owner_id)
+        lottery_config = LotteryConfigDB.get_config(owner_id)
+        lottery_threshold = lottery_config.get('threshold_amount', 0)
+        lottery_enabled = lottery_config.get('is_enabled', True)
         
         # 构建配送费规则描述
         if delivery_fee == 0:
@@ -173,9 +175,9 @@ def generate_dynamic_system_prompt(request: Request) -> str:
                 if rules:
                     threshold_rules.append(f"Orders over ¥{amount:.2f}: {' and '.join(rules)}")
         
-        # 构建抽奖规则描述
+        # 构建抽奖规则描述（仅在启用时）
         lottery_rule = ""
-        if lottery_threshold and lottery_threshold > 0:
+        if lottery_enabled and lottery_threshold and lottery_threshold > 0:
             lottery_rule = f"Lottery: Eligible for lottery draw for orders over ¥{lottery_threshold:.2f}"
         
         # 组合所有业务规则
