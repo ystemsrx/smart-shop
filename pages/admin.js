@@ -217,7 +217,11 @@ const ShopStatusCard = () => {
   };
 
   const saveNote = async () => {
-    try { await updateStatus(isOpen, note); alert('提示已更新'); } catch (e) {}
+    try { 
+      await updateStatus(isOpen, note);
+    } catch (e) {
+      console.error('保存提示失败:', e);
+    }
   };
 
   if (loading) {
@@ -233,36 +237,38 @@ const ShopStatusCard = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <div className="text-sm text-gray-600 mb-2">店铺状态</div>
-      <div className="flex items-center justify-between mb-3">
-        <div className={`text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
-          {isOpen ? '营业中' : '打烊中'}
+      <div className="flex gap-6">
+        {/* 左侧：状态和按钮 */}
+        <div className="flex-shrink-0">
+          <div className="text-sm text-gray-600 mb-2">店铺状态</div>
+          <div className={`text-lg font-semibold mb-3 ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
+            {isOpen ? '营业中' : '打烊中'}
+          </div>
+          <button
+            onClick={toggle}
+            className={`px-4 py-2 rounded-md text-white font-semibold ${
+              isOpen 
+                ? 'bg-red-600 hover:bg-red-700' 
+                : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            {isOpen ? '设为打烊' : '设为营业'}
+          </button>
         </div>
-        <button
-          onClick={toggle}
-          className={`px-4 py-2 rounded-md text-white font-semibold ${
-            isOpen 
-              ? 'bg-red-600 hover:bg-red-700' 
-              : 'bg-green-600 hover:bg-green-700'
-          }`}
-        >
-          {isOpen ? '设为打烊' : '设为营业'}
-        </button>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="打烊提示语（可选）"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm flex-1"
-        />
-        <button 
-          onClick={saveNote} 
-          className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
-        >
-          保存提示
-        </button>
+        
+        {/* 右侧：打烊提示语输入框 */}
+        <div className="flex-1">
+          <div className="text-sm text-gray-600 mb-2">打烊提示语</div>
+          <textarea
+            placeholder="可输入打烊时显示给顾客的提示信息..."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={saveNote}
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            style={{ height: '82px' }}
+          />
+        </div>
       </div>
     </div>
   );

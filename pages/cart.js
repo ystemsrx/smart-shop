@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
+import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getProductImage } from '../utils/urls';
 import { getShopName } from '../utils/runtimeConfig';
 
@@ -328,6 +329,7 @@ export default function Cart() {
   const [infoMessage, setInfoMessage] = useState('');
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
   const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
+  const [shopClosedModalOpen, setShopClosedModalOpen] = useState(false);
   const shopName = getShopName();
 
   const normalizeValidation = useCallback((raw) => {
@@ -540,7 +542,7 @@ export default function Cart() {
   // 去结算
   const handleCheckout = () => {
     if (!shopOpen) {
-      alert(shopNote || '当前打烊，暂不支持结算，仅可加入购物车');
+      setShopClosedModalOpen(true);
       return;
     }
     if (addressInvalid) {
@@ -936,6 +938,36 @@ export default function Cart() {
           )}
         </main>
       </div>
+
+      {/* 打烊提示模态框 */}
+      {shopClosedModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="absolute inset-0" onClick={() => setShopClosedModalOpen(false)}></div>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                  <i className="fas fa-exclamation-triangle text-orange-600"></i>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">店铺提醒</h3>
+              </div>
+            </div>
+            <div className="px-6 py-4">
+              <SimpleMarkdown className="text-gray-700 leading-relaxed">
+                {shopNote || '当前打烊，暂不支持结算，仅可加入购物车'}
+              </SimpleMarkdown>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShopClosedModalOpen(false)}
+                className="px-4 py-2 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
