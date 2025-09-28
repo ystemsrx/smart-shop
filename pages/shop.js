@@ -407,6 +407,7 @@ export default function Shop() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
+  const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
   
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
@@ -547,12 +548,14 @@ export default function Shop() {
     setError('');
 
     try {
-      // 首次加载时，先检查是否有热销商品
+      // 首先检查全局是否有热销商品（用于控制热销分类按钮的显示）
+      const allProductsData = await getProducts({ hotOnly: false });
+      const allProducts = allProductsData.data.products || [];
+      const hasHotProducts = allProducts.some(p => Boolean(p.is_hot));
+      setHasGlobalHotProducts(hasHotProducts);
+
+      // 首次加载时，如果选择了热销但没有热销商品，切换到全部
       if (!initialCategorySet && selectedCategory === 'hot') {
-        const allProductsData = await getProducts({ hotOnly: false });
-        const allProducts = allProductsData.data.products || [];
-        const hasHotProducts = allProducts.some(p => Boolean(p.is_hot));
-        
         if (!hasHotProducts) {
           setSelectedCategory('all');
           setInitialCategorySet(true);
@@ -902,7 +905,7 @@ export default function Shop() {
               categories={categories}
               selectedCategory={selectedCategory}
               onCategoryChange={handleCategoryChange}
-              hasHotProducts={products.some(p => Boolean(p.is_hot))}
+              hasHotProducts={hasGlobalHotProducts}
             />
           )}
 
