@@ -2918,7 +2918,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
               <button
                 onClick={() => onBatchDeleteOrders(selectedOrders)}
                 className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
-              >批量删除</button>
+              >删除</button>
             </>
           )}
         </div>

@@ -3118,6 +3118,117 @@ class OrderDB:
             
             logger.info(f"订单 {order_id} 支付处理完成，库存已扣减，支付状态已更新为 succeeded，影响行数: {updated_rows}")
             return True
+
+    @staticmethod
+    def restore_stock_from_order(order_id: str) -> bool:
+        """从已确认订单恢复库存（当订单从成功状态回退或删除时）"""
+        logger.info(f"开始恢复订单库存: {order_id}")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取订单信息
+            cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
+            row = cursor.fetchone()
+            if not row:
+                logger.error(f"订单不存在: {order_id}")
+                return False
+                
+            order_data = dict(row)
+            current_status = order_data['payment_status']
+            logger.info(f"订单 {order_id} 当前支付状态: {current_status}")
+            
+            # 只有已成功支付的订单才需要恢复库存
+            if order_data['payment_status'] != 'succeeded':
+                logger.info(f"订单 {order_id} 未成功支付，无需恢复库存")
+                return True  # 未扣减过库存，无需恢复
+                
+            items = json.loads(order_data['items'])
+            
+            # 恢复库存
+            for item in items:
+                is_lottery_item = False
+                try:
+                    is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
+                except Exception:
+                    is_lottery_item = False
+
+                if is_lottery_item and isinstance(item, dict):
+                    quantity = int(item.get('quantity', 0))
+                    if quantity <= 0:
+                        continue
+                    actual_product_id = item.get('lottery_product_id') or item.get('product_id')
+                    actual_variant_id = item.get('lottery_variant_id') or item.get('variant_id')
+                    
+                    if actual_variant_id:
+                        # 恢复规格库存
+                        cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (actual_variant_id,))
+                        var_row = cursor.fetchone()
+                        if var_row:
+                            current_stock = int(var_row[0])
+                            new_stock = current_stock + quantity
+                            cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
+                            logger.info(f"恢复抽奖奖品规格库存: variant_id={actual_variant_id}, +{quantity} -> {new_stock}")
+                        else:
+                            logger.warning(f"抽奖奖品规格不存在，无法恢复库存: {actual_variant_id}")
+                    else:
+                        # 恢复商品库存
+                        cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
+                        product_row = cursor.fetchone()
+                        if product_row:
+                            current_stock = int(product_row[0])
+                            new_stock = current_stock + quantity
+                            cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
+                            logger.info(f"恢复抽奖奖品库存: product_id={actual_product_id}, +{quantity} -> {new_stock}")
+                        else:
+                            # 抽奖奖品可能对应不存在的商品或虚拟商品，跳过库存恢复
+                            logger.info(f"抽奖奖品商品不存在，跳过库存恢复: {actual_product_id} (item: {item.get('name', 'Unknown')})")
+                    # 抽奖赠品已处理库存，无需进入常规分支
+                    continue
+
+                product_id = item['product_id']
+                quantity = int(item['quantity'])
+                variant_id = item.get('variant_id')
+                if variant_id:
+                    # 恢复规格库存
+                    cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (variant_id,))
+                    var_row = cursor.fetchone()
+                    if var_row:
+                        current_stock = int(var_row[0])
+                        new_stock = current_stock + quantity
+                        cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, variant_id))
+                        logger.info(f"恢复规格库存: variant_id={variant_id}, +{quantity} -> {new_stock}")
+                    else:
+                        logger.warning(f"规格不存在，无法恢复库存: variant_id={variant_id}")
+                else:
+                    # 恢复商品库存
+                    cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
+                    product_row = cursor.fetchone()
+                    if product_row:
+                        current_stock = int(product_row[0])
+                        new_stock = current_stock + quantity
+                        cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
+                        logger.info(f"恢复商品库存: product_id={product_id}, +{quantity} -> {new_stock}")
+                    else:
+                        # 兼容处理：若为各种类型赠品且无对应商品，跳过恢复
+                        if isinstance(item, dict):
+                            # 检查是否为各种类型的赠品
+                            is_gift_item = (
+                                item.get('is_lottery') or          # 抽奖赠品
+                                item.get('is_auto_gift') or        # 满额赠品
+                                item.get('category') == '满额赠品' or # 分类为赠品
+                                '赠品' in str(item.get('name', '')) or  # 名称包含赠品
+                                '赠品' in str(item.get('category', ''))  # 分类包含赠品
+                            )
+                            if is_gift_item:
+                                logger.info(f"跳过赠品库存恢复: {item.get('name', 'Unknown')} (product_id: {product_id})")
+                                continue
+                        logger.error(f"商品不存在无法恢复库存: product_id={product_id}, item={item}")
+                        return False
+            
+            conn.commit()
+            logger.info(f"订单 {order_id} 库存恢复完成")
+            return True
     
     @staticmethod
     def get_order_by_id(order_id: str) -> Optional[Dict]:

@@ -4949,13 +4949,25 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
             result = OrderDB.batch_delete_orders(accessible_ids)
             if not result.get("success"):
                 return error_response(result.get("message", "批量删除失败"), 400)
-            # 返还相关优惠券（仅对未支付订单）
+            # 恢复库存和返还相关优惠券
             try:
                 for od in (orders_before or []):
                     if not od:
                         continue
                     try:
-                        if (od.get("payment_status") or "pending") != "succeeded":
+                        payment_status = od.get("payment_status") or "pending"
+                        
+                        # 如果是已支付订单，恢复库存
+                        if payment_status == "succeeded":
+                            try:
+                                restore_ok = OrderDB.restore_stock_from_order(od.get("id"))
+                                if not restore_ok:
+                                    logger.warning(f"批量删除时恢复库存失败: order_id={od.get('id')}")
+                            except Exception as e:
+                                logger.warning(f"批量删除时恢复库存异常: {e}")
+                        
+                        # 返还优惠券（仅对未支付订单）
+                        if payment_status != "succeeded":
                             c_id = od.get("coupon_id")
                             d_amt = float(od.get("discount_amount") or 0)
                             if c_id and d_amt > 0:
@@ -4963,22 +4975,36 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                     except Exception:
                         pass
             except Exception as e:
-                logger.warning(f"批量删除返还优惠券失败: {e}")
+                logger.warning(f"批量删除后处理失败: {e}")
             return success_response(result.get("message", "批量删除成功"), result)
         else:
             from database import OrderDB
-            # 单笔：删除前返还优惠券（仅未支付）
+            # 单笔：删除前恢复库存和返还优惠券
             try:
                 od = OrderDB.get_order_by_id(order_id)
                 if not staff_can_access_order(staff, od, scope):
                     return error_response("无权删除此订单", 403)
-                if od and (od.get("payment_status") or "pending") != "succeeded":
-                    c_id = od.get("coupon_id")
-                    d_amt = float(od.get("discount_amount") or 0)
-                    if c_id and d_amt > 0:
-                        CouponDB.unlock_for_order(c_id, order_id)
+                
+                if od:
+                    payment_status = od.get("payment_status") or "pending"
+                    
+                    # 如果是已支付订单，恢复库存
+                    if payment_status == "succeeded":
+                        try:
+                            restore_ok = OrderDB.restore_stock_from_order(order_id)
+                            if not restore_ok:
+                                logger.warning(f"删除订单时恢复库存失败: order_id={order_id}")
+                        except Exception as e:
+                            logger.warning(f"删除订单时恢复库存异常: {e}")
+                    
+                    # 返还优惠券（仅未支付订单）
+                    if payment_status != "succeeded":
+                        c_id = od.get("coupon_id")
+                        d_amt = float(od.get("discount_amount") or 0)
+                        if c_id and d_amt > 0:
+                            CouponDB.unlock_for_order(c_id, order_id)
             except Exception as e:
-                logger.warning(f"单笔删除返还优惠券失败: {e}")
+                logger.warning(f"单笔删除前处理失败: {e}")
             ok = OrderDB.delete_order(order_id)
             if not ok:
                 return error_response("删除订单失败或订单不存在", 400)
@@ -5470,7 +5496,18 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                 logger.warning(f"清空购物车失败: {e}")
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
 
-        # 失败、待验证或回退为未付款：仅更新支付状态
+        # 失败、待验证或回退为未付款：恢复库存并更新支付状态
+        # 先检查当前状态，如果从succeeded回退，需要恢复库存
+        current_status = order.get("payment_status")
+        if current_status == "succeeded" and new_status in ["pending", "processing", "failed"]:
+            # 从成功状态回退，需要恢复库存
+            try:
+                restore_ok = OrderDB.restore_stock_from_order(order_id)
+                if not restore_ok:
+                    logger.warning(f"恢复库存失败，但继续处理状态更新: order_id={order_id}")
+            except Exception as e:
+                logger.warning(f"恢复库存异常: {e}")
+        
         ok = OrderDB.update_payment_status(order_id, new_status)
         if not ok:
             return error_response("更新支付状态失败", 500)
