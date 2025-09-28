@@ -461,112 +461,123 @@ const MarkdownRenderer = ({ content }) => {
           updateTransform();
         });
         
-        // 拖拽功能
-        mermaidContainer.addEventListener('mousedown', (e) => {
+        // 拖拽功能 - 使用闭包确保每个图表的事件处理独立
+        const handleMouseDown = (e) => {
           if (e.target.closest('button')) return;
           isDragging = true;
           dragStart = { x: e.clientX - translate.x, y: e.clientY - translate.y };
           mermaidContainer.style.cursor = 'grabbing';
-        });
+        };
         
-        document.addEventListener('mousemove', (e) => {
+        const handleMouseMove = (e) => {
           if (!isDragging) return;
           e.preventDefault();
           translate.x = e.clientX - dragStart.x;
           translate.y = e.clientY - dragStart.y;
           updateTransform();
-        });
+        };
         
-        document.addEventListener('mouseup', () => {
+        const handleMouseUp = () => {
           if (isDragging) {
             isDragging = false;
             mermaidContainer.style.cursor = 'grab';
           }
-        });
+        };
+        
+        mermaidContainer.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
         
         // 鼠标滚轮缩放
-        mermaidContainer.addEventListener('wheel', (e) => {
+        const handleWheel = (e) => {
           e.preventDefault();
           const delta = e.deltaY > 0 ? 0.9 : 1.1;
           scale = Math.max(0.3, Math.min(3, scale * delta));
           updateTransform();
-        });
+        };
+        
+        mermaidContainer.addEventListener('wheel', handleWheel);
+        
+        // 存储清理函数以便后续使用
+        const cleanupEventListeners = () => {
+          mermaidContainer.removeEventListener('mousedown', handleMouseDown);
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+          mermaidContainer.removeEventListener('wheel', handleWheel);
+        };
+        
+        // 将清理函数绑定到容器，以便在组件卸载时清理
+        mermaidContainer._cleanupEventListeners = cleanupEventListeners;
         
         // 渲染Mermaid图表
         if (window.mermaid) {
-          try {
-            // 彻底清除页面中所有可能的Mermaid错误信息和占位元素
-            const existingErrors = document.querySelectorAll('.mermaid-error, [id^="dmermaid"], [id*="mermaid-"]');
-            existingErrors.forEach(error => {
-              if (error && error.parentNode && !error.closest('.mermaid-preview')) {
-                error.remove();
+          // 生成唯一ID
+          const mermaidId = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+          
+          // 为当前容器设置唯一标识，方便后续识别
+          mermaidContainer.setAttribute('data-mermaid-id', mermaidId);
+          
+          // 简化的错误清理函数 - 只清理明显的错误信息
+          const cleanupErrors = () => {
+            // 只清理body直接子元素中的错误信息，避免清理预览容器内的内容
+            const bodyChildren = document.body.children;
+            for (let i = bodyChildren.length - 1; i >= 0; i--) {
+              const element = bodyChildren[i];
+              const text = element.textContent || '';
+              if (text.includes('Syntax error in text') && 
+                  text.includes('mermaid version') &&
+                  !element.closest('.mermaid-preview')) {
+                element.remove();
               }
-            });
-            
-            // 清理body中可能残留的Mermaid错误信息
-            const bodyErrors = document.body.querySelectorAll('div');
-            bodyErrors.forEach(div => {
-              if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
-                div.remove();
-              }
-            });
-            
-            // 生成唯一ID
-            const mermaidId = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-            
-            // 异步渲染Mermaid
-            window.mermaid.render(mermaidId + '-svg', mermaidCode).then(result => {
-              // 再次清理，确保渲染过程中没有产生新的错误占位
-              const pageErrors = document.querySelectorAll('div');
-              pageErrors.forEach(div => {
-                if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
-                  div.remove();
-                }
-              });
+            }
+          };
+          
+          // 异步渲染函数
+          const renderChart = async () => {
+            try {
+              // 渲染前清理一次
+              cleanupErrors();
               
-              // 在zoomControls之前插入SVG内容
-              const tempDiv = document.createElement('div');
-              tempDiv.innerHTML = result.svg;
-              const svg = tempDiv.querySelector('svg');
+              const result = await window.mermaid.render(mermaidId + '-svg', mermaidCode);
               
-              if (svg) {
-                svg.style.maxWidth = '100%';
-                svg.style.height = 'auto';
-                svg.style.maxHeight = '100%';
-                svg.style.display = 'block';
-                svg.style.transformOrigin = 'center center';
+              // 渲染后立即清理
+              setTimeout(cleanupErrors, 50);
+              
+              if (result && result.svg) {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = result.svg;
+                const svg = tempDiv.querySelector('svg');
                 
-                // 完全清空mermaidContainer并重新构建
-                const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-                mermaidContainer.innerHTML = '';
-                
-                // 先添加SVG，再添加控制按钮
-                mermaidContainer.appendChild(svg);
-                if (controls) {
-                  mermaidContainer.appendChild(controls);
-                }
-              }
-              
-              // 渲染成功后再次清理页面
-              setTimeout(() => {
-                const finalErrors = document.querySelectorAll('div');
-                finalErrors.forEach(div => {
-                  if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
-                    div.remove();
+                if (svg) {
+                  svg.style.maxWidth = '100%';
+                  svg.style.height = 'auto';
+                  svg.style.maxHeight = '100%';
+                  svg.style.display = 'block';
+                  svg.style.transformOrigin = 'center center';
+                  
+                  // 保存控制按钮
+                  const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
+                  
+                  // 清空容器并重新构建
+                  mermaidContainer.innerHTML = '';
+                  
+                  // 先添加SVG，再添加控制按钮
+                  mermaidContainer.appendChild(svg);
+                  if (controls) {
+                    mermaidContainer.appendChild(controls);
                   }
-                });
-              }, 100);
-              
-            }).catch(err => {
-              console.error('Mermaid渲染失败:', err);
-              // 清理可能的错误占位
-              const pageErrors = document.querySelectorAll('div');
-              pageErrors.forEach(div => {
-                if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
-                  div.remove();
+                  
+                  // 延迟清理，确保渲染完成
+                  setTimeout(cleanupErrors, 200);
                 }
-              });
+              }
+            } catch (err) {
+              console.error('Mermaid渲染失败:', err);
               
+              // 错误时也清理
+              cleanupErrors();
+              
+              // 保存控制按钮
               const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
               mermaidContainer.innerHTML = '';
               
@@ -578,29 +589,11 @@ const MarkdownRenderer = ({ content }) => {
               if (controls) {
                 mermaidContainer.appendChild(controls);
               }
-            });
-          } catch (err) {
-            console.error('Mermaid渲染失败:', err);
-            // 清理可能的错误占位
-            const pageErrors = document.querySelectorAll('div');
-            pageErrors.forEach(div => {
-              if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
-                div.remove();
-              }
-            });
-            
-            const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-            mermaidContainer.innerHTML = '';
-            
-            const errorDiv = document.createElement('div');
-            errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
-            errorDiv.textContent = 'Mermaid图表渲染失败';
-            mermaidContainer.appendChild(errorDiv);
-            
-            if (controls) {
-              mermaidContainer.appendChild(controls);
             }
-          }
+          };
+          
+          // 执行渲染
+          renderChart();
         } else {
           const errorDiv = document.createElement('div');
           errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
@@ -684,28 +677,38 @@ const MarkdownRenderer = ({ content }) => {
       });
     }
 
-    // 持续清理Mermaid错误占位（流式生成时可能产生）
-    const cleanup = () => {
-      const pageErrors = document.querySelectorAll('div');
-      pageErrors.forEach(div => {
-        if (div.textContent && 
-            div.textContent.includes('Syntax error in text') && 
-            div.textContent.includes('mermaid version') &&
-            !div.closest('.mermaid-preview')) {
-          div.remove();
+    // 简化的Mermaid错误清理
+    const simpleCleanup = () => {
+      // 只清理body直接子元素中的错误信息
+      const bodyChildren = document.body.children;
+      for (let i = bodyChildren.length - 1; i >= 0; i--) {
+        const element = bodyChildren[i];
+        const text = element.textContent || '';
+        if (text.includes('Syntax error in text') && 
+            text.includes('mermaid version') &&
+            !element.closest('.mermaid-preview')) {
+          element.remove();
         }
-      });
+      }
     };
     
-    // 立即清理一次
-    cleanup();
+    // 立即执行一次清理
+    simpleCleanup();
     
-    // 设置定期清理
-    const cleanupInterval = setInterval(cleanup, 500);
+    // 设置低频清理
+    const cleanupInterval = setInterval(simpleCleanup, 3000);
     
     // 清理函数
     return () => {
       clearInterval(cleanupInterval);
+      
+      // 清理Mermaid容器的事件监听器
+      const mermaidContainers = containerRef.current?.querySelectorAll('.mermaid-preview') || [];
+      mermaidContainers.forEach(container => {
+        if (container._cleanupEventListeners) {
+          container._cleanupEventListeners();
+        }
+      });
     };
   }, [content]);
 

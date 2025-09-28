@@ -38,44 +38,34 @@ export default function Document() {
                   logLevel: 'error'
                 });
                 
-                // 覆盖错误显示方法以防止错误信息显示在DOM中
-                const originalParseError = window.mermaid.parseError;
-                if (originalParseError) {
+                // 覆盖错误显示方法以减少DOM污染
+                if (window.mermaid.parseError) {
+                  const originalParseError = window.mermaid.parseError;
                   window.mermaid.parseError = function(err, hash) {
                     console.error('Mermaid parse error:', err);
-                    // 不在DOM中显示错误
-                    return;
+                    // 尝试不在DOM中显示错误，但保持兼容性
+                    return originalParseError ? originalParseError.call(this, err, hash) : null;
                   };
                 }
                 
-                // 清理可能出现的错误信息
-                const observer = new MutationObserver(function(mutations) {
-                  mutations.forEach(function(mutation) {
-                    mutation.addedNodes.forEach(function(node) {
-                      if (node.nodeType === 1) { // Element node
-                        // 查找并移除Mermaid错误信息
-                        const errorDivs = node.querySelectorAll ? 
-                          node.querySelectorAll('div[id^="dmermaid"], div[style*="font-size: 64px"]') : [];
-                        errorDivs.forEach(div => {
-                          if (div.textContent && div.textContent.includes('Syntax error in text')) {
-                            div.remove();
-                          }
-                        });
-                        
-                        // 如果节点本身是错误信息
-                        if (node.textContent && node.textContent.includes('Syntax error in text')) {
-                          node.remove();
-                        }
-                      }
-                    });
-                  });
-                });
+                // 轻量级错误清理 - 只监听明显的错误节点
+                const lightweightCleanup = () => {
+                  // 只清理body的直接子元素中明显的错误信息
+                  const bodyChildren = document.body.children;
+                  for (let i = bodyChildren.length - 1; i >= 0; i--) {
+                    const element = bodyChildren[i];
+                    const text = element.textContent || '';
+                    // 只清理明显的错误信息且不在预览容器内的
+                    if (text.includes('Syntax error in text') && 
+                        text.includes('mermaid version') &&
+                        !element.closest('.mermaid-preview')) {
+                      element.remove();
+                    }
+                  }
+                };
                 
-                // 监听整个document的变化
-                observer.observe(document.body || document.documentElement, {
-                  childList: true,
-                  subtree: true
-                });
+                // 设置低频率的清理
+                setInterval(lightweightCleanup, 2000);
               }
             `
           }}
