@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
-import LocationModal from '../components/LocationModal';
+import StepperLocationModal from '../components/StepperLocationModal';
 import { getApiBaseUrl } from '../utils/runtimeConfig';
 
 const LocationContext = createContext(null);
@@ -321,7 +321,7 @@ export function LocationProvider({ children }) {
   return (
     <LocationContext.Provider value={value}>
       {children}
-      <LocationModal
+      <StepperLocationModal
         isOpen={isModalOpen && user?.type === 'user'}
         forceSelection={forceSelection}
         addresses={addresses}
