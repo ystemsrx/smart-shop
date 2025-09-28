@@ -15,6 +15,19 @@ import TextType from './TextType';
 const cx = (...xs) => xs.filter(Boolean).join(" ");
 const SHOP_NAME = getShopName();
 
+// TextType组件的props常量，避免每次渲染时创建新对象
+const WELCOME_TEXTS = ["你需要什么？", "让我帮你查询", "我可以怎么帮你？", "有什么需要帮忙的？", "需要我帮你找点什么吗？", "请告诉我你的需求", "我能为你做些什么？", "想了解点什么？", "需要帮忙吗？", "我在这里帮你"];
+const TEXTTYPE_PROPS = {
+  text: WELCOME_TEXTS,
+  typingSpeed: 75,
+  pauseDuration: 1500,
+  deletingSpeed: 50,
+  cursorBlinkDuration: 0.5,
+  showCursor: true,
+  cursorCharacter: "_",
+  randomOrder: true
+};
+
 // 智能自动滚动 Hook - 支持用户滚动检测和固定底栏适配
 const useSmartAutoScroll = (dep) => {
   const endRef = useRef(null);
@@ -921,6 +934,11 @@ export default function ChatModern({ user }) {
   };
   const PAD = "pb-40";
 
+  // 使用useMemo确保TextType组件稳定性
+  const welcomeTextComponent = useMemo(() => (
+    <TextType {...TEXTTYPE_PROPS} />
+  ), []);
+
   const Header = useMemo(() => (
     <header className="sticky top-0 z-20 w-full border-b border-gray-200 bg-white">
       <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
@@ -943,16 +961,7 @@ export default function ChatModern({ user }) {
         <main className="grid flex-1 place-items-center p-6">
           <section className="w-full max-w-3xl space-y-8">
             <div className="text-center">
-              <TextType 
-                text={["你需要什么？", "让我帮你查询", "我可以怎么帮你？", "有什么需要帮忙的？"]}
-                typingSpeed={75}
-                pauseDuration={1500}
-                deletingSpeed={50}
-                cursorBlinkDuration={0.5}
-                showCursor={true}
-                cursorCharacter="_"
-                randomOrder={true}
-              />
+              {welcomeTextComponent}
             </div>
             <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
           </section>

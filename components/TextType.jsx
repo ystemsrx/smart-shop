@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, memo } from 'react';
 import { gsap } from 'gsap';
 
-const TextType = ({ 
+const TextType = memo(({ 
   text = [], 
   typingSpeed = 75, 
   pauseDuration = 1500, 
@@ -19,6 +19,7 @@ const TextType = ({
   const lastTextIndexRef = useRef(-1); // 用ref来同步跟踪上一个索引
   const timelineRef = useRef(null);
   const animationControllerRef = useRef(null); // 用于控制动画的中断
+  const isInitializedRef = useRef(false); // 防止重复初始化
 
   // 随机选择下一个文本索引的函数，避免连续显示相同文本
   const getNextTextIndex = () => {
@@ -51,6 +52,19 @@ const TextType = ({
   useEffect(() => {
     if (!text.length || !textRef.current) return;
 
+    // 如果动画已经在运行，不要重新启动
+    if (isInitializedRef.current && animationControllerRef.current && !animationControllerRef.current.aborted) {
+      return;
+    }
+
+    // 清理之前的动画
+    if (timelineRef.current) {
+      timelineRef.current.kill();
+    }
+    if (animationControllerRef.current) {
+      animationControllerRef.current.aborted = true;
+    }
+
     const tl = gsap.timeline({ repeat: -1 });
     timelineRef.current = tl;
 
@@ -68,7 +82,8 @@ const TextType = ({
 
     const typeText = (textToType, index) => {
       return new Promise((resolve, reject) => {
-        if (animationControllerRef.current?.aborted) {
+        const controller = animationControllerRef.current;
+        if (controller?.aborted) {
           reject(new Error('Animation aborted'));
           return;
         }
@@ -78,7 +93,8 @@ const TextType = ({
         let currentLength = 0;
         
         const typeChar = () => {
-          if (animationControllerRef.current?.aborted) {
+          const controller = animationControllerRef.current;
+          if (controller?.aborted) {
             reject(new Error('Animation aborted'));
             return;
           }
@@ -101,7 +117,8 @@ const TextType = ({
 
     const eraseText = () => {
       return new Promise((resolve, reject) => {
-        if (animationControllerRef.current?.aborted) {
+        const controller = animationControllerRef.current;
+        if (controller?.aborted) {
           reject(new Error('Animation aborted'));
           return;
         }
@@ -115,7 +132,8 @@ const TextType = ({
         });
         
         const eraseChar = () => {
-          if (animationControllerRef.current?.aborted) {
+          const controller = animationControllerRef.current;
+          if (controller?.aborted) {
             reject(new Error('Animation aborted'));
             return;
           }
@@ -142,8 +160,9 @@ const TextType = ({
     animationControllerRef.current = controller;
 
     const runAnimation = async () => {
+      const controller = animationControllerRef.current;
       try {
-        while (!controller.aborted) {
+        while (controller && !controller.aborted) {
           // 随机或顺序选择下一个文本索引
           const nextIndex = getNextTextIndex();
           setCurrentTextIndex(nextIndex);
@@ -181,13 +200,14 @@ const TextType = ({
       } catch (error) {
         // 动画被中断，正常情况
         if (error.message !== 'Animation aborted') {
-          console.error('Animation error:', error);
+          console.error('TextType animation error:', error);
         }
       }
     };
 
     // 开始动画循环
     runAnimation();
+    isInitializedRef.current = true;
 
     return () => {
       // 中断动画
@@ -199,6 +219,8 @@ const TextType = ({
       if (timelineRef.current) {
         timelineRef.current.kill();
       }
+      
+      isInitializedRef.current = false;
     };
   }, [text, typingSpeed, pauseDuration, deletingSpeed, cursorBlinkDuration, showCursor, randomOrder]);
 
@@ -218,6 +240,9 @@ const TextType = ({
       )}
     </div>
   );
-};
+});
+
+// 给memo组件一个显示名称，便于调试
+TextType.displayName = 'TextType';
 
 export default TextType;
