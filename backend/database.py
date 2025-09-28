@@ -1312,13 +1312,43 @@ class UserDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute(
-                    'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
-                    (student_id, password, name)
-                )
+                # 先检查表结构是否包含 user_id 字段
+                cursor.execute("PRAGMA table_info(users)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'user_id' in columns:
+                    # 新表结构：包含 user_id 自增主键
+                    cursor.execute(
+                        'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
+                        (student_id, password, name)
+                    )
+                else:
+                    # 旧表结构：只有 id 主键
+                    cursor.execute(
+                        'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
+                        (student_id, password, name)
+                    )
+                
                 conn.commit()
+                
+                # 创建成功后，立即为新用户确保有正确的 user_id
+                if 'user_id' in columns:
+                    # 检查刚创建的用户是否有 user_id
+                    cursor.execute('SELECT user_id FROM users WHERE id = ?', (student_id,))
+                    row = cursor.fetchone()
+                    if row and (row[0] is None or row[0] == 0):
+                        # 如果 user_id 为空或0，设置为 rowid
+                        cursor.execute('UPDATE users SET user_id = rowid WHERE id = ?', (student_id,))
+                        conn.commit()
+                
+                logger.info(f"成功创建用户: {student_id}")
                 return True
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as e:
+                logger.warning(f"创建用户失败 - 用户已存在: {student_id} - {e}")
+                return False
+            except Exception as e:
+                logger.error(f"创建用户失败 - 未知错误: {student_id} - {e}")
+                conn.rollback()
                 return False
     
     @staticmethod
@@ -1376,12 +1406,15 @@ class UserDB:
 
             if user_id in (None, 0):
                 try:
+                    logger.info(f"用户 {student_id} 缺少 user_id，正在修复...")
                     cursor.execute(
                         'UPDATE users SET user_id = rowid WHERE (user_id IS NULL OR user_id = 0) AND id = ?',
                         (student_id,),
                     )
                     conn.commit()
-                except Exception:
+                    logger.info(f"已为用户 {student_id} 修复 user_id")
+                except Exception as e:
+                    logger.error(f"修复用户 {student_id} 的 user_id 失败: {e}")
                     conn.rollback()
                     return None
                 return UserDB.resolve_user_reference(student_id)
@@ -3975,10 +4008,16 @@ class UserProfileDB:
         agent_id = shipping.get('agent_id')
         user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
         if not user_ref:
+            logger.error(f"无法解析用户标识符: {user_identifier}")
             return False
             
         user_id = user_ref['user_id']
         student_id = user_ref['student_id']
+        
+        # 验证必要的数据
+        if not user_id or not student_id:
+            logger.error(f"用户数据不完整: user_id={user_id}, student_id={student_id}")
+            return False
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -4006,12 +4045,12 @@ class UserProfileDB:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (student_id, user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id))
             else:
-                # 使用user_id更新现有记录
+                # 使用user_id更新现有记录，同时确保student_id也被正确设置
                 cursor.execute('''
                     UPDATE user_profiles
-                    SET name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
+                    SET student_id = ?, name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE user_id = ?
-                ''', (name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, user_id))
+                ''', (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, user_id))
             
             conn.commit()
             return True

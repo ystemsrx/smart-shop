@@ -6,12 +6,13 @@ import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
 
 export default function Register() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, checkAuth } = useAuth();
   const shopName = getShopName();
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    nickname: ''  // 昵称字段
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -104,14 +105,23 @@ export default function Register() {
         credentials: 'include',
         body: JSON.stringify({
           username: formData.username.trim(),
-          password: formData.password
+          password: formData.password,
+          nickname: formData.nickname.trim() || null  // 只有非空时才发送
         }),
       });
 
       const result = await response.json();
 
       if (result.success) {
-        // 注册成功，跳转到首页
+        // 注册成功并已自动登录
+        // 等待一下然后刷新认证状态，确保前端能检测到登录状态
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 刷新认证状态
+        await checkAuth();
+        
+        // 等待状态更新后跳转到首页
+        await new Promise(resolve => setTimeout(resolve, 200));
         router.push('/');
       } else {
         setError(result.message || '注册失败，请稍后重试');
@@ -276,6 +286,26 @@ export default function Register() {
                       />
                       <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500">
                         <i className="fas fa-id-card"></i>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="nickname" className="block text-sm font-medium text-gray-800 mb-2">
+                      <i className="fas fa-heart mr-2"></i>昵称 <span className="text-xs text-gray-600">(选填)</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="nickname"
+                        name="nickname"
+                        type="text"
+                        value={formData.nickname}
+                        onChange={handleInputChange}
+                        className="input-glass w-full pl-4 pr-12 text-gray-800 placeholder-gray-500"
+                        placeholder="不填则使用用户名作为昵称"
+                      />
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500">
+                        <i className="fas fa-smile"></i>
                       </div>
                     </div>
                   </div>

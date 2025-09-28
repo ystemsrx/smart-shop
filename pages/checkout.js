@@ -637,7 +637,7 @@ export default function Checkout() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       <div>
                         <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-user mr-2"></i>姓名 *
+                          <i className="fas fa-user mr-2"></i>昵称 *
                         </label>
                         <input
                           type="text"
@@ -647,7 +647,7 @@ export default function Checkout() {
                           value={formData.name}
                           onChange={handleInputChange}
                           className="input-glass w-full text-gray-900 placeholder-gray-500"
-                          placeholder="请输入您的姓名"
+                          placeholder="请输入您的昵称"
                         />
                       </div>
                       

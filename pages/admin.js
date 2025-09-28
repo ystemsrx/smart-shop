@@ -2836,7 +2836,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                       用户: {order.student_id || '未知'}
                     </div>
                     <div className="text-sm text-gray-500">
-                      姓名: {order.shipping_info?.name || order.customer_name || '未知'}
+                      昵称: {order.shipping_info?.name || order.customer_name || '未知'}
                     </div>
                     <div className="text-sm text-gray-500">
                       电话: {order.shipping_info?.phone}
@@ -2924,7 +2924,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                       <div>
                         <div className="text-sm font-medium text-gray-900 mb-2">收货信息</div>
                         <div className="text-sm text-gray-600 space-y-1 border rounded-md px-3 py-2">
-                          <div>姓名：{order.shipping_info?.name}</div>
+                          <div>昵称：{order.shipping_info?.name}</div>
                           <div>电话：{order.shipping_info?.phone}</div>
                           <div>地址：{order.shipping_info?.full_address}</div>
                           {order.note && <div>备注：<span className="text-red-600">{order.note}</span></div>}

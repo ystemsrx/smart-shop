@@ -5,6 +5,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, Set
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -78,13 +79,14 @@ def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) 
         current_timestamp = int(time.time())
         age_minutes = (current_timestamp - timestamp) // 60
         order_info = f"订单 {order_id}" if order_id else "时间"
-        logger.info(f"{order_info} 时间转换: {created_at_str} (UTC) -> {timestamp}, 创建于 {age_minutes} 分钟前")
+        # logger在后面定义，这里暂时用print
+        print(f"DEBUG: {order_info} 时间转换: {created_at_str} (UTC) -> {timestamp}, 创建于 {age_minutes} 分钟前")
         
         return timestamp
         
     except Exception as e:
         order_info = f"订单 {order_id}" if order_id else "时间"
-        logger.warning(f"{order_info} 转换失败: {e}, 原始时间: {created_at_str}")
+        print(f"WARNING: {order_info} 转换失败: {e}, 原始时间: {created_at_str}")
         # 如果转换失败，使用当前时间戳减去1小时（确保倒计时能正常显示）
         import time
         return int(time.time() - 3600)
@@ -897,12 +899,17 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
 
     user = get_current_user_from_cookie(request)
     if user:
+        logger.info(f"resolve_shopping_scope - 用户: {user['id']}")
         profile = UserProfileDB.get_shipping(user['id'])
+        logger.info(f"resolve_shopping_scope - 用户配置: {profile}")
         if profile:
             if not resolved_address_id:
                 resolved_address_id = profile.get('address_id') or profile.get('dormitory')
             if not resolved_building_id:
                 resolved_building_id = profile.get('building_id')
+        logger.info(f"resolve_shopping_scope - 解析后地址: {resolved_address_id}, 楼栋: {resolved_building_id}")
+    else:
+        logger.warning("resolve_shopping_scope - 未获取到用户信息")
 
     if resolved_address_id or resolved_building_id:
         validation = check_address_and_building(resolved_address_id, resolved_building_id)
@@ -951,13 +958,15 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
         except Exception:
             owner_ids = None  # 出错时回退到显示未分配商品
 
-    return {
+    result = {
         "agent_id": agent_id,
         "address_id": resolved_address_id,
         "building_id": resolved_building_id,
         "owner_ids": owner_ids,
         "address_validation": validation
     }
+    logger.info(f"resolve_shopping_scope - 最终结果: {result}")
+    return result
 
 
 def staff_can_access_product(staff: Dict[str, Any], product: Optional[Dict[str, Any]]) -> bool:
@@ -1084,6 +1093,7 @@ class AdminLoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    nickname: Optional[str] = None  # 昵称，选填
 
 class ProductCreate(BaseModel):
     name: str
@@ -1428,8 +1438,9 @@ async def register_user(request: RegisterRequest, response: Response):
         if existing_admin:
             return error_response("用户名已存在", 400)
         
-        # 创建用户
-        success = UserDB.create_user(username, password, username)  # 使用用户名作为姓名
+        # 创建用户 - 如果有昵称则使用昵称，否则使用用户名作为姓名
+        display_name = request.nickname.strip() if request.nickname and request.nickname.strip() else username
+        success = UserDB.create_user(username, password, display_name)
         if not success:
             return error_response("注册失败，请稍后重试", 500)
         
@@ -2435,7 +2446,11 @@ async def get_cart(request: Request):
     user = get_current_user_required_from_cookie(request)
 
     try:
-        logger.info(f"获取购物车请求 - 用户ID: {user['id']}")
+        logger.info(f"获取购物车请求 - 用户ID: {user['id']}, 用户信息: {user}")
+        
+        # 检查用户是否能被解析
+        user_ref = UserDB.resolve_user_reference(user['id'])
+        logger.info(f"获取购物车 - 用户解析结果: {user_ref}")
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
@@ -2547,14 +2562,20 @@ async def update_cart(
     
     try:
         # 添加详细的日志记录
-        logger.info(f"购物车更新请求 - 用户ID: {user['id']}, 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}")
+        logger.info(f"购物车更新请求 - 用户ID: {user['id']}, 用户信息: {user}, 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}")
+        
+        # 检查用户是否能被解析
+        user_ref = UserDB.resolve_user_reference(user['id'])
+        logger.info(f"用户解析结果: {user_ref}")
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
         include_unassigned = False if owner_ids else True
+        logger.info(f"购物车更新 - 权限范围: {scope}")
 
         accessible_products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
         product_dict = {p["id"]: p for p in accessible_products}
+        logger.info(f"购物车更新 - 可访问商品数量: {len(accessible_products)}")
 
         current_cart = CartDB.get_cart(user["id"])
         items = current_cart["items"] if current_cart else {}
@@ -2570,9 +2591,13 @@ async def update_cart(
         elif cart_request.action in ["add", "update"] and cart_request.product_id and cart_request.quantity is not None:
             # 验证商品是否存在并获取商品信息
             product = product_dict.get(cart_request.product_id)
+            logger.info(f"商品权限检查 - 商品ID: {cart_request.product_id}, 找到商品: {product is not None}")
+            
+            if product:
+                logger.info(f"商品详情 - ID: {product.get('id')}, 名称: {product.get('name')}, 上架状态: {product.get('is_active')}, 拥有者: {product.get('owner_id')}")
 
             if not product:
-                logger.error(f"商品无权访问或不存在: {cart_request.product_id}")
+                logger.error(f"商品无权访问或不存在: {cart_request.product_id}, 可访问商品列表: {list(product_dict.keys())[:10]}...")
                 return error_response("商品不在当前地址的可售范围内", 403)
 
             # 禁止对下架商品进行添加或正数更新（允许通过数量<=0来移除）
@@ -2625,16 +2650,30 @@ async def update_cart(
         for k, v in items.items():
             pid = k.split('@@', 1)[0] if isinstance(k, str) else k
             p = product_dict.get(pid)
+            logger.info(f"清理检查 - 商品ID: {pid}, 数量: {v}, 商品信息: {p is not None}")
+            
+            if p is None:
+                logger.warning(f"商品 {pid} 不在可访问商品列表中，将被过滤")
+                continue
+                
             try:
                 active = 1 if int(p.get("is_active", 1) or 1) == 1 else 0
             except Exception:
                 active = 1
+            
+            logger.info(f"商品 {pid} - 上架状态: {active}, 数量: {v}")
+            
             if active == 1 and v > 0:
                 cleaned[k] = v
+            else:
+                logger.info(f"商品 {pid} 被过滤 - 上架状态: {active}, 数量: {v}")
+
+        logger.info(f"清理前购物车内容: {items}")
+        logger.info(f"清理后购物车内容: {cleaned}")
 
         # 更新数据库
         update_result = CartDB.update_cart(user["id"], cleaned)
-        logger.info(f"数据库更新结果: {update_result}, 最终购物车内容: {items}")
+        logger.info(f"数据库更新结果: {update_result}, 保存到数据库的内容: {cleaned}")
         
         return success_response("购物车更新成功", {"action": cart_request.action, "items": cleaned, "scope": scope})
     

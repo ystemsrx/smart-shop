@@ -127,11 +127,11 @@ if /I "!LOG_LEVEL_LOWER!"=="ERROR" set "LOG_LEVEL_LOWER=error"
 if /I "!LOG_LEVEL_LOWER!"=="CRITICAL" set "LOG_LEVEL_LOWER=critical"
 if /I "!LOG_LEVEL_LOWER!"=="TRACE" set "LOG_LEVEL_LOWER=trace"
 
-set "UVICORN_CMD=uvicorn main:app --host !HOST! --port !PORT! --log-level !LOG_LEVEL_LOWER!"
+set "UVICORN_CMD=python main.py"
 if "!IS_DEV!"=="1" (
-    set "UVICORN_CMD=!UVICORN_CMD! --reload"
+    set "UVICORN_CMD=python main.py"
 ) else (
-    set "UVICORN_CMD=!UVICORN_CMD! --workers 4"
+    set "UVICORN_CMD=python main.py"
 )
 
 REM --- Start FastAPI application ---
