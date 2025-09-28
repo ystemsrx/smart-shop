@@ -657,7 +657,10 @@ async def handle_product_image_update(
         except Exception as e:
             logger.warning(f"删除原图片失败 {old_img_path}: {e}")
 
-    return success_response("图片更新成功", {"img_path": img_path})
+    return success_response("图片更新成功", {
+        "img_path": img_path,
+        "image_url": f"/items/{img_path.split('items/')[-1]}" if img_path else ""
+    })
 
 
 def build_product_listing_for_staff(

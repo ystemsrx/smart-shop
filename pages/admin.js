@@ -425,7 +425,6 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
 
   const handleDelete = async (prize) => {
     if (!prize?.id) return;
-    if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
     setSaving(true);
     try {
       await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, { method: 'DELETE' });
@@ -435,6 +434,7 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     } finally {
       setSaving(false);
     }
+    if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
   };
 
   const handleToggleActive = async (prize, nextActive) => {
@@ -997,6 +997,7 @@ const GiftThresholdPanel = ({ apiPrefix }) => {
     } catch (e) {
       alert(e.message || '删除失败');
     }
+    // Removed the confirmation dialog for deletion
   };
 
   const handleToggleActive = async (threshold) => {
@@ -2673,7 +2674,10 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
       </form>
 
       {/* 规格管理 */}
-      <VariantManager productId={product.id} apiPrefix={apiPrefix} />
+      <VariantManager 
+        productId={product.id} 
+        apiPrefix={apiPrefix}
+      />
     </div>
   );
 };
@@ -2699,19 +2703,20 @@ const VariantManager = ({ productId, apiPrefix }) => {
   const addVariant = async () => {
     if (!newName) return;
     await apiRequest(`${apiPrefix}/products/${productId}/variants`, { method: 'POST', body: JSON.stringify({ name: newName, stock: parseInt(newStock) || 0 })});
-    setNewName(''); setNewStock(0); load();
+    setNewName(''); setNewStock(0); 
+    await load();
   };
   const updateVariant = async (id, patch) => {
     await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), {
       method: 'PUT',
       body: JSON.stringify(patch)
     });
-    load();
+    await load();
   };
   const removeVariant = async (id) => {
     if (!confirm('确定删除该规格？')) return;
     await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), { method: 'DELETE' });
-    load();
+    await load();
   };
 
   return (
@@ -4855,7 +4860,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
-  // 编辑商品
   const handleEditProduct = async (productData) => {
     setIsSubmitting(true);
     
@@ -4870,6 +4874,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         is_hot: !!productData.is_hot
       };
       
+      // 检测是否有关键变更需要刷新整个商品列表
+      const hasImageUpdate = !!productData.image;
+      const hasStockStructureChange = productData.stock !== editingProduct.stock;
+      const hasCategoryChange = productData.category !== editingProduct.category;
+      const hasNameChange = productData.name !== editingProduct.name;
+      
       await apiRequest(`${staffPrefix}/products/${editingProduct.id}`, {
         method: 'PUT',
         headers: {
@@ -4879,38 +4889,40 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       });
       
       // 如果有图片更新，单独处理
-      let newImageUrl = editingProduct.image_url; // 默认使用原有图片
       if (productData.image) {
         const formData = new FormData();
         formData.append('image', productData.image);
-        const imageResponse = await apiRequest(`${staffPrefix}/products/${editingProduct.id}/image`, {
+        await apiRequest(`${staffPrefix}/products/${editingProduct.id}/image`, {
           method: 'POST',
           body: formData,
           headers: {}
         });
-        // 如果服务器返回了新的图片URL，使用它
-        if (imageResponse && imageResponse.image_url) {
-          newImageUrl = imageResponse.image_url;
-        }
       }
-      
-      // 乐观更新：只更新被编辑的商品，而不重新加载整个列表
-      const updatedProducts = products.map(p => {
-        if (p.id === editingProduct.id) {
-          return {
-            ...p,
-            ...updateData,
-            image_url: newImageUrl
-          };
-        }
-        return p;
-      });
-      setProducts(updatedProducts);
       
       alert('商品更新成功！');
       setEditingProduct(null);
       setShowEditModal(false);
-      // 移除 await loadData(); 避免重新加载整个页面
+      
+      // 判断是否需要完整刷新：图片更新、库存结构变化、分类变化、名称变化等
+      // 或者可能存在变体变化的情况（通过检查当前商品是否有变体来推断）
+      const needsFullRefresh = hasImageUpdate || hasStockStructureChange || hasCategoryChange || hasNameChange;
+      
+      if (needsFullRefresh) {
+        // 如果有关键变更，刷新整个商品列表以确保数据同步
+        await loadData();
+      } else {
+        // 如果只是简单更新，使用乐观更新
+        const updatedProducts = products.map(p => {
+          if (p.id === editingProduct.id) {
+            return {
+              ...p,
+              ...updateData
+            };
+          }
+          return p;
+        });
+        setProducts(updatedProducts);
+      }
       
     } catch (err) {
       alert(err.message || '更新商品失败');
