@@ -4228,7 +4228,12 @@ class LotteryDB:
                 except Exception:
                     weight = 0.0
                 try:
-                    active_flag = 1 if int(row.get('is_active', 1) or 1) == 1 else 0
+                    # 修复：正确处理is_active字段，不要使用or 1
+                    is_active_value = row.get('is_active')
+                    if is_active_value is None:
+                        active_flag = 1  # 默认启用
+                    else:
+                        active_flag = 1 if int(is_active_value) == 1 else 0
                 except Exception:
                     active_flag = 1
                 entry: Dict[str, Any] = {

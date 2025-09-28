@@ -354,7 +354,11 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
 
   useEffect(() => { loadPrizes(); }, []);
 
-  const totalWeightRaw = prizes.reduce((acc, p) => acc + (Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0), 0);
+  // 只计算启用奖项的权重总和
+  const totalWeightRaw = prizes.reduce((acc, p) => {
+    if (!p.is_active) return acc; // 跳过停用的奖项
+    return acc + (Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0);
+  }, 0);
   const isFraction = totalWeightRaw <= 1.000001;
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
