@@ -45,6 +45,11 @@ export default function Checkout() {
     room: '',
     note: ''
   });
+  const [fieldErrors, setFieldErrors] = useState({
+    name: '',
+    phone: '',
+    room: ''
+  });
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceReselectAddress } = useLocation();
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
@@ -78,6 +83,49 @@ export default function Checkout() {
       should_force_reselect: !!raw.should_force_reselect,
     };
   }, []);
+
+  // 验证个人信息字段，失败时聚焦到第一个错误字段
+  const validatePersonalInfo = () => {
+    const errors = {
+      name: '',
+      phone: '',
+      room: ''
+    };
+
+    if (!formData.name) {
+      errors.name = '请输入昵称';
+    }
+
+    if (!formData.phone) {
+      errors.phone = '请输入手机号';
+    } else {
+      // 简单的手机号验证
+      const phoneRegex = /^1[3-9]\d{9}$/;
+      if (!phoneRegex.test(formData.phone)) {
+        errors.phone = '请输入正确的手机号';
+      }
+    }
+
+    if (!formData.room) {
+      errors.room = '请输入房间号';
+    }
+
+    setFieldErrors(errors);
+
+    // 如果有错误，聚焦到第一个错误字段
+    const firstError = errors.name || errors.phone || errors.room;
+    if (firstError) {
+      const firstErrorField = errors.name ? 'name' : (errors.phone ? 'phone' : 'room');
+      const input = document.getElementById(firstErrorField);
+      if (input) {
+        input.focus();
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return false;
+    }
+
+    return true;
+  };
 
   const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
   const displayLocation = location
@@ -141,6 +189,11 @@ export default function Checkout() {
     if (addressInvalid) {
       alert(addressAlertMessage || '配送地址不可用，请重新选择');
       openLocationModal();
+      return;
+    }
+    
+    // 验证个人信息字段
+    if (!validatePersonalInfo()) {
       return;
     }
 
@@ -304,6 +357,12 @@ export default function Checkout() {
   // 表单输入处理
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    
+    // 清除该字段的错误信息
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
+    
     if (name === 'dormitory') {
       // 切换园区时清空已选楼栋
       setFormData({ ...formData, dormitory: value, building: '' });
@@ -329,17 +388,16 @@ export default function Checkout() {
       openLocationModal();
       return;
     }
-    // 验证必填字段
-    if (!formData.name || !formData.phone || !location || !location.address_id || !location.building_id || !formData.room) {
-      alert('请填写完整的收货信息并选择配送地址');
-      openLocationModal();
+    
+    // 验证个人信息字段
+    if (!validatePersonalInfo()) {
       return;
     }
     
-    // 简单的手机号验证
-    const phoneRegex = /^1[3-9]\d{9}$/;
-    if (!phoneRegex.test(formData.phone)) {
-      alert('请输入正确的手机号');
+    // 验证配送地址（这时才弹出配送地址设置）
+    if (!location || !location.address_id || !location.building_id) {
+      alert('请填写完整的收货信息并选择配送地址');
+      openLocationModal();
       return;
     }
 
@@ -396,6 +454,11 @@ export default function Checkout() {
     if (addressInvalid) {
       alert(addressAlertMessage || '配送地址不可用，请重新选择');
       openLocationModal();
+      return;
+    }
+    
+    // 验证个人信息字段
+    if (!validatePersonalInfo()) {
       return;
     }
 
@@ -646,9 +709,15 @@ export default function Checkout() {
                           required
                           value={formData.name}
                           onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900 placeholder-gray-500"
+                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.name ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           placeholder="请输入您的昵称"
                         />
+                        {fieldErrors.name && (
+                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                            <i className="fas fa-exclamation-circle text-xs"></i>
+                            {fieldErrors.name}
+                          </p>
+                        )}
                       </div>
                       
                       <div>
@@ -662,9 +731,15 @@ export default function Checkout() {
                           required
                           value={formData.phone}
                           onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900 placeholder-gray-500"
+                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.phone ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           placeholder="请输入手机号码"
                         />
+                        {fieldErrors.phone && (
+                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                            <i className="fas fa-exclamation-circle text-xs"></i>
+                            {fieldErrors.phone}
+                          </p>
+                        )}
                       </div>
                     </div>
                     
@@ -698,9 +773,15 @@ export default function Checkout() {
                           required
                           value={formData.room}
                           onChange={handleInputChange}
-                          className="input-glass w-full text-gray-900 placeholder-gray-500"
+                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.room ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           placeholder="如：101"
                         />
+                        {fieldErrors.room && (
+                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                            <i className="fas fa-exclamation-circle text-xs"></i>
+                            {fieldErrors.room}
+                          </p>
+                        )}
                       </div>
                     </div>
 
