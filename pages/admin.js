@@ -1742,7 +1742,7 @@ const StockControl = ({ product, onUpdateStock }) => {
     setIsLoading(true);
     try {
       await onUpdateStock(product.id, newStock);
-      setStock(newStock);
+      // 成功后 stock 状态已经通过 product prop 的变化自动同步了
     } catch (error) {
       // 如果更新失败，恢复原值
       setStock(product.stock);
@@ -1788,7 +1788,7 @@ const StockControl = ({ product, onUpdateStock }) => {
       <button
         onClick={handleDecrement}
         disabled={isLoading || stock <= 0}
-        className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200"
         title="减少库存"
       >
         -
@@ -1801,24 +1801,28 @@ const StockControl = ({ product, onUpdateStock }) => {
           onChange={handleInputChange}
           onBlur={handleInputBlur}
           onKeyPress={handleInputKeyPress}
-          className="w-12 px-1 py-0.5 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-12 px-1 py-0.5 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all duration-200"
           min="0"
           autoFocus
         />
       ) : (
         <span 
           onClick={() => setIsEditing(true)}
-          className="w-12 text-center text-sm cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded"
+          className={`w-12 text-center text-sm cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded transition-all duration-200 ${isLoading ? 'opacity-50' : ''}`}
           title="点击编辑"
         >
-          {isLoading ? '...' : stock}
+          {isLoading ? (
+            <div className="inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            stock
+          )}
         </span>
       )}
       
       <button
         onClick={handleIncrement}
         disabled={isLoading}
-        className="w-6 h-6 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        className="w-6 h-6 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200"
         title="增加库存"
       >
         +
@@ -1847,7 +1851,8 @@ const ProductTable = ({
   showOnlyOutOfStock,
   showOnlyInactive,
   onToggleOutOfStockFilter,
-  onToggleInactiveFilter
+  onToggleInactiveFilter,
+  operatingProducts
 }) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
@@ -1856,8 +1861,107 @@ const ProductTable = ({
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="text-lg font-medium text-gray-900">商品列表</h3>
+        <div className="flex items-center gap-4">
+          <h3 className="text-lg font-medium text-gray-900">商品列表</h3>
+          {operatingProducts && operatingProducts.size > 0 && (
+            <div className="inline-flex items-center gap-2 text-sm text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
+              <div className="w-3 h-3 border border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+              <span>正在处理 {operatingProducts.size} 项操作...</span>
+            </div>
+          )}
+        </div>
+        
+        {/* 右侧区域：批量操作 + 固定按钮 */}
         <div className="flex items-center space-x-4">
+          {/* 批量操作区域 - 放在固定按钮左边 */}
+          {selectedProducts.length > 0 && (
+            <div className="flex items-center gap-3 text-sm text-gray-700">
+              <span className="font-medium whitespace-nowrap">已选{selectedProducts.length}件</span>
+              
+              <span className="text-gray-400">|</span>
+              
+              {/* 批量折扣设置 */}
+              <select
+                className="text-sm border border-gray-300 rounded px-2 py-1 min-w-0"
+                value={bulkZhe}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBulkZhe(val);
+                  if (val === '') return;
+                  const v = parseFloat(val);
+                  onBatchUpdateDiscount(selectedProducts, v);
+                  setBulkZhe('');
+                }}
+                title="批量设置折扣（单位：折）"
+              >
+                <option value="">折扣</option>
+                {Array.from({ length: 20 }).map((_, i) => {
+                  const val = 10 - i * 0.5;
+                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                  return (
+                    <option key={v} value={String(v)}>{v}折</option>
+                  );
+                })}
+              </select>
+
+              <span className="text-gray-400">|</span>
+
+              {/* 批量上下架开关 */}
+              {(() => {
+                // 分析选中商品的状态
+                const selectedProductsData = products.filter(product => selectedProducts.includes(product.id));
+                const activeCount = selectedProductsData.filter(product => product.is_active !== 0 && product.is_active !== false).length;
+                const inactiveCount = selectedProductsData.length - activeCount;
+                
+                // 决定当前状态：如果大部分是上架的，开关为开启状态
+                const isOn = activeCount >= inactiveCount;
+                const action = isOn ? '下架' : '上架';
+                const targetState = !isOn ? 1 : 0; // 使用数字而不是布尔值
+                
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">下架</span>
+                    <div 
+                      onClick={() => onBatchToggleActive && onBatchToggleActive(selectedProducts, targetState)}
+                      className="relative inline-flex items-center cursor-pointer"
+                      title={`点击批量${action}`}
+                    >
+                      {/* iOS 开关背景 - 调整为合适大小 */}
+                      <div className={`
+                        relative w-10 h-5 rounded-full transition-colors duration-200 ease-in-out
+                        ${isOn 
+                          ? 'bg-green-500 shadow-inner' 
+                          : 'bg-gray-300 shadow-inner'
+                        }
+                      `}>
+                        {/* iOS 开关滑块 - 调整为合适大小 */}
+                        <div className={`
+                          absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-lg
+                          transform transition-transform duration-200 ease-in-out
+                          ${isOn ? 'translate-x-5' : 'translate-x-0.5'}
+                        `}>
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-sm text-gray-600">上架</span>
+                  </div>
+                );
+              })()}
+              
+              <span className="text-gray-400">|</span>
+              
+              {/* 批量删除按钮 - 与刷新按钮同样大小 */}
+              <button
+                onClick={() => onBatchDelete(selectedProducts)}
+                className="inline-flex items-center px-3 py-2 border border-red-600 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                title="批量删除选中商品"
+              >
+                删除
+              </button>
+            </div>
+          )}
+          
+          {/* 固定的三个按钮 */}
           <label className="inline-flex items-center gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -1883,99 +1987,6 @@ const ProductTable = ({
             <i className="fas fa-sync-alt mr-2"></i>
             刷新
           </button>
-          {selectedProducts.length > 0 && (
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">已选择 {selectedProducts.length} 件商品</span>
-              <div className="flex items-center space-x-2">
-                <select
-                  className="text-xs border border-gray-300 rounded px-1 py-0.5"
-                  value={bulkZhe}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setBulkZhe(val);
-                    if (val === '') return;
-                    const v = parseFloat(val);
-                    onBatchUpdateDiscount(selectedProducts, v);
-                    setBulkZhe('');
-                  }}
-                  title="批量设置折扣（单位：折）"
-                >
-                  <option value=""></option>
-                  {Array.from({ length: 20 }).map((_, i) => {
-                    const val = 10 - i * 0.5;
-                    const v = Math.max(0.5, parseFloat(val.toFixed(1)));
-                    return (
-                      <option key={v} value={String(v)}>{v}折</option>
-                    );
-                  })}
-                </select>
-              </div>
-              {(() => {
-                // 分析选中商品的状态
-                const selectedProductsData = products.filter(product => selectedProducts.includes(product.id));
-                const activeCount = selectedProductsData.filter(product => product.is_active !== 0 && product.is_active !== false).length;
-                const inactiveCount = selectedProductsData.length - activeCount;
-                
-                // 决定当前状态：如果大部分是上架的，开关为开启状态
-                const isOn = activeCount >= inactiveCount;
-                const action = isOn ? '下架' : '上架';
-                const targetState = !isOn;
-                
-                return (
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600">
-                      批量操作 ({selectedProductsData.length}件)
-                    </span>
-                    <div 
-                      onClick={() => onBatchToggleActive && onBatchToggleActive(selectedProducts, targetState)}
-                      className="relative inline-flex items-center cursor-pointer"
-                      title={`点击批量${action}`}
-                    >
-                      {/* iOS 开关背景 */}
-                      <div className={`
-                        relative w-12 h-6 rounded-full transition-colors duration-200 ease-in-out
-                        ${isOn 
-                          ? 'bg-green-500 shadow-inner' 
-                          : 'bg-gray-300 shadow-inner'
-                        }
-                      `}>
-                        {/* iOS 开关滑块 */}
-                        <div className={`
-                          absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-lg
-                          transform transition-transform duration-200 ease-in-out
-                          ${isOn ? 'translate-x-6' : 'translate-x-0.5'}
-                        `}>
-                          {/* 滑块内的小图标 */}
-                          <div className="w-full h-full flex items-center justify-center">
-                            <i className={`
-                              fas text-xs transition-opacity duration-200
-                              ${isOn 
-                                ? 'fa-eye text-green-500 opacity-80' 
-                                : 'fa-eye-slash text-gray-400 opacity-80'
-                              }
-                            `}></i>
-                          </div>
-                        </div>
-                      </div>
-                      {/* 状态文字 */}
-                      <span className={`
-                        ml-3 text-sm font-medium transition-colors duration-200
-                        ${isOn ? 'text-green-600' : 'text-gray-600'}
-                      `}>
-                        {isOn ? '已上架' : '已下架'}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-              <button
-                onClick={() => onBatchDelete(selectedProducts)}
-                className="bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                批量删除
-              </button>
-            </div>
-          )}
         </div>
       </div>
       
@@ -2020,14 +2031,17 @@ const ProductTable = ({
           <tbody className="bg-white divide-y divide-gray-200">
             {products.map((product) => {
               const isHot = Boolean(product.is_hot);
+              const isSelected = selectedProducts.includes(product.id);
+              const isActive = !(product.is_active === 0 || product.is_active === false);
+              
               return (
-                <tr key={product.id} className={`hover:bg-gray-50 ${selectedProducts.includes(product.id) ? 'bg-blue-50' : ''}`}>
+                <tr key={product.id} className={`transition-all duration-200 ease-in-out hover:bg-gray-50 ${isSelected ? 'bg-blue-50 shadow-sm' : ''}`}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <input
                       type="checkbox"
-                      checked={selectedProducts.includes(product.id)}
+                      checked={isSelected}
                       onChange={(e) => onSelectProduct(product.id, e.target.checked)}
-                      className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded transition-all duration-200"
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -2035,7 +2049,7 @@ const ProductTable = ({
                       <div className="flex-shrink-0 h-10 w-10">
                         {getProductImage(product) ? (
                           <RetryImage
-                            className="h-10 w-10 rounded-md object-cover"
+                            className="h-10 w-10 rounded-md object-cover transition-all duration-200 hover:scale-105"
                             src={getProductImage(product)}
                             alt={product.name}
                             maxRetries={3}
@@ -2044,30 +2058,33 @@ const ProductTable = ({
                             }}
                           />
                         ) : (
-                          <div className="h-10 w-10 rounded-md bg-gray-100 flex items-center justify-center">
+                          <div className="h-10 w-10 rounded-md bg-gray-100 flex items-center justify-center transition-all duration-200 hover:bg-gray-200">
                             <span className="text-gray-400 text-xs">图</span>
                           </div>
                         )}
                       </div>
                       <div className="ml-4">
                         <div className="flex items-center gap-2">
-                          <div className="text-sm font-medium text-gray-900">
+                          <div className={`text-sm font-medium transition-all duration-200 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
                             {product.name}
+                            {!isActive && <span className="ml-2 text-xs text-red-500">(已下架)</span>}
                           </div>
                           {isHot && (
-                            <span className="px-2 py-0.5 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full">
+                            <span className="px-2 py-0.5 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full transition-all duration-200 animate-pulse">
                               热销
                             </span>
                           )}
                         </div>
-                        <div className="text-sm text-gray-500 max-w-xs truncate">
-                          {product.description}
+                        <div className="text-sm text-gray-500 max-w-xs truncate" title={product.description}>
+                          {product.description && product.description.length > 10 
+                            ? product.description.slice(0, 10) + '...' 
+                            : product.description}
                         </div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 transition-all duration-200">
                       {product.category}
                     </span>
                   </td>
@@ -2077,8 +2094,14 @@ const ProductTable = ({
                         type="checkbox"
                         checked={isHot}
                         onChange={(e) => onToggleHot(product, e.target.checked)}
-                        className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+                        disabled={operatingProducts?.has(product.id)}
+                        className={`h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400 transition-all duration-200 ${
+                          operatingProducts?.has(product.id) ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
                       />
+                      {operatingProducts?.has(product.id) && (
+                        <div className="w-3 h-3 border border-orange-400 border-t-transparent rounded-full animate-spin ml-1"></div>
+                      )}
                     </label>
                   </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -2095,9 +2118,12 @@ const ProductTable = ({
                       );
                     })()}
                     <select
-                      className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                      className={`text-xs border border-gray-300 rounded px-1 py-0.5 transition-all duration-200 hover:border-indigo-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${
+                        operatingProducts?.has(product.id) ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
                       value={(typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10)}
                       onChange={(e) => onUpdateDiscount(product.id, parseFloat(e.target.value))}
+                      disabled={operatingProducts?.has(product.id)}
                       title="设置折扣（单位：折）"
                     >
                       {Array.from({ length: 20 }).map((_, i) => {
@@ -2114,7 +2140,7 @@ const ProductTable = ({
                   {product.has_variants ? (
                     <button
                       onClick={() => onOpenVariantStock(product)}
-                      className="px-3 py-1.5 rounded-md border text-sm hover:bg-gray-50"
+                      className="px-3 py-1.5 rounded-md border text-sm hover:bg-gray-50 transition-all duration-200"
                     >操作</button>
                   ) : (
                     <StockControl 
@@ -2130,19 +2156,33 @@ const ProductTable = ({
                   <div className="flex space-x-2">
                     <button
                       onClick={() => onEdit(product)}
-                      className="text-indigo-600 hover:text-indigo-900"
+                      className="text-indigo-600 hover:text-indigo-900 transition-all duration-200"
                     >
                       编辑
                     </button>
                     <button
                       onClick={() => onToggleActive(product)}
-                      className={`${product.is_active === 0 ? 'text-green-600 hover:text-green-800' : 'text-gray-600 hover:text-gray-800'}`}
+                      disabled={operatingProducts?.has(product.id)}
+                      className={`transition-all duration-200 ${
+                        operatingProducts?.has(product.id) 
+                          ? 'text-gray-400 cursor-not-allowed' 
+                          : product.is_active === 0 
+                            ? 'text-green-600 hover:text-green-800' 
+                            : 'text-gray-600 hover:text-gray-800'
+                      }`}
                     >
-                      {product.is_active === 0 ? '上架' : '下架'}
+                      {operatingProducts?.has(product.id) ? (
+                        <div className="inline-flex items-center gap-1">
+                          <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                          <span>处理中...</span>
+                        </div>
+                      ) : (
+                        product.is_active === 0 ? '上架' : '下架'
+                      )}
                     </button>
                     <button
                       onClick={() => onDelete(product)}
-                      className="text-red-600 hover:text-red-900"
+                      className="text-red-600 hover:text-red-900 transition-all duration-200"
                     >
                       删除
                     </button>
@@ -4019,6 +4059,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [showOnlyInactive, setShowOnlyInactive] = useState(false);
   const [variantStockProduct, setVariantStockProduct] = useState(null);
   
+  // 操作状态管理 - 防止重复操作
+  const [operatingProducts, setOperatingProducts] = useState(new Set());
+  
   // 订单管理相关状态
   const [orders, setOrders] = useState([]);
   const [orderStats, setOrderStats] = useState({
@@ -4699,15 +4742,24 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         formData.append('variants', JSON.stringify(productData.variants));
       }
       
-      await apiRequest(`${staffPrefix}/products`, {
+      const response = await apiRequest(`${staffPrefix}/products`, {
         method: 'POST',
         body: formData,
         headers: {} // 让浏览器自动设置Content-Type
       });
       
-      alert('商品添加成功！');
-      setShowAddModal(false);
-      await loadData(); // 重新加载数据
+      // 如果服务器返回了新创建的商品数据，直接添加到列表中
+      if (response && response.product) {
+        const newProduct = response.product;
+        setProducts(prevProducts => [newProduct, ...prevProducts]); // 将新商品添加到列表开头
+        alert('商品添加成功！');
+        setShowAddModal(false);
+      } else {
+        // 如果服务器没有返回商品数据，则重新加载
+        alert('商品添加成功！');
+        setShowAddModal(false);
+        await loadData(); // 重新加载数据
+      }
       
     } catch (err) {
       alert(err.message || '添加商品失败');
@@ -4740,20 +4792,38 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       });
       
       // 如果有图片更新，单独处理
+      let newImageUrl = editingProduct.image_url; // 默认使用原有图片
       if (productData.image) {
         const formData = new FormData();
         formData.append('image', productData.image);
-        await apiRequest(`${staffPrefix}/products/${editingProduct.id}/image`, {
+        const imageResponse = await apiRequest(`${staffPrefix}/products/${editingProduct.id}/image`, {
           method: 'POST',
           body: formData,
           headers: {}
         });
+        // 如果服务器返回了新的图片URL，使用它
+        if (imageResponse && imageResponse.image_url) {
+          newImageUrl = imageResponse.image_url;
+        }
       }
+      
+      // 乐观更新：只更新被编辑的商品，而不重新加载整个列表
+      const updatedProducts = products.map(p => {
+        if (p.id === editingProduct.id) {
+          return {
+            ...p,
+            ...updateData,
+            image_url: newImageUrl
+          };
+        }
+        return p;
+      });
+      setProducts(updatedProducts);
       
       alert('商品更新成功！');
       setEditingProduct(null);
       setShowEditModal(false);
-      await loadData(); // 重新加载数据
+      // 移除 await loadData(); 避免重新加载整个页面
       
     } catch (err) {
       alert(err.message || '更新商品失败');
@@ -4764,60 +4834,149 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
   // 设置商品折扣
   const handleUpdateDiscount = async (productId, zhe) => {
+    // 防止重复操作
+    if (operatingProducts.has(productId)) return;
+    
+    // 标记正在操作
+    setOperatingProducts(prev => new Set(prev).add(productId));
+    
+    // 乐观更新：立即更新UI
+    const updatedProducts = products.map(p => 
+      p.id === productId ? { ...p, discount: zhe } : p
+    );
+    setProducts(updatedProducts);
+    
     try {
       await apiRequest(`${staffPrefix}/products/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({ discount: zhe })
       });
-      await loadData();
+      // 成功后不需要重新加载，UI已经更新
     } catch (e) {
+      // 失败时回滚UI状态
+      const originalProduct = products.find(p => p.id === productId);
+      const revertedProducts = products.map(p => 
+        p.id === productId ? { ...p, discount: originalProduct?.discount || 10 } : p
+      );
+      setProducts(revertedProducts);
       alert(e.message || '更新折扣失败');
+    } finally {
+      // 清除操作状态
+      setOperatingProducts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(productId);
+        return newSet;
+      });
     }
   };
 
   // 批量设置折扣
   const handleBatchUpdateDiscount = async (productIds, zhe) => {
     if (!productIds || productIds.length === 0) { alert('请选择要设置折扣的商品'); return; }
+    
+    // 乐观更新：立即更新UI
+    const originalProducts = [...products];
+    const updatedProducts = products.map(p => 
+      productIds.includes(p.id) ? { ...p, discount: zhe } : p
+    );
+    setProducts(updatedProducts);
+    
     try {
       await apiRequest(`${staffPrefix}/products`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_ids: productIds, discount: zhe })
       });
-      // 无提示，静默刷新
-      await loadData();
+      // 成功后不需要重新加载，UI已经更新
     } catch (e) {
+      // 失败时回滚UI状态
+      setProducts(originalProducts);
       alert(e.message || '批量设置折扣失败');
     }
   };
 
   // 上/下架切换
   const handleToggleActive = async (product) => {
+    // 防止重复操作
+    if (operatingProducts.has(product.id)) return;
+    
     // 当前是否上架
     const currentActive = !(product.is_active === 0 || product.is_active === false);
-    const target = !currentActive; // 目标状态
+    const target = currentActive ? 0 : 1; // 目标状态，使用数字
+    
+    // 标记正在操作
+    setOperatingProducts(prev => new Set(prev).add(product.id));
+    
+    // 乐观更新：立即更新UI
+    const updatedProducts = products.map(p => 
+      p.id === product.id ? { ...p, is_active: target } : p
+    );
+    setProducts(updatedProducts);
+    
     try {
       await apiRequest(`${staffPrefix}/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
-      await loadData();
+      // 成功后不需要重新加载，UI已经更新
     } catch (e) {
+      // 失败时回滚UI状态
+      const revertedProducts = products.map(p => 
+        p.id === product.id ? { ...p, is_active: product.is_active } : p
+      );
+      setProducts(revertedProducts);
       alert(e.message || '更新上下架状态失败');
+    } finally {
+      // 清除操作状态
+      setOperatingProducts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(product.id);
+        return newSet;
+      });
     }
   };
 
   const handleToggleHot = async (product, nextHot) => {
+    // 防止重复操作
+    if (operatingProducts.has(product.id)) return;
+    
+    // 标记正在操作
+    setOperatingProducts(prev => new Set(prev).add(product.id));
+    
+    // 乐观更新：立即更新UI
+    const updatedProducts = products.map(p => 
+      p.id === product.id ? { ...p, is_hot: !!nextHot } : p
+    );
+    setProducts(updatedProducts);
+    
     try {
       await apiRequest(`${staffPrefix}/products/${product.id}`, {
         method: 'PUT',
         body: JSON.stringify({ is_hot: !!nextHot })
       });
-      await loadData();
+      // 成功后不需要重新加载，UI已经更新
     } catch (e) {
+      // 失败时回滚UI状态
+      const revertedProducts = products.map(p => 
+        p.id === product.id ? { ...p, is_hot: !nextHot } : p
+      );
+      setProducts(revertedProducts);
       alert(e.message || '更新热销状态失败');
+    } finally {
+      // 清除操作状态
+      setOperatingProducts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(product.id);
+        return newSet;
+      });
     }
   };
 
   // 更新库存（内联版本）
   const handleUpdateStock = async (productId, newStock) => {
+    // 乐观更新：立即更新UI
+    const updatedProducts = products.map(p => 
+      p.id === productId ? { ...p, stock: newStock } : p
+    );
+    setProducts(updatedProducts);
+    
     try {
       // 改用已验证可用的通用更新接口，以避免个别路由兼容问题
       await apiRequest(`${staffPrefix}/products/${productId}`, {
@@ -4826,9 +4985,14 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       });
       
       // 静默更新，不显示成功提示，因为是实时操作
-      await loadData(); // 重新加载数据
+      // 成功后不需要重新加载，UI已经更新
       
     } catch (err) {
+      // 失败时回滚UI状态
+      const revertedProducts = products.map(p => 
+        p.id === productId ? { ...p, stock: products.find(op => op.id === productId)?.stock || 0 } : p
+      );
+      setProducts(revertedProducts);
       alert(err.message || '更新库存失败');
       throw err; // 重新抛出错误让StockControl组件处理
     }
@@ -4840,15 +5004,22 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       return;
     }
     
+    // 乐观更新：立即从UI中移除商品
+    const originalProducts = [...products];
+    const updatedProducts = products.filter(p => p.id !== product.id);
+    setProducts(updatedProducts);
+    
     try {
       await apiRequest(`${staffPrefix}/products/${product.id}`, {
         method: 'DELETE'
       });
       
       alert('商品删除成功！');
-      await loadData(); // 重新加载数据
+      // 成功后不需要重新加载，UI已经更新
       
     } catch (err) {
+      // 失败时恢复原始状态
+      setProducts(originalProducts);
       alert(err.message || '删除商品失败');
     }
   };
@@ -4887,6 +5058,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       return;
     }
 
+    // 乐观更新：立即从UI中移除商品
+    const originalProducts = [...products];
+    const updatedProducts = products.filter(product => !productIds.includes(product.id));
+    setProducts(updatedProducts);
+    setSelectedProducts([]); // 清空选择
+
     try {
       setIsSubmitting(true);
       
@@ -4900,10 +5077,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       });
 
       alert(`成功删除 ${productIds.length} 件商品！`);
-      setSelectedProducts([]); // 清空选择
-      await loadData(); // 重新加载数据
+      // 成功后不需要重新加载，UI已经更新
 
     } catch (err) {
+      // 失败时恢复原始状态
+      setProducts(originalProducts);
+      setSelectedProducts(productIds); // 恢复选择状态
       alert(err.message || '批量删除商品失败');
     } finally {
       setIsSubmitting(false);
@@ -4915,6 +5094,13 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     if (productIds.length === 0) {
       return;
     }
+
+    // 乐观更新：立即更新UI
+    const originalProducts = [...products];
+    const updatedProducts = products.map(p => 
+      productIds.includes(p.id) ? { ...p, is_active: isActive } : p
+    );
+    setProducts(updatedProducts);
 
     try {
       setIsSubmitting(true);
@@ -4932,10 +5118,13 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       
       await Promise.all(promises);
 
-      setSelectedProducts([]); // 清空选择
-      await loadData(); // 重新加载数据
+      // 批量上架/下架后保持选择状态，不清空选择
+      // setSelectedProducts([]); // 注释掉清空选择
+      // 成功后不需要重新加载，UI已经更新
 
     } catch (err) {
+      // 失败时回滚UI状态
+      setProducts(originalProducts);
       console.error('批量操作失败:', err);
     } finally {
       setIsSubmitting(false);
@@ -5351,6 +5540,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   showOnlyInactive={showOnlyInactive}
                   onToggleOutOfStockFilter={setShowOnlyOutOfStock}
                   onToggleInactiveFilter={setShowOnlyInactive}
+                  operatingProducts={operatingProducts}
             />
           )}
             </>
