@@ -1467,6 +1467,31 @@ async def update_registration_settings(request: Request, enabled: bool):
         logger.error(f"更新注册设置失败: {e}")
         return error_response("更新注册设置失败", 500)
 
+@app.get("/admin/shop-settings")
+async def get_shop_settings(request: Request):
+    """获取商城设置"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
+        return success_response("获取商城设置成功", {"show_inactive_in_shop": show_inactive})
+    except Exception as e:
+        logger.error(f"获取商城设置失败: {e}")
+        return error_response("获取商城设置失败", 500)
+
+@app.put("/admin/shop-settings")
+async def update_shop_settings(request: Request):
+    """更新商城设置"""
+    admin = get_current_admin_required_from_cookie(request)
+    try:
+        body = await request.json()
+        show_inactive = body.get('show_inactive_in_shop', False)
+        
+        SettingsDB.set('show_inactive_in_shop', 'true' if show_inactive else 'false')
+        return success_response("商城设置更新成功", {"show_inactive_in_shop": show_inactive})
+    except Exception as e:
+        logger.error(f"更新商城设置失败: {e}")
+        return error_response("更新商城设置失败", 500)
+
 # ==================== 学号搜索（管理员） ====================
 
 @app.get("/admin/students/search")
@@ -1623,6 +1648,9 @@ async def get_products(request: Request, category: Optional[str] = None, address
         # 现在所有商品都有owner_id，所以统一使用owner_ids过滤，不再依赖include_unassigned
         include_unassigned = False
 
+        # 检查是否在商城中显示下架商品
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
+        
         hot_filter = is_truthy(hot_only)
         if category:
             products = ProductDB.get_products_by_category(
@@ -1637,6 +1665,11 @@ async def get_products(request: Request, category: Optional[str] = None, address
                 include_unassigned=include_unassigned,
                 hot_only=hot_filter
             )
+        
+        # 根据设置过滤下架商品
+        if not show_inactive:
+            products = [p for p in products if p.get('is_active', 1) != 0]
+        
         # 补充规格信息
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
@@ -1662,7 +1695,15 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
         # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
         include_unassigned = False
             
+        # 检查是否在商城中显示下架商品
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
+        
         products = ProductDB.search_products(q, owner_ids=owner_ids, include_unassigned=include_unassigned)
+        
+        # 根据设置过滤下架商品
+        if not show_inactive:
+            products = [p for p in products if p.get('is_active', 1) != 0]
+        
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
         for p in products:
@@ -1686,13 +1727,23 @@ async def get_categories(request: Request, address_id: Optional[str] = None, bui
         
         # 修复Agent商品权限控制：现在所有商品都有owner_id，统一使用owner_ids过滤
         include_unassigned = False
+        
+        # 检查是否在商城中显示下架商品
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
             
         # 返回前自动清理空分类
         try:
             CategoryDB.cleanup_orphan_categories()
         except Exception:
             pass
-        categories = CategoryDB.get_categories_with_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+            
+        if show_inactive:
+            # 显示下架商品时，正常获取分类
+            categories = CategoryDB.get_categories_with_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+        else:
+            # 不显示下架商品时，只获取有上架商品的分类
+            categories = CategoryDB.get_categories_with_active_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+            
         return success_response("获取分类成功", {"categories": categories, "scope": scope})
     
     except Exception as e:

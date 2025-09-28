@@ -316,6 +316,10 @@ Smart Shopping Assistant for *{SHOP_NAME}*
 def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) -> Dict[str, Any]:
     """搜索商品实现（支持匿名和登录用户）"""
     try:
+        # 检查是否在商城中显示下架商品
+        from database import SettingsDB
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
+        
         def _relevance_score(prod: Dict[str, Any], q: str, discount_label: Optional[str]) -> int:
             """根据关键词与商品字段的匹配程度计算相关性（0~100）。"""
             try:
@@ -373,6 +377,11 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) 
                 q_str = (q or "").strip()
                 if q_str:
                     products = ProductDB.search_products(q_str)
+                    
+                    # 根据商城设置过滤下架商品
+                    if not show_inactive:
+                        products = [p for p in products if p.get('is_active', 1) != 0]
+                    
                     # 限制返回数量
                     products = products[:limit] if len(products) > limit else products
                     
@@ -434,6 +443,11 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None) 
                 return {"ok": True, "query": query, "count": 0, "items": []}
             
             products = ProductDB.search_products(q)
+            
+            # 根据商城设置过滤下架商品
+            if not show_inactive:
+                products = [p for p in products if p.get('is_active', 1) != 0]
+            
             products = products[:limit] if len(products) > limit else products
             
             from database import VariantDB
@@ -550,7 +564,18 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
 def get_category_impl() -> Dict[str, Any]:
     """获取所有商品类别（不包含商品，未登录也可用）"""
     try:
-        categories = CategoryDB.get_all_categories()
+        from database import SettingsDB
+        
+        # 检查是否在商城中显示下架商品
+        show_inactive = SettingsDB.get('show_inactive_in_shop', 'false') == 'true'
+        
+        if show_inactive:
+            # 显示下架商品时，获取所有有商品的分类
+            categories = CategoryDB.get_categories_with_products()
+        else:
+            # 不显示下架商品时，只获取有上架商品的分类
+            categories = CategoryDB.get_categories_with_active_products()
+        
         # 仅返回必要字段
         items = [
             {

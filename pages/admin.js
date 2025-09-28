@@ -25,6 +25,49 @@ const normalizeBooleanFlag = (value, defaultValue = false) => {
   return defaultValue;
 };
 
+// iOS风格开关组件
+const IOSToggle = ({ enabled, onChange, disabled = false, size = 'md' }) => {
+  const sizeClasses = {
+    sm: 'w-10 h-6',
+    md: 'w-12 h-7',
+    lg: 'w-14 h-8'
+  };
+  
+  const thumbSizes = {
+    sm: 'w-4 h-4',
+    md: 'w-5 h-5',
+    lg: 'w-6 h-6'
+  };
+  
+  const translateX = {
+    sm: enabled ? 'translate-x-5' : 'translate-x-1',
+    md: enabled ? 'translate-x-7' : 'translate-x-1', 
+    lg: enabled ? 'translate-x-8' : 'translate-x-1'
+  };
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!enabled)}
+      className={`${sizeClasses[size]} relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+      } ${
+        enabled 
+          ? 'bg-gradient-to-r from-green-400 to-green-500 shadow-lg' 
+          : 'bg-gray-300 hover:bg-gray-400'
+      }`}
+    >
+      <span className="sr-only">切换开关</span>
+      <span
+        className={`${thumbSizes[size]} ${translateX[size]} inline-block rounded-full bg-white shadow-lg transform transition-transform duration-200 ease-in-out`}
+      />
+    </button>
+  );
+};
+
 
 // 代理状态卡片（打烊/营业）
 const AgentStatusCard = () => {
@@ -4059,6 +4102,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [showOnlyInactive, setShowOnlyInactive] = useState(false);
   const [variantStockProduct, setVariantStockProduct] = useState(null);
   
+  // 商城显示下架商品的开关状态
+  const [showInactiveInShop, setShowInactiveInShop] = useState(false);
+  const [isLoadingShopSetting, setIsLoadingShopSetting] = useState(false);
+  
   // 操作状态管理 - 防止重复操作
   const [operatingProducts, setOperatingProducts] = useState(new Set());
   
@@ -4250,14 +4297,18 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       const addressesPromise = isAdmin
         ? apiRequest('/admin/addresses')
         : Promise.resolve({ data: { addresses: [] } });
+      const shopSettingsPromise = isAdmin 
+        ? apiRequest('/admin/shop-settings')
+        : Promise.resolve({ data: {} });
 
-      const [statsData, usersCountData, productsData, categoriesData, orderStatsData, addressesData] = await Promise.all([
+      const [statsData, usersCountData, productsData, categoriesData, orderStatsData, addressesData, shopSettingsData] = await Promise.all([
         statsPromise,
         usersCountPromise,
         productsPromise,
         categoriesPromise,
         orderStatsPromise,
-        addressesPromise
+        addressesPromise,
+        shopSettingsPromise
       ]);
       
       const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
@@ -4336,6 +4387,13 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         total_revenue: 0
       });
       setAddresses(addressesData.data.addresses || []);
+      
+      // 处理商城设置数据
+      if (isAdmin && shopSettingsData.data) {
+        const showInactive = normalizeBooleanFlag(shopSettingsData.data.show_inactive_in_shop, false);
+        setShowInactiveInShop(showInactive);
+      }
+      
       setSelectedProducts([]); // 重新加载数据时清空选择
       // 初始加载订单第一页（分页，默认每页20）
       if (shouldReloadOrders) {
@@ -4345,6 +4403,35 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       setError(err.message || '加载数据失败');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 更新商城显示下架商品设置
+  const updateShopInactiveSetting = async (showInactive) => {
+    if (!isAdmin || isLoadingShopSetting) return;
+    
+    setIsLoadingShopSetting(true);
+    try {
+      const response = await apiRequest('/admin/shop-settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          show_inactive_in_shop: showInactive
+        })
+      });
+      
+      if (response.success) {
+        setShowInactiveInShop(showInactive);
+      } else {
+        throw new Error(response.message || '更新设置失败');
+      }
+    } catch (err) {
+      console.error('更新商城设置失败:', err);
+      alert('更新设置失败: ' + err.message);
+    } finally {
+      setIsLoadingShopSetting(false);
     }
   };
 
@@ -5473,7 +5560,25 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           {activeTab === 'products' && (
             <>
               <div className="mb-6 flex justify-between items-center">
-                <h2 className="text-lg font-medium text-gray-900">商品管理</h2>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-lg font-medium text-gray-900">
+                    商品管理
+                    {isAdmin && (
+                      <span className="ml-3 text-sm font-normal text-gray-600">
+                        （是否显示下架商品
+                        <span className="inline-flex items-center ml-2 mr-1">
+                          <IOSToggle 
+                            enabled={showInactiveInShop}
+                            onChange={updateShopInactiveSetting}
+                            disabled={isLoadingShopSetting}
+                            size="sm"
+                          />
+                        </span>
+                        ）
+                      </span>
+                    )}
+                  </h2>
+                </div>
                 <button
                   onClick={() => setShowAddModal(true)}
                   className="bg-indigo-600 text-white px-4 py-2 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"

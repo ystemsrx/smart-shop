@@ -2193,6 +2193,32 @@ class CategoryDB:
             return [dict(row) for row in cursor.fetchall()]
     
     @staticmethod
+    def get_categories_with_active_products(owner_ids: Optional[List[str]] = None, include_unassigned: bool = True) -> List[Dict]:
+        """获取有上架商品关联的分类，可按商品归属过滤"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if owner_ids is None:
+                cursor.execute('''
+                    SELECT DISTINCT c.* 
+                    FROM categories c 
+                    INNER JOIN products p ON c.name = p.category 
+                    WHERE p.is_active = 1
+                    ORDER BY c.name
+                ''')
+            else:
+                where_sql, params = ProductDB._build_owner_filter(owner_ids, include_unassigned)
+                if where_sql == '1=0':
+                    return []
+                cursor.execute(f'''
+                    SELECT DISTINCT c.* 
+                    FROM categories c 
+                    INNER JOIN products p ON c.name = p.category 
+                    WHERE ({where_sql}) AND p.is_active = 1
+                    ORDER BY c.name
+                ''', params)
+            return [dict(row) for row in cursor.fetchall()]
+    
+    @staticmethod
     def get_category_by_id(category_id: str) -> Optional[Dict]:
         """根据ID获取分类"""
         with get_db_connection() as conn:
