@@ -1836,6 +1836,7 @@ const ProductTable = ({
   onUpdateStock,
   onBatchDelete,
   onBatchUpdateDiscount,
+  onBatchToggleActive,
   selectedProducts,
   onSelectProduct,
   onSelectAll,
@@ -1909,6 +1910,64 @@ const ProductTable = ({
                   })}
                 </select>
               </div>
+              {(() => {
+                // 分析选中商品的状态
+                const selectedProductsData = products.filter(product => selectedProducts.includes(product.id));
+                const activeCount = selectedProductsData.filter(product => product.is_active !== 0 && product.is_active !== false).length;
+                const inactiveCount = selectedProductsData.length - activeCount;
+                
+                // 决定当前状态：如果大部分是上架的，开关为开启状态
+                const isOn = activeCount >= inactiveCount;
+                const action = isOn ? '下架' : '上架';
+                const targetState = !isOn;
+                
+                return (
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-600">
+                      批量操作 ({selectedProductsData.length}件)
+                    </span>
+                    <div 
+                      onClick={() => onBatchToggleActive && onBatchToggleActive(selectedProducts, targetState)}
+                      className="relative inline-flex items-center cursor-pointer"
+                      title={`点击批量${action}`}
+                    >
+                      {/* iOS 开关背景 */}
+                      <div className={`
+                        relative w-12 h-6 rounded-full transition-colors duration-200 ease-in-out
+                        ${isOn 
+                          ? 'bg-green-500 shadow-inner' 
+                          : 'bg-gray-300 shadow-inner'
+                        }
+                      `}>
+                        {/* iOS 开关滑块 */}
+                        <div className={`
+                          absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-lg
+                          transform transition-transform duration-200 ease-in-out
+                          ${isOn ? 'translate-x-6' : 'translate-x-0.5'}
+                        `}>
+                          {/* 滑块内的小图标 */}
+                          <div className="w-full h-full flex items-center justify-center">
+                            <i className={`
+                              fas text-xs transition-opacity duration-200
+                              ${isOn 
+                                ? 'fa-eye text-green-500 opacity-80' 
+                                : 'fa-eye-slash text-gray-400 opacity-80'
+                              }
+                            `}></i>
+                          </div>
+                        </div>
+                      </div>
+                      {/* 状态文字 */}
+                      <span className={`
+                        ml-3 text-sm font-medium transition-colors duration-200
+                        ${isOn ? 'text-green-600' : 'text-gray-600'}
+                      `}>
+                        {isOn ? '已上架' : '已下架'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
               <button
                 onClick={() => onBatchDelete(selectedProducts)}
                 className="bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
@@ -4107,18 +4166,29 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   }, [user, expectedRole, staffPrefix, apiRequest]);
 
   // 加载统计数据和商品列表
-  const loadData = async (agentFilterValue = orderAgentFilter, shouldReloadOrders = true) => {
+  const loadData = async (agentFilterValue = orderAgentFilter, shouldReloadOrders = true, forceRefresh = false) => {
     if (!user || user.type !== expectedRole) {
       return;
     }
     setIsLoading(true);
     setError('');
 
+    // 如果是强制刷新，先清空相关状态
+    if (forceRefresh) {
+      setProducts([]);
+      setStats({});
+      setCategories([]);
+    }
+
     try {
       const normalizedFilter = isAdmin ? (agentFilterValue || 'self').toString() : null;
       const buildQueryString = (key, value) => {
         const params = new URLSearchParams();
         params.set(key, value);
+        // 如果是强制刷新，添加时间戳参数防止缓存
+        if (forceRefresh) {
+          params.set('_t', Date.now().toString());
+        }
         const qs = params.toString();
         return qs ? `?${qs}` : '';
       };
@@ -4840,6 +4910,38 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
+  // 批量上架/下架商品
+  const handleBatchToggleActive = async (productIds, isActive) => {
+    if (productIds.length === 0) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      // 批量更新商品状态
+      const promises = productIds.map(productId => 
+        apiRequest(`${staffPrefix}/products/${productId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ is_active: isActive })
+        })
+      );
+      
+      await Promise.all(promises);
+
+      setSelectedProducts([]); // 清空选择
+      await loadData(); // 重新加载数据
+
+    } catch (err) {
+      console.error('批量操作失败:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
 
   // 更新订单状态
@@ -5228,7 +5330,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           ) : (
                  <ProductTable 
                   products={visibleProducts} 
-                  onRefresh={loadData}
+                  onRefresh={() => loadData(orderAgentFilter, true, true)}
                   onEdit={(product) => {
                     setEditingProduct(product);
                     setShowEditModal(true);
@@ -5237,6 +5339,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   onUpdateStock={handleUpdateStock}
                   onBatchDelete={handleBatchDelete}
                   onBatchUpdateDiscount={handleBatchUpdateDiscount}
+                  onBatchToggleActive={handleBatchToggleActive}
                   selectedProducts={selectedProducts}
                   onSelectProduct={handleSelectProduct}
                   onSelectAll={handleSelectAll}
