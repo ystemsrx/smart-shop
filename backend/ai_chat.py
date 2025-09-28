@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 MODEL_CANDIDATES = settings.model_order
 API_URL = settings.api_url
-SHOP_NAME = settings.shop_name
 
 if not settings.api_key:
     logger.warning("AI API key is not configured; upstream requests may be rejected.")
@@ -135,6 +134,10 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
 def generate_dynamic_system_prompt(request: Request) -> str:
     """根据当前配送范围动态生成系统提示词"""
     try:
+        # 动态获取商店名称，避免模块级别的编码问题
+        current_settings = get_settings()
+        shop_name = current_settings.shop_name
+        
         scope = resolve_shopping_scope(request)
         owner_id = get_owner_id_from_scope(scope)
         
@@ -189,14 +192,15 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         
         business_rules_text = "\n* ".join(business_rules)
         
-        return f"""# Role
+        # 使用字符串格式化构建系统提示词
+        system_prompt = """# Role
 
-Smart Shopping Assistant for *{SHOP_NAME}*
+Smart Shopping Assistant for *{}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *{SHOP_NAME}*
+* Professional, friendly, helps users shop in *{}*
 
 ## Goals
 
@@ -217,18 +221,21 @@ Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Business Rules
 
-* {business_rules_text}
+* {}
 
 ## Skills
 
+* You are allowed to use `mermaid` syntax to create diagrams if needed
 * **Product Operations**: Search products, browse categories
 * **Shopping Cart Operations**: Add, update, remove, clear, view
 * **Service Communication**: Recommend products, prompt login, communicate clearly
-"""
+""".format(shop_name, shop_name, business_rules_text)
+        
+        return system_prompt
     except Exception as e:
         logger.error(f"生成动态系统提示词失败: {e}")
         # 回退到静态系统提示词
-        return SYSTEM_PROMPT
+        return get_fallback_system_prompt()
 
 
 # ===== 模型故障转移函数 =====
@@ -276,16 +283,21 @@ async def make_request_with_fallback(messages, tools, stream=True):
     # 所有模型都失败了
     raise Exception("所有模型都不可用")
 
-# 系统提示词
-SYSTEM_PROMPT = f"""
-# Role
 
-Smart Shopping Assistant for *{SHOP_NAME}*
+def get_fallback_system_prompt() -> str:
+    """获取回退系统提示词"""
+    current_settings = get_settings()
+    shop_name = current_settings.shop_name
+    
+    # 使用字符串模板而不是f-string来避免潜在的编码问题
+    return """# Role
+
+Smart Shopping Assistant for *{}*
 
 ## Profile
 
 * Response language: 中文
-* Professional, friendly, helps users shop in *{SHOP_NAME}*
+* Professional, friendly, helps users shop in *{}*
 
 ## Goals
 
@@ -306,10 +318,12 @@ Smart Shopping Assistant for *{SHOP_NAME}*
 
 ## Skills
 
+* You are allowed to use `mermaid` syntax to create diagrams if needed
 * **Product Operations**: Search products, browse categories
 * **Shopping Cart Operations**: Add, update, remove, clear, view
 * **Service Communication**: Recommend products, prompt login, communicate clearly
-"""
+""".format(shop_name, shop_name)
+
 
 # ===== 工具函数实现 =====
 

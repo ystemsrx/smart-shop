@@ -620,6 +620,28 @@ body {
   line-height: 1;
 }
 
+/* Mermaid预览样式 */
+.mermaid-preview {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+.mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-preview .error {
+  padding: 15px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 14px;
+}
+
 /* 链接样式 */
 .markdown-content a {
   color: #3b82f6; /* Tailwind blue-500 */

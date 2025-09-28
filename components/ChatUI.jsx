@@ -147,6 +147,20 @@ const BUTTON_CONTENT = {
     </svg>
     <span>Copied!</span>
   `,
+  PREVIEW_ON: `
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
+      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+      <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+    </svg>
+    <span>预览</span>
+  `,
+  PREVIEW_OFF: `
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
+      <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"/>
+      <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/>
+    </svg>
+    <span>代码</span>
+  `,
 };
 
 // Markdown渲染器组件
@@ -323,6 +337,7 @@ const MarkdownRenderer = ({ content }) => {
 
       const languageMatch = /language-(\w+)/.exec(code.className || '');
       const language = languageMatch ? languageMatch[1] : '';
+      const isMermaid = language === 'mermaid';
       
       // 创建容器结构
       const container = document.createElement('div');
@@ -337,6 +352,17 @@ const MarkdownRenderer = ({ content }) => {
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
       
+      // 为Mermaid添加预览按钮
+      let previewButton = null;
+      let showPreview = true; // 默认开启预览
+      
+      if (isMermaid) {
+        previewButton = document.createElement('button');
+        previewButton.className = 'code-copy-button';
+        previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
+        previewButton.setAttribute('aria-label', 'Toggle Preview');
+      }
+      
       const copyButton = document.createElement('button');
       copyButton.className = 'code-copy-button';
       copyButton.innerHTML = BUTTON_CONTENT.COPY;
@@ -345,13 +371,282 @@ const MarkdownRenderer = ({ content }) => {
       // 克隆 pre 元素
       const preClone = pre.cloneNode(true);
       const codeClone = preClone.querySelector('code');
+      const mermaidCode = codeClone.textContent;
+
+      // 创建Mermaid预览容器（仅对Mermaid图表）
+      let mermaidContainer = null;
+      if (isMermaid) {
+        // 计算代码块高度
+        let codeBlockHeight = pre.offsetHeight;
+        if (!codeBlockHeight || codeBlockHeight < 40) codeBlockHeight = 200;
+        
+        // 创建Mermaid预览容器，直接作为内容显示
+        mermaidContainer = document.createElement('div');
+        mermaidContainer.className = 'mermaid-preview';
+        mermaidContainer.style.cssText = `
+          padding: 20px;
+          background: white;
+          text-align: center;
+          transform-origin: center center;
+          transition: transform 0.2s ease;
+          cursor: grab;
+          user-select: none;
+          position: relative;
+          height: ${codeBlockHeight}px;
+          min-height: 120px;
+          max-height: 400px;
+          overflow: hidden;
+        `;
+        
+        // 创建缩放控制按钮
+        const zoomControls = document.createElement('div');
+        zoomControls.style.cssText = `
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          display: flex;
+          gap: 4px;
+          background: rgba(0,0,0,0.1);
+          border-radius: 4px;
+          padding: 4px;
+          z-index: 10;
+        `;
+        
+        const zoomInBtn = document.createElement('button');
+        zoomInBtn.textContent = '+';
+        zoomInBtn.style.cssText = 'width: 24px; height: 24px; border: none; background: white; cursor: pointer; border-radius: 2px;';
+        
+        const zoomOutBtn = document.createElement('button');
+        zoomOutBtn.textContent = '-';
+        zoomOutBtn.style.cssText = 'width: 24px; height: 24px; border: none; background: white; cursor: pointer; border-radius: 2px;';
+        
+        const resetBtn = document.createElement('button');
+        resetBtn.textContent = '◎';
+        resetBtn.style.cssText = 'width: 24px; height: 24px; border: none; background: white; cursor: pointer; border-radius: 2px;';
+        
+        zoomControls.appendChild(zoomOutBtn);
+        zoomControls.appendChild(resetBtn);
+        zoomControls.appendChild(zoomInBtn);
+        
+        // 将缩放控制按钮添加到Mermaid容器
+        mermaidContainer.appendChild(zoomControls);
+        
+        // 缩放和拖拽状态
+        let scale = 1;
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let translate = { x: 0, y: 0 };
+        
+        // 缩放功能 - 直接对mermaidContainer内的内容进行变换
+        const updateTransform = () => {
+          const svgElement = mermaidContainer.querySelector('svg');
+          if (svgElement) {
+            svgElement.style.transform = `translate(${translate.x}px, ${translate.y}px) scale(${scale})`;
+          }
+        };
+        
+        zoomInBtn.addEventListener('click', () => {
+          scale = Math.min(scale * 1.2, 3);
+          updateTransform();
+        });
+        
+        zoomOutBtn.addEventListener('click', () => {
+          scale = Math.max(scale / 1.2, 0.3);
+          updateTransform();
+        });
+        
+        resetBtn.addEventListener('click', () => {
+          scale = 1;
+          translate = { x: 0, y: 0 };
+          updateTransform();
+        });
+        
+        // 拖拽功能
+        mermaidContainer.addEventListener('mousedown', (e) => {
+          if (e.target.closest('button')) return;
+          isDragging = true;
+          dragStart = { x: e.clientX - translate.x, y: e.clientY - translate.y };
+          mermaidContainer.style.cursor = 'grabbing';
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+          if (!isDragging) return;
+          e.preventDefault();
+          translate.x = e.clientX - dragStart.x;
+          translate.y = e.clientY - dragStart.y;
+          updateTransform();
+        });
+        
+        document.addEventListener('mouseup', () => {
+          if (isDragging) {
+            isDragging = false;
+            mermaidContainer.style.cursor = 'grab';
+          }
+        });
+        
+        // 鼠标滚轮缩放
+        mermaidContainer.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.9 : 1.1;
+          scale = Math.max(0.3, Math.min(3, scale * delta));
+          updateTransform();
+        });
+        
+        // 渲染Mermaid图表
+        if (window.mermaid) {
+          try {
+            // 彻底清除页面中所有可能的Mermaid错误信息和占位元素
+            const existingErrors = document.querySelectorAll('.mermaid-error, [id^="dmermaid"], [id*="mermaid-"]');
+            existingErrors.forEach(error => {
+              if (error && error.parentNode && !error.closest('.mermaid-preview')) {
+                error.remove();
+              }
+            });
+            
+            // 清理body中可能残留的Mermaid错误信息
+            const bodyErrors = document.body.querySelectorAll('div');
+            bodyErrors.forEach(div => {
+              if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
+                div.remove();
+              }
+            });
+            
+            // 生成唯一ID
+            const mermaidId = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            
+            // 异步渲染Mermaid
+            window.mermaid.render(mermaidId + '-svg', mermaidCode).then(result => {
+              // 再次清理，确保渲染过程中没有产生新的错误占位
+              const pageErrors = document.querySelectorAll('div');
+              pageErrors.forEach(div => {
+                if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
+                  div.remove();
+                }
+              });
+              
+              // 在zoomControls之前插入SVG内容
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = result.svg;
+              const svg = tempDiv.querySelector('svg');
+              
+              if (svg) {
+                svg.style.maxWidth = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxHeight = '100%';
+                svg.style.display = 'block';
+                svg.style.transformOrigin = 'center center';
+                
+                // 完全清空mermaidContainer并重新构建
+                const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
+                mermaidContainer.innerHTML = '';
+                
+                // 先添加SVG，再添加控制按钮
+                mermaidContainer.appendChild(svg);
+                if (controls) {
+                  mermaidContainer.appendChild(controls);
+                }
+              }
+              
+              // 渲染成功后再次清理页面
+              setTimeout(() => {
+                const finalErrors = document.querySelectorAll('div');
+                finalErrors.forEach(div => {
+                  if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
+                    div.remove();
+                  }
+                });
+              }, 100);
+              
+            }).catch(err => {
+              console.error('Mermaid渲染失败:', err);
+              // 清理可能的错误占位
+              const pageErrors = document.querySelectorAll('div');
+              pageErrors.forEach(div => {
+                if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
+                  div.remove();
+                }
+              });
+              
+              const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
+              mermaidContainer.innerHTML = '';
+              
+              const errorDiv = document.createElement('div');
+              errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
+              errorDiv.textContent = 'Mermaid图表语法错误';
+              mermaidContainer.appendChild(errorDiv);
+              
+              if (controls) {
+                mermaidContainer.appendChild(controls);
+              }
+            });
+          } catch (err) {
+            console.error('Mermaid渲染失败:', err);
+            // 清理可能的错误占位
+            const pageErrors = document.querySelectorAll('div');
+            pageErrors.forEach(div => {
+              if (div.textContent && div.textContent.includes('Syntax error in text') && div.textContent.includes('mermaid version')) {
+                div.remove();
+              }
+            });
+            
+            const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
+            mermaidContainer.innerHTML = '';
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
+            errorDiv.textContent = 'Mermaid图表渲染失败';
+            mermaidContainer.appendChild(errorDiv);
+            
+            if (controls) {
+              mermaidContainer.appendChild(controls);
+            }
+          }
+        } else {
+          const errorDiv = document.createElement('div');
+          errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
+          errorDiv.textContent = 'Mermaid库未加载';
+          mermaidContainer.appendChild(errorDiv);
+        }
+        
+        // 初始隐藏代码
+        preClone.style.display = 'none';
+      }
 
       // 组装结构
       header.appendChild(langSpan);
-      header.appendChild(copyButton);
+      
+      // 创建按钮容器
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = 'display: flex; gap: 4px;';
+      
+      if (previewButton) {
+        buttonContainer.appendChild(previewButton);
+      }
+      buttonContainer.appendChild(copyButton);
+      header.appendChild(buttonContainer);
+      
+      if (mermaidContainer) {
+        contentArea.appendChild(mermaidContainer);
+      }
       contentArea.appendChild(preClone);
       container.appendChild(header);
       container.appendChild(contentArea);
+
+      // 预览切换功能（仅Mermaid）
+      if (previewButton && mermaidContainer) {
+        previewButton.addEventListener('click', () => {
+          showPreview = !showPreview;
+          if (showPreview) {
+            mermaidContainer.style.display = 'block';
+            preClone.style.display = 'none';
+            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
+          } else {
+            mermaidContainer.style.display = 'none';
+            preClone.style.display = 'block';
+            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_OFF;
+          }
+        });
+      }
 
       // 复制功能
       copyButton.addEventListener('click', async () => {
@@ -373,8 +668,8 @@ const MarkdownRenderer = ({ content }) => {
         pre.parentNode.replaceChild(container, pre);
       }
 
-      // 然后对克隆的代码元素进行高亮
-      if (window.Prism && codeClone) {
+      // 然后对克隆的代码元素进行高亮（非Mermaid的情况）
+      if (window.Prism && codeClone && !isMermaid) {
         window.Prism.highlightElement(codeClone, false);
       }
     });
@@ -388,6 +683,30 @@ const MarkdownRenderer = ({ content }) => {
         ]
       });
     }
+
+    // 持续清理Mermaid错误占位（流式生成时可能产生）
+    const cleanup = () => {
+      const pageErrors = document.querySelectorAll('div');
+      pageErrors.forEach(div => {
+        if (div.textContent && 
+            div.textContent.includes('Syntax error in text') && 
+            div.textContent.includes('mermaid version') &&
+            !div.closest('.mermaid-preview')) {
+          div.remove();
+        }
+      });
+    };
+    
+    // 立即清理一次
+    cleanup();
+    
+    // 设置定期清理
+    const cleanupInterval = setInterval(cleanup, 500);
+    
+    // 清理函数
+    return () => {
+      clearInterval(cleanupInterval);
+    };
   }, [content]);
 
   return (

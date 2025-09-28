@@ -19,10 +19,36 @@ _env_candidates: Iterable[Path] = (
     PROJECT_ROOT / ".env",
     BASE_DIR / ".env",
 )
+
+# 在Windows上，需要特别处理编码问题
+import platform
+is_windows = platform.system() == "Windows"
+
 for candidate in _env_candidates:
     if candidate.exists():
-        load_dotenv(dotenv_path=candidate, override=False)
-load_dotenv(override=False)
+        if is_windows:
+            # 在Windows上，先尝试用UTF-8读取，如果失败则用其他编码
+            try:
+                load_dotenv(dotenv_path=candidate, override=False, encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    load_dotenv(dotenv_path=candidate, override=False, encoding='gbk')
+                except UnicodeDecodeError:
+                    load_dotenv(dotenv_path=candidate, override=False, encoding='cp1252')
+        else:
+            load_dotenv(dotenv_path=candidate, override=False, encoding='utf-8')
+
+# 最后尝试从当前目录加载
+if is_windows:
+    try:
+        load_dotenv(override=False, encoding='utf-8')
+    except UnicodeDecodeError:
+        try:
+            load_dotenv(override=False, encoding='gbk')
+        except UnicodeDecodeError:
+            load_dotenv(override=False, encoding='cp1252')
+else:
+    load_dotenv(override=False, encoding='utf-8')
 
 
 def _split_csv(value: str | None) -> List[str]:
@@ -42,6 +68,51 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_decode_string(value: str | None) -> str:
+    """安全解码字符串，处理可能的编码问题"""
+    if not value:
+        return ""
+    
+    # 如果已经是正确的字符串，直接返回
+    if isinstance(value, str):
+        # 检查是否包含明显的编码错误字符
+        if "闆堕" in value or "\ue5e4" in value:
+            # 这是典型的UTF-8被错误解释的情况
+            try:
+                # 尝试将字符串编码为latin-1，然后解码为UTF-8
+                # 这可以修复UTF-8字节被错误解释为Windows-1252的问题
+                fixed_bytes = value.encode('latin-1')
+                return fixed_bytes.decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            
+            try:
+                # 另一种尝试：直接替换已知的错误字符
+                # "闆堕\ue5e4" 应该是 "零食"
+                if "闆堕\ue5e4" in value:
+                    return value.replace("闆堕\ue5e4", "零食")
+            except Exception:
+                pass
+        
+        try:
+            # 验证字符串的完整性
+            encoded = value.encode('utf-8')
+            decoded = encoded.decode('utf-8')
+            return decoded
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # 如果出现编码错误，尝试其他处理方式
+            try:
+                # 尝试使用latin-1编码再解码为UTF-8
+                if isinstance(value, str):
+                    encoded_bytes = value.encode('latin-1')
+                    return encoded_bytes.decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+    
+    # 如果所有尝试都失败，返回清理后的字符串
+    return str(value).strip()
 
 
 def _normalize_env(value: str | None) -> str:
@@ -153,7 +224,7 @@ def get_settings() -> Settings:
     cache_max_age = _as_int(os.getenv("STATIC_CACHE_MAX_AGE"), 60 * 60 * 24 * 30)
 
     raw_shop_name = os.getenv("SHOP_NAME")
-    shop_name = (raw_shop_name or "").strip()
+    shop_name = _safe_decode_string(raw_shop_name)
     if not shop_name:
         raise RuntimeError("SHOP_NAME environment variable is required")
 
