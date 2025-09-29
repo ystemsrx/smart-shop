@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, time
-from database import cleanup_old_chat_logs
+from database import cleanup_old_chat_logs, CouponDB
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,15 @@ async def daily_cleanup_task():
             await asyncio.sleep(wait_seconds)
             
             # 执行清理任务
-            logger.info("开始执行聊天记录清理任务")
-            deleted_count = cleanup_old_chat_logs()
-            logger.info(f"清理任务完成，删除了 {deleted_count} 条过期记录")
+            logger.info("开始执行清理任务")
+            
+            # 清理聊天记录
+            deleted_chats = cleanup_old_chat_logs()
+            logger.info(f"聊天记录清理完成，删除了 {deleted_chats} 条过期记录")
+            
+            # 清理24小时前撤回的优惠券
+            deleted_coupons = CouponDB.cleanup_revoked_coupons()
+            logger.info(f"优惠券清理完成，删除了 {deleted_coupons} 个撤回的优惠券")
             
         except Exception as e:
             logger.error(f"清理任务执行失败: {e}")

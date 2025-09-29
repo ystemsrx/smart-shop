@@ -778,7 +778,7 @@ def init_database():
         except Exception:
             pass
 
-        # 优惠券表（未使用的券保留为 active；撤回标记为 revoked；使用后直接删除）
+        # 优惠券表（未使用的券保留为 active；撤回标记为 revoked；使用后标记为 used）
         try:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS coupons (
@@ -786,8 +786,10 @@ def init_database():
                     student_id TEXT NOT NULL,
                     amount REAL NOT NULL,
                     expires_at TIMESTAMP NULL,
-                    status TEXT DEFAULT 'active', -- active, revoked
+                    status TEXT DEFAULT 'active', -- active, revoked, used
                     owner_id TEXT,
+                    revoked_at TIMESTAMP NULL,
+                    used_at TIMESTAMP NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (student_id) REFERENCES users(id)
@@ -796,6 +798,16 @@ def init_database():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_student ON coupons(student_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_status ON coupons(status)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_expires ON coupons(expires_at)')
+        except Exception:
+            pass
+        
+        # 为现有优惠券表添加新字段
+        try:
+            cursor.execute('ALTER TABLE coupons ADD COLUMN revoked_at TIMESTAMP NULL')
+        except Exception:
+            pass
+        try:
+            cursor.execute('ALTER TABLE coupons ADD COLUMN used_at TIMESTAMP NULL')
         except Exception:
             pass
 
@@ -5157,7 +5169,7 @@ class CouponDB:
 
     @staticmethod
     def list_all(user_identifier: Optional[Union[str, int]] = None, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """列出所有优惠券（管理员查看），包含 active/revoked；不包含已使用（因为已删除）- 支持student_id或user_id"""
+        """列出所有优惠券（管理员查看），包含 active/revoked/used - 支持student_id或user_id"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             clauses = []
@@ -5270,7 +5282,7 @@ class CouponDB:
             if owner_id is not None:
                 params.append(owner_id)
             cursor.execute(
-                f'UPDATE coupons SET status = "revoked", updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = "active" AND {owner_condition}',
+                f'UPDATE coupons SET status = "revoked", revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = "active" AND {owner_condition}',
                 params
             )
             ok = cursor.rowcount > 0
@@ -5279,10 +5291,13 @@ class CouponDB:
 
     @staticmethod
     def delete_coupon(coupon_id: str) -> bool:
-        """删除优惠券（用于消费）。"""
+        """标记优惠券为已使用（用于消费）。"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM coupons WHERE id = ?', (coupon_id,))
+            cursor.execute(
+                'UPDATE coupons SET status = "used", used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                (coupon_id,)
+            )
             ok = cursor.rowcount > 0
             conn.commit()
             return ok
@@ -5376,6 +5391,28 @@ class CouponDB:
                 logger.error(f"解锁优惠券失败: {e}")
                 conn.rollback()
                 return False
+    
+    @staticmethod
+    def cleanup_revoked_coupons() -> int:
+        """清理24小时前撤回的优惠券（保留已使用的优惠券）"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # 删除24小时前撤回的优惠券
+                cursor.execute('''
+                    DELETE FROM coupons
+                    WHERE status = 'revoked' 
+                    AND revoked_at IS NOT NULL
+                    AND datetime(revoked_at) <= datetime('now', '-1 day')
+                ''')
+                deleted_count = cursor.rowcount
+                conn.commit()
+                logger.info(f"清理了 {deleted_count} 个24小时前撤回的优惠券")
+                return deleted_count
+            except Exception as e:
+                logger.error(f"清理撤回优惠券失败: {e}")
+                conn.rollback()
+                return 0
 
 class DeliverySettingsDB:
     """配送费设置数据库操作类"""
