@@ -1980,9 +1980,9 @@ const ProductTable = ({
                       `}>
                         {/* iOS 开关滑块 - 调整为合适大小 */}
                         <div className={`
-                          absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-lg
+                          absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-lg
                           transform transition-transform duration-200 ease-in-out
-                          ${isOn ? 'translate-x-5' : 'translate-x-0.5'}
+                          ${isOn ? 'translate-x-[19px]' : 'translate-x-0'}
                         `}>
                         </div>
                       </div>
@@ -2902,6 +2902,15 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="text-lg font-medium text-gray-900">订单列表</h3>
         <div className="flex items-center gap-3">
+          {selectedOrders.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">已选择 {selectedOrders.length} 笔</span>
+              <button
+                onClick={() => onBatchDeleteOrders(selectedOrders)}
+                className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
+              >删除</button>
+            </div>
+          )}
           <input
             type="text"
             placeholder="通过订单号搜索"
@@ -2912,15 +2921,6 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
           />
           <button onClick={onSearchSubmit} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">搜索</button>
           <button onClick={onRefresh} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">刷新</button>
-          {selectedOrders.length > 0 && (
-            <>
-              <span className="text-sm text-gray-600">已选择 {selectedOrders.length} 笔</span>
-              <button
-                onClick={() => onBatchDeleteOrders(selectedOrders)}
-                className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-red-700"
-              >删除</button>
-            </>
-          )}
         </div>
       </div>
       

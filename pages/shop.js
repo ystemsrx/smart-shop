@@ -225,8 +225,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             </button>
           ) : isInCart ? (
             // 购物车中商品的数量调整控件
-            <div className="flex items-center justify-between w-full">
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+            <div className="flex items-center w-full justify-center sm:justify-between">
+              <span className="hidden sm:inline-flex items-center gap-1 text-xs text-green-600 font-medium">
                 <i className="fas fa-check-circle"></i>已加入
               </span>
               <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-1">
@@ -362,7 +362,7 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="搜索您喜欢的零食..."
+              placeholder="搜索您喜欢的商品..."
               className="flex-1 pl-12 pr-4 py-4 bg-transparent text-gray-900 placeholder-gray-500 outline-none text-lg"
             />
             
