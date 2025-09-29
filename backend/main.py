@@ -3802,7 +3802,8 @@ async def get_all_orders(
     limit: Optional[int] = 20,
     offset: Optional[int] = 0,
     order_id: Optional[str] = None,
-    agent_id: Optional[str] = None
+    agent_id: Optional[str] = None,
+    keyword: Optional[str] = None
 ):
     """获取订单（管理员）——支持分页与按订单ID精确搜索。
     默认每次最多返回20条，通过翻页继续获取，避免一次拿全表。
@@ -3838,6 +3839,7 @@ async def get_all_orders(
 
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
+            keyword=keyword,
             limit=limit_val,
             offset=offset_val,
             agent_id=selected_agent_id,
@@ -3880,7 +3882,13 @@ async def get_all_orders(
 
 
 @app.get("/agent/orders")
-async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: Optional[int] = 0, order_id: Optional[str] = None):
+async def get_agent_orders(
+    request: Request,
+    limit: Optional[int] = 20,
+    offset: Optional[int] = 0,
+    order_id: Optional[str] = None,
+    keyword: Optional[str] = None
+):
     """获取订单列表（代理）"""
     _agent, scope = require_agent_with_scope(request)
 
@@ -3903,6 +3911,7 @@ async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: 
 
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
+            keyword=keyword,
             limit=limit_val,
             offset=offset_val,
             agent_id=scope.get('agent_id'),

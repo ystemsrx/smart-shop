@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useApi, useAdminShop, useAgentStatus } from '../hooks/useAuth';
@@ -2866,7 +2866,7 @@ const getUnifiedStatus = (order) => {
 };
 
 // 订单表格组件
-const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders, onRefresh, searchValue, onSearchChange, onSearchSubmit, page = 0, hasMore = false, onPrevPage, onNextPage }) => {
+const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders, onRefresh, searchValue, onSearchChange, page = 0, hasMore = false, onPrevPage, onNextPage }) => {
   const [expanded, setExpanded] = React.useState({});
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
@@ -2913,13 +2913,11 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
           )}
           <input
             type="text"
-            placeholder="通过订单号搜索"
+            placeholder="搜索订单..."
             value={searchValue}
             onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && onSearchSubmit) onSearchSubmit(); }}
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-56"
           />
-          <button onClick={onSearchSubmit} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">搜索</button>
           <button onClick={onRefresh} className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border">刷新</button>
         </div>
       </div>
@@ -4132,6 +4130,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [orderHasMore, setOrderHasMore] = useState(false);
   const [orderTotal, setOrderTotal] = useState(0);
   const [orderSearch, setOrderSearch] = useState('');
+  const loadOrdersRef = useRef(null);
+  const previousOrderSearchRef = useRef(orderSearch);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderAgentFilter, setOrderAgentFilter] = useState('self');
   const [orderAgentOptions, setOrderAgentOptions] = useState([]);
@@ -4447,7 +4447,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     const p = parseInt(page) || 0;
     params.set('offset', String(p * 20));
     const q = String(search || '').trim();
-    if (q) params.set('order_id', q);
+    if (q) {
+      params.set('keyword', q);
+    }
     if (isAdmin) {
       const rawFilter = (agentFilterValue ?? '').toString().trim();
       const lowerFilter = rawFilter.toLowerCase();
@@ -4487,13 +4489,20 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       setOrderLoading(false);
     }
   };
+  loadOrdersRef.current = loadOrders;
+
+  useEffect(() => {
+    if (previousOrderSearchRef.current === orderSearch) {
+      previousOrderSearchRef.current = orderSearch;
+      return;
+    }
+    previousOrderSearchRef.current = orderSearch;
+    loadOrdersRef.current?.(0, orderSearch, orderAgentFilter);
+  }, [orderSearch, orderAgentFilter]);
 
   // 刷新/搜索/翻页（订单）
   const handleOrderRefresh = async () => {
     await loadOrders(orderPage, orderSearch, orderAgentFilter);
-  };
-  const handleOrderSearchSubmit = async () => {
-    await loadOrders(0, orderSearch, orderAgentFilter);
   };
   const handlePrevPage = async () => {
     const next = Math.max(0, (orderPage || 0) - 1);
@@ -5757,7 +5766,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     onRefresh={() => handleOrderRefresh()}
                     searchValue={orderSearch}
                     onSearchChange={setOrderSearch}
-                    onSearchSubmit={() => handleOrderSearchSubmit()}
                     page={orderPage}
                     hasMore={orderHasMore}
                     onPrevPage={() => handlePrevPage()}

@@ -3271,6 +3271,7 @@ class OrderDB:
     @staticmethod
     def get_orders_paginated(
         order_id: Optional[str] = None,
+        keyword: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
         agent_id: Optional[str] = None,
@@ -3280,7 +3281,7 @@ class OrderDB:
         exclude_building_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        获取订单（管理员用），支持按订单ID模糊查询与分页。
+        获取订单（管理员/代理），支持按订单ID模糊查询与分页。
         返回 { 'orders': [...], 'total': int }
         """
         # 保护性限制，避免一次性取太多
@@ -3304,9 +3305,24 @@ class OrderDB:
 
             params: List[Any] = []
             where_sql: List[str] = []
-            if order_id:
+            order_id_text = (order_id or '').strip()
+            keyword_text = (keyword or '').strip()
+
+            if order_id_text and not keyword_text:
                 where_sql.append('o.id LIKE ?')
-                params.append(f'%{order_id}%')
+                params.append(f'%{order_id_text}%')
+
+            if keyword_text:
+                like_value = f'%{keyword_text}%'
+                where_sql.append(
+                    '('
+                    'o.id LIKE ? OR '
+                    'COALESCE(o.student_id, "") LIKE ? OR '
+                    'LOWER(COALESCE(u.name, "")) LIKE LOWER(?) OR '
+                    'LOWER(COALESCE(o.shipping_info, "")) LIKE LOWER(?)'
+                    ')'
+                )
+                params.extend([like_value, like_value, like_value, like_value])
 
             scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids)
             if scope_clause:
@@ -3329,7 +3345,12 @@ class OrderDB:
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
-            cursor.execute(f'''SELECT COUNT(*) FROM orders o{where_clause}''', params)
+            cursor.execute(
+                f'''SELECT COUNT(*) FROM orders o
+                    LEFT JOIN users u ON o.student_id = u.id
+                    {where_clause}''',
+                params
+            )
             total = cursor.fetchone()[0] or 0
 
             # 查询分页结果
