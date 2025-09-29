@@ -3649,8 +3649,8 @@ class OrderDB:
                 group_by = "strftime('%Y-%m-%d %H:00:00', created_at, 'localtime')"
                 date_format = "今日各小时"
             elif period == 'week':
-                time_filter = "date(created_at, 'localtime') >= date('now', '-7 days', 'localtime')"
-                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-14 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-7 days', 'localtime')"
+                time_filter = "date(created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-13 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-6 days', 'localtime')"
                 group_by = "date(created_at, 'localtime')"
                 date_format = "近7天"
             else:  # month
@@ -4005,7 +4005,7 @@ class OrderDB:
                 cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
             total_users = cursor.fetchone()[0] or 0
 
-            recent_clause = "date(o.created_at, 'localtime') >= date('now', '-7 days', 'localtime')"
+            recent_clause = "date(o.created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
             recent_where, recent_params = build_where(recent_clause, alias='o')
             cursor.execute(f'''
                 SELECT COUNT(DISTINCT o.student_id)

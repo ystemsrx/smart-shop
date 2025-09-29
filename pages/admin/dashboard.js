@@ -58,26 +58,27 @@ const StatCard = ({ title, value, change, changeType, icon, subtitle }) => (
     <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-bl from-current/5 to-transparent rounded-full transform translate-x-8 -translate-y-8 group-hover:translate-x-6 group-hover:-translate-y-6 transition-transform duration-500"></div>
     
     <div className="relative z-10">
-      <div className="flex items-center justify-between mb-6">
-        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 shadow-lg ${
+      <div className="flex items-start justify-between mb-6 gap-3">
+        {/* 左侧图标 - 固定尺寸，防止被挤压 */}
+        <div className={`flex-shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 shadow-lg ${
           icon.bg || 'bg-gradient-to-br from-blue-500 to-blue-600'
         }`}>
           <i className={`${icon.class} text-xl text-white drop-shadow-sm`}></i>
         </div>
+        
+        {/* 右侧变化指示器 - 调整布局使其更紧凑 */}
         {change !== undefined && (
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold backdrop-blur-sm border shadow-sm transition-all duration-300 group-hover:scale-105 ${
+          <div className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-sm font-semibold backdrop-blur-sm border shadow-sm transition-all duration-300 group-hover:scale-105 ${
             changeType === 'up' ? 'bg-gradient-to-r from-emerald-50 to-emerald-100 text-emerald-700 border-emerald-200' : 
             changeType === 'down' ? 'bg-gradient-to-r from-red-50 to-red-100 text-red-700 border-red-200' : 
             'bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 border-gray-200'
           }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              changeType === 'up' ? 'bg-emerald-500' : 
-              changeType === 'down' ? 'bg-red-500' : 'bg-gray-500'
-            }`}></div>
             {changeType === 'up' && <i className="fas fa-arrow-up text-xs"></i>}
             {changeType === 'down' && <i className="fas fa-arrow-down text-xs"></i>}
             {changeType === 'same' && <i className="fas fa-minus text-xs"></i>}
-            {typeof change === 'number' ? `${change > 0 ? '+' : ''}${change}%` : change}
+            <span className="whitespace-nowrap">
+              {typeof change === 'number' ? `${change > 0 ? '+' : ''}${change}%` : change}
+            </span>
           </div>
         )}
       </div>
@@ -1207,7 +1208,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
               value={`¥${formatNumber(dashboardStats.profit_stats?.total_profit || 0)}`}
               change={formatChange(dashboardStats.comparison?.profit_growth)}
               changeType={getChangeType(dashboardStats.comparison?.profit_growth)}
-              subtitle={`今日净利润: ¥${formatNumber(dashboardStats.profit_stats?.today_profit || 0)}`}
+              subtitle={`${timePeriod === 'day' ? '今日' : timePeriod === 'week' ? '本周' : '本月'}净利润: ¥${formatNumber(dashboardStats.profit_stats?.current_period_profit || 0)}`}
               icon={{ class: "fas fa-chart-line", bg: "bg-gradient-to-br from-amber-500 to-amber-600" }}
             />
             <StatCard
@@ -1217,7 +1218,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
               icon={{ class: "fas fa-cube", bg: "bg-gradient-to-br from-purple-500 to-purple-600" }}
             />
             <StatCard
-              title="注册用户"
+              title="消费用户"
               value={dashboardStats.users?.total || 0}
               subtitle={`本周新用户: ${dashboardStats.users?.new_this_week || 0}`}
               icon={{ class: "fas fa-user-friends", bg: "bg-gradient-to-br from-orange-500 to-orange-600" }}
@@ -1235,7 +1236,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                 <div className="flex items-center justify-between mb-8">
                   <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
                     <div className="w-2 h-8 bg-gradient-to-b from-blue-500 to-indigo-600 rounded-full"></div>
-                    销售趋势
+                    销售数据
                   </h3>
                   <TimePeriodSelector period={timePeriod} onChange={setTimePeriod} />
                 </div>
@@ -1248,7 +1249,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                     <div className="text-xs text-gray-600 mt-1">{dashboardStats.current_period?.orders || 0} 订单</div>
                   </div>
                   <div className="text-center p-6 bg-gradient-to-br from-gray-100/50 to-gray-200/50 rounded-2xl border border-gray-200/50 backdrop-blur-sm">
-                    <div className="text-sm text-gray-600 font-medium mb-2">上个周期</div>
+                    <div className="text-sm text-gray-600 font-medium mb-2">
+                      {timePeriod === 'day' ? '昨日' : timePeriod === 'week' ? '前7天' : '前30天'}
+                    </div>
                     <div className="text-2xl font-bold text-gray-700">¥{dashboardStats.comparison?.prev_revenue || 0}</div>
                     <div className="text-xs text-gray-600 mt-1">{dashboardStats.comparison?.prev_orders || 0} 订单</div>
                   </div>
