@@ -2275,7 +2275,7 @@ const StatsCard = ({ title, value, icon, color = "indigo" }) => {
 };
 
 // 分类输入组件（支持选择和自定义输入）
-const CategoryInput = ({ value, onChange, required = false, disabled = false }) => {
+const CategoryInput = ({ value, onChange, required = false, disabled = false, adminMode = false }) => {
   const [categories, setCategories] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value || '');
@@ -2288,14 +2288,13 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
     
     const loadCategories = async () => {
       if (isLoading) return; // 防止重复请求
-      
       setIsLoading(true);
       try {
-        const response = await apiRequest('/products/categories');
-        
+        // 根据 adminMode 决定请求哪个接口
+        const url = adminMode ? '/admin/categories' : '/products/categories';
+        const response = await apiRequest(url);
         // 检查组件是否仍然挂载
         if (!isMounted) return;
-        
         const cats = response.data.categories || [];
         const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
         const firstSigChar = (s) => {
@@ -2372,7 +2371,7 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false }) 
     return () => {
       isMounted = false;
     };
-  }, []); // 移除 apiRequest 依赖，只在组件挂载时执行一次
+  }, [adminMode]); // adminMode 变化时也重新加载
 
   useEffect(() => {
     setInputValue(value || '');
@@ -2561,6 +2560,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
               value={formData.category}
               onChange={(value) => setFormData({...formData, category: value})}
               required
+              adminMode={true}
             />
           </div>
         </div>
@@ -3299,6 +3299,7 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
               value={formData.category}
               onChange={(value) => setFormData({...formData, category: value})}
               required
+              adminMode={true}
             />
           </div>
         </div>
