@@ -234,6 +234,28 @@ body {
   }
 }
 
+/* 模态框淡入动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 模态框缩放动画 */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .animate-apple-fade-in {
   animation: apple-fade-in 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
@@ -244,6 +266,14 @@ body {
 
 .animate-apple-slide-up {
   animation: apple-slide-up 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 /* 延迟动画类 */

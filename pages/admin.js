@@ -317,6 +317,152 @@ const ShopStatusCard = () => {
   );
 };
 
+// 商品详情弹窗组件
+const LotteryItemsViewModal = ({ open, onClose, prize }) => {
+  const [isVisible, setIsVisible] = React.useState(false);
+  
+  React.useEffect(() => {
+    if (open) {
+      // 延迟一帧以触发动画
+      requestAnimationFrame(() => {
+        setIsVisible(true);
+      });
+    } else {
+      setIsVisible(false);
+    }
+  }, [open]);
+  
+  if (!open && !isVisible) return null;
+  
+  const itemList = prize?.items || [];
+  
+  return (
+    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
+      isVisible ? 'bg-black/50 backdrop-blur-sm' : 'bg-black/0'
+    }`}>
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all duration-300 ${
+        isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
+      }`}>
+        {/* 标题栏 */}
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-purple-50">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <i className="fas fa-gift text-indigo-600"></i>
+              {prize.display_name}
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">
+              共 {itemList.length} 件商品 · 权重 {Number.isFinite(prize.weight) ? prize.weight : 0}%
+            </p>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="w-10 h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-sm transition-all hover:scale-110"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+        
+        {/* 商品列表 */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {itemList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400 py-12">
+              <i className="fas fa-box-open text-6xl mb-4 opacity-30"></i>
+              <p className="text-lg">未关联任何商品</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {itemList.map((item, index) => {
+                const label = item.variant_name 
+                  ? `${item.product_name || ''}` 
+                  : (item.product_name || '未命名商品');
+                const stock = Number.parseInt(item.stock, 10);
+                const available = item.available && (!Number.isNaN(stock) ? stock > 0 : true);
+                
+                return (
+                  <div 
+                    key={`${item.product_id}_${item.variant_id || 'base'}_${index}`} 
+                    className={`rounded-xl border-2 p-4 transition-all hover:shadow-lg ${
+                      available 
+                        ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white hover:border-emerald-300' 
+                        : 'border-red-200 bg-gradient-to-br from-red-50/50 to-white hover:border-red-300'
+                    }`}
+                  >
+                    {/* 商品标题 */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-900 text-sm truncate" title={label}>
+                          {label}
+                        </h4>
+                        {item.variant_name && (
+                          <p className="text-xs text-gray-600 mt-0.5 truncate" title={item.variant_name}>
+                            规格：{item.variant_name}
+                          </p>
+                        )}
+                      </div>
+                      {available ? (
+                        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                          <i className="fas fa-check-circle"></i>
+                          可用
+                        </span>
+                      ) : (
+                        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                          <i className="fas fa-exclamation-circle"></i>
+                          缺货
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* 商品信息 */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white/60 rounded-lg px-3 py-2">
+                        <div className="text-xs text-gray-500 mb-1">库存</div>
+                        <div className={`font-bold ${available ? 'text-gray-900' : 'text-red-600'}`}>
+                          {Number.isNaN(stock) ? '未知' : stock}
+                        </div>
+                      </div>
+                      <div className="bg-white/60 rounded-lg px-3 py-2">
+                        <div className="text-xs text-gray-500 mb-1">参考价值</div>
+                        <div className="font-bold text-indigo-600">
+                          ¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        
+        {/* 底部统计 */}
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-4">
+              <span className="text-gray-600">
+                <i className="fas fa-box text-indigo-600 mr-2"></i>
+                总商品数：<span className="font-semibold text-gray-900">{itemList.length}</span>
+              </span>
+              <span className="text-gray-600">
+                <i className="fas fa-check-circle text-emerald-600 mr-2"></i>
+                可用商品：<span className="font-semibold text-emerald-700">
+                  {itemList.filter(it => it.available).length}
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 抽奖配置管理面板
 const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const { apiRequest } = useApi();
@@ -329,7 +475,8 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const [enabledSaving, setEnabledSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPrize, setEditingPrize] = useState(null);
-  const [collapsedPrizes, setCollapsedPrizes] = useState(new Set());
+  const [viewingPrize, setViewingPrize] = useState(null);
+  const [itemsModalOpen, setItemsModalOpen] = useState(false);
 
   const MIN_THRESHOLD = 0.01;
 
@@ -368,8 +515,6 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
         };
       });
       setPrizes(prizesData);
-      // 默认折叠所有奖项
-      setCollapsedPrizes(new Set(prizesData.map(p => p.id)));
       const rawThreshold = res?.data?.threshold_amount;
       if (rawThreshold !== undefined && rawThreshold !== null) {
         const numeric = Number(rawThreshold);
@@ -386,7 +531,6 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     } catch (e) {
       alert(e.message || '加载抽奖配置失败');
       setPrizes([]);
-      setCollapsedPrizes(new Set());
       if (onWarningChange) {
         onWarningChange(false);
       }
@@ -406,21 +550,14 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
 
-  const togglePrizeCollapse = (prizeId) => {
-    setCollapsedPrizes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(prizeId)) {
-        newSet.delete(prizeId);
-      } else {
-        newSet.add(prizeId);
-      }
-      return newSet;
-    });
-  };
-
   const openModal = (prize = null) => {
     setEditingPrize(prize);
     setModalOpen(true);
+  };
+
+  const openItemsModal = (prize) => {
+    setViewingPrize(prize);
+    setItemsModalOpen(true);
   };
 
   const handleDelete = async (prize) => {
@@ -560,157 +697,252 @@ const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="px-6 py-4 border-b border-gray-200 flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <h3 className="text-lg font-medium text-gray-900">抽奖奖项配置</h3>
-          <p className="text-sm text-gray-600">根据库存权重自动抽取，可组合多种商品。</p>
-        </div>
-        <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap justify-end">
-          <div className="flex items-center gap-2">
-            <span>抽奖功能</span>
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* 顶部控制栏 - 重新设计为更紧凑的布局 */}
+      <div className="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 px-6 py-4 border-b border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <i className="fas fa-trophy text-amber-500"></i>
+              抽奖奖项配置
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">根据库存权重自动抽取，可组合多种商品</p>
+          </div>
+          
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* 抽奖功能开关 */}
+            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
+              <span className="text-sm font-medium text-gray-700">抽奖功能</span>
+              <button
+                onClick={handleToggleEnabled}
+                disabled={enabledSaving}
+                className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors ${
+                  isEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+                } disabled:opacity-50`}
+                title="点击切换抽奖功能启用状态"
+              >
+                <span className={`inline-block w-4 h-4 transform transition-transform bg-white rounded-full shadow-sm ${
+                  isEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}></span>
+              </button>
+              <span className={`text-xs font-medium ${isEnabled ? 'text-emerald-600' : 'text-gray-500'}`}>
+                {enabledSaving ? '保存中...' : (isEnabled ? '已启用' : '已禁用')}
+              </span>
+            </div>
+            
+            {/* 抽奖门槛 */}
+            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
+              <span className="text-sm font-medium text-gray-700">抽奖门槛</span>
+              <input
+                type="number"
+                min={MIN_THRESHOLD}
+                step="0.01"
+                value={thresholdAmount}
+                disabled={thresholdSaving || !isEnabled}
+                onChange={(e) => setThresholdAmount(e.target.value)}
+                onBlur={handleSaveThreshold}
+                className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100"
+                title="失焦时自动保存"
+              />
+              <span className="text-sm text-gray-600">元</span>
+              {thresholdSaving && (
+                <i className="fas fa-spinner fa-spin text-indigo-600"></i>
+              )}
+            </div>
+            
+            {/* 概率统计 */}
+            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500">中奖率</span>
+                <span className="text-sm font-bold text-indigo-600">
+                  {Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%
+                </span>
+              </div>
+              <div className="h-4 w-px bg-gray-300"></div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500">谢谢参与</span>
+                <span className={`text-sm font-bold ${totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}`}>
+                  {thanksPercent.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            
+            {/* 新增按钮 */}
             <button
-              onClick={handleToggleEnabled}
-              disabled={enabledSaving}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              onClick={() => openModal(null)}
+              disabled={!isEnabled}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-all ${
                 isEnabled 
-                  ? 'bg-green-100 text-green-700 border border-green-200 hover:bg-green-200' 
-                  : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
-              } disabled:opacity-50`}
-              title="点击切换抽奖功能启用状态"
+                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:shadow-md' 
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+              title={!isEnabled ? '请先启用抽奖功能' : ''}
             >
-              {enabledSaving ? '保存中...' : (isEnabled ? '已启用' : '已禁用')}
+              <i className="fas fa-plus"></i>
+              新增奖项
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <span>抽奖门槛</span>
-            <input
-              type="number"
-              min={MIN_THRESHOLD}
-              step="0.01"
-              value={thresholdAmount}
-              disabled={thresholdSaving || !isEnabled}
-              onChange={(e) => setThresholdAmount(e.target.value)}
-              onBlur={handleSaveThreshold}
-              className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
-              title="失焦时自动保存"
-            />
-            {thresholdSaving && (
-              <span className="text-xs text-gray-400">保存中...</span>
-            )}
-          </div>
-          <span>合计：{Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%</span>
-          <span className={totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}>谢谢参与：{thanksPercent.toFixed(2)}%</span>
-          <button
-            onClick={() => openModal(null)}
-            disabled={!isEnabled}
-            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm ${
-              isEnabled 
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-            title={!isEnabled ? '请先启用抽奖功能' : ''}
-          >
-            <i className="fas fa-plus text-xs"></i>
-            新增奖项
-          </button>
         </div>
       </div>
+
+      {/* 内容区域 */}
       {loading ? (
-        <div className="px-6 py-6 text-sm text-gray-500">加载中...</div>
+        <div className="px-6 py-12 text-center">
+          <i className="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i>
+          <p className="text-gray-600">加载中...</p>
+        </div>
       ) : prizes.length === 0 ? (
-        <div className="px-6 py-10 text-center text-gray-500">尚未配置任何奖项，点击上方“新增奖项”开始配置。</div>
+        <div className="px-6 py-16 text-center">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full mb-4">
+            <i className="fas fa-gift text-4xl text-indigo-600"></i>
+          </div>
+          <p className="text-lg font-medium text-gray-900 mb-2">尚未配置任何奖项</p>
+          <p className="text-sm text-gray-500">点击上方"新增奖项"开始配置抽奖系统</p>
+        </div>
       ) : (
-        <div className="divide-y">
-          {prizes.map(prize => {
-            const itemList = prize.items || [];
-            const availableItems = itemList.filter(it => it.available);
-            const isCollapsed = collapsedPrizes.has(prize.id);
-            return (
-              <div key={prize.id} className="px-6 py-4">
-                <div className="flex flex-wrap justify-between items-start gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-semibold text-gray-900">{prize.display_name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${prize.is_active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                        {prize.is_active ? '启用中' : '已停用'}
-                      </span>
-                      <span className="text-xs text-gray-500">权重 {Number.isFinite(prize.weight) ? prize.weight : 0}</span>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-600 flex items-center gap-3">
-                      <span className="flex items-center gap-1"><i className="fas fa-box"></i>已选商品 {itemList.length}</span>
-                      <span className={`flex items-center gap-1 ${availableItems.length === 0 ? 'text-red-500' : ''}`}>
-                        <i className="fas fa-warehouse"></i>{availableItems.length > 0 ? `可用商品 ${availableItems.length}` : '无可用库存'}</span>
-                      {itemList.length > 0 && (
-                        <button
-                          onClick={() => togglePrizeCollapse(prize.id)}
-                          className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
-                        >
-                          <span>{isCollapsed ? '展开商品' : '折叠商品'}</span>
-                          <i className={`fas fa-chevron-${isCollapsed ? 'down' : 'up'}`}></i>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <button
-                      onClick={() => handleToggleActive(prize, !prize.is_active)}
-                      className={`px-3 py-1.5 rounded-md border ${prize.is_active ? 'border-gray-300 text-gray-700 hover:bg-gray-100' : 'border-green-300 text-green-700 hover:bg-green-50'}`}
-                    >
-                      {prize.is_active ? '停用' : '启用'}
-                    </button>
-                    <button
-                      onClick={() => openModal(prize)}
-                      className="px-3 py-1.5 rounded-md border border-indigo-300 text-indigo-600 hover:bg-indigo-50"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      onClick={() => handleDelete(prize)}
-                      className="px-3 py-1.5 rounded-md border border-red-300 text-red-600 hover:bg-red-50"
-                    >
-                      删除
-                    </button>
-                  </div>
-                </div>
-                {!isCollapsed && (
-                  <div className="mt-3 space-y-2">
-                    {itemList.length === 0 ? (
-                      <div className="text-xs text-gray-500">未关联任何商品。</div>
-                    ) : (
-                      itemList.map((item) => {
-                        const label = item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || '未命名商品');
-                        const stock = Number.parseInt(item.stock, 10);
-                        const available = item.available && (!Number.isNaN(stock) ? stock > 0 : true);
-                        return (
-                          <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`text-xs flex items-center justify-between rounded-md px-3 py-2 border ${available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">{label}</div>
-                              <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
-                                <span>库存：{Number.isNaN(stock) ? '未知' : stock}</span>
-                                <span>参考售价：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
-                              </div>
-                            </div>
-                            {!available && <span className="text-[11px] font-medium">不可抽取</span>}
+        <>
+          {/* 表格布局 - 更紧凑美观 */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">奖项名称</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">权重</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">商品数</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">可用商品</th>
+                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {prizes.map((prize, index) => {
+                  const itemList = prize.items || [];
+                  const availableItems = itemList.filter(it => it.available);
+                  const hasWarning = availableItems.length === 0 && itemList.length > 0;
+                  
+                  return (
+                    <tr key={prize.id} className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                      {/* 奖项名称 */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center text-gray-600 font-semibold text-sm bg-white">
+                            {index + 1}
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-                {!isCollapsed && Array.isArray(prize.issues) && prize.issues.length > 0 && (
-                  <div className="mt-3 text-xs text-red-600 flex flex-col gap-1">
-                    {prize.issues.map((msg, idx) => (
-                      <span key={idx}>⚠ {msg}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                          <div className="min-w-0">
+                            <div className="font-semibold text-gray-900 truncate">{prize.display_name}</div>
+                            {hasWarning && (
+                              <div className="flex items-center gap-1 text-xs text-red-600 mt-1">
+                                <i className="fas fa-exclamation-triangle"></i>
+                                <span>无可用库存</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      
+                      {/* 状态 */}
+                      <td className="px-4 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+                          prize.is_active 
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                        }`}>
+                          <i className={`fas fa-circle text-[6px] ${prize.is_active ? 'text-emerald-500' : 'text-gray-400'}`}></i>
+                          {prize.is_active ? '启用中' : '已停用'}
+                        </span>
+                      </td>
+                      
+                      {/* 权重 */}
+                      <td className="px-4 py-4 text-center">
+                        <span className="inline-flex items-center gap-1 text-sm font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">
+                          <i className="fas fa-percentage text-xs"></i>
+                          {Number.isFinite(prize.weight) ? prize.weight : 0}
+                        </span>
+                      </td>
+                      
+                      {/* 商品数 */}
+                      <td className="px-4 py-4 text-center">
+                        <span className="text-sm font-medium text-gray-900">{itemList.length}</span>
+                      </td>
+                      
+                      {/* 可用商品 */}
+                      <td className="px-4 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+                          availableItems.length > 0 ? 'text-emerald-600' : 'text-red-600'
+                        }`}>
+                          <i className={`fas ${availableItems.length > 0 ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                          {availableItems.length}
+                        </span>
+                      </td>
+                      
+                      {/* 操作按钮 */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          {itemList.length > 0 && (
+                            <button
+                              onClick={() => openItemsModal(prize)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
+                              title="查看商品详情"
+                            >
+                              <i className="fas fa-eye"></i>
+                              查看
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleToggleActive(prize, !prize.is_active)}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                              prize.is_active 
+                                ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                            }`}
+                            title={prize.is_active ? '停用奖项' : '启用奖项'}
+                          >
+                            <i className={`fas ${prize.is_active ? 'fa-pause' : 'fa-play'}`}></i>
+                            {prize.is_active ? '停用' : '启用'}
+                          </button>
+                          <button
+                            onClick={() => openModal(prize)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                            title="编辑奖项"
+                          >
+                            <i className="fas fa-edit"></i>
+                            编辑
+                          </button>
+                          <button
+                            onClick={() => handleDelete(prize)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
+                            title="删除奖项"
+                          >
+                            <i className="fas fa-trash"></i>
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      
+      {/* 保存提示 */}
+      {(saving || thresholdSaving) && (
+        <div className="px-6 py-3 bg-indigo-50 border-t border-indigo-100 flex items-center gap-2 text-sm">
+          <i className="fas fa-spinner fa-spin text-indigo-600"></i>
+          <span className="text-indigo-700 font-medium">正在保存更改...</span>
         </div>
       )}
-      {(saving || thresholdSaving) && <div className="px-6 py-2 text-xs text-gray-400">正在保存更改...</div>}
+      
+      {/* 商品查看弹窗 */}
+      <LotteryItemsViewModal
+        open={itemsModalOpen}
+        onClose={() => setItemsModalOpen(false)}
+        prize={viewingPrize}
+      />
+      
+      {/* 编辑/新增奖项弹窗 */}
       <LotteryPrizeModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -732,8 +964,19 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isItemsCollapsed, setIsItemsCollapsed] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const searchTimerRef = React.useRef(null);
+  
+  // 动画效果
+  React.useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => {
+        setIsVisible(true);
+      });
+    } else {
+      setIsVisible(false);
+    }
+  }, [open]);
 
   const mapResultToItem = (item) => ({
     id: item.id,
@@ -749,15 +992,17 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
 
   useEffect(() => {
     if (!open) {
-      setDisplayName('');
-      setWeight('0');
-      setIsActive(true);
-      setSelectedItems([]);
-      setSearchTerm('');
-      setSearchResults([]);
-      setError('');
-      setIsItemsCollapsed(false);
-      return;
+      // 延迟清空数据，等动画结束
+      const timer = setTimeout(() => {
+        setDisplayName('');
+        setWeight('0');
+        setIsActive(true);
+        setSelectedItems([]);
+        setSearchTerm('');
+        setSearchResults([]);
+        setError('');
+      }, 300); // 与动画时长一致
+      return () => clearTimeout(timer);
     }
 
     const initial = initialPrize || null;
@@ -768,7 +1013,6 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
     setSearchTerm('');
     setSearchResults([]);
     setError('');
-    setIsItemsCollapsed(false);
   }, [open, initialPrize]);
 
   useEffect(() => {
@@ -824,10 +1068,16 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
     });
   };
 
+  if (!open && !isVisible) return null;
+  
   return (
-    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/40 transition-opacity`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
+      isVisible ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/0'
+    } ${!isVisible && 'pointer-events-none'}`}>
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all duration-300 ${
+        isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
+      }`}>
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
@@ -872,46 +1122,6 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
             </button>
           </div>
           <div>
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-700">已选择的奖品商品</label>
-              {selectedItems.length > 3 && (
-                <button
-                  onClick={() => setIsItemsCollapsed(!isItemsCollapsed)}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                >
-                  <span>{isItemsCollapsed ? '展开' : '折叠'}</span>
-                  <i className={`fas fa-chevron-${isItemsCollapsed ? 'down' : 'up'}`}></i>
-                </button>
-              )}
-            </div>
-            {selectedItems.length === 0 ? (
-              <div className="mt-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-md px-3 py-4 text-center">尚未选择任何商品，使用下方搜索框添加。</div>
-            ) : (
-              <div className="mt-2 grid gap-2">
-                {(isItemsCollapsed && selectedItems.length > 3 ? selectedItems.slice(0, 3) : selectedItems).map(item => (
-                  <div key={`${item.product_id}_${item.variant_id || 'base'}`} className={`px-3 py-2 rounded-md border flex justify-between items-center ${item.available ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50 text-red-600'}`}>
-                    <div className="text-xs">
-                      <div className="font-medium">{item.label}</div>
-                      <div className="mt-1 text-[11px] text-gray-500 flex items-center gap-3">
-                        <span>库存：{item.stock ?? '未知'}</span>
-                        <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
-                      className="text-xs text-red-600 hover:text-red-800"
-                    >移除</button>
-                  </div>
-                ))}
-                {isItemsCollapsed && selectedItems.length > 3 && (
-                  <div className="px-3 py-2 text-xs text-gray-500 text-center border border-dashed border-gray-300 rounded-md">
-                    还有 {selectedItems.length - 3} 个商品已折叠，点击上方"展开"查看全部
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <div>
             <label className="text-sm font-medium text-gray-700">搜索商品并添加到奖池</label>
             <input
               type="text"
@@ -954,6 +1164,75 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                 })
               )}
             </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-medium text-gray-700">
+                已选择的奖品商品
+                {selectedItems.length > 0 && (
+                  <span className="ml-2 text-xs text-gray-500">({selectedItems.length} 件)</span>
+                )}
+              </label>
+            </div>
+            {selectedItems.length === 0 ? (
+              <div className="text-xs text-gray-500 border border-dashed border-gray-300 rounded-lg px-4 py-8 text-center bg-gray-50/50">
+                <i className="fas fa-inbox text-2xl text-gray-400 mb-2"></i>
+                <p>尚未选择任何商品</p>
+                <p className="text-gray-400 mt-1">请使用上方搜索框添加商品</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto p-1">
+                {selectedItems.map(item => (
+                  <div 
+                    key={`${item.product_id}_${item.variant_id || 'base'}`} 
+                    className={`relative group rounded-xl border-2 p-3 transition-all hover:shadow-md ${
+                      item.available 
+                        ? 'border-emerald-200 bg-emerald-50/30 hover:bg-emerald-50' 
+                        : 'border-red-200 bg-red-50/30 hover:bg-red-50'
+                    }`}
+                  >
+                    {/* 删除按钮 - 圆形叉号 */}
+                    <button
+                      onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
+                      title="移除商品"
+                    >
+                      <i className="fas fa-times text-xs"></i>
+                    </button>
+                    
+                    {/* 商品信息 */}
+                    <div className="pr-2">
+                      {/* 商品名称 */}
+                      <div className="font-medium text-sm text-gray-900 mb-2 line-clamp-2 min-h-[2.5rem]" title={item.label}>
+                        {item.label}
+                      </div>
+                      
+                      {/* 库存和价格 */}
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1">
+                          <i className={`fas fa-cube ${item.available ? 'text-emerald-600' : 'text-red-600'}`}></i>
+                          <span className={item.available ? 'text-emerald-700 font-medium' : 'text-red-700 font-medium'}>
+                            {item.stock ?? '未知'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-indigo-600 font-semibold">
+                          <i className="fas fa-tag text-xs"></i>
+                          <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                        </div>
+                      </div>
+                      
+                      {/* 状态标签 */}
+                      {!item.available && (
+                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                          <i className="fas fa-exclamation-circle text-[10px]"></i>
+                          <span>缺货</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
@@ -6070,59 +6349,242 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
           {activeTab === 'agents' && (
             <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-medium text-gray-900">代理管理</h2>
-                  <p className="text-sm text-gray-500 mt-1">创建代理账号并绑定负责的楼栋，系统会按楼栋自动分配订单与商品。</p>
+              {/* 页面标题和操作 */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-indigo-800 to-purple-800 bg-clip-text text-transparent">
+                      代理管理系统
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-2">创建代理账号并绑定负责的楼栋，系统将自动分配订单与商品管理权限</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={loadAgents} 
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/50 border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300"
+                    >
+                      <i className="fas fa-sync-alt text-xs"></i>
+                      刷新数据
+                    </button>
+                    <button
+                      onClick={() => openAgentModal(null)}
+                      className="inline-flex items-center gap-2 px-6 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-medium hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl"
+                    >
+                      <i className="fas fa-user-plus"></i>
+                      新增代理
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => openAgentModal(null)}
-                  className="px-4 py-2 rounded-md bg-indigo-600 text-white font-medium hover:bg-indigo-700"
-                >
-                  新增代理
-                </button>
+                <div className="mt-4 w-20 h-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full"></div>
+              </div>
+
+              {/* 统计卡片 */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-100 rounded-2xl p-6 border border-indigo-200/50 hover:shadow-lg transition-all duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <i className="fas fa-users text-white text-lg"></i>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-indigo-700">{agents.length}</div>
+                      <div className="text-sm text-indigo-600">代理总数</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-100 rounded-2xl p-6 border border-emerald-200/50 hover:shadow-lg transition-all duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <i className="fas fa-user-check text-white text-lg"></i>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-emerald-700">
+                        {agents.filter(a => a.is_active !== false).length}
+                      </div>
+                      <div className="text-sm text-emerald-600">在职代理</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-amber-50 to-orange-100 rounded-2xl p-6 border border-amber-200/50 hover:shadow-lg transition-all duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <i className="fas fa-building text-white text-lg"></i>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-amber-700">
+                        {agents.reduce((sum, agent) => sum + (agent.buildings || []).length, 0)}
+                      </div>
+                      <div className="text-sm text-amber-600">负责楼栋</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-red-50 to-pink-100 rounded-2xl p-6 border border-red-200/50 hover:shadow-lg transition-all duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <i className="fas fa-user-slash text-white text-lg"></i>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-red-700">
+                        {agents.filter(a => a.is_active === false).length}
+                      </div>
+                      <div className="text-sm text-red-600">已停用</div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {agentError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                  {agentError}
+                <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl text-sm flex items-center gap-3 shadow-sm">
+                  <i className="fas fa-exclamation-circle text-red-500"></i>
+                  <span>{agentError}</span>
                 </div>
               )}
 
               {agentLoading ? (
-                <div className="flex items-center justify-center py-16 text-gray-500 gap-3">
-                  <div className="h-6 w-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
-                  正在加载代理列表...
+                <div className="flex items-center justify-center py-24 text-gray-500">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                    <p className="text-lg font-medium">正在加载代理列表...</p>
+                  </div>
                 </div>
               ) : (
                 agents.length === 0 ? (
-                  <div className="bg-white border border-dashed border-gray-300 p-8 text-center text-gray-500 rounded-lg">
-                    暂无代理，点击“新增代理”开始配置。
+                  <div className="text-center py-24">
+                    <div className="w-24 h-24 bg-gradient-to-br from-indigo-100 to-indigo-200 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                      <i className="fas fa-user-friends text-indigo-400 text-3xl"></i>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-3">暂无代理账号</h3>
+                    <p className="text-gray-500 mb-6">点击"新增代理"按钮创建第一个代理账号</p>
+                    <button
+                      onClick={() => openAgentModal(null)}
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-medium hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl"
+                    >
+                      <i className="fas fa-plus"></i>
+                      创建代理账号
+                    </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {agents.map(agent => {
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {agents.map((agent, index) => {
                       const buildingNames = (agent.buildings || []).map(b => buildingLabelMap[b.building_id] || `${b.address_name || ''}${b.building_name ? '·' + b.building_name : ''}`.trim()).filter(Boolean);
+                      const isActive = agent.is_active !== false;
+                      
                       return (
-                        <div key={agent.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 flex flex-col gap-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                {agent.name || agent.id}
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${agent.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
-                                  {agent.is_active !== false ? '启用' : '已停用'}
-                                </span>
+                        <div 
+                          key={agent.id} 
+                          className="bg-white rounded-2xl shadow-sm border border-gray-200/50 overflow-hidden hover:shadow-lg transition-all duration-300 group"
+                        >
+                          {/* 代理卡片头部 */}
+                          <div className={`p-6 ${
+                            isActive 
+                              ? 'bg-gradient-to-r from-indigo-500 to-indigo-600' 
+                              : 'bg-gradient-to-r from-gray-400 to-gray-500'
+                          }`}>
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-4 flex-1">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl ${
+                                  isActive ? 'bg-white/20 backdrop-blur-sm' : 'bg-black/10'
+                                }`}>
+                                  <i className="fas fa-user text-white text-xl"></i>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-lg font-bold text-white truncate" title={agent.name || agent.id}>
+                                    {agent.name || agent.id}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                      isActive 
+                                        ? 'bg-emerald-500/90 text-white' 
+                                        : 'bg-gray-600/90 text-gray-100'
+                                    }`}>
+                                      {isActive ? '● 在职' : '● 已停用'}
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-500 mt-1">账号：{agent.id}</div>
-                              <div className="text-xs text-gray-500 mt-1">负责楼栋：{buildingNames.length > 0 ? buildingNames.join('、') : '未绑定'}</div>
                             </div>
-                            <div className="flex flex-col gap-2 text-sm">
-                              <button onClick={() => openAgentModal(agent)} className="px-3 py-1.5 border border-gray-200 rounded-md hover:bg-gray-50">编辑</button>
-                              <button onClick={() => handleAgentStatusToggle(agent, agent.is_active === false)} className="px-3 py-1.5 border border-gray-200 rounded-md hover:bg-gray-50">
-                                {agent.is_active === false ? '启用' : '停用'}
+                          </div>
+
+                          {/* 代理信息区域 */}
+                          <div className="p-6 space-y-4">
+                            {/* 账号信息 */}
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-3 text-sm">
+                                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                                  <i className="fas fa-id-card text-gray-600 text-xs"></i>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-gray-500">账号</div>
+                                  <div className="font-medium text-gray-900 truncate" title={agent.id}>{agent.id}</div>
+                                </div>
+                              </div>
+                              
+                              {/* 负责楼栋 */}
+                              <div className="flex items-start gap-3 text-sm">
+                                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <i className="fas fa-building text-gray-600 text-xs"></i>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-gray-500 mb-1">负责楼栋</div>
+                                  {buildingNames.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {buildingNames.slice(0, 3).map((name, idx) => (
+                                        <span 
+                                          key={idx} 
+                                          className="inline-flex items-center px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-lg border border-indigo-200/50"
+                                          title={name}
+                                        >
+                                          {name}
+                                        </span>
+                                      ))}
+                                      {buildingNames.length > 3 && (
+                                        <span className="inline-flex items-center px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg">
+                                          +{buildingNames.length - 3}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-sm text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200/50 inline-flex items-center gap-1.5">
+                                      <i className="fas fa-exclamation-triangle text-xs"></i>
+                                      未绑定楼栋
+                                    </div>
+                                  )}
+                                  {buildingNames.length > 0 && (
+                                    <div className="text-xs text-gray-500 mt-2">
+                                      共负责 <span className="font-semibold text-indigo-600">{buildingNames.length}</span> 个楼栋
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 操作按钮 */}
+                            <div className="pt-4 border-t border-gray-100 flex gap-2">
+                              <button 
+                                onClick={() => openAgentModal(agent)} 
+                                className="flex-1 px-4 py-2.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all duration-200 border border-indigo-200/50 hover:border-indigo-300/50"
+                              >
+                                <i className="fas fa-edit mr-2"></i>
+                                编辑
                               </button>
-                              {agent.is_active === false && (
-                                <button onClick={() => handleAgentDelete(agent)} className="px-3 py-1.5 border border-red-200 text-red-600 rounded-md hover:bg-red-50">删除</button>
+                              <button 
+                                onClick={() => handleAgentStatusToggle(agent, !isActive)} 
+                                className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 border ${
+                                  isActive
+                                    ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 border-amber-200/50 hover:border-amber-300/50'
+                                    : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border-emerald-200/50 hover:border-emerald-300/50'
+                                }`}
+                              >
+                                <i className={`fas ${isActive ? 'fa-pause' : 'fa-play'} mr-2`}></i>
+                                {isActive ? '停用' : '启用'}
+                              </button>
+                              {!isActive && (
+                                <button 
+                                  onClick={() => handleAgentDelete(agent)} 
+                                  className="px-4 py-2.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-all duration-200 border border-red-200/50 hover:border-red-300/50"
+                                  title="删除代理"
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
                               )}
                             </div>
                           </div>
@@ -6134,116 +6596,264 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               )}
 
               {agentModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{editingAgent ? '编辑代理' : '新增代理'}</h3>
-                        <p className="text-xs text-gray-500 mt-1">为代理指定负责的楼栋，以便系统分配订单和商品管理权限。</p>
-                      </div>
-                      <button onClick={closeAgentModal} className="text-gray-400 hover:text-gray-600" aria-label="关闭">
-                        <i className="fas fa-times" />
-                      </button>
-                    </div>
-
-                    {agentError && (
-                      <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
-                        {agentError}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">账号</label>
-                        <input
-                          type="text"
-                          value={agentForm.account}
-                          onChange={(e) => setAgentForm(prev => ({ ...prev, account: e.target.value }))}
-                          disabled={!!editingAgent}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{editingAgent ? '重设密码（可选）' : '初始密码'}</label>
-                        <input
-                          type="password"
-                          value={agentForm.password}
-                          onChange={(e) => setAgentForm(prev => ({ ...prev, password: e.target.value }))}
-                          placeholder={editingAgent ? '留空则不修改' : '请输入初始密码'}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">名称</label>
-                        <input
-                          type="text"
-                          value={agentForm.name}
-                          onChange={(e) => setAgentForm(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="用于展示的名称"
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 mt-6">
-                        <input
-                          type="checkbox"
-                          id="agent_active"
-                          checked={agentForm.is_active}
-                          onChange={(e) => setAgentForm(prev => ({ ...prev, is_active: !!e.target.checked }))}
-                        />
-                        <label htmlFor="agent_active" className="text-sm text-gray-700">启用该代理</label>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
+                  <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-scaleIn">
+                    {/* 模态框头部 */}
+                    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full transform translate-x-16 -translate-y-16"></div>
+                      <div className="relative z-10 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                            <i className="fas fa-user-cog text-white text-xl"></i>
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold text-white">{editingAgent ? '编辑代理信息' : '创建新代理'}</h3>
+                            <p className="text-sm text-white/80 mt-1">为代理配置账号信息和负责区域，系统将自动分配权限</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={closeAgentModal} 
+                          className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-xl flex items-center justify-center transition-all duration-200"
+                          aria-label="关闭"
+                        >
+                          <i className="fas fa-times text-white" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">负责楼栋</h4>
-                      <p className="text-xs text-gray-500 mb-3">请选择代理负责的楼栋，可多选。</p>
-                      <div className="space-y-4">
-                        {(addresses || []).map(addr => {
-                          const blds = buildingsByAddress[addr.id] || [];
-                          if (!blds.length) return null;
-                          return (
-                            <div key={addr.id} className="border border-gray-200 rounded-lg p-3">
-                              <div className="text-sm font-medium text-gray-800 mb-2">{addr.name}</div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {blds.map(b => (
-                                  <label
-                                    key={b.id}
-                                    className={`flex items-center gap-2 px-3 py-2 border rounded-md text-sm ${agentForm.building_ids.includes(b.id) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={agentForm.building_ids.includes(b.id)}
-                                      onChange={() => toggleAgentBuilding(b.id)}
-                                    />
-                                    <span>{b.name}</span>
-                                  </label>
-                                ))}
+                    {/* 模态框内容 */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                      {agentError && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl text-sm flex items-center gap-3 shadow-sm">
+                          <i className="fas fa-exclamation-circle text-red-500 text-lg"></i>
+                          <span>{agentError}</span>
+                        </div>
+                      )}
+
+                      {/* 基本信息 */}
+                      <div className="bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-2xl p-6 border border-gray-200/50">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                            <i className="fas fa-info-circle text-white text-sm"></i>
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-900">基本信息</h4>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                              <i className="fas fa-user text-gray-400 text-xs"></i>
+                              账号
+                              {!editingAgent && <span className="text-red-500">*</span>}
+                            </label>
+                            <input
+                              type="text"
+                              value={agentForm.account}
+                              onChange={(e) => setAgentForm(prev => ({ ...prev, account: e.target.value }))}
+                              disabled={!!editingAgent}
+                              placeholder="输入登录账号"
+                              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            />
+                            {editingAgent && (
+                              <p className="text-xs text-gray-500 mt-1.5">账号创建后不可修改</p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                              <i className="fas fa-lock text-gray-400 text-xs"></i>
+                              {editingAgent ? '重设密码（可选）' : '初始密码'}
+                              {!editingAgent && <span className="text-red-500">*</span>}
+                            </label>
+                            <input
+                              type="password"
+                              value={agentForm.password}
+                              onChange={(e) => setAgentForm(prev => ({ ...prev, password: e.target.value }))}
+                              placeholder={editingAgent ? '留空则不修改密码' : '请输入初始密码'}
+                              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                            />
+                            {editingAgent && (
+                              <p className="text-xs text-gray-500 mt-1.5">仅在需要重置密码时填写</p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                              <i className="fas fa-id-badge text-gray-400 text-xs"></i>
+                              显示名称
+                            </label>
+                            <input
+                              type="text"
+                              value={agentForm.name}
+                              onChange={(e) => setAgentForm(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="用于展示的友好名称"
+                              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                            />
+                            <p className="text-xs text-gray-500 mt-1.5">如：张三、李四等</p>
+                          </div>
+                          <div className="flex items-center">
+                            <label className="flex items-center gap-3 cursor-pointer bg-white px-4 py-3 rounded-xl border border-gray-300 hover:border-indigo-300 transition-all duration-200 w-full">
+                              <input
+                                type="checkbox"
+                                id="agent_active"
+                                checked={agentForm.is_active}
+                                onChange={(e) => setAgentForm(prev => ({ ...prev, is_active: !!e.target.checked }))}
+                                className="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                              />
+                              <div className="flex-1">
+                                <span className="text-sm font-medium text-gray-900">启用该代理</span>
+                                <p className="text-xs text-gray-500 mt-0.5">关闭后代理无法登录系统</p>
                               </div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 楼栋分配 */}
+                      <div className="bg-gradient-to-br from-gray-50 to-indigo-50/30 rounded-2xl p-6 border border-gray-200/50">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                            <i className="fas fa-building text-white text-sm"></i>
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="text-lg font-semibold text-gray-900">负责楼栋</h4>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              已选择 <span className="font-semibold text-indigo-600">{agentForm.building_ids.length}</span> 个楼栋
+                            </p>
+                          </div>
+                          {agentForm.building_ids.length > 0 && (
+                            <button
+                              onClick={() => setAgentForm(prev => ({ ...prev, building_ids: [] }))}
+                              className="text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-all duration-200"
+                            >
+                              清空选择
+                            </button>
+                          )}
+                        </div>
+                        
+                        {(addresses || []).some(addr => (buildingsByAddress[addr.id] || []).length > 0) ? (
+                          <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            {(addresses || []).map(addr => {
+                              const blds = buildingsByAddress[addr.id] || [];
+                              if (!blds.length) return null;
+                              
+                              const selectedInAddress = blds.filter(b => agentForm.building_ids.includes(b.id)).length;
+                              const allSelected = selectedInAddress === blds.length;
+                              const someSelected = selectedInAddress > 0 && !allSelected;
+                              
+                              return (
+                                <div key={addr.id} className="bg-white rounded-xl border border-gray-200/80 overflow-hidden shadow-sm hover:shadow-md transition-all duration-200">
+                                  {/* 地址头部 */}
+                                  <div className="bg-gradient-to-r from-gray-50 to-blue-50/50 px-4 py-3 border-b border-gray-200/50">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                                          <i className="fas fa-map-marker-alt text-white text-xs"></i>
+                                        </div>
+                                        <div>
+                                          <div className="text-sm font-semibold text-gray-900">{addr.name}</div>
+                                          <div className="text-xs text-gray-500">
+                                            {selectedInAddress > 0 ? `已选 ${selectedInAddress}/${blds.length}` : `共 ${blds.length} 个楼栋`}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          const buildingIds = blds.map(b => b.id);
+                                          setAgentForm(prev => ({
+                                            ...prev,
+                                            building_ids: allSelected
+                                              ? prev.building_ids.filter(id => !buildingIds.includes(id))
+                                              : [...new Set([...prev.building_ids, ...buildingIds])]
+                                          }));
+                                        }}
+                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-all duration-200 ${
+                                          allSelected
+                                            ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                                            : 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100'
+                                        }`}
+                                      >
+                                        {allSelected ? '取消全选' : someSelected ? '全选' : '全选'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* 楼栋列表 */}
+                                  <div className="p-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                      {blds.map(b => {
+                                        const isSelected = agentForm.building_ids.includes(b.id);
+                                        return (
+                                          <label
+                                            key={b.id}
+                                            className={`flex items-center gap-2 px-3 py-2.5 border rounded-xl text-sm cursor-pointer transition-all duration-200 ${
+                                              isSelected 
+                                                ? 'border-indigo-300 bg-indigo-50 text-indigo-700 shadow-sm' 
+                                                : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+                                            }`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={isSelected}
+                                              onChange={() => toggleAgentBuilding(b.id)}
+                                              className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                            />
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                              <i className={`fas fa-building text-xs ${isSelected ? 'text-indigo-500' : 'text-gray-400'}`}></i>
+                                              <span className="truncate font-medium">{b.name}</span>
+                                            </div>
+                                            {isSelected && (
+                                              <i className="fas fa-check-circle text-indigo-500 text-xs"></i>
+                                            )}
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+                            <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                              <i className="fas fa-building text-gray-400 text-2xl"></i>
                             </div>
-                          );
-                        })}
-                        {(addresses || []).every(addr => (buildingsByAddress[addr.id] || []).length === 0) && (
-                          <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-                            暂无可选楼栋，请先在“地址管理”中配置楼栋。
+                            <p className="text-sm font-medium text-gray-700 mb-2">暂无可分配的楼栋</p>
+                            <p className="text-xs text-gray-500">请先在"地址管理"中添加地址和楼栋</p>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    <div className="mt-6 flex justify-end gap-3">
-                      <button
-                        onClick={closeAgentModal}
-                        className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
-                      >
-                        取消
-                      </button>
-                      <button
-                        onClick={handleAgentSave}
-                        disabled={agentSaving}
-                        className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                      >
-                        {agentSaving ? '保存中...' : '保存'}
-                      </button>
+                    {/* 模态框底部操作按钮 */}
+                    <div className="border-t border-gray-200 bg-gray-50/50 px-6 py-4 flex items-center justify-between">
+                      <div className="text-xs text-gray-500">
+                        {editingAgent ? '修改后将立即生效' : '创建后代理即可使用账号登录'}
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={closeAgentModal}
+                          className="px-6 py-2.5 text-sm font-medium border border-gray-300 rounded-xl hover:bg-gray-50 transition-all duration-200"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={handleAgentSave}
+                          disabled={agentSaving}
+                          className="px-6 py-2.5 text-sm font-medium bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+                        >
+                          {agentSaving ? (
+                            <>
+                              <i className="fas fa-spinner animate-spin"></i>
+                              保存中...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-check"></i>
+                              {editingAgent ? '保存修改' : '创建代理'}
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -6344,60 +6954,82 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               </div>
 
               {/* 快速添加地址 */}
-              <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 shadow-lg border border-gray-200/50 mb-8">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-plus text-white text-sm"></i>
+              <div className="bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/40 rounded-2xl p-8 shadow-lg border border-blue-200/50 mb-8 hover:shadow-xl transition-all duration-300">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <i className="fas fa-plus text-white text-lg"></i>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900">添加新地址</h3>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">快速添加配送地址</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">输入园区名称后，您可以为其添加具体楼栋</p>
+                  </div>
                 </div>
-                <div className="flex items-end gap-4">
+                <div className="flex items-start gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">地址名称</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                      <i className="fas fa-map-marked-alt text-gray-400 text-xs"></i>
+                      地址名称
+                      <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="text"
                       value={newAddrName}
                       onChange={(e) => setNewAddrName(e.target.value)}
-                      placeholder="配送园区名..."
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && newAddrName.trim() && !addrSubmitting) {
+                          handleAddAddress();
+                        }
+                      }}
+                      placeholder="例如：东校区、西校区、南园等"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 text-sm"
                     />
+                    <p className="text-xs text-gray-500 mt-2 flex items-center gap-1.5">
+                      <i className="fas fa-info-circle"></i>
+                      按 Enter 键快速添加
+                    </p>
                   </div>
-                  <button
-                    onClick={handleAddAddress}
-                    disabled={addrSubmitting || !newAddrName.trim()}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
-                  >
-                    {addrSubmitting ? (
-                      <span className="flex items-center gap-2">
-                        <i className="fas fa-spinner animate-spin"></i>
-                        添加中...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <i className="fas fa-plus"></i>
-                        添加地址
-                      </span>
-                    )}
-                  </button>
+                  <div className="flex-shrink-0" style={{ paddingTop: '28px' }}>
+                    <button
+                      onClick={handleAddAddress}
+                      disabled={addrSubmitting || !newAddrName.trim()}
+                      className="h-[46px] px-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      {addrSubmitting ? (
+                        <>
+                          <i className="fas fa-spinner animate-spin"></i>
+                          添加中...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-plus"></i>
+                          添加
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* 紧凑网格地址卡片 */}
+              {/* 地址列表 */}
               {addrLoading ? (
-                <div className="flex items-center justify-center py-12">
+                <div className="flex items-center justify-center py-24">
                   <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">正在加载地址信息...</p>
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-6"></div>
+                    <p className="text-lg font-medium text-gray-700">正在加载地址信息...</p>
+                    <p className="text-sm text-gray-500 mt-2">请稍候</p>
                   </div>
                 </div>
               ) : addresses.length === 0 ? (
-                <div className="text-center py-16">
-                  <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <i className="fas fa-map-marker-alt text-gray-400 text-2xl"></i>
+                <div className="text-center py-24">
+                  <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-indigo-200 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                    <i className="fas fa-map-marker-alt text-blue-400 text-3xl"></i>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">暂无配送地址</h3>
-                  <p className="text-gray-500 mb-4">请添加第一个配送地址开始管理</p>
-                  <p className="text-sm text-gray-400">用户只能看到有具体楼栋的园区地址</p>
+                  <h3 className="text-xl font-bold text-gray-700 mb-3">暂无配送地址</h3>
+                  <p className="text-gray-500 mb-2">请在上方添加第一个配送地址开始管理</p>
+                  <p className="text-sm text-gray-400 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 inline-block mt-4">
+                    <i className="fas fa-lightbulb text-amber-500 mr-2"></i>
+                    提示：用户只能看到有具体楼栋的园区地址
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -6477,11 +7109,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                         {/* 楼栋列表 */}
                         <div className="p-4">
                           {buildings.length === 0 ? (
-                            <div className="text-center py-6">
-                              <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <i className="fas fa-building text-gray-400 text-lg"></i>
+                            <div className="text-center py-8">
+                              <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                <i className="fas fa-building text-gray-400 text-xl"></i>
                               </div>
-                              <p className="text-gray-500 text-sm mb-1">暂无楼栋</p>
+                              <p className="text-gray-600 text-sm font-medium mb-1">该地址下暂无楼栋</p>
+                              <p className="text-gray-400 text-xs">请在下方添加具体楼栋信息</p>
                             </div>
                           ) : (
                             <div className="space-y-3 mb-4">
