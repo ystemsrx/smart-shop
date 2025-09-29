@@ -1358,13 +1358,23 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                                 {item.name}
                               </div>
                             </div>
-                            <div className="flex items-center gap-4">
-                              <div className="text-sm font-bold text-gray-900">
+                            <div className="flex items-center gap-3">
+                              <div className="text-sm font-bold text-gray-900 w-10 text-right">
                                 {item.sold}
                               </div>
-                              {item.revenue && (
-                                <div className="text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded-lg">
-                                  ¥{item.revenue}
+                              {item.change !== undefined && item.change !== 0 && (
+                                <div className={`flex items-center justify-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg min-w-[52px] ${
+                                  item.change > 0 
+                                    ? 'text-green-600 bg-green-50' 
+                                    : 'text-red-600 bg-red-50'
+                                }`}>
+                                  <i className={`fas fa-arrow-${item.change > 0 ? 'up' : 'down'}`}></i>
+                                  {Math.abs(item.change)}
+                                </div>
+                              )}
+                              {(item.change === undefined || item.change === 0) && (
+                                <div className="flex items-center justify-center text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-lg min-w-[52px]">
+                                  --
                                 </div>
                               )}
                             </div>

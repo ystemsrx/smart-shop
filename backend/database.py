@@ -3951,6 +3951,7 @@ class OrderDB:
                 profit_growth = round(((current_profit - prev_profit) / prev_profit) * 100, 1)
             
             # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围
+            # 当前期商品销量统计
             where_clause_orders, params_orders = build_where(f'({time_filter})', alias='o')
             if where_clause_orders:
                 where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
@@ -3962,7 +3963,7 @@ class OrderDB:
                 {where_clause_orders}
             ''', params_orders)
             
-            # 统计商品销量
+            # 统计当前期商品销量
             product_stats = {}
             for row in cursor.fetchall():
                 try:
@@ -3985,13 +3986,50 @@ class OrderDB:
                 except (json.JSONDecodeError, KeyError, ValueError):
                     continue
             
-            # 按销量排序，取前10
-            top_products = sorted(
-                [{'name': stats['name'], 'sold': stats['sold'], 'revenue': round(stats['revenue'], 2)} 
-                 for stats in product_stats.values()],
-                key=lambda x: x['sold'],
-                reverse=True
-            )[:10]
+            # 上一期商品销量统计
+            prev_where_clause_orders, prev_params_orders = build_where(f'({prev_time_filter})', alias='o')
+            if prev_where_clause_orders:
+                prev_where_clause_orders = prev_where_clause_orders + " AND o.payment_status = 'succeeded'"
+            else:
+                prev_where_clause_orders = " WHERE o.payment_status = 'succeeded'"
+            cursor.execute(f'''
+                SELECT o.items, o.created_at
+                FROM orders o 
+                {prev_where_clause_orders}
+            ''', prev_params_orders)
+            
+            # 统计上一期商品销量
+            prev_product_stats = {}
+            for row in cursor.fetchall():
+                try:
+                    items_json = json.loads(row[0])
+                    for item in items_json:
+                        product_id = item.get('product_id')
+                        quantity = int(item.get('quantity', 0))
+                        
+                        if product_id not in prev_product_stats:
+                            prev_product_stats[product_id] = 0
+                        
+                        prev_product_stats[product_id] += quantity
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            
+            # 按销量排序，取前10，并计算与上一期的对比
+            top_products = []
+            for product_id, stats in product_stats.items():
+                current_sold = stats['sold']
+                prev_sold = prev_product_stats.get(product_id, 0)
+                change = current_sold - prev_sold
+                
+                top_products.append({
+                    'name': stats['name'],
+                    'sold': current_sold,
+                    'revenue': round(stats['revenue'], 2),
+                    'change': change,
+                    'prev_sold': prev_sold
+                })
+            
+            top_products = sorted(top_products, key=lambda x: x['sold'], reverse=True)[:10]
             
             # 用户增长统计
             customers_where, customers_params = build_where(alias='o')
