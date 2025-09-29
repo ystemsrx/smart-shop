@@ -5578,7 +5578,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     商品管理
                     {isAdmin && (
                       <span className="ml-3 text-sm font-normal text-gray-600">
-                        （是否显示下架商品
+                        （是否向用户展示已下架商品
                         <span className="inline-flex items-center ml-2 mr-1">
                           <IOSToggle 
                             enabled={showInactiveInShop}
