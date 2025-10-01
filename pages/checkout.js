@@ -208,29 +208,28 @@ export default function Checkout() {
     const baseTotal = (cart?.payable_total ?? cart?.total_price) || 0;
     return Math.max(0, baseTotal - couponDiscountAmount);
   }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
-  const closedBlocked = !shopOpen && !closedReservationOnly && (!reservationAllowed || !allReservationItems);
+  // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
+  const closedBlocked = !shopOpen && !reservationAllowed && !allReservationItems;
   const checkoutButtonLabel = useMemo(() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
     if (closedBlocked) {
-      if (!shopOpen || !reservationAllowed) {
-        return '打烊中 · 暂停结算';
-      }
-      return '仅限预约商品';
+      return '打烊中 · 仅限预约商品';
     }
     if (closedReservationOnly) return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (!shopOpen && reservationAllowed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
     if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
     return `立即支付 ¥${payableAmount.toFixed(2)}`;
   }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, shopOpen, reservationAllowed, closedReservationOnly, payableAmount, hasReservationItems, shouldReserve]);
 
   const closedBlockedMessage = useMemo(() => {
     if (!shopOpen) {
-      if (!allReservationItems) {
-        if (reservationAllowed) {
-          return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
-        }
-        return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
+      // 打烊时：未开启预约且不是全预约商品
+      if (!reservationAllowed && !allReservationItems) {
+        return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
       }
+      // 其他情况显示打烊提示
+      return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
     }
     return '当前暂无法提交订单';
   }, [shopOpen, reservationAllowed, allReservationItems, shopNote]);
@@ -863,25 +862,29 @@ export default function Checkout() {
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-building mr-2"></i>配送区 *
-                        </label>
-                        <div className="input-glass w-full text-gray-900">
-                          {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {/* 配送区和楼栋容器 */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="fas fa-building mr-2"></i>配送区 *
+                          </label>
+                          <div className="input-glass w-full text-gray-900">
+                            {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="fas fa-home mr-2"></i>楼栋 *
+                          </label>
+                          <div className="input-glass w-full text-gray-900">
+                            {locationLoading ? '加载中...' : (location?.building || '未选择')}
+                          </div>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-home mr-2"></i>楼栋 *
-                        </label>
-                        <div className="input-glass w-full text-gray-900">
-                          {locationLoading ? '加载中...' : (location?.building || '未选择')}
-                        </div>
-                      </div>
-
+                      {/* 房间号 */}
                       <div>
                         <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-2">
                           <i className="fas fa-door-open mr-2"></i>房间号 *
@@ -997,43 +1000,48 @@ export default function Checkout() {
                           className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 animate-apple-fade-in ${isDown ? 'opacity-60 grayscale' : ''}`}
                           style={{ animationDelay: `${index * 0.1}s` }}
                         >
-                          <div className="flex justify-between items-start">
+                          <div className="flex justify-between items-start gap-3">
                             <div className="flex-1 min-w-0">
-                              <p className={`truncate text-sm font-medium ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
-                                {item.name}
-                              </p>
-                              <div className="flex items-center gap-2 mt-1">
+                              {/* 商品名和标识同行显示 */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className={`text-sm font-medium ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
+                                  {item.name}
+                                </p>
                                 {item.variant_name && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 flex-shrink-0">
                                     {item.variant_name}
                                   </span>
                                 )}
                                 {item.reservation_required && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex-shrink-0">
                                     预约
                                   </span>
                                 )}
                                 {isDown && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 flex-shrink-0">
                                     暂时下架
                                   </span>
                                 )}
                               </div>
-                              <p className="text-gray-600 text-xs mt-1">
-                                数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
-                              </p>
-                              {item.reservation_required && (
-                                <p className="text-blue-600 text-[11px] mt-1 leading-snug break-words">
-                                  {formatReservationCutoff(item.reservation_cutoff)}
-                                  {item.reservation_note ? ` · ${item.reservation_note}` : ''}
-                                </p>
-                              )}
                             </div>
-                            <div className="text-right ml-3">
+                            {/* 价格区域 - 始终显示在右上角 */}
+                            <div className="text-right flex-shrink-0">
                               <span className={`text-sm font-semibold ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
                                 ¥{item.subtotal}
                               </span>
                             </div>
+                          </div>
+                          {/* 数量和预约信息行 */}
+                          <div className="flex justify-between items-baseline gap-2 mt-1">
+                            <p className="text-gray-600 text-xs">
+                              数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
+                            </p>
+                            {item.reservation_required && (
+                              <p className="text-blue-600 text-[11px] leading-snug text-right flex-shrink-0">
+                                {formatReservationCutoff(item.reservation_cutoff)}
+                                {item.reservation_note ? ` · ${item.reservation_note}` : ''}
+                              </p>
+                            )}
                           </div>
                         </div>
                       );
@@ -1147,7 +1155,7 @@ export default function Checkout() {
                             请确认预约说明，配送时间将根据预约安排。
                           </div>
                         )}
-                        {closedBlocked && !allReservationItems && (
+                        {!shopOpen && !reservationAllowed && !allReservationItems && (
                           <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
                             当前打烊期间仅支持预约商品，请移除非预约商品后再尝试提交。
                           </div>

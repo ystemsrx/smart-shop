@@ -125,10 +125,8 @@ const AgentStatusCard = () => {
   const saveNote = async () => {
     try { 
       await updateStatus(isOpen, closedNote, allowReservation); 
-      alert('提示已更新'); 
     } catch (e) {
       console.error('保存提示失败:', e);
-      alert('保存提示失败');
     }
   };
 
@@ -155,50 +153,64 @@ const AgentStatusCard = () => {
   }
 
   return (
-    <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
-      <div>
-      <div className="text-sm text-gray-600">代理状态</div>
-      <div className={`mt-1 text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
-        {isOpen ? '营业中' : '打烊中'}
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="打烊提示语（可选）"
-          value={closedNote}
-          onChange={(e) => setClosedNote(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
-        />
-        <button 
-          onClick={saveNote} 
-          className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
-        >
-          保存提示
-        </button>
-      </div>
-      <div className="mt-3 flex items-center justify-between text-sm text-gray-700 border-t border-gray-200 pt-3">
-        <div className="flex items-center gap-2">
-          <i className="fas fa-calendar-check text-teal-500"></i>
-          <span>{allowReservation ? '预约已开启' : '预约未开启'}</span>
+    <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 代理状态控制 */}
+        <div className="flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-600">代理状态</div>
+              <div className={`text-lg font-semibold mt-1 ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
+                {isOpen ? '营业中' : '打烊中'}
+              </div>
+            </div>
+            <button
+              onClick={toggle}
+              className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+                isOpen
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              {isOpen ? '设为打烊' : '设为营业'}
+            </button>
+          </div>
+          <div className="mt-2">
+            <textarea
+              placeholder="打烊提示语（可选）"
+              value={closedNote}
+              onChange={(e) => setClosedNote(e.target.value)}
+              onBlur={saveNote}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="mt-2 text-xs text-gray-500">打烊时显示给顾客的提示信息。</p>
+          </div>
         </div>
-        <button
-          onClick={toggleReservation}
-          className={`px-3 py-1.5 rounded-md text-white font-semibold ${allowReservation ? 'bg-slate-500 hover:bg-slate-600' : 'bg-teal-500 hover:bg-teal-600'}`}
-        >
-          {allowReservation ? '关闭预约' : '开启预约'}
-        </button>
+
+        {/* 预约下单控制 */}
+        <div className="flex flex-col justify-between md:border-l md:border-gray-200 md:pl-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-600">预约下单</div>
+              <div className={`text-lg font-semibold mt-1 ${allowReservation ? 'text-teal-600' : 'text-gray-700'}`}>
+                {allowReservation ? '已开启' : '未开启'}
+              </div>
+            </div>
+            <button
+              onClick={toggleReservation}
+              className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+                allowReservation
+                  ? 'bg-slate-500 hover:bg-slate-600'
+                  : 'bg-teal-500 hover:bg-teal-600'
+              }`}
+            >
+              {allowReservation ? '关闭预约' : '开启预约'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">开启后，店铺打烊时用户仍可提交预约订单，工作人员可在营业后处理。</p>
+        </div>
       </div>
-    </div>
-    <button
-      onClick={toggle}
-      className={`px-4 py-2 rounded-md text-white font-semibold ${
-        isOpen 
-            ? 'bg-red-600 hover:bg-red-700' 
-            : 'bg-green-600 hover:bg-green-700'
-        }`}
-      >
-        {isOpen ? '设为打烊' : '设为营业'}
-      </button>
     </div>
   );
 };
@@ -280,47 +292,54 @@ const RegistrationSettingsCard = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="text-sm text-gray-600">用户注册</div>
-          <div className={`text-lg font-semibold mt-1 ${enabled ? 'text-green-700' : 'text-gray-700'}`}>
-            {enabled ? '已启用' : '已关闭'}
-          </div>
-        </div>
-        <button
-          onClick={toggleRegistration}
-          disabled={updating}
-          className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
-            enabled
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-green-600 hover:bg-green-700'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          {enabled ? '关闭注册' : '启用注册'}
-        </button>
-      </div>
-
-      <div className="pt-4 border-t border-gray-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm text-gray-600">预约下单</div>
-            <div className={`text-lg font-semibold mt-1 ${reservationEnabled ? 'text-teal-600' : 'text-gray-700'}`}>
-              {reservationEnabled ? '已开启' : '未开启'}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 用户注册控制 */}
+        <div className="flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-600">用户注册</div>
+              <div className={`text-lg font-semibold mt-1 ${enabled ? 'text-green-700' : 'text-gray-700'}`}>
+                {enabled ? '已启用' : '已关闭'}
+              </div>
             </div>
+            <button
+              onClick={toggleRegistration}
+              disabled={updating}
+              className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+                enabled
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-green-600 hover:bg-green-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {enabled ? '关闭注册' : '启用注册'}
+            </button>
           </div>
-          <button
-            onClick={toggleReservation}
-            disabled={updating}
-            className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
-              reservationEnabled
-                ? 'bg-slate-500 hover:bg-slate-600'
-                : 'bg-teal-500 hover:bg-teal-600'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {reservationEnabled ? '关闭预约' : '开启预约'}
-          </button>
+          <p className="mt-2 text-xs text-gray-500">开启后，用户将能自行注册账户登录。</p>
         </div>
-        <p className="mt-2 text-xs text-gray-500">开启后，店铺打烊时用户仍可提交预约订单，工作人员可在营业后处理。</p>
+
+        {/* 预约下单控制 */}
+        <div className="flex flex-col justify-between md:border-l md:border-gray-200 md:pl-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-600">预约下单</div>
+              <div className={`text-lg font-semibold mt-1 ${reservationEnabled ? 'text-teal-600' : 'text-gray-700'}`}>
+                {reservationEnabled ? '已开启' : '未开启'}
+              </div>
+            </div>
+            <button
+              onClick={toggleReservation}
+              disabled={updating}
+              className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+                reservationEnabled
+                  ? 'bg-slate-500 hover:bg-slate-600'
+                  : 'bg-teal-500 hover:bg-teal-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {reservationEnabled ? '关闭预约' : '开启预约'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">开启后，店铺打烊时用户仍可提交预约订单，工作人员可在营业后处理。</p>
+        </div>
       </div>
     </div>
   );

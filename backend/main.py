@@ -3725,13 +3725,16 @@ async def create_order(
         items_subtotal = round(total_amount, 2)
         all_items_are_reservation = cart_item_count > 0 and all_cart_items_reservation_only
 
-        if reservation_due_to_closure and not all_items_are_reservation:
-            if closure_requires_reservation_only:
-                if items_require_reservation:
-                    return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
-                fallback = closure_note.strip() or '暂不支持下单'
-                return error_response(f"{closure_prefix}{fallback}", 400)
-            return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
+        # 打烊期间的预约逻辑
+        if reservation_due_to_closure:
+            if allow_reservation_when_closed:
+                # 管理面板开启了预约：所有商品都可以预约购买，无需检查
+                pass
+            else:
+                # 管理面板未开启预约：仅允许标记为预约的商品购买
+                if not all_items_are_reservation:
+                    fallback = closure_note.strip() or '暂不支持下单'
+                    return error_response(f"{closure_prefix}当前仅支持预约商品下单，请移除非预约商品后再试。{fallback}", 400)
 
         # 新的满额赠品系统：支持多层次门槛配置
         owner_scope_id = get_owner_id_from_scope(scope)

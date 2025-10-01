@@ -82,18 +82,23 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
         
         {/* 商品信息 */}
         <div className="flex-1 min-w-0">
-          <h3 className={`text-base font-semibold leading-tight mb-2 ${isDown ? 'text-slate-500' : 'text-slate-900'}`}>
-            {item.name}
-          </h3>
-          
-          <div className="flex flex-wrap items-center gap-2 mb-3">
+          {/* 商品名和标识同行显示 */}
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <h3 className={`text-base font-semibold leading-tight ${isDown ? 'text-slate-500' : 'text-slate-900'}`}>
+              {item.name}
+            </h3>
             {item.variant_name && (
-              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-cyan-50 to-teal-50 text-cyan-700 rounded-full border border-cyan-200/50 font-medium">
+              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-cyan-50 to-teal-50 text-cyan-700 rounded-full border border-cyan-200/50 font-medium flex-shrink-0">
                 {item.variant_name}
               </span>
             )}
+            {item.reservation_required && (
+              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-blue-50 to-sky-50 text-blue-700 rounded-full border border-blue-200/50 font-medium flex-shrink-0">
+                预约
+              </span>
+            )}
             {isDown && (
-              <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+              <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200 flex-shrink-0">
                 暂时下架
               </span>
             )}
@@ -200,16 +205,17 @@ const OrderSummary = ({
     ? (addressValidation.message || '配送地址不可用，请重新选择')
     : '';
   const closedReservationOnly = isClosed && allReservationItems && ((cart?.total_quantity || 0) > 0);
-  const closedBlocked = isClosed && !closedReservationOnly && (!reservationAllowed || !allReservationItems);
+  // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
+  const closedBlocked = isClosed && !reservationAllowed && !allReservationItems;
   const checkoutDisabled = cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid;
   const buttonLabel = (() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
     if (closedBlocked) {
-      if (!reservationAllowed) return '打烊中 · 暂停结算';
-      return '仅限预约商品';
+      return '打烊中 · 仅限预约商品';
     }
     if (closedReservationOnly) return '预约购买';
+    if (isClosed && reservationAllowed) return '预约购买';
     if (hasReservationItems && shouldReserve) return '提交预约';
     return '去结算';
   })();
@@ -385,7 +391,7 @@ const OrderSummary = ({
               请关注预约说明，配送时间将以预约信息为准。
             </div>
           )}
-          {isClosed && !allReservationItems && (
+          {isClosed && !reservationAllowed && !allReservationItems && (
             <div className="mt-3 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 font-medium">
               打烊期间仅支持预约商品，请移除非预约商品后再试。
             </div>
@@ -494,9 +500,10 @@ export default function Cart() {
   const addressAlertMessage = useMemo(() => (
     addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
   ), [addressInvalid, addressValidation]);
+  // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
   const closedBlocked = useMemo(
-    () => !shopOpen && !closedReservationOnly && (!reservationAllowed || !allReservationItems),
-    [shopOpen, closedReservationOnly, reservationAllowed, allReservationItems]
+    () => !shopOpen && !reservationAllowed && !allReservationItems,
+    [shopOpen, reservationAllowed, allReservationItems]
   );
 
   const lastInvalidKeyRef = useRef(null);
@@ -813,11 +820,8 @@ export default function Cart() {
   // 去结算
   const handleCheckout = () => {
     if (closedBlocked) {
-      if (!reservationAllowed) {
-        setShopClosedModalOpen(true);
-      } else {
-        alert('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
-      }
+      // closedBlocked 为 true 意味着：打烊且未开启预约且不是全预约商品
+      alert('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
       return;
     }
     if (addressInvalid) {
