@@ -3607,6 +3607,8 @@ async def create_order(
         reservation_due_to_closure = False
         closure_note = ''
         allow_reservation_when_closed = False
+        closure_requires_reservation_only = False
+        closure_prefix = '店铺已暂停营业。'
 
         if agent_id:
             status = AgentStatusDB.get_agent_status(agent_id)
@@ -3614,17 +3616,18 @@ async def create_order(
             allow_reservation_when_closed = bool(status.get('allow_reservation', 0))
             if not agent_open:
                 closure_note = status.get('closed_note', '')
-                if not allow_reservation_when_closed:
-                    return error_response(f"当前区域代理已暂停营业。{closure_note}", 400)
+                closure_prefix = '当前区域代理已暂停营业。'
                 reservation_due_to_closure = True
+                if not allow_reservation_when_closed:
+                    closure_requires_reservation_only = True
         else:
             is_open = SettingsDB.get('shop_is_open', '1') != '0'
             allow_reservation_when_closed = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
             if not is_open:
                 closure_note = SettingsDB.get('shop_closed_note', '')
-                if not allow_reservation_when_closed:
-                    return error_response(f"店铺已暂停营业。{closure_note}", 400)
                 reservation_due_to_closure = True
+                if not allow_reservation_when_closed:
+                    closure_requires_reservation_only = True
 
         # 获取用户购物车
         cart_data = CartDB.get_cart(user["id"])
@@ -3721,6 +3724,14 @@ async def create_order(
         # 保存商品金额小计（不含运费），用于满额判断
         items_subtotal = round(total_amount, 2)
         all_items_are_reservation = cart_item_count > 0 and all_cart_items_reservation_only
+
+        if reservation_due_to_closure and not all_items_are_reservation:
+            if closure_requires_reservation_only:
+                if items_require_reservation:
+                    return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
+                fallback = closure_note.strip() or '暂不支持下单'
+                return error_response(f"{closure_prefix}{fallback}", 400)
+            return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
 
         # 新的满额赠品系统：支持多层次门槛配置
         owner_scope_id = get_owner_id_from_scope(scope)
@@ -3820,8 +3831,6 @@ async def create_order(
                 logger.warning(f"附加抽奖奖品失败: {e}")
 
         user_confirms_reservation = bool(order_request.reservation_requested)
-        if reservation_due_to_closure and not all_items_are_reservation:
-            return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
         if items_require_reservation and not user_confirms_reservation:
             if reservation_due_to_closure:
                 tip = closure_note or '当前打烊，仅支持预约购买'

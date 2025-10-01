@@ -183,7 +183,11 @@ export default function Checkout() {
     if (activeItems.length === 0) return false;
     return activeItems.every(item => item.reservation_required);
   }, [cart?.all_reservation_items, cart?.items]);
-  const canReserveWhileClosed = useMemo(() => !shopOpen && reservationAllowed && allReservationItems, [shopOpen, reservationAllowed, allReservationItems]);
+  const closedReservationOnly = useMemo(
+    () => !shopOpen && allReservationItems && ((cart?.total_quantity || 0) > 0),
+    [shopOpen, allReservationItems, cart?.total_quantity]
+  );
+  const canReserveWhileClosed = useMemo(() => closedReservationOnly, [closedReservationOnly]);
   const reservationFromClosure = useMemo(() => canReserveWhileClosed, [canReserveWhileClosed]);
   const shouldReserve = useMemo(() => hasReservationItems || canReserveWhileClosed, [hasReservationItems, canReserveWhileClosed]);
   
@@ -204,7 +208,7 @@ export default function Checkout() {
     const baseTotal = (cart?.payable_total ?? cart?.total_price) || 0;
     return Math.max(0, baseTotal - couponDiscountAmount);
   }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
-  const closedBlocked = !shopOpen && (!reservationAllowed || !allReservationItems);
+  const closedBlocked = !shopOpen && !closedReservationOnly && (!reservationAllowed || !allReservationItems);
   const checkoutButtonLabel = useMemo(() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
@@ -214,18 +218,18 @@ export default function Checkout() {
       }
       return '仅限预约商品';
     }
-    if (canReserveWhileClosed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (closedReservationOnly) return `预约购买 ¥${payableAmount.toFixed(2)}`;
     if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
     return `立即支付 ¥${payableAmount.toFixed(2)}`;
-  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, canReserveWhileClosed, shopOpen, reservationAllowed, payableAmount, hasReservationItems, shouldReserve]);
+  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, shopOpen, reservationAllowed, closedReservationOnly, payableAmount, hasReservationItems, shouldReserve]);
 
   const closedBlockedMessage = useMemo(() => {
     if (!shopOpen) {
-      if (!reservationAllowed) {
-        return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
-      }
       if (!allReservationItems) {
-        return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
+        if (reservationAllowed) {
+          return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
+        }
+        return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
       }
     }
     return '当前暂无法提交订单';
@@ -1162,7 +1166,7 @@ export default function Checkout() {
                             请确认预约说明，配送时间将根据预约安排。
                           </div>
                         )}
-                        {closedBlocked && reservationAllowed && !allReservationItems && (
+                        {closedBlocked && !allReservationItems && (
                           <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
                             当前打烊期间仅支持预约商品，请移除非预约商品后再尝试提交。
                           </div>

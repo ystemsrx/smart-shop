@@ -200,7 +200,8 @@ const OrderSummary = ({
   const addressAlertMessage = addressInvalid
     ? (addressValidation.message || '配送地址不可用，请重新选择')
     : '';
-  const closedBlocked = isClosed && (!reservationAllowed || !allReservationItems);
+  const closedReservationOnly = isClosed && allReservationItems && ((cart?.total_quantity || 0) > 0);
+  const closedBlocked = isClosed && !closedReservationOnly && (!reservationAllowed || !allReservationItems);
   const checkoutDisabled = isLoading || cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid;
   const buttonLabel = (() => {
     if (isLoading) return '处理中...';
@@ -210,7 +211,7 @@ const OrderSummary = ({
       if (!reservationAllowed) return '打烊中 · 暂停结算';
       return '仅限预约商品';
     }
-    if (isClosed && reservationAllowed && allReservationItems) return '预约购买';
+    if (closedReservationOnly) return '预约购买';
     if (hasReservationItems && shouldReserve) return '提交预约';
     return '去结算';
   })();
@@ -351,7 +352,7 @@ const OrderSummary = ({
               请关注预约说明，配送时间将以预约信息为准。
             </div>
           )}
-          {isClosed && reservationAllowed && !allReservationItems && (
+          {isClosed && !allReservationItems && (
             <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
               打烊期间仅支持预约商品，请移除非预约商品后再试。
             </div>
@@ -446,9 +447,13 @@ export default function Cart() {
     }
     return activeItems.every(item => item.reservation_required);
   }, [cart?.all_reservation_items, cart.items]);
-  const canReserveWhileClosed = useMemo(() => !shopOpen && reservationAllowed && allReservationItems, [shopOpen, reservationAllowed, allReservationItems]);
-  const reservationFromClosure = useMemo(() => canReserveWhileClosed, [canReserveWhileClosed]);
-  const shouldReserve = useMemo(() => hasReservationItems || canReserveWhileClosed, [hasReservationItems, canReserveWhileClosed]);
+  const closedReservationOnly = useMemo(
+    () => !shopOpen && allReservationItems && ((cart?.total_quantity || 0) > 0),
+    [shopOpen, allReservationItems, cart?.total_quantity]
+  );
+  const canReserveWhileClosed = useMemo(() => closedReservationOnly, [closedReservationOnly]);
+  const reservationFromClosure = useMemo(() => closedReservationOnly, [closedReservationOnly]);
+  const shouldReserve = useMemo(() => hasReservationItems || closedReservationOnly, [hasReservationItems, closedReservationOnly]);
 
   const addressInvalid = useMemo(() => (
     locationReady && addressValidation && addressValidation.is_valid === false
@@ -457,7 +462,10 @@ export default function Cart() {
   const addressAlertMessage = useMemo(() => (
     addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
   ), [addressInvalid, addressValidation]);
-  const closedBlocked = useMemo(() => !shopOpen && (!reservationAllowed || !allReservationItems), [shopOpen, reservationAllowed, allReservationItems]);
+  const closedBlocked = useMemo(
+    () => !shopOpen && !closedReservationOnly && (!reservationAllowed || !allReservationItems),
+    [shopOpen, closedReservationOnly, reservationAllowed, allReservationItems]
+  );
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
