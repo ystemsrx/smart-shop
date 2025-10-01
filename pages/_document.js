@@ -70,6 +70,9 @@ export default function Document() {
             `
           }}
         />
+
+        {/* Lottie 动画 */}
+        <script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js" type="module"></script>
       </Head>
       <body>
         <Main />

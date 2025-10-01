@@ -71,6 +71,8 @@ export default function Checkout() {
   const [lotteryDisplay, setLotteryDisplay] = useState('');
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
+  // 成功动画弹窗
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
   const normalizeValidation = useCallback((raw) => {
     if (!raw) {
@@ -502,7 +504,7 @@ export default function Checkout() {
         setPaymentQr(null);
         
         // 触发抽奖动画并自动跳转到订单页（仅在抽奖启用时）
-        let willRedirect = false;
+        let hasLottery = false;
         const lotteryEnabled = cart?.lottery_enabled !== false;
         if (lotteryEnabled) {
           try {
@@ -518,7 +520,7 @@ export default function Checkout() {
             setLotteryDisplay(names[0] || '');
             setLotteryOpen(true);
             setSpinning(true);
-            willRedirect = true;
+            hasLottery = true;
             const duration = 2000;
             const interval = 80;
             let idx = 0;
@@ -537,8 +539,14 @@ export default function Checkout() {
             setLotteryPrize(null);
           }
         }
-        if (!willRedirect) {
-          router.push('/orders');
+        // 如果没有抽奖，直接显示成功动画
+        if (!hasLottery) {
+          setShowSuccessAnimation(true);
+          // 动画播放完成后跳转（大约3秒）
+          setTimeout(() => {
+            setShowSuccessAnimation(false);
+            router.push('/orders');
+          }, 3000);
         }
       } else {
         alert(res.message || '操作失败');
@@ -547,6 +555,38 @@ export default function Checkout() {
       alert(err.message || '操作失败');
     }
   };
+
+  // 预加载 Lottie 动画
+  useEffect(() => {
+    // 在页面加载时预加载动画,避免点击付款时卡顿
+    if (typeof window !== 'undefined' && window.customElements) {
+      const preloadAnimation = () => {
+        try {
+          // 创建一个隐藏的 dotlottie-wc 元素来预加载动画
+          const tempElement = document.createElement('dotlottie-wc');
+          tempElement.setAttribute('src', 'https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie');
+          tempElement.style.cssText = 'position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
+          document.body.appendChild(tempElement);
+          
+          // 5秒后移除预加载元素
+          setTimeout(() => {
+            if (tempElement && tempElement.parentNode) {
+              tempElement.parentNode.removeChild(tempElement);
+            }
+          }, 5000);
+        } catch (e) {
+          console.warn('预加载动画失败:', e);
+        }
+      };
+      
+      // 等待 Web Component 注册完成后预加载
+      if (window.customElements.get('dotlottie-wc')) {
+        preloadAnimation();
+      } else {
+        window.customElements.whenDefined('dotlottie-wc').then(preloadAnimation).catch(() => {});
+      }
+    }
+  }, []);
 
   // 初始化加载
   useEffect(() => {
@@ -1219,7 +1259,16 @@ export default function Checkout() {
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); setLotteryPrize(null); router.push('/orders'); }}></div>
+          <div className="absolute inset-0" onClick={() => { 
+            setLotteryOpen(false); 
+            setLotteryPrize(null); 
+            // 关闭抽奖弹窗后显示成功动画
+            setShowSuccessAnimation(true);
+            setTimeout(() => {
+              setShowSuccessAnimation(false);
+              router.push('/orders');
+            }, 3000);
+          }}></div>
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
@@ -1248,10 +1297,32 @@ export default function Checkout() {
                   )}
                 </div>
                 <div className="flex">
-                  <button onClick={() => { setLotteryOpen(false); setLotteryPrize(null); router.push('/orders'); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
+                  <button onClick={() => { 
+                    setLotteryOpen(false); 
+                    setLotteryPrize(null); 
+                    // 关闭抽奖弹窗后显示成功动画
+                    setShowSuccessAnimation(true);
+                    setTimeout(() => {
+                      setShowSuccessAnimation(false);
+                      router.push('/orders');
+                    }, 3000);
+                  }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 成功动画弹窗 */}
+      {showSuccessAnimation && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
+          <div className="relative bg-white rounded-3xl p-8 shadow-2xl animate-apple-scale-in">
+            <dotlottie-wc 
+              src="https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie" 
+              style={{width: '300px', height: '300px'}}
+              autoplay
+            ></dotlottie-wc>
           </div>
         </div>
       )}

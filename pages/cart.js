@@ -376,6 +376,37 @@ export default function Cart() {
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
 
+  // 预加载支付成功动画,避免结算时卡顿
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.customElements) {
+      const preloadAnimation = () => {
+        try {
+          // 创建一个隐藏的 dotlottie-wc 元素来预加载动画
+          const tempElement = document.createElement('dotlottie-wc');
+          tempElement.setAttribute('src', 'https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie');
+          tempElement.style.cssText = 'position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
+          document.body.appendChild(tempElement);
+          
+          // 10秒后移除预加载元素
+          setTimeout(() => {
+            if (tempElement && tempElement.parentNode) {
+              tempElement.parentNode.removeChild(tempElement);
+            }
+          }, 10000);
+        } catch (e) {
+          console.warn('预加载支付成功动画失败:', e);
+        }
+      };
+      
+      // 等待 Web Component 注册完成后预加载
+      if (window.customElements.get('dotlottie-wc')) {
+        preloadAnimation();
+      } else {
+        window.customElements.whenDefined('dotlottie-wc').then(preloadAnimation).catch(() => {});
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const shouldForce = !!(addressValidation && addressValidation.should_force_reselect);
     if (!shouldForce) {
