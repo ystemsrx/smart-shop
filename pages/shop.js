@@ -1091,7 +1091,7 @@ export default function Shop() {
                   </div>
                   
                   {/* 底部提示线 */}
-                  <div className="flex items-center justify-center gap-4 mt-12 mb-20 pb-8">
+                  <div className="flex items-center justify-center gap-4 mt-12 mb-20">
                     <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-gray-300"></div>
                     <span className="text-sm text-gray-400 font-medium">到底了</span>
                     <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-300 to-gray-300"></div>
