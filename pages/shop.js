@@ -127,69 +127,67 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
       </div>
       
       <div className="p-4 bg-gradient-to-t from-gray-50/50 to-transparent flex-1 flex flex-col">
-        {/* 商品信息和价格 */}
-        <div className="flex items-start justify-between gap-3 mb-4 flex-1">
-          {/* 左侧：商品信息 */}
-          <div className="flex-1 min-w-0">
-            {/* 商品标题 */}
-            <h3 className={`text-sm font-semibold leading-tight line-clamp-2 mb-2 ${
-              (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
-            }`}>
-              {product.name}
-            </h3>
-            
-            {/* 分类标签 */}
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`tag-modern text-xs ${
-                (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                <i className="fas fa-tag mr-1"></i>{product.category}
-              </span>
-            </div>
-            
-            {/* 商品描述 */}
-            {product.description && (
-              <p className={`text-xs line-clamp-2 leading-relaxed mb-2 ${
-                (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                {product.description}
-              </p>
-            )}
-            
-            {/* 库存信息 */}
-            {!isDown && (
-              <div className={`text-xs flex items-center gap-1 ${
-                isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
-              }`}>
-                <i className="fas fa-box-open"></i>
-                <span>
-                  {isVariant ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格') : `库存 ${product.stock}`}
-                </span>
-              </div>
-            )}
-          </div>
-          
-          {/* 右侧：价格信息 */}
-          <div className="flex flex-col items-end text-right">
-            {/* 当前价格 */}
-            <div className="mb-1">
-              <span className={`text-lg font-bold ${
+        {/* 商品信息区域 */}
+        <div className="flex-1 flex flex-col mb-4">
+          {/* 标题、分类和价格行 */}
+          <div className="flex items-start justify-between gap-3 mb-2">
+            {/* 左侧：标题和分类 */}
+            <div className="flex-1 min-w-0">
+              {/* 商品标题 */}
+              <h3 className={`text-sm font-semibold leading-tight line-clamp-2 mb-2 ${
                 (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
               }`}>
-                ¥{finalPrice}
-              </span>
-            </div>
-            
-            {/* 原价和优惠信息 */}
-            {hasDiscount && (
-              <div className="flex flex-col items-end gap-1">
-                <span className="text-xs text-gray-400 line-through">¥{product.price}</span>
-                <span className="text-xs text-red-500 font-medium">
-                  省¥{(product.price - finalPrice).toFixed(2)}
+                {product.name}
+              </h3>
+              
+              {/* 分类标签 */}
+              <div className="flex items-center gap-2">
+                <span className={`tag-modern text-xs ${
+                  (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  <i className="fas fa-tag mr-1"></i>{product.category}
                 </span>
               </div>
-            )}
+            </div>
+            
+            {/* 右侧：价格信息 */}
+            <div className="flex flex-col items-end text-right shrink-0">
+              {/* 当前价格 */}
+              <div className="mb-1">
+                <span className={`text-lg font-bold whitespace-nowrap ${
+                  (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
+                }`}>
+                  ¥{finalPrice}
+                </span>
+              </div>
+              
+              {/* 原价 */}
+              {hasDiscount && (
+                <span className="text-xs text-gray-400 line-through whitespace-nowrap">¥{product.price}</span>
+              )}
+            </div>
           </div>
+          
+          {/* 商品描述 - 独占一行，不被价格挤压 */}
+          {product.description && (
+            <p className={`text-xs line-clamp-2 leading-relaxed mb-2 break-words overflow-hidden ${
+              (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              {product.description}
+            </p>
+          )}
+          
+          {/* 库存信息 */}
+          {!isDown && (
+            <div className={`text-xs flex items-center gap-1 ${
+              isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
+            }`}>
+              <i className="fas fa-box-open"></i>
+              <span>
+                {isVariant ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格') : `库存 ${product.stock}`}
+              </span>
+            </div>
+          )}
         </div>
         
         {/* 操作按钮区域 */}
