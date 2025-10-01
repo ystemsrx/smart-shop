@@ -377,7 +377,22 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
                   ? `${item.product_name || ''}` 
                   : (item.product_name || '未命名商品');
                 const stock = Number.parseInt(item.stock, 10);
-                const available = item.available && (!Number.isNaN(stock) ? stock > 0 : true);
+                const isActive = item.is_active !== false && item.is_active !== 0;
+                const hasStock = !Number.isNaN(stock) && stock > 0;
+                const available = isActive && hasStock;
+                
+                // 确定状态文本和样式
+                let statusText = '可用';
+                let statusIcon = 'fa-check-circle';
+                if (!available) {
+                  if (!isActive) {
+                    statusText = '下架';
+                    statusIcon = 'fa-pause-circle';
+                  } else if (!hasStock) {
+                    statusText = '缺货';
+                    statusIcon = 'fa-exclamation-circle';
+                  }
+                }
                 
                 return (
                   <div 
@@ -402,13 +417,13 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
                       </div>
                       {available ? (
                         <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                          <i className="fas fa-check-circle"></i>
-                          可用
+                          <i className={`fas ${statusIcon}`}></i>
+                          {statusText}
                         </span>
                       ) : (
                         <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                          <i className="fas fa-exclamation-circle"></i>
-                          缺货
+                          <i className={`fas ${statusIcon}`}></i>
+                          {statusText}
                         </span>
                       )}
                     </div>
