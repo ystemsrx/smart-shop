@@ -2680,7 +2680,7 @@ const StatsCard = ({ title, value, icon, color = "indigo" }) => {
 };
 
 // 分类输入组件（支持选择和自定义输入）
-const CategoryInput = ({ value, onChange, required = false, disabled = false, adminMode = false }) => {
+const CategoryInput = ({ value, onChange, required = false, disabled = false, adminMode = false, apiPrefix = null }) => {
   const [categories, setCategories] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value || '');
@@ -2695,8 +2695,15 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
       if (isLoading) return; // 防止重复请求
       setIsLoading(true);
       try {
-        // 根据 adminMode 决定请求哪个接口
-        const url = adminMode ? '/admin/categories' : '/products/categories';
+        // 根据 adminMode 和 apiPrefix 决定请求哪个接口
+        let url;
+        if (adminMode) {
+          url = '/admin/categories';
+        } else if (apiPrefix === '/agent') {
+          url = '/agent/categories';
+        } else {
+          url = '/products/categories';
+        }
         const response = await apiRequest(url);
         // 检查组件是否仍然挂载
         if (!isMounted) return;
@@ -2776,7 +2783,7 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
     return () => {
       isMounted = false;
     };
-  }, [adminMode]); // adminMode 变化时也重新加载
+  }, [adminMode, apiPrefix]); // adminMode 或 apiPrefix 变化时重新加载
 
   useEffect(() => {
     setInputValue(value || '');
@@ -2840,7 +2847,7 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
 };
 
 // 编辑商品表单组件
-const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) => {
+const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false }) => {
   const [formData, setFormData] = useState({
     name: product.name || '',
     category: product.category || '',
@@ -2969,7 +2976,8 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
                 value={formData.category}
                 onChange={(value) => setFormData({...formData, category: value})}
                 required
-                adminMode={true}
+                adminMode={isAdmin}
+                apiPrefix={apiPrefix}
               />
             </div>
             
@@ -3809,7 +3817,7 @@ const Modal = ({ isOpen, onClose, title, children, size = "large" }) => {
 };
 
 // 添加商品表单组件
-const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
+const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false }) => {
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -3958,7 +3966,8 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
               value={formData.category}
               onChange={(value) => setFormData({...formData, category: value})}
               required
-              adminMode={true}
+              adminMode={isAdmin}
+              apiPrefix={apiPrefix}
             />
           </div>
         </div>
@@ -7785,6 +7794,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             isLoading={isSubmitting}
             onCancel={() => setShowAddModal(false)}
             apiPrefix={staffPrefix}
+            isAdmin={isAdmin}
           />
         </Modal>
 
@@ -7808,6 +7818,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 setEditingProduct(null);
               }}
               apiPrefix={staffPrefix}
+              isAdmin={isAdmin}
             />
           )}
         </Modal>

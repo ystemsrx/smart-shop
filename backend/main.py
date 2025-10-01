@@ -3161,6 +3161,31 @@ async def admin_list_products(
     return success_response("获取商品列表成功", data)
 
 
+@app.get("/agent/categories")
+async def agent_get_categories(request: Request):
+    """获取代理的所有分类"""
+    try:
+        agent, scope = require_agent_with_scope(request)
+        owner_ids = scope.get('owner_ids')
+        
+        # 代理不需要include_unassigned，因为所有商品都有owner_id
+        include_unassigned = False
+        
+        # 返回前自动清理空分类
+        try:
+            CategoryDB.cleanup_orphan_categories()
+        except Exception:
+            pass
+            
+        # 获取所有有商品的分类（包括下架商品）
+        categories = CategoryDB.get_categories_with_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
+        
+        return success_response("获取分类成功", {"categories": categories})
+    
+    except Exception as e:
+        logger.error(f"获取代理分类失败: {e}")
+        return error_response("获取分类失败", 500)
+
 @app.get("/agent/products")
 async def agent_list_products(
     request: Request,
