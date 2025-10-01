@@ -2818,22 +2818,21 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-lg font-medium text-gray-900">编辑商品</h3>
-        <button
-          onClick={onCancel}
-          className="text-gray-400 hover:text-gray-600"
-        >
-          ×
-        </button>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* 1. 基础信息与价格 - 合并在一行 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-info-circle text-emerald-600"></i>
+            <h3 className="font-bold text-gray-900">商品信息</h3>
+          </div>
       </div>
       
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="p-5 space-y-4">
+          {/* 第一行：商品名称（全宽） */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              商品名称 *
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              商品名称 <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -2841,138 +2840,219 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
               required
               value={formData.name}
               onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="请输入商品名称"
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all"
+              placeholder="例如：可口可乐 500ml"
             />
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              商品分类 *
-            </label>
-            <CategoryInput
-              value={formData.category}
-              onChange={(value) => setFormData({...formData, category: value})}
-              required
-              adminMode={true}
-            />
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              价格 *
-            </label>
-            <input
-              type="number"
-              name="price"
-              required
-              min="0"
-              step="0.01"
-              value={formData.price}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="0.00"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              成本
-            </label>
-            <input
-              type="number"
-              name="cost"
-              min="0"
-              step="0.01"
-              value={formData.cost}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="0.00"
-            />
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="add_is_hot"
-                checked={!!formData.is_hot}
-                onChange={(e) => setFormData(prev => ({ ...prev, is_hot: e.target.checked }))}
-                className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-400"
+          {/* 第二行：商品分类 + 库存数量 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                商品分类 <span className="text-red-500">*</span>
+              </label>
+              <CategoryInput
+                value={formData.category}
+                onChange={(value) => setFormData({...formData, category: value})}
+                required
+                adminMode={true}
               />
-              <label htmlFor="add_is_hot" className="text-sm text-gray-700">标记为热销商品</label>
             </div>
-            <p className="text-xs text-gray-500 mt-1">用于计算净利润，选填</p>
+            
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                库存数量
+              </label>
+              <input
+                type="number"
+                name="stock"
+                min="0"
+                value={formData.stock}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
+                placeholder="0"
+              />
+            </div>
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              库存
-            </label>
-            <input
-              type="number"
-              name="stock"
-              min="0"
-              value={formData.stock}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="0"
-            />
+          {/* 第三行：售价 + 成本价 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                售价 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">¥</span>
+                <input
+                  type="number"
+                  name="price"
+                  required
+                  min="0"
+                  step="0.01"
+                  value={formData.price}
+                  onChange={handleInputChange}
+                  className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                成本价
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">¥</span>
+                <input
+                  type="number"
+                  name="cost"
+                  min="0"
+                  step="0.01"
+                  value={formData.cost}
+                  onChange={handleInputChange}
+                  className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* 第四行：预估利润 + 热销标记 */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* 预估利润 */}
+            <div>
+              {formData.price && formData.cost && parseFloat(formData.price) > 0 && parseFloat(formData.cost) > 0 ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 h-[42px] flex items-center">
+                  <div className="flex items-center justify-between text-sm w-full">
+                    <span className="text-gray-700 font-medium">利润</span>
+                    <div className="text-right">
+                      <span className="font-bold text-green-600">
+                        ¥{(parseFloat(formData.price) - parseFloat(formData.cost)).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {(((parseFloat(formData.price) - parseFloat(formData.cost)) / parseFloat(formData.price)) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] flex items-center justify-center">
+                  <div className="flex items-center text-sm text-gray-400">
+                    <i className="fas fa-calculator mr-2"></i>
+                    <span>填写售价和成本后显示</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* 热销标记 */}
+            <div>
+              <label className="flex items-center gap-2 px-3 py-2 h-[42px] bg-orange-50 border border-orange-200 rounded-lg cursor-pointer hover:border-orange-300 transition-all">
+                <input
+                  type="checkbox"
+                  id="edit_is_hot"
+                  checked={!!formData.is_hot}
+                  onChange={(e) => setFormData(prev => ({ ...prev, is_hot: e.target.checked }))}
+                  className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
+                />
+                <div className="flex items-center gap-1.5 text-sm">
+                  <i className="fas fa-fire text-orange-500"></i>
+                  <span className="font-medium text-gray-900">标记为热销</span>
+                </div>
+              </label>
+            </div>
+          </div>
+          
+          <p className="text-xs text-gray-500">
+            <i className="fas fa-info-circle mr-1"></i>
+            如有规格，总库存 = 各规格库存之和
+          </p>
+        </div>
+          </div>
+          
+      {/* 2. 图片与描述 - 并排 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* 商品图片 */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <i className="fas fa-image text-pink-600"></i>
+              <h3 className="font-bold text-gray-900">商品图片</h3>
           </div>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            更换商品图片
-          </label>
+          <div className="p-5">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-pink-400 transition-all bg-gray-50">
           <input
             type="file"
             accept="image/*"
             onChange={handleImageChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            支持 JPG、PNG 格式，建议尺寸 400x400。留空则不更改图片。
-          </p>
+                className="w-full text-xs text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gradient-to-r file:from-pink-500 file:to-rose-500 file:text-white hover:file:from-pink-600 hover:file:to-rose-600 file:cursor-pointer file:transition-all"
+              />
+              <p className="text-xs text-gray-500 mt-2">支持 JPG、PNG，建议 400x400px</p>
+            </div>
+          </div>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            商品描述
-          </label>
+        {/* 商品描述 */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-align-left text-slate-600"></i>
+                <h3 className="font-bold text-gray-900">商品描述</h3>
+              </div>
+              <span className="text-xs text-gray-500">{formData.description?.length || 0} 字</span>
+            </div>
+          </div>
+          
+          <div className="p-5">
           <textarea
             name="description"
-            rows={3}
+              rows={4}
             value={formData.description}
             onChange={handleInputChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="请输入商品描述"
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-200 transition-all resize-none"
+              placeholder="请描述商品信息，如规格、成分、使用方法等..."
           />
+          </div>
+        </div>
         </div>
         
-        <div className="flex space-x-3 pt-4">
+      {/* 3. 规格管理 */}
+      <VariantManager 
+        productId={product.id} 
+        apiPrefix={apiPrefix}
+      />
+
+      {/* 底部操作按钮 */}
+      <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 rounded-xl shadow-lg flex gap-3 z-10">
           <button
             type="submit"
             disabled={isLoading}
-            className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-md font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? '更新中...' : '更新商品'}
+          className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 px-5 rounded-lg font-bold hover:from-emerald-600 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all"
+        >
+          {isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <i className="fas fa-spinner fa-spin"></i>
+              保存中...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <i className="fas fa-save"></i>
+              保存修改
+            </span>
+          )}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="px-6 py-3 bg-white border border-gray-300 rounded-lg text-gray-700 font-bold hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all"
           >
             取消
           </button>
         </div>
       </form>
-
-      {/* 规格管理 */}
-      <VariantManager 
-        productId={product.id} 
-        apiPrefix={apiPrefix}
-      />
-    </div>
   );
 };
 
@@ -3014,33 +3094,117 @@ const VariantManager = ({ productId, apiPrefix }) => {
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 pt-4">
-      <h4 className="text-md font-medium text-gray-900 mb-3">商品规格</h4>
-      <div className="flex items-center gap-2 mb-3">
-        <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="规格名称（如：原味）" className="px-3 py-1.5 border rounded-md text-sm" />
-        <input type="number" value={newStock} min={0} onChange={e=>setNewStock(e.target.value)} placeholder="库存" className="w-24 px-3 py-1.5 border rounded-md text-sm" />
-        <button onClick={addVariant} className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm">添加规格</button>
+    <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
+      <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-5 py-4 border-b-2 border-gray-200">
+        <div className="flex items-center gap-2">
+          <i className="fas fa-layer-group text-teal-600"></i>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">商品规格</h3>
+            <p className="text-xs text-gray-600 mt-0.5">多规格库存管理</p>
       </div>
+        </div>
+      </div>
+      
+      <div className="p-5 space-y-4">
+        {/* 添加规格表单 */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">规格名称</label>
+              <input 
+                value={newName} 
+                onChange={e=>setNewName(e.target.value)} 
+                placeholder="例如：原味、中杯" 
+                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">库存数量</label>
+              <input 
+                type="number" 
+                value={newStock} 
+                min={0} 
+                onChange={e=>setNewStock(e.target.value)} 
+                placeholder="0" 
+                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
+              />
+            </div>
+          </div>
+          <button 
+            onClick={addVariant} 
+            className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-all shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <i className="fas fa-plus"></i>
+            添加规格
+          </button>
+        </div>
+        
+        {/* 规格列表 */}
       {loading ? (
-        <div className="text-sm text-gray-500">加载中...</div>
+          <div className="flex items-center justify-center py-6 text-gray-500">
+            <i className="fas fa-spinner fa-spin mr-2"></i>
+            <span className="text-sm">加载中...</span>
+          </div>
       ) : variants.length === 0 ? (
-        <div className="text-sm text-gray-500">暂无规格。添加规格后，总库存以各规格库存为准。</div>
-      ) : (
-        <div className="space-y-2">
-          {variants.map(v => (
-            <div key={v.id} className="flex items-center justify-between bg-gray-50 rounded-md p-2 border">
-              <div className="flex items-center gap-4">
-                <input className="px-2 py-1 border rounded text-sm" defaultValue={v.name} onBlur={(e)=>updateVariant(v.id,{name:e.target.value})} />
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-600">库存</span>
-                  <input type="number" min={0} className="w-20 px-2 py-1 border rounded text-sm" defaultValue={v.stock} onBlur={(e)=>updateVariant(v.id,{stock:parseInt(e.target.value)||0})} />
+          <div className="text-center py-6 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+            <i className="fas fa-cube text-gray-400 text-3xl mb-2"></i>
+            <p className="text-sm font-medium text-gray-600">暂无规格</p>
+            <p className="text-xs text-gray-500 mt-1">添加规格后可独立管理库存</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
+              {variants.map((v, index) => (
+                <div key={v.id} className="bg-gray-50 hover:bg-teal-50 rounded-lg p-3 border-2 border-gray-200 hover:border-teal-300 transition-all group">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
+                        {index + 1}
                 </div>
+                      <span className="text-sm font-semibold text-gray-900">{v.name}</span>
               </div>
-              <button onClick={()=>removeVariant(v.id)} className="text-xs text-red-600 hover:text-red-700">删除</button>
+                    <button 
+                      onClick={()=>removeVariant(v.id)} 
+                      className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="删除规格"
+                    >
+                      <i className="fas fa-trash-alt text-xs"></i>
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">名称</label>
+                      <input 
+                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                        defaultValue={v.name} 
+                        onBlur={(e)=>updateVariant(v.id,{name:e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">库存</label>
+                      <input 
+                        type="number" 
+                        min={0} 
+                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                        defaultValue={v.stock} 
+                        onBlur={(e)=>updateVariant(v.id,{stock:parseInt(e.target.value)||0})} 
+                      />
+                    </div>
+                  </div>
             </div>
           ))}
         </div>
-      )}
+            
+            <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 text-xs text-gray-700">
+              <div className="flex items-start gap-2">
+                <i className="fas fa-info-circle text-cyan-600 mt-0.5 flex-shrink-0"></i>
+                <p>修改后自动保存。有规格时，总库存 = 各规格库存之和。</p>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };
@@ -3417,25 +3581,29 @@ const Modal = ({ isOpen, onClose, title, children, size = "large" }) => {
       <div className="flex min-h-screen items-center justify-center p-4">
         {/* 背景遮罩 */}
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300"
           onClick={onClose}
         />
         
         {/* 模态内容 */}
-        <div className={`relative w-full ${sizeClasses[size]} bg-white rounded-lg shadow-xl transform transition-all`}>
+        <div className={`relative w-full ${sizeClasses[size]} bg-white rounded-2xl shadow-2xl transform transition-all duration-300 overflow-hidden max-h-[95vh] flex flex-col`}>
+          {/* 顶部装饰条 */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500"></div>
+          
           {/* 标题栏 */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+          <div className="flex-shrink-0 flex items-center justify-between px-6 py-5 border-b-2 border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+            <h3 className="text-xl font-bold text-gray-900">{title}</h3>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 focus:outline-none"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all duration-200 focus:outline-none"
+              aria-label="关闭"
             >
-              <i className="fas fa-times text-xl"></i>
+              <i className="fas fa-times text-lg"></i>
             </button>
           </div>
           
-          {/* 内容区域 */}
-          <div className="p-6 max-h-[80vh] overflow-y-auto">
+          {/* 内容区域 - 可滚动 */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
             {children}
           </div>
         </div>
