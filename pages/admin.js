@@ -75,6 +75,7 @@ const AgentStatusCard = () => {
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
   const [closedNote, setClosedNote] = useState('');
+  const [allowReservation, setAllowReservation] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -82,6 +83,7 @@ const AgentStatusCard = () => {
         const s = await getStatus();
         setIsOpen(!!s.data?.is_open);
         setClosedNote(s.data?.closed_note || '');
+        setAllowReservation(!!s.data?.allow_reservation);
       } catch (e) {
         console.error('获取代理状态失败:', e);
       } finally {
@@ -94,7 +96,7 @@ const AgentStatusCard = () => {
     const next = !isOpen;
     setIsOpen(next);
     try { 
-      await updateStatus(next, closedNote); 
+      await updateStatus(next, closedNote, allowReservation); 
     } catch (e) {
       console.error('更新代理状态失败:', e);
       setIsOpen(!next); // 恢复之前的状态
@@ -103,11 +105,22 @@ const AgentStatusCard = () => {
 
   const saveNote = async () => {
     try { 
-      await updateStatus(isOpen, closedNote); 
+      await updateStatus(isOpen, closedNote, allowReservation); 
       alert('提示已更新'); 
     } catch (e) {
       console.error('保存提示失败:', e);
       alert('保存提示失败');
+    }
+  };
+
+  const toggleReservation = async () => {
+    const next = !allowReservation;
+    setAllowReservation(next);
+    try {
+      await updateStatus(isOpen, closedNote, next);
+    } catch (e) {
+      console.error('更新预约状态失败:', e);
+      setAllowReservation(!next);
     }
   };
 
@@ -125,30 +138,42 @@ const AgentStatusCard = () => {
   return (
     <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
       <div>
-        <div className="text-sm text-gray-600">代理状态</div>
-        <div className={`mt-1 text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
-          {isOpen ? '营业中' : '打烊中'}
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="打烊提示语（可选）"
-            value={closedNote}
-            onChange={(e) => setClosedNote(e.target.value)}
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
-          />
-          <button 
-            onClick={saveNote} 
-            className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
-          >
-            保存提示
-          </button>
-        </div>
+      <div className="text-sm text-gray-600">代理状态</div>
+      <div className={`mt-1 text-lg font-semibold ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
+        {isOpen ? '营业中' : '打烊中'}
       </div>
-      <button
-        onClick={toggle}
-        className={`px-4 py-2 rounded-md text-white font-semibold ${
-          isOpen 
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="打烊提示语（可选）"
+          value={closedNote}
+          onChange={(e) => setClosedNote(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-64"
+        />
+        <button 
+          onClick={saveNote} 
+          className="text-sm px-3 py-1.5 bg-gray-100 rounded-md border hover:bg-gray-200"
+        >
+          保存提示
+        </button>
+      </div>
+      <div className="mt-3 flex items-center justify-between text-sm text-gray-700 border-t border-gray-200 pt-3">
+        <div className="flex items-center gap-2">
+          <i className="fas fa-calendar-check text-teal-500"></i>
+          <span>{allowReservation ? '预约已开启' : '预约未开启'}</span>
+        </div>
+        <button
+          onClick={toggleReservation}
+          className={`px-3 py-1.5 rounded-md text-white font-semibold ${allowReservation ? 'bg-slate-500 hover:bg-slate-600' : 'bg-teal-500 hover:bg-teal-600'}`}
+        >
+          {allowReservation ? '关闭预约' : '开启预约'}
+        </button>
+      </div>
+    </div>
+    <button
+      onClick={toggle}
+      className={`px-4 py-2 rounded-md text-white font-semibold ${
+        isOpen 
             ? 'bg-red-600 hover:bg-red-700' 
             : 'bg-green-600 hover:bg-green-700'
         }`}
@@ -164,6 +189,8 @@ const RegistrationSettingsCard = () => {
   const { apiRequest } = useApi();
   const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
+  const [reservationEnabled, setReservationEnabled] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     loadRegistrationStatus();
@@ -174,6 +201,7 @@ const RegistrationSettingsCard = () => {
       const response = await apiRequest('/auth/registration-status');
       if (response.success) {
         setEnabled(response.data.enabled);
+        setReservationEnabled(!!response.data.reservation_enabled);
       }
     } catch (e) {
       console.error('获取注册状态失败:', e);
@@ -182,23 +210,42 @@ const RegistrationSettingsCard = () => {
     }
   };
 
-  const toggleRegistration = async () => {
-    const newEnabled = !enabled;
-    setEnabled(newEnabled);
+  const updateSettings = async (nextEnabled, nextReservation) => {
+    const prevEnabled = enabled;
+    const prevReservation = reservationEnabled;
+    setEnabled(nextEnabled);
+    setReservationEnabled(nextReservation);
+    setUpdating(true);
     try {
-      const response = await apiRequest(`/admin/registration-settings?enabled=${newEnabled}`, {
-        method: 'POST'
+      const response = await apiRequest(`/admin/registration-settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          enabled: nextEnabled,
+          reservation_enabled: nextReservation
+        })
       });
       if (!response.success) {
-        throw new Error(response.message);
+        throw new Error(response.message || '更新失败');
       }
-      // 移除了 alert 提示
     } catch (e) {
       console.error('更新注册设置失败:', e);
-      setEnabled(!newEnabled); // 恢复原状态
-      // 保留错误提示
-      alert('更新注册设置失败');
+      setEnabled(prevEnabled);
+      setReservationEnabled(prevReservation);
+      alert('更新注册/预约设置失败');
+    } finally {
+      setUpdating(false);
     }
+  };
+
+  const toggleRegistration = async () => {
+    await updateSettings(!enabled, reservationEnabled);
+  };
+
+  const toggleReservation = async () => {
+    await updateSettings(enabled, !reservationEnabled);
   };
 
   if (loading) {
@@ -214,21 +261,47 @@ const RegistrationSettingsCard = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <div className="text-sm text-gray-600 mb-2">用户注册</div>
-      <div className="flex items-center justify-between">
-        <div className={`text-lg font-semibold ${enabled ? 'text-green-700' : 'text-gray-700'}`}>
-          {enabled ? '已启用' : '已关闭'}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-sm text-gray-600">用户注册</div>
+          <div className={`text-lg font-semibold mt-1 ${enabled ? 'text-green-700' : 'text-gray-700'}`}>
+            {enabled ? '已启用' : '已关闭'}
+          </div>
         </div>
         <button
           onClick={toggleRegistration}
-          className={`px-4 py-2 rounded-md text-white font-semibold ${
-            enabled 
-              ? 'bg-red-600 hover:bg-red-700' 
+          disabled={updating}
+          className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+            enabled
+              ? 'bg-red-600 hover:bg-red-700'
               : 'bg-green-600 hover:bg-green-700'
-          }`}
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {enabled ? '关闭注册' : '启用注册'}
         </button>
+      </div>
+
+      <div className="pt-4 border-t border-gray-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-gray-600">预约下单</div>
+            <div className={`text-lg font-semibold mt-1 ${reservationEnabled ? 'text-teal-600' : 'text-gray-700'}`}>
+              {reservationEnabled ? '已开启' : '未开启'}
+            </div>
+          </div>
+          <button
+            onClick={toggleReservation}
+            disabled={updating}
+            className={`px-4 py-2 rounded-md text-white font-semibold transition-colors ${
+              reservationEnabled
+                ? 'bg-slate-500 hover:bg-slate-600'
+                : 'bg-teal-500 hover:bg-teal-600'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {reservationEnabled ? '关闭预约' : '开启预约'}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">开启后，店铺打烊时用户仍可提交预约订单，工作人员可在营业后处理。</p>
       </div>
     </div>
   );
@@ -2737,7 +2810,10 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
     stock: product.stock || '',
     description: product.description || '',
     cost: product.cost || '',
-    is_hot: product.is_hot === 1 || product.is_hot === true
+    is_hot: product.is_hot === 1 || product.is_hot === true,
+    reservation_required: Boolean(product.reservation_required),
+    reservation_cutoff: product.reservation_cutoff || '',
+    reservation_note: product.reservation_note || ''
   });
   const [imageFile, setImageFile] = useState(null);
 
@@ -3018,7 +3094,59 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
           </div>
         </div>
         </div>
-        
+
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between bg-gray-50 px-5 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <i className="fas fa-calendar-check text-teal-500"></i>
+              <h3 className="font-bold text-gray-900">预约设置</h3>
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 text-teal-500 border-gray-300 rounded focus:ring-teal-400"
+                checked={formData.reservation_required}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFormData(prev => ({
+                    ...prev,
+                    reservation_required: checked,
+                    reservation_cutoff: checked ? prev.reservation_cutoff : '',
+                    reservation_note: checked ? prev.reservation_note : ''
+                  }));
+                }}
+              />
+              <span>启用预约</span>
+            </label>
+          </div>
+          {formData.reservation_required && (
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
+                <input
+                  type="time"
+                  name="reservation_cutoff"
+                  value={formData.reservation_cutoff}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                />
+                <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
+                <textarea
+                  name="reservation_note"
+                  rows={2}
+                  value={formData.reservation_note}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                  placeholder="示例：21:30 前预约当日配送，超时次日送达。"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
       {/* 3. 规格管理 */}
       <VariantManager 
         productId={product.id} 
@@ -3463,7 +3591,15 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {getStatusBadge(getUnifiedStatus(order))}
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(getUnifiedStatus(order))}
+                    {Boolean(order.is_reservation) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-teal-500 rounded-full">
+                        <i className="fas fa-calendar-check"></i>
+                        预约
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {formatDate(order.created_at_timestamp ?? order.created_at)}
@@ -3509,8 +3645,17 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                                     {it.variant_name && (
                                       <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
                                     )}
+                                    {it.is_reservation && (
+                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-teal-100 text-teal-700 border border-teal-200">预约</span>
+                                    )}
                                   </div>
                                   <div className="text-gray-500 mt-1">x{it.quantity} · 单价 ¥{it.unit_price}</div>
+                                  {it.is_reservation && (
+                                    <div className="text-[11px] text-teal-600 mt-1 leading-snug break-words">
+                                      {it.reservation_cutoff ? `预约截至 ${it.reservation_cutoff}` : '需提前预约'}
+                                      {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="text-right">
                                   {(it.is_lottery || it.is_auto_gift) && (
@@ -3535,6 +3680,17 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                           <div>电话：{order.shipping_info?.phone}</div>
                           <div>地址：{order.shipping_info?.full_address}</div>
                           {order.note && <div>备注：<span className="text-red-600">{order.note}</span></div>}
+                          {order.shipping_info?.reservation && (
+                            <div className="flex items-start gap-2 text-xs text-teal-600">
+                              <i className="fas fa-calendar-day mt-0.5"></i>
+                              <span className="leading-snug break-words">
+                                {(Array.isArray(order.shipping_info?.reservation_reasons) && order.shipping_info.reservation_reasons.length > 0)
+                                  ? order.shipping_info.reservation_reasons.join('，')
+                                  : '预约订单'}
+                                {order.shipping_info?.reservation_closure_note ? ` · ${order.shipping_info.reservation_closure_note}` : ''}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3621,7 +3777,10 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
     stock: '',
     description: '',
     cost: '',
-    is_hot: false
+    is_hot: false,
+    reservation_required: false,
+    reservation_cutoff: '',
+    reservation_note: ''
   });
   const [imageFile, setImageFile] = useState(null);
   const [variants, setVariants] = useState([]);
@@ -3851,11 +4010,63 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
             placeholder="请输入商品描述"
           />
         </div>
-        
+
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between bg-gray-50 px-5 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <i className="fas fa-calendar-check text-teal-500"></i>
+              <h3 className="font-bold text-gray-900">预约设置</h3>
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 text-teal-500 border-gray-300 rounded focus:ring-teal-400"
+                checked={formData.reservation_required}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFormData(prev => ({
+                    ...prev,
+                    reservation_required: checked,
+                    reservation_cutoff: checked ? prev.reservation_cutoff : '',
+                    reservation_note: checked ? prev.reservation_note : ''
+                  }));
+                }}
+              />
+              <span>启用预约</span>
+            </label>
+          </div>
+          {formData.reservation_required && (
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
+                <input
+                  type="time"
+                  name="reservation_cutoff"
+                  value={formData.reservation_cutoff}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                />
+                <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
+                <textarea
+                  name="reservation_note"
+                  rows={2}
+                  value={formData.reservation_note}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                  placeholder="示例：21:30 前预约当日配送，超时次日送达。"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* 商品变体管理 */}
         <div className="border-t border-gray-200 pt-6">
           <h4 className="text-sm font-medium text-gray-900 mb-4">商品变体（可选）</h4>
-          
+
           {/* 变体列表 */}
           {variants.length > 0 && (
             <div className="mb-4 space-y-2">
@@ -5588,6 +5799,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       formData.append('description', productData.description);
       formData.append('cost', productData.cost || '0');
       formData.append('is_hot', productData.is_hot ? 'true' : 'false');
+      formData.append('reservation_required', productData.reservation_required ? 'true' : 'false');
+      formData.append('reservation_cutoff', productData.reservation_cutoff || '');
+      formData.append('reservation_note', productData.reservation_note || '');
       
       if (productData.image) {
         formData.append('image', productData.image);
@@ -5635,7 +5849,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         stock: productData.stock,
         description: productData.description,
         cost: productData.cost || 0,
-        is_hot: !!productData.is_hot
+        is_hot: !!productData.is_hot,
+        reservation_required: !!productData.reservation_required,
+        reservation_cutoff: productData.reservation_cutoff || '',
+        reservation_note: productData.reservation_note || ''
       };
       
       // 检测是否有关键变更需要刷新整个商品列表

@@ -77,14 +77,19 @@ def auto_migrate_database(conn) -> None:
             'discount': 'REAL DEFAULT 10.0',
             'cost': 'REAL DEFAULT 0',
             'owner_id': 'TEXT',
-            'is_hot': 'INTEGER DEFAULT 0'
+            'is_hot': 'INTEGER DEFAULT 0',
+            'reservation_required': 'INTEGER DEFAULT 0',
+            'reservation_cutoff': 'TEXT',
+            'reservation_note': 'TEXT'
         },
         'orders': {
             'payment_status': 'TEXT DEFAULT "pending"',
-            
+
             'address_id': 'TEXT',
             'building_id': 'TEXT',
-            'agent_id': 'TEXT'
+            'agent_id': 'TEXT',
+            'is_reservation': 'INTEGER DEFAULT 0',
+            'reservation_reason': 'TEXT'
         },
         'user_profiles': {
             'address_id': 'TEXT',
@@ -117,6 +122,9 @@ def auto_migrate_database(conn) -> None:
         },
         'lottery_configs': {
             'is_enabled': 'INTEGER DEFAULT 1'
+        },
+        'agent_status': {
+            'allow_reservation': 'INTEGER DEFAULT 0'
         }
     }
     
@@ -476,6 +484,9 @@ def init_database():
                 img_path TEXT,  -- 图片路径 items/类别/商品名.扩展名
                 description TEXT,
                 is_active INTEGER DEFAULT 1, -- 是否上架（1 上架，0 下架）
+                reservation_required INTEGER DEFAULT 0, -- 是否必须预约
+                reservation_cutoff TEXT, -- 当天配送预约截止时间
+                reservation_note TEXT, -- 预约说明
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -542,6 +553,8 @@ def init_database():
                 items TEXT NOT NULL,  -- JSON格式存储订单商品详情
                 payment_method TEXT DEFAULT 'wechat',  -- 支付方式
                 note TEXT,  -- 订单备注
+                is_reservation INTEGER DEFAULT 0,  -- 是否预约订单
+                reservation_reason TEXT,  -- 预约原因说明
                 
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -631,6 +644,7 @@ def init_database():
                 agent_id TEXT NOT NULL,
                 is_open INTEGER DEFAULT 1,  -- 1: 营业, 0: 打烊
                 closed_note TEXT DEFAULT '',  -- 打烊提示语
+                allow_reservation INTEGER DEFAULT 0,  -- 1: 打烊时允许预约
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (agent_id) REFERENCES admins(id),
@@ -1519,8 +1533,8 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot, reservation_required, reservation_cutoff, reservation_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -1532,7 +1546,10 @@ class ProductDB:
                 product_data.get('description', ''),
                 float(product_data.get('cost', 0.0)),
                 product_data.get('owner_id'),
-                1 if product_data.get('is_hot') else 0
+                1 if product_data.get('is_hot') else 0,
+                1 if product_data.get('reservation_required') else 0,
+                product_data.get('reservation_cutoff'),
+                product_data.get('reservation_note', '')
             ))
             conn.commit()
             return product_id
@@ -2928,7 +2945,9 @@ class OrderDB:
         coupon_id: Optional[str] = None,
         address_id: Optional[str] = None,
         building_id: Optional[str] = None,
-        agent_id: Optional[str] = None
+        agent_id: Optional[str] = None,
+        is_reservation: bool = False,
+        reservation_reason: Optional[str] = None
     ) -> str:
         """创建新订单（但不扣减库存，等待支付成功）- 支持student_id或user_id"""
         user_ref = OrderDB._resolve_user_identifier(user_identifier)
@@ -2943,8 +2962,8 @@ class OrderDB:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO orders 
-                (id, student_id, user_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id, address_id, building_id, agent_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, user_id, total_amount, shipping_info, items, payment_method, note, payment_status, discount_amount, coupon_id, address_id, building_id, agent_id, is_reservation, reservation_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 order_id,
                 student_id,
@@ -2959,7 +2978,9 @@ class OrderDB:
                 coupon_id,
                 address_id,
                 building_id,
-                agent_id
+                agent_id,
+                1 if is_reservation else 0,
+                reservation_reason
             ))
             conn.commit()
             return order_id
@@ -5802,6 +5823,7 @@ class AgentStatusDB:
                         'agent_id': agent_id,
                         'is_open': 1,
                         'closed_note': '',
+                        'allow_reservation': 0,
                         'updated_at': None,
                         'created_at': None
                     }
@@ -5811,25 +5833,33 @@ class AgentStatusDB:
                     'agent_id': agent_id,
                     'is_open': 1,
                     'closed_note': '',
+                    'allow_reservation': 0,
                     'updated_at': None,
                     'created_at': None
                 }
 
     @staticmethod
-    def update_agent_status(agent_id: str, is_open: bool, closed_note: str = '') -> bool:
+    def update_agent_status(agent_id: str, is_open: bool, closed_note: str = '', allow_reservation: bool = False) -> bool:
         """更新代理的营业状态"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
                 # 使用 UPSERT 语法
                 cursor.execute('''
-                    INSERT INTO agent_status (id, agent_id, is_open, closed_note, updated_at, created_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO agent_status (id, agent_id, is_open, closed_note, allow_reservation, updated_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT(agent_id) DO UPDATE SET
                         is_open = excluded.is_open,
                         closed_note = excluded.closed_note,
+                        allow_reservation = excluded.allow_reservation,
                         updated_at = CURRENT_TIMESTAMP
-                ''', (f"agent_status_{agent_id}", agent_id, 1 if is_open else 0, closed_note))
+                ''', (
+                    f"agent_status_{agent_id}",
+                    agent_id,
+                    1 if is_open else 0,
+                    closed_note,
+                    1 if allow_reservation else 0
+                ))
                 conn.commit()
                 return True
             except Exception as e:
@@ -5859,6 +5889,7 @@ class AgentStatusDB:
                     SELECT a.id as agent_id, a.name as agent_name, 
                            COALESCE(s.is_open, 1) as is_open,
                            COALESCE(s.closed_note, '') as closed_note,
+                           COALESCE(s.allow_reservation, 0) as allow_reservation,
                            s.updated_at
                     FROM admins a
                     LEFT JOIN agent_status s ON a.id = s.agent_id

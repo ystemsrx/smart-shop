@@ -308,9 +308,9 @@ export function useAgentStatus() {
   
   const getStatus = async () => apiRequest('/agent/status');
   
-  const updateStatus = async (isOpen, closedNote = '') => apiRequest('/agent/status', {
+  const updateStatus = async (isOpen, closedNote = '', allowReservation = false) => apiRequest('/agent/status', {
     method: 'PATCH',
-    body: JSON.stringify({ is_open: !!isOpen, closed_note: closedNote })
+    body: JSON.stringify({ is_open: !!isOpen, closed_note: closedNote, allow_reservation: !!allowReservation })
   });
   
   return { getStatus, updateStatus };

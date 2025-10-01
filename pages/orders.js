@@ -392,12 +392,18 @@ export default function Orders() {
                     {/* header */}
                     <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <StatusBadge status={us} />
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <i className="fas fa-calendar-alt"></i>
-                            <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
-                          </div>
+                      <div className="flex items-center gap-4">
+                        <StatusBadge status={us} />
+                        {Boolean(o.is_reservation) && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full shadow-sm">
+                            <i className="fas fa-calendar-check"></i>
+                            <span>预约订单</span>
+                          </span>
+                        )}
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <i className="fas fa-calendar-alt"></i>
+                          <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
+                        </div>
                           {showCountdown && (
                             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200">
                               <i className="fas fa-stopwatch text-red-500"></i>
@@ -555,6 +561,9 @@ export default function Orders() {
                                         {it.is_lottery && (
                                           <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
                                         )}
+                                        {it.is_reservation && (
+                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-teal-100 text-teal-700 border border-teal-200">预约</span>
+                                        )}
                                       </h5>
                                       {it.variant_name && (
                                         <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-xs rounded-full border border-cyan-200">
@@ -571,6 +580,12 @@ export default function Orders() {
                                           单价: ¥{it.unit_price}
                                         </span>
                                       </div>
+                                      {it.is_reservation && (
+                                        <div className="mt-2 text-[11px] text-teal-600 leading-snug break-words">
+                                          {it.reservation_cutoff ? `预约截至 ${it.reservation_cutoff}` : '需提前预约'}
+                                          {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                                        </div>
+                                      )}
                                     </div>
                                     <div className="text-right">
                                       {(it.is_lottery || it.is_auto_gift) && (
@@ -635,6 +650,22 @@ export default function Orders() {
                                     <div>
                                       <p className="text-xs text-gray-500">订单备注</p>
                                       <p className="text-sm font-medium text-gray-900">{o.note}</p>
+                                    </div>
+                                  </div>
+                                )}
+                                {o.shipping_info?.reservation && (
+                                  <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
+                                      <i className="fas fa-calendar-day text-teal-600 text-sm"></i>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-gray-500">预约说明</p>
+                                      <p className="text-sm font-medium text-teal-600 leading-snug break-words">
+                                        {(Array.isArray(o.shipping_info?.reservation_reasons) && o.shipping_info.reservation_reasons.length > 0)
+                                          ? o.shipping_info.reservation_reasons.join('，')
+                                          : '预约订单'}
+                                        {o.shipping_info?.reservation_closure_note ? ` · ${o.shipping_info.reservation_closure_note}` : ''}
+                                      </p>
                                     </div>
                                   </div>
                                 )}

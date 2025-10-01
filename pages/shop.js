@@ -53,6 +53,9 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
   const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
   const finalPrice = hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
+  const requiresReservation = Boolean(product.reservation_required);
+  const reservationCutoff = product.reservation_cutoff;
+  const reservationNote = (product.reservation_note || '').trim();
 
   return (
     <div className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out animate-apple-fade-in h-[420px] flex flex-col ${
@@ -137,7 +140,14 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <h3 className={`text-sm font-semibold leading-tight line-clamp-2 mb-2 ${
                 (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
               }`}>
-                {product.name}
+                <span className="inline-flex items-center gap-2">
+                  <span>{product.name}</span>
+                  {requiresReservation && (
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-teal-500 text-white text-[10px] font-semibold shadow-sm">
+                      预约
+                    </span>
+                  )}
+                </span>
               </h3>
               
               {/* 分类标签 */}
@@ -186,6 +196,19 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <span>
                 {isVariant ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格') : `库存 ${product.stock}`}
               </span>
+            </div>
+          )}
+          {requiresReservation && (
+            <div className="mt-2 text-xs text-teal-600 flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <i className="fas fa-calendar-check"></i>
+                <span>{reservationCutoff ? `预约截至 ${reservationCutoff}` : '需提前预约'}</span>
+              </div>
+              {reservationNote && (
+                <div className="text-[11px] text-teal-500 leading-snug break-words">
+                  {reservationNote}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -244,7 +267,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                   disabled={
                     isLoading || cartQuantity >= product.stock
                   }
-                  className="w-8 h-8 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-teal-500 hover:bg-teal-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
                   aria-label="增加"
                 >
                   <i className="fas fa-plus text-xs"></i>
@@ -257,7 +280,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               onClick={handleAddToCart}
               disabled={isLoading}
               aria-label="加入购物车"
-              className="w-10 h-10 rounded-full btn-primary hover:scale-105 transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center flex-shrink-0 ml-auto"
+              className={`w-10 h-10 rounded-full ${requiresReservation ? 'bg-teal-400 hover:bg-teal-500 text-white shadow-sm' : 'btn-primary hover:scale-105'} transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center flex-shrink-0 ml-auto`}
             >
               <i className="fas fa-plus"></i>
             </button>
@@ -415,6 +438,9 @@ export default function Shop() {
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [specModalProduct, setSpecModalProduct] = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const modalRequiresReservation = Boolean(specModalProduct?.reservation_required);
+  const modalReservationCutoff = specModalProduct?.reservation_cutoff;
+  const modalReservationNote = (specModalProduct?.reservation_note || '').trim();
 
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
   const flyToCart = (startEl) => {
@@ -1043,6 +1069,15 @@ export default function Shop() {
                   选择规格
                 </h4>
                 <p className="text-sm text-gray-600 mt-1">{specModalProduct.name}</p>
+                {modalRequiresReservation && (
+                  <div className="mt-2 text-xs text-teal-600 flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-teal-500 text-white text-[10px] font-semibold shadow-sm">预约</span>
+                    <span>{modalReservationCutoff ? `预约截至 ${modalReservationCutoff}` : '需提前预约'}</span>
+                  </div>
+                )}
+                {modalRequiresReservation && modalReservationNote && (
+                  <div className="text-[11px] text-teal-500 mt-1 leading-snug break-words">{modalReservationNote}</div>
+                )}
               </div>
               <button 
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors" 
@@ -1143,7 +1178,7 @@ export default function Shop() {
                         <button
                           onClick={(e) => { flyToCart(e.currentTarget); handleUpdateQuantity(specModalProduct.id, qty + 1, selectedVariant); }}
                           disabled={qty >= stock}
-                          className="w-10 h-10 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          className={`w-10 h-10 flex items-center justify-center ${modalRequiresReservation ? 'bg-teal-500 hover:bg-teal-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
                           aria-label="增加"
                         >
                           <i className="fas fa-plus text-sm"></i>
@@ -1158,7 +1193,9 @@ export default function Shop() {
                       className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto transition-all duration-200 ${
                         stock === 0
                           ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'btn-primary transform hover:scale-105'
+                          : (modalRequiresReservation
+                              ? 'bg-teal-400 hover:bg-teal-500 text-white shadow-sm transform hover:scale-105'
+                              : 'btn-primary transform hover:scale-105')
                       }`}
                       title={stock === 0 ? '库存不足' : '添加到购物车'}
                     >

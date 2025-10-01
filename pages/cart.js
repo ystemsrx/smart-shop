@@ -81,7 +81,21 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
               </span>
             )}
           </div>
-          
+
+          {item.reservation_required && (
+            <div className="mb-3 text-xs text-teal-600 border border-teal-200 bg-teal-50/80 rounded-md px-3 py-2">
+              <div className="flex items-center gap-1 font-medium">
+                <i className="fas fa-calendar-check"></i>
+                <span>{item.reservation_cutoff ? `预约截至 ${item.reservation_cutoff}` : '需提前预约'}</span>
+              </div>
+              {item.reservation_note && (
+                <div className="mt-1 text-[11px] text-teal-500 leading-snug break-words">
+                  {item.reservation_note}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="text-sm text-gray-600">
             单价 ¥{item.unit_price}
             {isDown && <span className="ml-2 text-xs text-gray-400">（不计入金额）</span>}
@@ -134,6 +148,10 @@ const OrderSummary = ({
   onCheckout,
   isLoading,
   isClosed,
+  reservationAllowed = false,
+  shouldReserve = false,
+  reservationFromClosure = false,
+  hasReservationItems = false,
   coupons = [],
   selectedCouponId,
   setSelectedCouponId,
@@ -161,7 +179,17 @@ const OrderSummary = ({
   const addressAlertMessage = addressInvalid
     ? (addressValidation.message || '配送地址不可用，请重新选择')
     : '';
-  const checkoutDisabled = isLoading || cart.total_quantity === 0 || isClosed || !locationReady || addressInvalid;
+  const closedBlocked = isClosed && !reservationAllowed;
+  const checkoutDisabled = isLoading || cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid;
+  const buttonLabel = (() => {
+    if (isLoading) return '处理中...';
+    if (!locationReady) return '请选择配送地址';
+    if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
+    if (closedBlocked) return '打烊中 · 暂停结算';
+    if (isClosed && reservationAllowed) return '预约购买';
+    if (hasReservationItems && shouldReserve) return '提交预约';
+    return '去结算';
+  })();
   return (
     <div className="bg-white border border-gray-200 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-6 pb-3 border-b border-gray-100">订单摘要</h3>
@@ -288,18 +316,26 @@ const OrderSummary = ({
         </div>
       )}
 
+      {shouldReserve && (
+        <div className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+          <div className="flex items-center gap-2 font-medium">
+            <i className="fas fa-calendar-day"></i>
+            <span>{reservationFromClosure ? '店铺当前打烊，提交后将转换为预约订单。' : '本单包含需预约商品，将以预约方式提交。'}</span>
+          </div>
+          {hasReservationItems && (
+            <div className="mt-1 leading-relaxed text-teal-600/90">
+              请关注预约说明，配送时间将以预约信息为准。
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         onClick={onCheckout}
         disabled={checkoutDisabled}
         className="w-full bg-gray-900 text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
       >
-        {isLoading
-          ? '处理中...'
-          : (isClosed
-              ? '打烊中 · 暂停结算'
-              : (!locationReady
-                  ? '请选择配送地址'
-                  : (addressInvalid ? addressAlertMessage : '去结算')))}
+        {buttonLabel}
       </button>
     </div>
   );
@@ -320,6 +356,7 @@ export default function Cart() {
   const [error, setError] = useState('');
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [reservationAllowed, setReservationAllowed] = useState(false);
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -364,6 +401,10 @@ export default function Cart() {
       ? lotteryThreshold.toString()
       : lotteryThreshold.toFixed(2)
   ), [lotteryThreshold]);
+
+  const hasReservationItems = useMemo(() => !!(cart?.has_reservation_items), [cart?.has_reservation_items]);
+  const reservationFromClosure = useMemo(() => !shopOpen && reservationAllowed, [shopOpen, reservationAllowed]);
+  const shouldReserve = useMemo(() => hasReservationItems || reservationFromClosure, [hasReservationItems, reservationFromClosure]);
 
   const addressInvalid = useMemo(() => (
     locationReady && addressValidation && addressValidation.is_valid === false
@@ -572,7 +613,11 @@ export default function Cart() {
 
   // 去结算
   const handleCheckout = () => {
-    if (!shopOpen) {
+    const hasReservationItems = !!(cart?.has_reservation_items);
+    const reservationFromClosure = !shopOpen && reservationAllowed;
+    const shouldReserve = reservationFromClosure || hasReservationItems;
+
+    if (!shopOpen && !reservationAllowed) {
       setShopClosedModalOpen(true);
       return;
     }
@@ -586,10 +631,11 @@ export default function Cart() {
       openLocationModal();
       return;
     }
+    const reservationFlag = shouldReserve ? '1' : '0';
     if (applyCoupon && selectedCouponId) {
-      router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+      router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}&reservation=${reservationFlag}`);
     } else {
-      router.push('/checkout?apply=0');
+      router.push(`/checkout?apply=0&reservation=${reservationFlag}`);
     }
   };
 
@@ -623,14 +669,16 @@ export default function Cart() {
         const addressId = location?.address_id;
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
-        
-        setShopOpen(!!res.data?.is_open);
-        
-        if (res.data?.is_open) {
+
+        const open = !!res.data?.is_open;
+        setShopOpen(open);
+        setReservationAllowed(!!res.data?.allow_reservation);
+
+        if (open) {
           setShopNote('');
         } else {
-          const defaultNote = res.data?.is_agent 
-            ? '当前区域代理已暂停营业，暂不支持结算，仅可加入购物车' 
+          const defaultNote = res.data?.is_agent
+            ? '当前区域代理已暂停营业，暂不支持结算，仅可加入购物车'
             : '店铺已暂停营业，暂不支持结算，仅可加入购物车';
           setShopNote(res.data?.note || defaultNote);
         }
@@ -638,6 +686,7 @@ export default function Cart() {
         // 出错时默认为营业状态
         setShopOpen(true);
         setShopNote('');
+        setReservationAllowed(false);
       }
     })();
   }, [location]);
@@ -692,6 +741,18 @@ export default function Cart() {
                 </div>
                 <span className="ml-auto text-xs text-emerald-600 font-medium">修改</span>
               </button>
+            </div>
+          )}
+
+          {reservationFromClosure && (
+            <div className="mb-6 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-teal-700 flex items-start gap-3 animate-apple-fade-in">
+              <div className="w-6 h-6 bg-teal-100 rounded-full flex items-center justify-center mt-0.5">
+                <i className="fas fa-calendar-check text-teal-600 text-sm"></i>
+              </div>
+              <div>
+                <p className="text-sm font-semibold">店铺打烊中，支持预约下单</p>
+                <p className="text-xs text-teal-600/90 leading-snug">提交订单后将作为预约订单保存，我们会在营业后优先处理。</p>
+              </div>
             </div>
           )}
 
@@ -936,6 +997,10 @@ export default function Cart() {
                         onCheckout={handleCheckout}
                         isLoading={actionLoading}
                         isClosed={!shopOpen}
+                        reservationAllowed={reservationAllowed}
+                        shouldReserve={shouldReserve}
+                        reservationFromClosure={reservationFromClosure}
+                        hasReservationItems={hasReservationItems}
                         coupons={coupons}
                         selectedCouponId={selectedCouponId}
                         setSelectedCouponId={setSelectedCouponId}

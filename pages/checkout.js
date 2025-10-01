@@ -56,6 +56,7 @@ export default function Checkout() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [reservationAllowed, setReservationAllowed] = useState(false);
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -149,13 +150,36 @@ export default function Checkout() {
       : lotteryThreshold.toFixed(2)
   ), [lotteryThreshold]);
 
+  const hasReservationItems = useMemo(() => !!(cart?.has_reservation_items), [cart?.has_reservation_items]);
+  const reservationFromClosure = useMemo(() => !shopOpen && reservationAllowed, [shopOpen, reservationAllowed]);
+  const shouldReserve = useMemo(() => hasReservationItems || reservationFromClosure, [hasReservationItems, reservationFromClosure]);
+  
   const addressInvalid = useMemo(() => (
     locationReady && addressValidation && addressValidation.is_valid === false
   ), [locationReady, addressValidation]);
-
+  
   const addressAlertMessage = useMemo(() => (
     addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
   ), [addressInvalid, addressValidation]);
+
+  const couponDiscountAmount = useMemo(() => {
+    if (!(applyCoupon && selectedCouponId)) return 0;
+    const coupon = coupons.find(c => c.id === selectedCouponId);
+    return coupon ? (parseFloat(coupon.amount) || 0) : 0;
+  }, [applyCoupon, selectedCouponId, coupons]);
+  const payableAmount = useMemo(() => {
+    const baseTotal = (cart?.payable_total ?? cart?.total_price) || 0;
+    return Math.max(0, baseTotal - couponDiscountAmount);
+  }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
+  const closedBlocked = !shopOpen && !reservationAllowed;
+  const checkoutButtonLabel = useMemo(() => {
+    if (!locationReady) return '请选择配送地址';
+    if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
+    if (closedBlocked) return '打烊中 · 暂停结算';
+    if (!shopOpen && reservationAllowed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
+    return `立即支付 ¥${payableAmount.toFixed(2)}`;
+  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, shopOpen, reservationAllowed, payableAmount, hasReservationItems, shouldReserve]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
@@ -183,6 +207,10 @@ export default function Checkout() {
 
   // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
+    if (!shopOpen && !reservationAllowed) {
+      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+      return;
+    }
     if (!locationReady) {
       alert('请先选择配送地址');
       openLocationModal();
@@ -220,7 +248,8 @@ export default function Checkout() {
           payment_method: 'wechat',
           note: formData.note,
           coupon_id: applyCoupon ? (selectedCouponId || null) : null,
-          apply_coupon: !!applyCoupon
+          apply_coupon: !!applyCoupon,
+          reservation_requested: shouldReserve
         })
       });
       
@@ -252,9 +281,11 @@ export default function Checkout() {
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
         
-        setShopOpen(!!res.data?.is_open);
+        const open = !!res.data?.is_open;
+        setShopOpen(open);
+        setReservationAllowed(!!res.data?.allow_reservation);
         
-        if (res.data?.is_open) {
+        if (open) {
           setShopNote('');
         } else {
           const defaultNote = res.data?.is_agent 
@@ -266,6 +297,7 @@ export default function Checkout() {
         // 出错时默认为营业状态
         setShopOpen(true);
         setShopNote('');
+        setReservationAllowed(false);
       }
     })();
   }, [user, router, location]);
@@ -385,6 +417,10 @@ export default function Checkout() {
 
   // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
+    if (!shopOpen && !reservationAllowed) {
+      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+      return;
+    }
     if (addressInvalid) {
       alert(addressAlertMessage || '配送地址不可用，请重新选择');
       openLocationModal();
@@ -448,6 +484,10 @@ export default function Checkout() {
 
   // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
+    if (!shopOpen && !reservationAllowed) {
+      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+      return;
+    }
     if (!locationReady) {
       alert('请先选择配送地址');
       openLocationModal();
@@ -485,7 +525,8 @@ export default function Checkout() {
           payment_method: 'wechat',
           note: formData.note,
           coupon_id: applyCoupon ? (selectedCouponId || null) : null,
-          apply_coupon: !!applyCoupon
+          apply_coupon: !!applyCoupon,
+          reservation_requested: shouldReserve
         })
       });
       
@@ -697,7 +738,11 @@ export default function Checkout() {
                 </div>
                 <div>
                   <p className="font-medium text-orange-200">店铺提醒</p>
-                  <p className="text-sm text-orange-300">{shopNote}</p>
+                  <p className="text-sm text-orange-300">
+                    {reservationAllowed
+                      ? (shopNote || '店铺当前打烊，提交订单将视为预约，我们会根据预约信息安排配送。')
+                      : (shopNote || '店铺已暂停营业，暂不支持结算。')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -928,6 +973,11 @@ export default function Checkout() {
                                     {item.variant_name}
                                   </span>
                                 )}
+                                {item.reservation_required && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 border border-teal-200">
+                                    预约
+                                  </span>
+                                )}
                                 {isDown && (
                                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
                                     暂时下架
@@ -937,6 +987,12 @@ export default function Checkout() {
                               <p className="text-gray-600 text-xs mt-1">
                                 数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
                               </p>
+                              {item.reservation_required && (
+                                <p className="text-teal-600 text-[11px] mt-1 leading-snug break-words">
+                                  {item.reservation_cutoff ? `预约截至 ${item.reservation_cutoff}` : '需提前预约'}
+                                  {item.reservation_note ? ` · ${item.reservation_note}` : ''}
+                                </p>
+                              )}
                             </div>
                             <div className="text-right ml-3">
                               <span className={`text-sm font-semibold ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
@@ -1045,6 +1101,19 @@ export default function Checkout() {
                         })()}
                       </div>
                     </div>
+                    {shouldReserve && (
+                      <div className="mb-6 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+                        <div className="flex items-center gap-2 font-medium">
+                          <i className="fas fa-calendar-day"></i>
+                          <span>{reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交，我们会在营业后优先处理。' : '本单包含预约商品，将以预约订单处理。'}</span>
+                        </div>
+                        {hasReservationItems && (
+                          <div className="mt-1 text-teal-600/90 leading-relaxed">
+                            请确认预约说明，配送时间将根据预约安排。
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {/* 抽奖奖品（仅展示，不计入金额；达标则自动随单配送）*/}
                   {eligibleRewards && eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
@@ -1126,7 +1195,7 @@ export default function Checkout() {
                   {/* 支付按钮 */}
                   <button
                     onClick={handleCreatePayment}
-                    disabled={isCreatingPayment || !shopOpen || !locationReady || addressInvalid}
+                    disabled={isCreatingPayment || closedBlocked || !locationReady || addressInvalid}
                     className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transform hover:scale-105 transition-all duration-300 text-white shadow-2xl flex items-center justify-center gap-2"
                   >
                     {isCreatingPayment ? (
@@ -1137,17 +1206,7 @@ export default function Checkout() {
                     ) : (
                       <>
                         <i className="fas fa-credit-card"></i>
-                        <span>
-                          {(() => {
-                            if (!shopOpen) return '打烊中 · 暂停结算';
-                            if (!locationReady) return '请选择配送地址';
-                            if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
-                            const base = (cart?.payable_total ?? cart.total_price) || 0;
-                            const disc = (applyCoupon && selectedCouponId) ? (parseFloat((coupons.find(x => x.id === selectedCouponId)?.amount) || 0)) : 0;
-                            const total = Math.max(0, base - disc);
-                            return `立即支付 ¥${total.toFixed(2)}`;
-                          })()}
-                        </span>
+                        <span>{checkoutButtonLabel}</span>
                       </>
                     )}
                   </button>

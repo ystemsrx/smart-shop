@@ -482,6 +482,22 @@ async def store_product_image(category: str, base_name: str, image: UploadFile) 
     return relative_path, file_path
 
 
+def normalize_reservation_cutoff(value: Optional[str]) -> Optional[str]:
+    """将输入的预约截止时间标准化为 HH:MM 格式。"""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        try:
+            parsed = datetime.strptime(trimmed, "%H:%M")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="预约时间格式应为HH:MM")
+        return parsed.strftime("%H:%M")
+    return None
+
+
 async def handle_product_creation(
     staff: Dict[str, Any],
     *,
@@ -493,7 +509,10 @@ async def handle_product_creation(
     cost: float,
     owner_id: Optional[str],
     image: Optional[UploadFile],
-    is_hot: bool = False
+    is_hot: bool = False,
+    reservation_required: bool = False,
+    reservation_cutoff: Optional[str] = None,
+    reservation_note: Optional[str] = None
 ) -> Dict[str, Any]:
     new_file_path: Optional[str] = None
     try:
@@ -512,7 +531,10 @@ async def handle_product_creation(
             "img_path": img_path,
             "cost": cost,
             "owner_id": assigned_owner_id,
-            "is_hot": 1 if is_hot else 0
+            "is_hot": 1 if is_hot else 0,
+            "reservation_required": 1 if reservation_required else 0,
+            "reservation_cutoff": normalize_reservation_cutoff(reservation_cutoff),
+            "reservation_note": (reservation_note or '').strip()[:120]
         }
 
         product_id = ProductDB.create_product(product_data)
@@ -573,6 +595,13 @@ async def handle_product_update(
         if payload.cost < 0:
             return error_response("商品成本不能为负数", 400)
         update_data['cost'] = payload.cost
+    if payload.reservation_required is not None:
+        update_data['reservation_required'] = 1 if payload.reservation_required else 0
+    if payload.reservation_cutoff is not None:
+        update_data['reservation_cutoff'] = normalize_reservation_cutoff(payload.reservation_cutoff)
+    if payload.reservation_note is not None:
+        note_value = (payload.reservation_note or '').strip()
+        update_data['reservation_note'] = note_value[:120]
 
     if staff.get('type') == 'agent':
         update_data['owner_id'] = staff.get('id')
@@ -1129,6 +1158,9 @@ class ProductUpdateRequest(BaseModel):
     is_hot: Optional[bool] = None
     cost: Optional[float] = None  # 商品成本
     owner_id: Optional[str] = None
+    reservation_required: Optional[bool] = None
+    reservation_cutoff: Optional[str] = None
+    reservation_note: Optional[str] = None
 
 class StockUpdateRequest(BaseModel):
     stock: int
@@ -1175,6 +1207,7 @@ class OrderCreateRequest(BaseModel):
     note: str = ''
     coupon_id: Optional[str] = None  # 选用的优惠券ID（可选）
     apply_coupon: Optional[bool] = True  # 是否应用优惠券（默认应用）
+    reservation_requested: Optional[bool] = False  # 用户是否选择以预约的方式提交
 
 class OrderStatusUpdateRequest(BaseModel):
     status: str
@@ -1398,7 +1431,11 @@ async def get_registration_status():
     try:
         # 默认关闭注册功能，管理员可手动开启
         enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
-        return success_response("获取注册状态成功", {"enabled": enabled})
+        reservation_enabled = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
+        return success_response("获取注册状态成功", {
+            "enabled": enabled,
+            "reservation_enabled": reservation_enabled
+        })
     except Exception as e:
         logger.error(f"获取注册状态失败: {e}")
         return error_response("获取注册状态失败", 500)
@@ -1460,12 +1497,46 @@ async def register_user(request: RegisterRequest, response: Response):
         return error_response("注册失败，请稍后重试", 500)
 
 @app.post("/admin/registration-settings")
-async def update_registration_settings(request: Request, enabled: bool):
-    """管理员更新注册设置"""
+async def update_registration_settings(request: Request):
+    """管理员更新注册/预约设置"""
     admin = get_current_admin_required_from_cookie(request)
     try:
-        SettingsDB.set('registration_enabled', 'true' if enabled else 'false')
-        return success_response("注册设置更新成功", {"enabled": enabled})
+        params = request.query_params or {}
+        enabled_param = params.get('enabled')
+        reservation_param = params.get('reservation_enabled')
+        payload: Dict[str, Any] = {}
+
+        content_type = request.headers.get('content-type', '').lower()
+        if 'application/json' in content_type:
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+
+        def resolve_bool(value: Any) -> Optional[bool]:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            return is_truthy(str(value))
+
+        enabled_value = resolve_bool(payload.get('enabled')) if 'enabled' in payload else resolve_bool(enabled_param)
+        reservation_value = resolve_bool(payload.get('reservation_enabled')) if 'reservation_enabled' in payload else resolve_bool(reservation_param)
+
+        if enabled_value is not None:
+            SettingsDB.set('registration_enabled', 'true' if enabled_value else 'false')
+        if reservation_value is not None:
+            SettingsDB.set('shop_reservation_enabled', 'true' if reservation_value else 'false')
+
+        current_enabled = SettingsDB.get('registration_enabled', 'false').lower() == 'true'
+        current_reservation = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
+
+        return success_response("注册设置更新成功", {
+            "enabled": current_enabled,
+            "reservation_enabled": current_reservation
+        })
     except Exception as e:
         logger.error(f"更新注册设置失败: {e}")
         return error_response("更新注册设置失败", 500)
@@ -2570,6 +2641,21 @@ async def get_cart(request: Request):
                     "img_path": product.get("img_path", ""),
                     "is_active": is_active
                 }
+                try:
+                    requires_reservation = int(product.get("reservation_required", 0) or 0) == 1
+                except Exception:
+                    requires_reservation = bool(product.get("reservation_required"))
+                if requires_reservation:
+                    item["reservation_required"] = True
+                    cutoff_val = product.get("reservation_cutoff")
+                    if cutoff_val:
+                        try:
+                            item["reservation_cutoff"] = normalize_reservation_cutoff(str(cutoff_val))
+                        except HTTPException:
+                            item["reservation_cutoff"] = None
+                    note_val = (product.get("reservation_note") or '').strip()
+                    if note_val:
+                        item["reservation_note"] = note_val[:120]
                 if variant_id:
                     variant = VariantDB.get_by_id(variant_id)
                     if variant:
@@ -2584,7 +2670,8 @@ async def get_cart(request: Request):
         delivery_scope = scope
         owner_id = get_owner_id_from_scope(delivery_scope)
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
-        
+        has_reservation_items = any(item.get('reservation_required') for item in cart_items)
+
         # 运费计算：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
         shipping_fee = 0.0 if total_quantity == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
         cart_result = {
@@ -2595,7 +2682,8 @@ async def get_cart(request: Request):
             "payable_total": round(total_price + shipping_fee, 2),
             "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
             "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
-            "address_validation": address_validation
+            "address_validation": address_validation,
+            "has_reservation_items": has_reservation_items
         }
 
         cart_result["scope"] = delivery_scope
@@ -2743,7 +2831,12 @@ async def get_shop_status():
     try:
         is_open = SettingsDB.get('shop_is_open', '1') != '0'
         note = SettingsDB.get('shop_closed_note', '')
-        return success_response("获取店铺状态成功", {"is_open": is_open, "note": note})
+        allow_reservation = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
+        return success_response("获取店铺状态成功", {
+            "is_open": is_open,
+            "note": note,
+            "allow_reservation": allow_reservation
+        })
     except Exception as e:
         logger.error(f"获取店铺状态失败: {e}")
         return error_response("获取店铺状态失败", 500)
@@ -2770,6 +2863,7 @@ async def update_shop_status(payload: ShopStatusUpdate, request: Request):
 class AgentStatusUpdateRequest(BaseModel):
     is_open: bool
     closed_note: Optional[str] = ''
+    allow_reservation: Optional[bool] = False
 
 @app.get("/agent/status")
 async def get_agent_status(request: Request):
@@ -2782,7 +2876,8 @@ async def get_agent_status(request: Request):
         status = AgentStatusDB.get_agent_status(agent['id'])
         return success_response("获取代理状态成功", {
             "is_open": bool(status.get('is_open', 1)),
-            "closed_note": status.get('closed_note', '')
+            "closed_note": status.get('closed_note', ''),
+            "allow_reservation": bool(status.get('allow_reservation', 0))
         })
     except Exception as e:
         logger.error(f"获取代理状态失败: {e}")
@@ -2799,12 +2894,14 @@ async def update_agent_status(payload: AgentStatusUpdateRequest, request: Reques
         success = AgentStatusDB.update_agent_status(
             agent['id'], 
             payload.is_open, 
-            payload.closed_note or ''
+            payload.closed_note or '',
+            bool(payload.allow_reservation)
         )
         if success:
             return success_response("代理状态已更新", {
                 "is_open": payload.is_open,
-                "closed_note": payload.closed_note or ''
+                "closed_note": payload.closed_note or '',
+                "allow_reservation": bool(payload.allow_reservation)
             })
         else:
             return error_response("更新代理状态失败", 500)
@@ -2828,19 +2925,22 @@ async def get_user_agent_status(
             # 没有对应代理，返回全局店铺状态
             is_open = SettingsDB.get('shop_is_open', '1') != '0'
             note = SettingsDB.get('shop_closed_note', '')
+            allow_reservation = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
             return success_response("获取店铺状态成功", {
                 "is_open": is_open,
                 "note": note,
-                "is_agent": False
+                "is_agent": False,
+                "allow_reservation": allow_reservation
             })
-        
+
         # 有对应代理，返回代理状态
         status = AgentStatusDB.get_agent_status(agent_id)
         return success_response("获取代理状态成功", {
             "is_open": bool(status.get('is_open', 1)),
             "note": status.get('closed_note', ''),
             "is_agent": True,
-            "agent_id": agent_id
+            "agent_id": agent_id,
+            "allow_reservation": bool(status.get('allow_reservation', 0))
         })
     except Exception as e:
         logger.error(f"获取用户代理状态失败: {e}")
@@ -2962,6 +3062,9 @@ async def create_product(
     cost: float = Form(0.0),
     owner_id: Optional[str] = Form(None),
     is_hot: Optional[str] = Form(None),
+    reservation_required: Optional[str] = Form(None),
+    reservation_cutoff: Optional[str] = Form(None),
+    reservation_note: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     """管理员创建商品"""
@@ -2977,7 +3080,10 @@ async def create_product(
         cost=cost,
         owner_id=owner_id,
         image=image,
-        is_hot=is_truthy(is_hot)
+        is_hot=is_truthy(is_hot),
+        reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
+        reservation_cutoff=reservation_cutoff,
+        reservation_note=reservation_note
     )
 
 
@@ -2991,6 +3097,9 @@ async def agent_create_product(
     description: str = Form(""),
     cost: float = Form(0.0),
     is_hot: Optional[str] = Form(None),
+    reservation_required: Optional[str] = Form(None),
+    reservation_cutoff: Optional[str] = Form(None),
+    reservation_note: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
     agent, _ = require_agent_with_scope(request)
@@ -3006,7 +3115,10 @@ async def agent_create_product(
         cost=cost,
         owner_id=agent_owner_id,
         image=image,
-        is_hot=is_truthy(is_hot)
+        is_hot=is_truthy(is_hot),
+        reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
+        reservation_cutoff=reservation_cutoff,
+        reservation_note=reservation_note
     )
 
 
@@ -3487,19 +3599,29 @@ async def create_order(
                 message = validation.get('message') or '地址不存在或未启用，请联系管理员'
             return error_response(message, 400)
 
-        # 检查代理打烊状态
+        # 检查代理/店铺打烊与预约状态
         agent_id = scope.get('agent_id')
+        reservation_due_to_closure = False
+        closure_note = ''
+        allow_reservation_when_closed = False
+
         if agent_id:
-            # 有对应代理，检查代理是否打烊
-            if not AgentStatusDB.is_agent_open(agent_id):
-                closed_note = AgentStatusDB.get_agent_closed_note(agent_id)
-                return error_response(f"当前区域代理已暂停营业。{closed_note}", 400)
+            status = AgentStatusDB.get_agent_status(agent_id)
+            agent_open = bool(status.get('is_open', 1))
+            allow_reservation_when_closed = bool(status.get('allow_reservation', 0))
+            if not agent_open:
+                closure_note = status.get('closed_note', '')
+                if not allow_reservation_when_closed:
+                    return error_response(f"当前区域代理已暂停营业。{closure_note}", 400)
+                reservation_due_to_closure = True
         else:
-            # 没有对应代理，检查全局店铺状态
             is_open = SettingsDB.get('shop_is_open', '1') != '0'
+            allow_reservation_when_closed = SettingsDB.get('shop_reservation_enabled', 'false') == 'true'
             if not is_open:
-                closed_note = SettingsDB.get('shop_closed_note', '')
-                return error_response(f"店铺已暂停营业。{closed_note}", 400)
+                closure_note = SettingsDB.get('shop_closed_note', '')
+                if not allow_reservation_when_closed:
+                    return error_response(f"店铺已暂停营业。{closure_note}", 400)
+                reservation_due_to_closure = True
 
         # 获取用户购物车
         cart_data = CartDB.get_cart(user["id"])
@@ -3523,7 +3645,8 @@ async def create_order(
         # 构建订单商品列表并计算总金额（应用折扣）
         order_items = []
         total_amount = 0.0
-        
+        items_require_reservation = False
+
         SEP = '@@'
         for key, quantity in items_dict.items():
             product_id = key
@@ -3555,6 +3678,14 @@ async def create_order(
                 subtotal = unit_price * quantity
                 total_amount += subtotal
                 
+                requires_reservation = False
+                try:
+                    requires_reservation = int(product.get("reservation_required", 0) or 0) == 1
+                except Exception:
+                    requires_reservation = bool(product.get("reservation_required"))
+                cutoff_value = product.get("reservation_cutoff")
+                note_value = (product.get("reservation_note") or '').strip()
+
                 item = {
                     "product_id": product_id,
                     "name": product["name"],
@@ -3564,11 +3695,21 @@ async def create_order(
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", "")
                 }
+                if requires_reservation:
+                    items_require_reservation = True
+                    item["is_reservation"] = True
+                    if cutoff_value:
+                        try:
+                            item["reservation_cutoff"] = normalize_reservation_cutoff(str(cutoff_value))
+                        except HTTPException:
+                            item["reservation_cutoff"] = None
+                    if note_value:
+                        item["reservation_note"] = note_value[:120]
                 if variant_id:
                     item["variant_id"] = variant_id
                     item["variant_name"] = variant.get("name")
                 order_items.append(item)
-        
+
         # 保存商品金额小计（不含运费），用于满额判断
         items_subtotal = round(total_amount, 2)
 
@@ -3669,6 +3810,28 @@ async def create_order(
             except Exception as e:
                 logger.warning(f"附加抽奖奖品失败: {e}")
 
+        user_confirms_reservation = bool(order_request.reservation_requested)
+        if reservation_due_to_closure and not (user_confirms_reservation or items_require_reservation):
+            tip = closure_note or '当前打烊，仅支持预约购买'
+            return error_response(f"{tip}（请确认预约购买后再试）", 400)
+
+        reservation_reasons: List[str] = []
+        if items_require_reservation:
+            reservation_reasons.append('商品预约')
+        if reservation_due_to_closure:
+            reservation_reasons.append('店铺打烊预约')
+
+        is_reservation_order = len(reservation_reasons) > 0
+        if is_reservation_order:
+            shipping_info['reservation'] = True
+            shipping_info['reservation_reasons'] = reservation_reasons
+            if reservation_due_to_closure:
+                shipping_info['reservation_due_to_closure'] = True
+                if closure_note:
+                    shipping_info['reservation_closure_note'] = closure_note
+            if items_require_reservation:
+                shipping_info['reservation_items'] = True
+
         # 获取配送费配置并计算运费（仅基于上架商品金额）
         scope = resolve_shopping_scope(request)
         owner_id = get_owner_id_from_scope(scope)
@@ -3712,7 +3875,9 @@ async def create_order(
             coupon_id=used_coupon_id,
             address_id=scope.get('address_id'),
             building_id=scope.get('building_id'),
-            agent_id=scope.get('agent_id')
+            agent_id=scope.get('agent_id'),
+            is_reservation=is_reservation_order,
+            reservation_reason='; '.join(reservation_reasons) if reservation_reasons else None
         )
         # 锁定优惠券，防止未付款或待确认期间被重复使用
         if used_coupon_id and discount_amount > 0:
