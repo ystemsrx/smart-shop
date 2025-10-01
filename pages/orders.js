@@ -20,10 +20,10 @@ const formatReservationCutoff = (cutoffTime) => {
   
   // 如果当前时间已过今天的截止时间，显示明日配送
   if (now > todayCutoff) {
-    return `现在预约明日 ${cutoffTime} 后配送`;
+    return `明日 ${cutoffTime} 后配送`;
   }
   
-  return `现在预约今日 ${cutoffTime} 后配送`;
+  return `今日 ${cutoffTime} 后配送`;
 };
 
 // 统一状态计算（与管理端保持一致）
@@ -111,6 +111,7 @@ export default function Orders() {
   const [spinning, setSpinning] = useState(false);
   const [lotteryThreshold, setLotteryThreshold] = useState(10);
   const [paymentQr, setPaymentQr] = useState(null);
+  const [copiedOrderId, setCopiedOrderId] = useState(null);
   const formattedLotteryThreshold = useMemo(() => (
     Number.isInteger(lotteryThreshold)
       ? lotteryThreshold.toString()
@@ -284,10 +285,13 @@ export default function Orders() {
     return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN');
   };
 
-  const copyToClipboard = async (text) => {
+  const copyToClipboard = async (orderId) => {
     try {
-      await navigator.clipboard.writeText(text);
-      alert('已复制订单号');
+      await navigator.clipboard.writeText(orderId);
+      setCopiedOrderId(orderId);
+      setTimeout(() => {
+        setCopiedOrderId(null);
+      }, 3000);
     } catch (e) {
       // ignore
     }
@@ -315,19 +319,19 @@ export default function Orders() {
 
         <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* 页面标题 */}
-          <div className="text-center mb-12 animate-apple-fade-in">
-            <div className="flex justify-center mb-6">
+          <div className="text-center mb-8 sm:mb-12 animate-apple-fade-in">
+            <div className="flex justify-center mb-4 sm:mb-6">
               <div className="relative">
-                <div className="absolute -inset-4 bg-gradient-to-r from-amber-500 to-orange-600 rounded-3xl blur-2xl opacity-30"></div>
-                <div className="relative w-20 h-20 bg-gradient-to-br from-amber-500 via-orange-600 to-red-500 rounded-3xl flex items-center justify-center shadow-2xl">
-                  <i className="fas fa-receipt text-white text-2xl"></i>
+                <div className="absolute -inset-3 sm:-inset-4 bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl sm:rounded-3xl blur-xl sm:blur-2xl opacity-30"></div>
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-amber-500 via-orange-600 to-red-500 rounded-2xl sm:rounded-3xl flex items-center justify-center shadow-2xl">
+                  <i className="fas fa-receipt text-white text-xl sm:text-2xl"></i>
                 </div>
               </div>
             </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-3">
+            <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-2 sm:mb-3">
               我的订单
             </h1>
-            <p className="text-lg text-gray-600">
+            <p className="text-sm sm:text-lg text-gray-600">
               查看订单状态和物流信息
             </p>
           </div>
@@ -364,26 +368,26 @@ export default function Orders() {
             <div className="space-y-6">
               {/* 筛选器 */}
               <div className="animate-apple-slide-up animate-delay-200">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
-                    <i className="fas fa-filter text-white text-sm"></i>
+                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+                    <i className="fas fa-filter text-white text-xs sm:text-sm"></i>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900">订单筛选</h3>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">订单筛选</h3>
                 </div>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   {UNIFIED_STATUS_ORDER.map((label, index) => (
                     <button
                       key={label}
                       onClick={() => setFilter(label)}
-                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
+                      className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
                          filter === label 
                            ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white shadow-lg' 
                            : 'card-modern text-gray-700 hover:shadow-md border border-gray-200'
                       }`}
                       style={{ animationDelay: `${index * 0.05}s` }}
                     >
-                      <div className="flex items-center gap-2">
-                        <i className={`fas ${
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <i className={`fas text-xs sm:text-sm ${
                           label === '全部' ? 'fa-th-list' :
                           label === '未付款' ? 'fa-credit-card' :
                           label === '待确认' ? 'fa-clock' :
@@ -398,7 +402,24 @@ export default function Orders() {
                 </div>
               </div>
 
-              {filteredOrders.map((o, index) => {
+              {filteredOrders.length === 0 ? (
+                <div className="text-center py-20 animate-apple-fade-in">
+                  <div className="max-w-md mx-auto">
+                    <div className="w-24 h-24 bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                      <i className="fas fa-filter text-gray-400 text-3xl"></i>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">暂无「{filter}」状态的订单</h3>
+                    <p className="text-gray-600 mb-6">尝试切换其他筛选条件查看订单</p>
+                    <button
+                      onClick={() => setFilter('全部')}
+                      className="btn-primary inline-flex items-center gap-2 transform hover:scale-105 transition-all duration-300"
+                    >
+                      <i className="fas fa-th-list"></i>
+                      <span>查看全部订单</span>
+                    </button>
+                  </div>
+                </div>
+              ) : filteredOrders.map((o, index) => {
                 const us = getUnifiedStatus(o);
                 const isOpen = !!expanded[o.id];
                 const showCountdown = us === '未付款' && (o.payment_status === 'pending' || !o.payment_status);
@@ -410,20 +431,69 @@ export default function Orders() {
                     style={{ animationDelay: `${index * 0.1}s` }}
                   >
                     {/* header */}
-                    <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <StatusBadge status={us} />
-                        {Boolean(o.is_reservation) && (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-sky-500 rounded-full shadow-sm">
-                            <i className="fas fa-calendar-check"></i>
-                            <span>预约订单</span>
-                          </span>
-                        )}
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <i className="fas fa-calendar-alt"></i>
-                          <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
+                    <div className="px-4 sm:px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      {/* 手机端：纵向布局 */}
+                      <div className="block md:hidden space-y-3">
+                        {/* 第一行：状态、预约标签（左）和时间（右） */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap flex-1">
+                            <StatusBadge status={us} />
+                            {Boolean(o.is_reservation) && (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-sky-500 rounded-full shadow-sm">
+                                <i className="fas fa-calendar-check"></i>
+                                <span>预约订单</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-gray-600 flex-shrink-0">
+                            <i className="fas fa-calendar-alt"></i>
+                            <span className="text-right">{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
+                          </div>
                         </div>
+                        
+                        {/* 第二行：倒计时（如果有） */}
+                        {showCountdown && (
+                          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200 w-fit">
+                            <i className="fas fa-stopwatch text-red-500"></i>
+                            <span className="text-xs font-semibold">
+                              倒计时：{formatRemain(remainSec)}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* 第三行：金额和详情按钮 */}
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-bold text-gray-900">¥{o.total_amount}</p>
+                            {o.discount_amount > 0 && (
+                              <p className="text-xs text-pink-600">已用优惠券 -¥{Number(o.discount_amount).toFixed(2)}</p>
+                            )}
+                            <p className="text-xs text-gray-500">订单总额</p>
+                          </div>
+                          <button
+                            onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
+                            className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 hover:text-gray-900 transition-colors whitespace-nowrap"
+                          >
+                            <i className={`fas ${isOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`}></i>
+                            <span>{isOpen ? '收起' : '详情'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 电脑端：横向布局 */}
+                      <div className="hidden md:flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <StatusBadge status={us} />
+                          {Boolean(o.is_reservation) && (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-sky-500 rounded-full shadow-sm">
+                              <i className="fas fa-calendar-check"></i>
+                              <span>预约订单</span>
+                            </span>
+                          )}
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <i className="fas fa-calendar-alt"></i>
+                            <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
+                          </div>
                           {showCountdown && (
                             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200">
                               <i className="fas fa-stopwatch text-red-500"></i>
@@ -453,51 +523,114 @@ export default function Orders() {
                     </div>
 
                     {/* body */}
-                    <div className="px-6 py-4">
-                      <div className="flex flex-wrap justify-between items-start gap-6">
-                        <div className="flex-1 min-w-0">
-                          <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                                  <i className="fas fa-hashtag text-emerald-600 text-sm"></i>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">订单号码</p>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono text-sm text-gray-900">{o.id}</span>
-                                    <button
-                                      className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-600 text-xs rounded-md transition-colors"
-                                      onClick={() => copyToClipboard(o.id)}
-                                    >
-                                      <i className="fas fa-copy mr-1"></i>复制
-                                    </button>
-                                  </div>
+                    <div className="px-4 sm:px-6 py-4">
+                      {/* 手机端：纵向布局 */}
+                      <div className="flex flex-col md:hidden gap-4 mb-4">
+                        {/* 订单号和支付方式 */}
+                        <div className="bg-gray-50 rounded-xl p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            {/* 订单号 */}
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i className="fas fa-hashtag text-emerald-600 text-xs"></i>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-gray-500 mb-0.5">订单编号</p>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-xs text-gray-900 truncate">{o.id.replace('order_', '')}</span>
+                                  <button
+                                    className={`px-1.5 py-0.5 text-xs rounded transition-all whitespace-nowrap flex-shrink-0 ${
+                                      copiedOrderId === o.id 
+                                        ? 'bg-green-100 text-green-600' 
+                                        : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-600'
+                                    }`}
+                                    onClick={() => copyToClipboard(o.id)}
+                                  >
+                                    <i className={`fas ${copiedOrderId === o.id ? 'fa-check' : 'fa-copy'}`}></i>
+                                  </button>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                                  <i className="fas fa-credit-card text-green-600 text-sm"></i>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">支付方式</p>
-                                  <div className="flex items-center gap-2">
-                                    {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500"></i>}
-                                    <span className="text-sm text-gray-900">
-                                      {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
-                                    </span>
-                                  </div>
+                            </div>
+                            {/* 支付方式 */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <div className="w-7 h-7 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i className="fas fa-credit-card text-green-600 text-xs"></i>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-0.5">支付方式</p>
+                                <div className="flex items-center gap-1">
+                                  {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500 text-xs"></i>}
+                                  <span className="text-xs text-gray-900 whitespace-nowrap">
+                                    {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
+                                  </span>
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-3">
+                        {/* 操作按钮（仅未付款时显示） */}
+                        {us === '未付款' && (
+                          <button 
+                            onClick={() => handleShowPayModal(o.id)} 
+                            className="btn-primary w-full px-6 py-2.5 text-sm flex items-center justify-center gap-2 transform hover:scale-105 transition-all duration-300"
+                          >
+                            <i className="fas fa-credit-card"></i>
+                            <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 电脑端：横向布局 */}
+                      <div className="hidden md:grid md:grid-cols-3 gap-4 mb-4">
+                        {/* 订单号和支付方式 - 占2/3 */}
+                        <div className="col-span-2 bg-gray-50 rounded-xl p-4">
+                          <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-3 flex-1">
+                              <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i className="fas fa-hashtag text-emerald-600 text-sm"></i>
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-xs text-gray-500 mb-1">订单号码</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm text-gray-900 whitespace-nowrap">{o.id}</span>
+                                  <button
+                                    className={`px-2 py-1 text-xs rounded-md transition-all whitespace-nowrap ${
+                                      copiedOrderId === o.id 
+                                        ? 'bg-green-100 text-green-600' 
+                                        : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-600'
+                                    }`}
+                                    onClick={() => copyToClipboard(o.id)}
+                                  >
+                                    <i className={`fas ${copiedOrderId === o.id ? 'fa-check' : 'fa-copy'} mr-1`}></i>
+                                    {copiedOrderId === o.id ? '已复制' : '复制'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i className="fas fa-credit-card text-green-600 text-sm"></i>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1">支付方式</p>
+                                <div className="flex items-center gap-2 whitespace-nowrap">
+                                  {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500"></i>}
+                                  <span className="text-sm text-gray-900">
+                                    {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 操作按钮和状态提示 - 占1/3 */}
+                        <div className="col-span-1">
                           {us === '未付款' && (
                             <button 
                               onClick={() => handleShowPayModal(o.id)} 
-                              className="btn-primary px-6 py-2 text-sm flex items-center gap-2 transform hover:scale-105 transition-all duration-300"
+                              className="btn-primary w-full h-full px-6 py-2.5 text-sm flex items-center justify-center gap-2 transform hover:scale-105 transition-all duration-300"
                             >
                               <i className="fas fa-credit-card"></i>
                               <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
@@ -546,7 +679,7 @@ export default function Orders() {
                               desc: '订单状态已更新'
                             };
                             return (
-                              <div className={`${meta.box} rounded-xl p-3 border`}>
+                              <div className={`${meta.box} rounded-xl p-4 border h-full flex flex-col justify-center`}>
                                 <div className={`flex items-center gap-2 ${meta.text}`}>
                                   <i className={meta.icon}></i>
                                   <span className="text-sm font-medium">{meta.title}</span>
@@ -559,38 +692,38 @@ export default function Orders() {
                       </div>
 
                       {isOpen && (
-                        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 animate-apple-slide-up">
+                        <div className="mt-4 sm:mt-6 grid grid-cols-2 gap-2 sm:gap-4 lg:gap-6 animate-apple-slide-up">
                           {/* 商品明细 */}
                           <div>
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className="w-6 h-6 bg-orange-100 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-shopping-basket text-orange-600 text-xs"></i>
+                            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 bg-orange-100 rounded-lg flex items-center justify-center">
+                                <i className="fas fa-shopping-basket text-orange-600 text-[10px] sm:text-xs"></i>
                               </div>
-                              <h4 className="text-sm font-semibold text-gray-900">商品明细</h4>
+                              <h4 className="text-xs sm:text-sm font-semibold text-gray-900">商品明细</h4>
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-2 sm:space-y-3">
                               {o.items?.map((it, idx) => (
                                 <div 
                                   key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
-                                  className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow"
+                                  className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 hover:shadow-md transition-shadow"
                                 >
-                                  <div className="flex justify-between items-start gap-3">
+                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <h5 className="font-medium text-gray-900 truncate text-sm flex items-center gap-2">
-                                        {it.name}
+                                      <h5 className="font-medium text-gray-900 text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                        <span className="break-words">{it.name}</span>
                                         {it.is_lottery && (
-                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
+                                          <span className="px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200 whitespace-nowrap">抽奖</span>
                                         )}
                                         {it.is_reservation && (
-                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200">预约</span>
+                                          <span className="px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">预约</span>
                                         )}
                                       </h5>
                                       {it.variant_name && (
-                                        <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-xs rounded-full border border-cyan-200">
+                                        <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-[10px] sm:text-xs rounded-full border border-cyan-200">
                                           {it.variant_name}
                                         </span>
                                       )}
-                                      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                                      <div className="flex items-center gap-3 sm:gap-4 mt-2 text-[10px] sm:text-xs text-gray-500 flex-wrap">
                                         <span className="flex items-center gap-1">
                                           <i className="fas fa-cubes"></i>
                                           数量: {it.quantity}
@@ -601,22 +734,22 @@ export default function Orders() {
                                         </span>
                                       </div>
                                       {it.is_reservation && (
-                                        <div className="mt-2 text-[11px] text-blue-600 leading-snug break-words">
+                                        <div className="mt-2 text-[10px] sm:text-[11px] text-blue-600 leading-snug break-words">
                                           {formatReservationCutoff(it.reservation_cutoff)}
                                           {it.reservation_note ? ` · ${it.reservation_note}` : ''}
                                         </div>
                                       )}
-                                    </div>
-                                    <div className="text-right">
                                       {(it.is_lottery || it.is_auto_gift) && (
-                                        <div className="mb-3 text-xs text-pink-600 text-right max-w-36">
-                                          <div className="font-medium">
+                                        <div className="mt-2 text-[10px] sm:text-xs text-pink-600">
+                                          <div className="font-medium break-words">
                                             {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
                                             {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
                                           </div>
                                         </div>
                                       )}
-                                      <p className="font-semibold text-gray-900">¥{it.subtotal}</p>
+                                    </div>
+                                    <div className="text-left sm:text-right flex-shrink-0">
+                                      <p className="font-semibold text-gray-900 text-sm sm:text-base">¥{it.subtotal}</p>
                                       <p className="text-xs text-gray-500">小计</p>
                                     </div>
                                   </div>
@@ -627,60 +760,60 @@ export default function Orders() {
                           
                           {/* 收货信息 */}
                           <div>
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className="w-6 h-6 bg-green-100 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-map-marker-alt text-green-600 text-xs"></i>
+                            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 bg-green-100 rounded-lg flex items-center justify-center">
+                                <i className="fas fa-map-marker-alt text-green-600 text-[10px] sm:text-xs"></i>
                               </div>
-                              <h4 className="text-sm font-semibold text-gray-900">收货信息</h4>
+                              <h4 className="text-xs sm:text-sm font-semibold text-gray-900">收货信息</h4>
                             </div>
-                            <div className="bg-white border border-gray-200 rounded-xl p-4">
-                              <div className="space-y-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                                    <i className="fas fa-user text-emerald-600 text-sm"></i>
+                            <div className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4">
+                              <div className="space-y-2.5 sm:space-y-3">
+                                <div className="flex items-center gap-2 sm:gap-3">
+                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <i className="fas fa-user text-emerald-600 text-xs sm:text-sm"></i>
                                   </div>
-                                  <div>
-                                    <p className="text-xs text-gray-500">收件人</p>
-                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.name}</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                                    <i className="fas fa-phone text-green-600 text-sm"></i>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs text-gray-500">联系电话</p>
-                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.phone}</p>
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] sm:text-xs text-gray-500">收件人</p>
+                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words">{o.shipping_info?.name}</p>
                                   </div>
                                 </div>
-                                <div className="flex items-start gap-3">
-                                  <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">
-                                    <i className="fas fa-home text-cyan-600 text-sm"></i>
+                                <div className="flex items-center gap-2 sm:gap-3">
+                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <i className="fas fa-phone text-green-600 text-xs sm:text-sm"></i>
                                   </div>
-                                  <div>
-                                    <p className="text-xs text-gray-500">收货地址</p>
-                                    <p className="text-sm font-medium text-gray-900">{o.shipping_info?.full_address}</p>
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] sm:text-xs text-gray-500">联系电话</p>
+                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words">{o.shipping_info?.phone}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-start gap-2 sm:gap-3">
+                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-cyan-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <i className="fas fa-home text-cyan-600 text-xs sm:text-sm"></i>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] sm:text-xs text-gray-500">收货地址</p>
+                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words leading-relaxed">{o.shipping_info?.full_address}</p>
                                   </div>
                                 </div>
                                 {o.note && (
-                                  <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                                      <i className="fas fa-comment text-orange-600 text-sm"></i>
+                                  <div className="flex items-start gap-2 sm:gap-3">
+                                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                      <i className="fas fa-comment text-orange-600 text-xs sm:text-sm"></i>
                                     </div>
-                                    <div>
-                                      <p className="text-xs text-gray-500">订单备注</p>
-                                      <p className="text-sm font-medium text-gray-900">{o.note}</p>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[10px] sm:text-xs text-gray-500">订单备注</p>
+                                      <p className="text-xs sm:text-sm font-medium text-gray-900 break-words leading-relaxed">{o.note}</p>
                                     </div>
                                   </div>
                                 )}
                                 {o.shipping_info?.reservation && (
-                                  <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                                      <i className="fas fa-calendar-day text-blue-600 text-sm"></i>
+                                  <div className="flex items-start gap-2 sm:gap-3">
+                                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                      <i className="fas fa-calendar-day text-blue-600 text-xs sm:text-sm"></i>
                                     </div>
-                                    <div>
-                                      <p className="text-xs text-gray-500">预约说明</p>
-                                      <p className="text-sm font-medium text-blue-600 leading-snug break-words">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[10px] sm:text-xs text-gray-500">预约说明</p>
+                                      <p className="text-xs sm:text-sm font-medium text-blue-600 leading-relaxed break-words">
                                         {(Array.isArray(o.shipping_info?.reservation_reasons) && o.shipping_info.reservation_reasons.length > 0)
                                           ? o.shipping_info.reservation_reasons.join('，')
                                           : '预约订单'}
@@ -705,26 +838,26 @@ export default function Orders() {
 
       {/* 微信收款码弹窗 */}
       {payOrderId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in px-4">
           <div className="absolute inset-0" onClick={() => { setPayOrderId(null); setPaymentQr(null); }}></div>
-          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
+          <div className="relative card-glass max-w-sm w-full p-5 sm:p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
             {/* 弹窗标题 */}
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                <i className="fab fa-weixin text-white text-2xl"></i>
+            <div className="text-center mb-5 sm:mb-6">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-lg">
+                <i className="fab fa-weixin text-white text-xl sm:text-2xl"></i>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">微信扫码支付</h3>
-              <p className="text-white/80 text-sm">请使用微信扫描下方二维码完成支付</p>
+              <h3 className="text-lg sm:text-xl font-semibold text-white mb-1.5 sm:mb-2">微信扫码支付</h3>
+              <p className="text-white/80 text-xs sm:text-sm">请使用微信扫描下方二维码完成支付</p>
             </div>
 
             {/* 二维码区域 */}
-            <div className="bg-white rounded-2xl p-4 mb-6 shadow-lg">
+            <div className="bg-white rounded-2xl p-3 sm:p-4 mb-5 sm:mb-6 shadow-lg">
               {paymentQr ? (
                 paymentQr.owner_type === 'default' ? (
-                  <div className="w-full h-80 flex items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
-                    <div className="text-center">
-                      <div className="text-4xl mb-4">⚠️</div>
-                      <p className="text-gray-600 text-lg font-medium">暂不可付款，请联系管理员</p>
+                  <div className="w-full h-64 sm:h-80 flex items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                    <div className="text-center px-4">
+                      <div className="text-3xl sm:text-4xl mb-3 sm:mb-4">⚠️</div>
+                      <p className="text-gray-600 text-sm sm:text-lg font-medium">暂不可付款，请联系管理员</p>
                     </div>
                   </div>
                 ) : (
@@ -732,26 +865,26 @@ export default function Orders() {
                     <img 
                       src={paymentQr.image_path} 
                       alt={paymentQr.name || "收款码"} 
-                      className="w-full h-80 object-contain rounded-xl" 
+                      className="w-full h-64 sm:h-80 object-contain rounded-xl" 
                     />
                   </div>
                 )
               ) : (
-                <div className="w-full h-80 flex items-center justify-center bg-gray-100 rounded-xl">
+                <div className="w-full h-64 sm:h-80 flex items-center justify-center bg-gray-100 rounded-xl">
                   <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
-                    <p className="text-gray-600 text-sm">正在加载收款码...</p>
+                    <div className="animate-spin rounded-full h-7 w-7 sm:h-8 sm:w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
+                    <p className="text-gray-600 text-xs sm:text-sm">正在加载收款码...</p>
                   </div>
                 </div>
               )}
             </div>
 
             {/* 操作按钮 */}
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               <button
                 onClick={() => handleMarkPaid(payOrderId)}
                 disabled={paymentQr && paymentQr.owner_type === 'default'}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2.5 sm:py-3 px-4 rounded-xl text-sm sm:text-base font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
                 <span>我已完成付款</span>
@@ -759,7 +892,7 @@ export default function Orders() {
               
               <button
                 onClick={() => { setPayOrderId(null); setPaymentQr(null); }}
-                className="w-full bg-white/20 backdrop-blur-sm text-white py-3 px-4 rounded-xl font-medium hover:bg-white/30 border border-white/30 transition-all duration-300 flex items-center justify-center gap-2"
+                className="w-full bg-white/20 backdrop-blur-sm text-white py-2.5 sm:py-3 px-4 rounded-xl text-sm sm:text-base font-medium hover:bg-white/30 border border-white/30 transition-all duration-300 flex items-center justify-center gap-2"
               >
                 <i className="fas fa-clock"></i>
                 <span>稍后支付</span>
@@ -769,9 +902,9 @@ export default function Orders() {
             {/* 关闭按钮 */}
             <button
               onClick={() => { setPayOrderId(null); setPaymentQr(null); }}
-              className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white/80 hover:text-white transition-all duration-200"
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 w-7 h-7 sm:w-8 sm:h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white/80 hover:text-white transition-all duration-200"
             >
-              <i className="fas fa-times"></i>
+              <i className="fas fa-times text-sm"></i>
             </button>
           </div>
         </div>
@@ -779,20 +912,20 @@ export default function Orders() {
 
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="absolute inset-0" onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }}></div>
-          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
+          <div className="relative max-w-sm w-full p-5 sm:p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
-              <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
+              <h3 className="text-base sm:text-lg font-semibold">抽奖中</h3>
+              <p className="text-gray-500 text-xs sm:text-sm mt-1">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
             </div>
-            <div className="h-20 flex items-center justify-center mb-4">
-              <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
+            <div className="h-16 sm:h-20 flex items-center justify-center mb-4">
+              <span className={`text-xl sm:text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
             </div>
             {!spinning && (
               <>
                 <div className="text-center mb-4 space-y-2">
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
                     lotteryResult === '谢谢参与' 
                       ? 'bg-gray-100 text-gray-700' 
                       : 'bg-amber-100 text-amber-700'
@@ -800,16 +933,16 @@ export default function Orders() {
                     {lotteryResult === '谢谢参与' ? '谢谢参与' : `恭喜获得：${lotteryResult || '谢谢参与'}`}
                   </span>
                   {lotteryPrize ? (
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>
+                    <div className="text-[10px] sm:text-xs text-gray-600 space-y-1 px-2">
+                      <div className="break-words">具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>
                       <div className="text-gray-500">将在下次满额订单随单配送</div>
                     </div>
                   ) : (
-                    <div className="text-xs text-gray-500">本次未中奖，继续加油！</div>
+                    <div className="text-[10px] sm:text-xs text-gray-500">本次未中奖，继续加油！</div>
                   )}
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">知道了</button>
+                  <button onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }} className="flex-1 bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-600 hover:to-cyan-700 text-white py-2.5 sm:py-2 rounded-xl text-sm sm:text-base font-medium transition-all">知道了</button>
                 </div>
               </>
             )}

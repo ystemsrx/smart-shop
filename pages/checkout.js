@@ -23,10 +23,10 @@ const formatReservationCutoff = (cutoffTime) => {
   
   // 如果当前时间已过今天的截止时间，显示明日配送
   if (now > todayCutoff) {
-    return `现在预约明日 ${cutoffTime} 后配送`;
+    return `明日 ${cutoffTime} 后配送`;
   }
   
-  return `现在预约今日 ${cutoffTime} 后配送`;
+  return `今日 ${cutoffTime} 后配送`;
 };
 
 const createDefaultValidation = () => ({
@@ -637,11 +637,10 @@ export default function Checkout() {
         // 如果没有抽奖，直接显示成功动画
         if (!hasLottery) {
           setShowSuccessAnimation(true);
-          // 动画播放完成后跳转（大约3秒）
+          // 动画播放完成前跳转，让过渡更流畅
           setTimeout(() => {
-            setShowSuccessAnimation(false);
             router.push('/orders');
-          }, 3000);
+          }, 1700);
         }
       } else {
         alert(res.message || '操作失败');
@@ -783,24 +782,6 @@ export default function Checkout() {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">确认订单</h1>
             <p className="text-gray-700">请确认您的订单信息和收货地址</p>
           </div>
-          
-          {!shopOpen && (
-            <div className="mb-6 card-glass p-4 border border-orange-200/50 text-orange-100 animate-apple-fade-in">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-orange-500/20 rounded-full flex items-center justify-center">
-                  <i className="fas fa-exclamation-triangle text-orange-300"></i>
-                </div>
-                <div>
-                  <p className="font-medium text-orange-200">店铺提醒</p>
-                  <p className="text-sm text-orange-300">
-                    {reservationAllowed
-                      ? (shopNote || '店铺当前打烊，提交订单将视为预约，我们会根据预约信息安排配送。')
-                      : (shopNote || '店铺已暂停营业，暂不支持结算。')}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* 错误提示 */}
           {error && (
@@ -1383,9 +1364,8 @@ export default function Checkout() {
             // 关闭抽奖弹窗后显示成功动画
             setShowSuccessAnimation(true);
             setTimeout(() => {
-              setShowSuccessAnimation(false);
               router.push('/orders');
-            }, 3000);
+            }, 1700);
           }}></div>
           <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
             <div className="text-center mb-4">
@@ -1421,9 +1401,8 @@ export default function Checkout() {
                     // 关闭抽奖弹窗后显示成功动画
                     setShowSuccessAnimation(true);
                     setTimeout(() => {
-                      setShowSuccessAnimation(false);
                       router.push('/orders');
-                    }, 3000);
+                    }, 1700);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
                 </div>
               </>

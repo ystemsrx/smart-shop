@@ -22,10 +22,10 @@ const formatReservationCutoff = (cutoffTime) => {
   
   // 如果当前时间已过今天的截止时间，显示明日配送
   if (now > todayCutoff) {
-    return `现在预约明日 ${cutoffTime} 后配送`;
+    return `明日 ${cutoffTime} 后配送`;
   }
   
-  return `现在预约今日 ${cutoffTime} 后配送`;
+  return `今日 ${cutoffTime} 后配送`;
 };
 
 const normalizeBooleanFlag = (value, defaultValue = false) => {
@@ -3584,6 +3584,14 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                     <div className="text-sm text-gray-500">
                       {order.payment_method === 'wechat' ? '微信支付' : order.payment_method}
                     </div>
+                    {Boolean(order.is_reservation) && (
+                      <div className="mt-1">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-blue-500 rounded-full">
+                          <i className="fas fa-calendar-check"></i>
+                          预约
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -3612,15 +3620,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center gap-2">
-                    {getStatusBadge(getUnifiedStatus(order))}
-                    {Boolean(order.is_reservation) && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-blue-500 rounded-full">
-                        <i className="fas fa-calendar-check"></i>
-                        预约
-                      </span>
-                    )}
-                  </div>
+                  {getStatusBadge(getUnifiedStatus(order))}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {formatDate(order.created_at_timestamp ?? order.created_at)}
@@ -4221,8 +4221,8 @@ const CouponsPanel = ({ apiPrefix }) => {
   const loadList = async () => {
     setLoading(true);
     try {
-      const url = selected ? `${apiPrefix}/coupons?student_id=${encodeURIComponent(selected)}` : `${apiPrefix}/coupons`;
-      const r = await apiRequest(url);
+      // 始终加载所有优惠券，不受发放优惠券时选择的用户影响
+      const r = await apiRequest(`${apiPrefix}/coupons`);
       setList(r?.data?.coupons || []);
     } catch (e) {
       setList([]);
@@ -4231,7 +4231,8 @@ const CouponsPanel = ({ apiPrefix }) => {
     }
   };
 
-  React.useEffect(() => { loadList(); }, [selected]);
+  // 组件挂载时加载一次列表
+  React.useEffect(() => { loadList(); }, []);
 
   const handleIssue = async () => {
     const sid = selected || (suggests[0]?.id || '');

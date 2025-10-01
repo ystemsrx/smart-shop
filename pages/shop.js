@@ -24,15 +24,16 @@ const formatReservationCutoff = (cutoffTime) => {
   
   // 如果当前时间已过今天的截止时间，显示明日配送
   if (now > todayCutoff) {
-    return `现在预约明日 ${cutoffTime} 后配送`;
+    return `明日 ${cutoffTime} 后配送`;
   }
   
-  return `现在预约今日 ${cutoffTime} 后配送`;
+  return `今日 ${cutoffTime} 后配送`;
 };
 
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, itemsMap = {}, isLoading }) => {
   const { user } = useAuth();
+  const [showReservationInfo, setShowReservationInfo] = useState(true);
   
   const handleAddToCart = (e) => {
     if (!user) {
@@ -44,6 +45,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
       onOpenSpecModal(product);
       return;
     }
+    // 点击加号时隐藏预约信息
+    setShowReservationInfo(false);
     // 触发飞入动画（从按钮位置）
     onStartFly && onStartFly(e.currentTarget, product, { type: 'add' });
     onAddToCart(product.id, null);
@@ -54,7 +57,12 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
     // 仅在增加数量时触发飞入动画
     const currentQty = variantId ? (itemsMap[`${product.id}@@${variantId}`] || 0) : (itemsMap[`${product.id}`] || 0);
     if (e && newQuantity > currentQty) {
+      // 点击加号时隐藏预约信息
+      setShowReservationInfo(false);
       onStartFly && onStartFly(e.currentTarget, product, { type: 'increment' });
+    } else if (newQuantity < currentQty) {
+      // 减少数量时恢复显示预约信息
+      setShowReservationInfo(true);
     }
     onUpdateQuantity(product.id, newQuantity, variantId);
   };
@@ -218,23 +226,26 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               </span>
             </div>
           )}
-          {requiresReservation && (
-            <div className="mt-2 text-xs text-blue-600 flex flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <i className="fas fa-calendar-check"></i>
-                <span>{formatReservationCutoff(reservationCutoff)}</span>
-              </div>
-              {reservationNote && (
-                <div className="text-[11px] text-blue-500 leading-snug break-words">
-                  {reservationNote}
-                </div>
-              )}
-            </div>
-          )}
         </div>
         
         {/* 操作按钮区域 */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2">
+          {/* 预约信息 */}
+          {requiresReservation && reservationNote && showReservationInfo && (
+            <div className="text-[11px] text-blue-500 leading-snug break-words">
+              {reservationNote}
+            </div>
+          )}
+          
+          <div className="flex items-center gap-2">
+          {/* 预约时间信息 */}
+          {requiresReservation && showReservationInfo && (
+            <div className="flex-1 text-[11px] text-blue-600 flex items-center gap-1">
+              <i className="fas fa-calendar-check"></i>
+              <span className="truncate">{formatReservationCutoff(reservationCutoff)}</span>
+            </div>
+          )}
+          
           {!user ? (
             <button
               disabled
@@ -266,10 +277,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             </button>
           ) : isInCart ? (
             // 购物车中商品的数量调整控件
-            <div className="flex items-center w-full justify-center sm:justify-between">
-              <span className="hidden sm:inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-                <i className="fas fa-check-circle"></i>已加入
-              </span>
+            <div className="flex items-center justify-center sm:justify-end gap-2 flex-1">
               <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-1">
                 <button
                   onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
@@ -300,11 +308,12 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               onClick={handleAddToCart}
               disabled={isLoading}
               aria-label="加入购物车"
-              className={`w-10 h-10 rounded-full ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white shadow-lg hover:shadow-xl transform transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center flex-shrink-0 ml-auto`}
+              className={`w-10 h-10 rounded-full flex-shrink-0 ml-auto ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white shadow-lg hover:shadow-xl transform transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center`}
             >
               <i className="fas fa-plus"></i>
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -745,27 +754,72 @@ export default function Shop() {
     setSelectedVariant(null);
   };
 
-  // 添加到购物车
+  // 添加到购物车（乐观更新）
   const handleAddToCart = async (productId, variantId = null) => {
     if (!user) return;
     
-    setCartLoading(true);
+    // 保存当前状态用于回滚
+    const previousCart = { ...cart };
+    const previousItemsMap = { ...cartItemsMap };
+    
+    // 立即更新UI
+    const key = variantId ? `${productId}@@${variantId}` : `${productId}`;
+    const currentQty = cartItemsMap[key] || 0;
+    const newQty = currentQty + 1;
+    
+    setCartItemsMap(prev => ({
+      ...prev,
+      [key]: newQty
+    }));
+    
+    setCart(prev => ({
+      ...prev,
+      total_quantity: (prev.total_quantity || 0) + 1
+    }));
+    
+    // 后台调用API（静默执行，不重新加载）
     try {
       await addToCart(productId, 1, variantId);
-      // 重新加载购物车数据
-      await loadCart();
+      // 成功：不做任何事，UI已经更新
     } catch (err) {
-      alert(err.message || '添加失败');
-    } finally {
-      setCartLoading(false);
+      // 失败时回滚
+      setCart(previousCart);
+      setCartItemsMap(previousItemsMap);
+      alert(err.message || '添加失败，请重试');
     }
   };
 
-  // 更新商品数量
+  // 更新商品数量（乐观更新）
   const handleUpdateQuantity = async (productId, newQuantity, variantId = null) => {
     if (!user) return;
     
-    setCartLoading(true);
+    // 保存当前状态用于回滚
+    const previousCart = { ...cart };
+    const previousItemsMap = { ...cartItemsMap };
+    
+    // 立即更新UI
+    const key = variantId ? `${productId}@@${variantId}` : `${productId}`;
+    const currentQty = cartItemsMap[key] || 0;
+    const qtyDiff = newQuantity - currentQty;
+    
+    if (newQuantity <= 0) {
+      // 从映射中移除
+      const newMap = { ...cartItemsMap };
+      delete newMap[key];
+      setCartItemsMap(newMap);
+    } else {
+      setCartItemsMap(prev => ({
+        ...prev,
+        [key]: newQuantity
+      }));
+    }
+    
+    setCart(prev => ({
+      ...prev,
+      total_quantity: Math.max(0, (prev.total_quantity || 0) + qtyDiff)
+    }));
+    
+    // 后台调用API（静默执行，不重新加载）
     try {
       if (newQuantity <= 0) {
         // 数量为0时从购物车移除
@@ -774,12 +828,12 @@ export default function Shop() {
         // 更新数量
         await updateCart('update', productId, newQuantity, variantId);
       }
-      // 重新加载购物车数据
-      await loadCart();
+      // 成功：不做任何事，UI已经更新
     } catch (err) {
-      alert(err.message || '更新失败');
-    } finally {
-      setCartLoading(false);
+      // 失败时回滚
+      setCart(previousCart);
+      setCartItemsMap(previousItemsMap);
+      alert(err.message || '更新失败，请重试');
     }
   };
 
