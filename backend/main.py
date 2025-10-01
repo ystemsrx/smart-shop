@@ -2670,7 +2670,9 @@ async def get_cart(request: Request):
         delivery_scope = scope
         owner_id = get_owner_id_from_scope(delivery_scope)
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
-        has_reservation_items = any(item.get('reservation_required') for item in cart_items)
+        active_cart_items = [item for item in cart_items if item.get('is_active', 1) == 1 and (item.get('quantity') or 0) > 0]
+        has_reservation_items = any(item.get('reservation_required') for item in active_cart_items)
+        all_items_reservation_required = bool(active_cart_items) and all(item.get('reservation_required') for item in active_cart_items)
 
         # 运费计算：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
         shipping_fee = 0.0 if total_quantity == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
@@ -2683,7 +2685,8 @@ async def get_cart(request: Request):
             "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
             "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
             "address_validation": address_validation,
-            "has_reservation_items": has_reservation_items
+            "has_reservation_items": has_reservation_items,
+            "all_reservation_items": all_items_reservation_required
         }
 
         cart_result["scope"] = delivery_scope
@@ -3646,6 +3649,8 @@ async def create_order(
         order_items = []
         total_amount = 0.0
         items_require_reservation = False
+        cart_item_count = 0
+        all_cart_items_reservation_only = True
 
         SEP = '@@'
         for key, quantity in items_dict.items():
@@ -3677,6 +3682,7 @@ async def create_order(
 
                 subtotal = unit_price * quantity
                 total_amount += subtotal
+                cart_item_count += 1
                 
                 requires_reservation = False
                 try:
@@ -3705,6 +3711,8 @@ async def create_order(
                             item["reservation_cutoff"] = None
                     if note_value:
                         item["reservation_note"] = note_value[:120]
+                else:
+                    all_cart_items_reservation_only = False
                 if variant_id:
                     item["variant_id"] = variant_id
                     item["variant_name"] = variant.get("name")
@@ -3712,6 +3720,7 @@ async def create_order(
 
         # 保存商品金额小计（不含运费），用于满额判断
         items_subtotal = round(total_amount, 2)
+        all_items_are_reservation = cart_item_count > 0 and all_cart_items_reservation_only
 
         # 新的满额赠品系统：支持多层次门槛配置
         owner_scope_id = get_owner_id_from_scope(scope)
@@ -3811,9 +3820,13 @@ async def create_order(
                 logger.warning(f"附加抽奖奖品失败: {e}")
 
         user_confirms_reservation = bool(order_request.reservation_requested)
-        if reservation_due_to_closure and not (user_confirms_reservation or items_require_reservation):
-            tip = closure_note or '当前打烊，仅支持预约购买'
-            return error_response(f"{tip}（请确认预约购买后再试）", 400)
+        if reservation_due_to_closure and not all_items_are_reservation:
+            return error_response("当前打烊，仅支持预约商品，请移除非预约商品后再试", 400)
+        if items_require_reservation and not user_confirms_reservation:
+            if reservation_due_to_closure:
+                tip = closure_note or '当前打烊，仅支持预约购买'
+                return error_response(f"{tip}（请确认预约购买后再试）", 400)
+            return error_response("该商品需要预约购买，请确认预约方式后再提交订单", 400)
 
         reservation_reasons: List[str] = []
         if items_require_reservation:
@@ -3860,7 +3873,7 @@ async def create_order(
         # 订单总金额 = 商品小计 - 优惠 + 运费（不为负）
         total_amount = round(max(0.0, items_subtotal - discount_amount) + shipping_fee, 2)
 
-        if not order_items:
+        if cart_item_count == 0:
             return error_response("购物车中没有可结算的上架商品", 400)
 
         # 创建订单（暂不扣减库存，等待支付成功）

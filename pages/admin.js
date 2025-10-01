@@ -8,6 +8,25 @@ import { getProductImage } from '../utils/urls';
 import Nav from '../components/Nav';
 import { getShopName } from '../utils/runtimeConfig';
 
+// 格式化预约截止时间显示
+const formatReservationCutoff = (cutoffTime) => {
+  if (!cutoffTime) return '需提前预约';
+  
+  // 获取当前时间
+  const now = new Date();
+  const [hours, minutes] = cutoffTime.split(':').map(Number);
+  
+  // 创建今天的截止时间
+  const todayCutoff = new Date();
+  todayCutoff.setHours(hours, minutes, 0, 0);
+  
+  // 如果当前时间已过今天的截止时间，显示明日配送
+  if (now > todayCutoff) {
+    return `现在预约明日 ${cutoffTime} 后配送`;
+  }
+  
+  return `现在预约今日 ${cutoffTime} 后配送`;
+};
 
 const normalizeBooleanFlag = (value, defaultValue = false) => {
   if (value === undefined || value === null) return defaultValue;
@@ -3120,28 +3139,30 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix }) 
             </label>
           </div>
           {formData.reservation_required && (
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
-                <input
-                  type="time"
-                  name="reservation_cutoff"
-                  value={formData.reservation_cutoff}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                />
-                <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
-                <textarea
-                  name="reservation_note"
-                  rows={2}
-                  value={formData.reservation_note}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                  placeholder="示例：21:30 前预约当日配送，超时次日送达。"
-                />
+            <div className="p-5">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
+                  <input
+                    type="time"
+                    name="reservation_cutoff"
+                    value={formData.reservation_cutoff}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
+                </div>
+                <div className="flex-[2]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
+                  <input
+                    type="text"
+                    name="reservation_note"
+                    value={formData.reservation_note}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                    placeholder="示例：21:30 前预约当日配送，超时次日送达。"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -3594,7 +3615,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                   <div className="flex items-center gap-2">
                     {getStatusBadge(getUnifiedStatus(order))}
                     {Boolean(order.is_reservation) && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-teal-500 rounded-full">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-blue-500 rounded-full">
                         <i className="fas fa-calendar-check"></i>
                         预约
                       </span>
@@ -3646,13 +3667,13 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                                       <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
                                     )}
                                     {it.is_reservation && (
-                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-teal-100 text-teal-700 border border-teal-200">预约</span>
+                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200">预约</span>
                                     )}
                                   </div>
                                   <div className="text-gray-500 mt-1">x{it.quantity} · 单价 ¥{it.unit_price}</div>
                                   {it.is_reservation && (
-                                    <div className="text-[11px] text-teal-600 mt-1 leading-snug break-words">
-                                      {it.reservation_cutoff ? `预约截至 ${it.reservation_cutoff}` : '需提前预约'}
+                                    <div className="text-[11px] text-blue-600 mt-1 leading-snug break-words">
+                                      {formatReservationCutoff(it.reservation_cutoff)}
                                       {it.reservation_note ? ` · ${it.reservation_note}` : ''}
                                     </div>
                                   )}
@@ -3681,7 +3702,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                           <div>地址：{order.shipping_info?.full_address}</div>
                           {order.note && <div>备注：<span className="text-red-600">{order.note}</span></div>}
                           {order.shipping_info?.reservation && (
-                            <div className="flex items-start gap-2 text-xs text-teal-600">
+                            <div className="flex items-start gap-2 text-xs text-blue-600">
                               <i className="fas fa-calendar-day mt-0.5"></i>
                               <span className="leading-snug break-words">
                                 {(Array.isArray(order.shipping_info?.reservation_reasons) && order.shipping_info.reservation_reasons.length > 0)
@@ -4036,28 +4057,30 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix }) => {
             </label>
           </div>
           {formData.reservation_required && (
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
-                <input
-                  type="time"
-                  name="reservation_cutoff"
-                  value={formData.reservation_cutoff}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                />
-                <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
-                <textarea
-                  name="reservation_note"
-                  rows={2}
-                  value={formData.reservation_note}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                  placeholder="示例：21:30 前预约当日配送，超时次日送达。"
-                />
+            <div className="p-5">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
+                  <input
+                    type="time"
+                    name="reservation_cutoff"
+                    value={formData.reservation_cutoff}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
+                </div>
+                <div className="flex-[2]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
+                  <input
+                    type="text"
+                    name="reservation_note"
+                    value={formData.reservation_note}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
+                    placeholder="示例：21:30 前预约当日配送，超时次日送达。"
+                  />
+                </div>
               </div>
             </div>
           )}

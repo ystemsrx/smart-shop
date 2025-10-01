@@ -9,6 +9,26 @@ import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import { getShopName } from '../utils/runtimeConfig';
 
+// 格式化预约截止时间显示
+const formatReservationCutoff = (cutoffTime) => {
+  if (!cutoffTime) return '需提前预约';
+  
+  // 获取当前时间
+  const now = new Date();
+  const [hours, minutes] = cutoffTime.split(':').map(Number);
+  
+  // 创建今天的截止时间
+  const todayCutoff = new Date();
+  todayCutoff.setHours(hours, minutes, 0, 0);
+  
+  // 如果当前时间已过今天的截止时间，显示明日配送
+  if (now > todayCutoff) {
+    return `现在预约明日 ${cutoffTime} 后配送`;
+  }
+  
+  return `现在预约今日 ${cutoffTime} 后配送`;
+};
+
 const createDefaultValidation = () => ({
   is_valid: true,
   reason: null,
@@ -151,8 +171,21 @@ export default function Checkout() {
   ), [lotteryThreshold]);
 
   const hasReservationItems = useMemo(() => !!(cart?.has_reservation_items), [cart?.has_reservation_items]);
-  const reservationFromClosure = useMemo(() => !shopOpen && reservationAllowed, [shopOpen, reservationAllowed]);
-  const shouldReserve = useMemo(() => hasReservationItems || reservationFromClosure, [hasReservationItems, reservationFromClosure]);
+  const allReservationItems = useMemo(() => {
+    if (cart?.all_reservation_items !== undefined) {
+      return !!cart.all_reservation_items;
+    }
+    const activeItems = (cart?.items || []).filter(item => {
+      const isActive = !(item.is_active === 0 || item.is_active === false);
+      const qty = Number(item.quantity || 0);
+      return isActive && qty > 0;
+    });
+    if (activeItems.length === 0) return false;
+    return activeItems.every(item => item.reservation_required);
+  }, [cart?.all_reservation_items, cart?.items]);
+  const canReserveWhileClosed = useMemo(() => !shopOpen && reservationAllowed && allReservationItems, [shopOpen, reservationAllowed, allReservationItems]);
+  const reservationFromClosure = useMemo(() => canReserveWhileClosed, [canReserveWhileClosed]);
+  const shouldReserve = useMemo(() => hasReservationItems || canReserveWhileClosed, [hasReservationItems, canReserveWhileClosed]);
   
   const addressInvalid = useMemo(() => (
     locationReady && addressValidation && addressValidation.is_valid === false
@@ -171,15 +204,32 @@ export default function Checkout() {
     const baseTotal = (cart?.payable_total ?? cart?.total_price) || 0;
     return Math.max(0, baseTotal - couponDiscountAmount);
   }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
-  const closedBlocked = !shopOpen && !reservationAllowed;
+  const closedBlocked = !shopOpen && (!reservationAllowed || !allReservationItems);
   const checkoutButtonLabel = useMemo(() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
-    if (closedBlocked) return '打烊中 · 暂停结算';
-    if (!shopOpen && reservationAllowed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (closedBlocked) {
+      if (!shopOpen || !reservationAllowed) {
+        return '打烊中 · 暂停结算';
+      }
+      return '仅限预约商品';
+    }
+    if (canReserveWhileClosed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
     if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
     return `立即支付 ¥${payableAmount.toFixed(2)}`;
-  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, shopOpen, reservationAllowed, payableAmount, hasReservationItems, shouldReserve]);
+  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, canReserveWhileClosed, shopOpen, reservationAllowed, payableAmount, hasReservationItems, shouldReserve]);
+
+  const closedBlockedMessage = useMemo(() => {
+    if (!shopOpen) {
+      if (!reservationAllowed) {
+        return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
+      }
+      if (!allReservationItems) {
+        return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
+      }
+    }
+    return '当前暂无法提交订单';
+  }, [shopOpen, reservationAllowed, allReservationItems, shopNote]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
@@ -207,8 +257,8 @@ export default function Checkout() {
 
   // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
-    if (!shopOpen && !reservationAllowed) {
-      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+    if (closedBlocked) {
+      alert(closedBlockedMessage);
       return;
     }
     if (!locationReady) {
@@ -417,8 +467,8 @@ export default function Checkout() {
 
   // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
-    if (!shopOpen && !reservationAllowed) {
-      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+    if (closedBlocked) {
+      alert(closedBlockedMessage);
       return;
     }
     if (addressInvalid) {
@@ -484,8 +534,8 @@ export default function Checkout() {
 
   // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
-    if (!shopOpen && !reservationAllowed) {
-      alert(shopNote || '店铺已暂停营业，暂不支持结算');
+    if (closedBlocked) {
+      alert(closedBlockedMessage);
       return;
     }
     if (!locationReady) {
@@ -974,7 +1024,7 @@ export default function Checkout() {
                                   </span>
                                 )}
                                 {item.reservation_required && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 border border-teal-200">
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
                                     预约
                                   </span>
                                 )}
@@ -988,8 +1038,8 @@ export default function Checkout() {
                                 数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
                               </p>
                               {item.reservation_required && (
-                                <p className="text-teal-600 text-[11px] mt-1 leading-snug break-words">
-                                  {item.reservation_cutoff ? `预约截至 ${item.reservation_cutoff}` : '需提前预约'}
+                                <p className="text-blue-600 text-[11px] mt-1 leading-snug break-words">
+                                  {formatReservationCutoff(item.reservation_cutoff)}
                                   {item.reservation_note ? ` · ${item.reservation_note}` : ''}
                                 </p>
                               )}
@@ -1102,14 +1152,19 @@ export default function Checkout() {
                       </div>
                     </div>
                     {shouldReserve && (
-                      <div className="mb-6 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+                      <div className="mb-6 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                         <div className="flex items-center gap-2 font-medium">
                           <i className="fas fa-calendar-day"></i>
                           <span>{reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交，我们会在营业后优先处理。' : '本单包含预约商品，将以预约订单处理。'}</span>
                         </div>
                         {hasReservationItems && (
-                          <div className="mt-1 text-teal-600/90 leading-relaxed">
+                          <div className="mt-1 text-blue-600/90 leading-relaxed">
                             请确认预约说明，配送时间将根据预约安排。
+                          </div>
+                        )}
+                        {closedBlocked && reservationAllowed && !allReservationItems && (
+                          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                            当前打烊期间仅支持预约商品，请移除非预约商品后再尝试提交。
                           </div>
                         )}
                       </div>

@@ -12,6 +12,26 @@ import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getProductImage } from '../utils/urls';
 import { getShopName } from '../utils/runtimeConfig';
 
+// 格式化预约截止时间显示
+const formatReservationCutoff = (cutoffTime) => {
+  if (!cutoffTime) return '需提前预约';
+  
+  // 获取当前时间
+  const now = new Date();
+  const [hours, minutes] = cutoffTime.split(':').map(Number);
+  
+  // 创建今天的截止时间
+  const todayCutoff = new Date();
+  todayCutoff.setHours(hours, minutes, 0, 0);
+  
+  // 如果当前时间已过今天的截止时间，显示明日配送
+  if (now > todayCutoff) {
+    return `现在预约明日 ${cutoffTime} 后配送`;
+  }
+  
+  return `现在预约今日 ${cutoffTime} 后配送`;
+};
+
 const createDefaultValidation = () => ({
   is_valid: true,
   reason: null,
@@ -83,13 +103,13 @@ const CartItem = ({ item, onUpdateQuantity, onRemove, isLoading }) => {
           </div>
 
           {item.reservation_required && (
-            <div className="mb-3 text-xs text-teal-600 border border-teal-200 bg-teal-50/80 rounded-md px-3 py-2">
+            <div className="mb-3 text-xs text-blue-600 border border-blue-200 bg-blue-50/80 rounded-md px-3 py-2">
               <div className="flex items-center gap-1 font-medium">
                 <i className="fas fa-calendar-check"></i>
-                <span>{item.reservation_cutoff ? `预约截至 ${item.reservation_cutoff}` : '需提前预约'}</span>
+                <span>{formatReservationCutoff(item.reservation_cutoff)}</span>
               </div>
               {item.reservation_note && (
-                <div className="mt-1 text-[11px] text-teal-500 leading-snug break-words">
+                <div className="mt-1 text-[11px] text-blue-500 leading-snug break-words">
                   {item.reservation_note}
                 </div>
               )}
@@ -152,6 +172,7 @@ const OrderSummary = ({
   shouldReserve = false,
   reservationFromClosure = false,
   hasReservationItems = false,
+  allReservationItems = false,
   coupons = [],
   selectedCouponId,
   setSelectedCouponId,
@@ -179,14 +200,17 @@ const OrderSummary = ({
   const addressAlertMessage = addressInvalid
     ? (addressValidation.message || '配送地址不可用，请重新选择')
     : '';
-  const closedBlocked = isClosed && !reservationAllowed;
+  const closedBlocked = isClosed && (!reservationAllowed || !allReservationItems);
   const checkoutDisabled = isLoading || cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid;
   const buttonLabel = (() => {
     if (isLoading) return '处理中...';
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
-    if (closedBlocked) return '打烊中 · 暂停结算';
-    if (isClosed && reservationAllowed) return '预约购买';
+    if (closedBlocked) {
+      if (!reservationAllowed) return '打烊中 · 暂停结算';
+      return '仅限预约商品';
+    }
+    if (isClosed && reservationAllowed && allReservationItems) return '预约购买';
     if (hasReservationItems && shouldReserve) return '提交预约';
     return '去结算';
   })();
@@ -317,14 +341,19 @@ const OrderSummary = ({
       )}
 
       {shouldReserve && (
-        <div className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+        <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
           <div className="flex items-center gap-2 font-medium">
             <i className="fas fa-calendar-day"></i>
             <span>{reservationFromClosure ? '店铺当前打烊，提交后将转换为预约订单。' : '本单包含需预约商品，将以预约方式提交。'}</span>
           </div>
           {hasReservationItems && (
-            <div className="mt-1 leading-relaxed text-teal-600/90">
+            <div className="mt-1 leading-relaxed text-blue-600/90">
               请关注预约说明，配送时间将以预约信息为准。
+            </div>
+          )}
+          {isClosed && reservationAllowed && !allReservationItems && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+              打烊期间仅支持预约商品，请移除非预约商品后再试。
             </div>
           )}
         </div>
@@ -403,8 +432,23 @@ export default function Cart() {
   ), [lotteryThreshold]);
 
   const hasReservationItems = useMemo(() => !!(cart?.has_reservation_items), [cart?.has_reservation_items]);
-  const reservationFromClosure = useMemo(() => !shopOpen && reservationAllowed, [shopOpen, reservationAllowed]);
-  const shouldReserve = useMemo(() => hasReservationItems || reservationFromClosure, [hasReservationItems, reservationFromClosure]);
+  const allReservationItems = useMemo(() => {
+    if (cart?.all_reservation_items !== undefined) {
+      return !!cart.all_reservation_items;
+    }
+    const activeItems = (cart.items || []).filter(item => {
+      const isActive = !(item.is_active === 0 || item.is_active === false);
+      const qty = Number(item.quantity || 0);
+      return isActive && qty > 0;
+    });
+    if (activeItems.length === 0) {
+      return false;
+    }
+    return activeItems.every(item => item.reservation_required);
+  }, [cart?.all_reservation_items, cart.items]);
+  const canReserveWhileClosed = useMemo(() => !shopOpen && reservationAllowed && allReservationItems, [shopOpen, reservationAllowed, allReservationItems]);
+  const reservationFromClosure = useMemo(() => canReserveWhileClosed, [canReserveWhileClosed]);
+  const shouldReserve = useMemo(() => hasReservationItems || canReserveWhileClosed, [hasReservationItems, canReserveWhileClosed]);
 
   const addressInvalid = useMemo(() => (
     locationReady && addressValidation && addressValidation.is_valid === false
@@ -413,6 +457,7 @@ export default function Cart() {
   const addressAlertMessage = useMemo(() => (
     addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
   ), [addressInvalid, addressValidation]);
+  const closedBlocked = useMemo(() => !shopOpen && (!reservationAllowed || !allReservationItems), [shopOpen, reservationAllowed, allReservationItems]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
@@ -613,12 +658,12 @@ export default function Cart() {
 
   // 去结算
   const handleCheckout = () => {
-    const hasReservationItems = !!(cart?.has_reservation_items);
-    const reservationFromClosure = !shopOpen && reservationAllowed;
-    const shouldReserve = reservationFromClosure || hasReservationItems;
-
-    if (!shopOpen && !reservationAllowed) {
-      setShopClosedModalOpen(true);
+    if (closedBlocked) {
+      if (!reservationAllowed) {
+        setShopClosedModalOpen(true);
+      } else {
+        alert('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
+      }
       return;
     }
     if (addressInvalid) {
@@ -745,13 +790,13 @@ export default function Cart() {
           )}
 
           {reservationFromClosure && (
-            <div className="mb-6 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-teal-700 flex items-start gap-3 animate-apple-fade-in">
-              <div className="w-6 h-6 bg-teal-100 rounded-full flex items-center justify-center mt-0.5">
-                <i className="fas fa-calendar-check text-teal-600 text-sm"></i>
+            <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-700 flex items-start gap-3 animate-apple-fade-in">
+              <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center mt-0.5">
+                <i className="fas fa-calendar-check text-blue-600 text-sm"></i>
               </div>
               <div>
                 <p className="text-sm font-semibold">店铺打烊中，支持预约下单</p>
-                <p className="text-xs text-teal-600/90 leading-snug">提交订单后将作为预约订单保存，我们会在营业后优先处理。</p>
+                <p className="text-xs text-blue-600/90 leading-snug">提交订单后将作为预约订单保存，我们会在营业后优先处理。</p>
               </div>
             </div>
           )}
@@ -1001,6 +1046,7 @@ export default function Cart() {
                         shouldReserve={shouldReserve}
                         reservationFromClosure={reservationFromClosure}
                         hasReservationItems={hasReservationItems}
+                        allReservationItems={allReservationItems}
                         coupons={coupons}
                         selectedCouponId={selectedCouponId}
                         setSelectedCouponId={setSelectedCouponId}

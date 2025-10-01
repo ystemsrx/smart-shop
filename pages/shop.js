@@ -10,6 +10,26 @@ import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName } from '../utils/runtimeConfig';
 
+// 格式化预约截止时间显示
+const formatReservationCutoff = (cutoffTime) => {
+  if (!cutoffTime) return '需提前预约';
+  
+  // 获取当前时间
+  const now = new Date();
+  const [hours, minutes] = cutoffTime.split(':').map(Number);
+  
+  // 创建今天的截止时间
+  const todayCutoff = new Date();
+  todayCutoff.setHours(hours, minutes, 0, 0);
+  
+  // 如果当前时间已过今天的截止时间，显示明日配送
+  if (now > todayCutoff) {
+    return `现在预约明日 ${cutoffTime} 后配送`;
+  }
+  
+  return `现在预约今日 ${cutoffTime} 后配送`;
+};
+
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, itemsMap = {}, isLoading }) => {
   const { user } = useAuth();
@@ -143,7 +163,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                 <span className="inline-flex items-center gap-2">
                   <span>{product.name}</span>
                   {requiresReservation && (
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-teal-500 text-white text-[10px] font-semibold shadow-sm">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[10px] font-semibold shadow-sm">
                       预约
                     </span>
                   )}
@@ -199,13 +219,13 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             </div>
           )}
           {requiresReservation && (
-            <div className="mt-2 text-xs text-teal-600 flex flex-col gap-1">
+            <div className="mt-2 text-xs text-blue-600 flex flex-col gap-1">
               <div className="flex items-center gap-1">
                 <i className="fas fa-calendar-check"></i>
-                <span>{reservationCutoff ? `预约截至 ${reservationCutoff}` : '需提前预约'}</span>
+                <span>{formatReservationCutoff(reservationCutoff)}</span>
               </div>
               {reservationNote && (
-                <div className="text-[11px] text-teal-500 leading-snug break-words">
+                <div className="text-[11px] text-blue-500 leading-snug break-words">
                   {reservationNote}
                 </div>
               )}
@@ -254,7 +274,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                 <button
                   onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
                   disabled={isLoading}
-                  className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                   aria-label="减少"
                 >
                   <i className="fas fa-minus text-xs"></i>
@@ -267,7 +287,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                   disabled={
                     isLoading || cartQuantity >= product.stock
                   }
-                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-teal-500 hover:bg-teal-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
+                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
                   aria-label="增加"
                 >
                   <i className="fas fa-plus text-xs"></i>
@@ -280,7 +300,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               onClick={handleAddToCart}
               disabled={isLoading}
               aria-label="加入购物车"
-              className={`w-10 h-10 rounded-full ${requiresReservation ? 'bg-teal-400 hover:bg-teal-500 text-white shadow-sm' : 'btn-primary hover:scale-105'} transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center flex-shrink-0 ml-auto`}
+              className={`w-10 h-10 rounded-full ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white shadow-lg hover:shadow-xl transform transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center flex-shrink-0 ml-auto`}
             >
               <i className="fas fa-plus"></i>
             </button>
@@ -995,25 +1015,34 @@ export default function Shop() {
             <>
               {/* 商品列表 */}
               {products.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {products.map((product, index) => (
-                    <div 
-                      key={product.id}
-                      className="animate-apple-fade-in"
-                      style={{ animationDelay: `${index * 0.1}s` }}
-                    >
-                      <ProductCard
-                        product={product}
-                        onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
-                        onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
-                        onStartFly={(el) => flyToCart(el)}
-                        onOpenSpecModal={openSpecModal}
-                        itemsMap={cartItemsMap}
-                        isLoading={cartLoading}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {products.map((product, index) => (
+                      <div 
+                        key={product.id}
+                        className="animate-apple-fade-in"
+                        style={{ animationDelay: `${index * 0.1}s` }}
+                      >
+                        <ProductCard
+                          product={product}
+                          onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
+                          onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
+                          onStartFly={(el) => flyToCart(el)}
+                          onOpenSpecModal={openSpecModal}
+                          itemsMap={cartItemsMap}
+                          isLoading={cartLoading}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* 底部提示线 */}
+                  <div className="flex items-center justify-center gap-4 mt-12 mb-20 pb-8">
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-gray-300"></div>
+                    <span className="text-sm text-gray-400 font-medium">到底了</span>
+                    <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-300 to-gray-300"></div>
+                  </div>
+                </>
               ) : (
                 <div className="text-center py-20 animate-apple-fade-in">
                   <div className="max-w-md mx-auto">
@@ -1070,13 +1099,13 @@ export default function Shop() {
                 </h4>
                 <p className="text-sm text-gray-600 mt-1">{specModalProduct.name}</p>
                 {modalRequiresReservation && (
-                  <div className="mt-2 text-xs text-teal-600 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-teal-500 text-white text-[10px] font-semibold shadow-sm">预约</span>
-                    <span>{modalReservationCutoff ? `预约截至 ${modalReservationCutoff}` : '需提前预约'}</span>
+                  <div className="mt-2 text-xs text-blue-600 flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[10px] font-semibold shadow-sm">预约</span>
+                    <span>{formatReservationCutoff(modalReservationCutoff)}</span>
                   </div>
                 )}
                 {modalRequiresReservation && modalReservationNote && (
-                  <div className="text-[11px] text-teal-500 mt-1 leading-snug break-words">{modalReservationNote}</div>
+                  <div className="text-[11px] text-blue-500 mt-1 leading-snug break-words">{modalReservationNote}</div>
                 )}
               </div>
               <button 
@@ -1167,7 +1196,7 @@ export default function Shop() {
                       <div className="flex items-center justify-center gap-4">
                         <button
                           onClick={() => handleUpdateQuantity(specModalProduct.id, qty - 1, selectedVariant)}
-                          className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors"
+                          className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full transition-colors"
                           aria-label="减少"
                         >
                           <i className="fas fa-minus text-sm"></i>
@@ -1178,7 +1207,7 @@ export default function Shop() {
                         <button
                           onClick={(e) => { flyToCart(e.currentTarget); handleUpdateQuantity(specModalProduct.id, qty + 1, selectedVariant); }}
                           disabled={qty >= stock}
-                          className={`w-10 h-10 flex items-center justify-center ${modalRequiresReservation ? 'bg-teal-500 hover:bg-teal-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
+                          className={`w-10 h-10 flex items-center justify-center ${modalRequiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
                           aria-label="增加"
                         >
                           <i className="fas fa-plus text-sm"></i>
@@ -1194,8 +1223,8 @@ export default function Shop() {
                         stock === 0
                           ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
                           : (modalRequiresReservation
-                              ? 'bg-teal-400 hover:bg-teal-500 text-white shadow-sm transform hover:scale-105'
-                              : 'btn-primary transform hover:scale-105')
+                              ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                              : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105')
                       }`}
                       title={stock === 0 ? '库存不足' : '添加到购物车'}
                     >

@@ -6,6 +6,26 @@ import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import { getShopName } from '../utils/runtimeConfig';
 
+// 格式化预约截止时间显示
+const formatReservationCutoff = (cutoffTime) => {
+  if (!cutoffTime) return '需提前预约';
+  
+  // 获取当前时间
+  const now = new Date();
+  const [hours, minutes] = cutoffTime.split(':').map(Number);
+  
+  // 创建今天的截止时间
+  const todayCutoff = new Date();
+  todayCutoff.setHours(hours, minutes, 0, 0);
+  
+  // 如果当前时间已过今天的截止时间，显示明日配送
+  if (now > todayCutoff) {
+    return `现在预约明日 ${cutoffTime} 后配送`;
+  }
+  
+  return `现在预约今日 ${cutoffTime} 后配送`;
+};
+
 // 统一状态计算（与管理端保持一致）
 const getUnifiedStatus = (order) => {
   const ps = order?.payment_status;
@@ -395,7 +415,7 @@ export default function Orders() {
                       <div className="flex items-center gap-4">
                         <StatusBadge status={us} />
                         {Boolean(o.is_reservation) && (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full shadow-sm">
+                          <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-sky-500 rounded-full shadow-sm">
                             <i className="fas fa-calendar-check"></i>
                             <span>预约订单</span>
                           </span>
@@ -562,7 +582,7 @@ export default function Orders() {
                                           <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
                                         )}
                                         {it.is_reservation && (
-                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-teal-100 text-teal-700 border border-teal-200">预约</span>
+                                          <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200">预约</span>
                                         )}
                                       </h5>
                                       {it.variant_name && (
@@ -581,8 +601,8 @@ export default function Orders() {
                                         </span>
                                       </div>
                                       {it.is_reservation && (
-                                        <div className="mt-2 text-[11px] text-teal-600 leading-snug break-words">
-                                          {it.reservation_cutoff ? `预约截至 ${it.reservation_cutoff}` : '需提前预约'}
+                                        <div className="mt-2 text-[11px] text-blue-600 leading-snug break-words">
+                                          {formatReservationCutoff(it.reservation_cutoff)}
                                           {it.reservation_note ? ` · ${it.reservation_note}` : ''}
                                         </div>
                                       )}
@@ -655,12 +675,12 @@ export default function Orders() {
                                 )}
                                 {o.shipping_info?.reservation && (
                                   <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
-                                      <i className="fas fa-calendar-day text-teal-600 text-sm"></i>
+                                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                      <i className="fas fa-calendar-day text-blue-600 text-sm"></i>
                                     </div>
                                     <div>
                                       <p className="text-xs text-gray-500">预约说明</p>
-                                      <p className="text-sm font-medium text-teal-600 leading-snug break-words">
+                                      <p className="text-sm font-medium text-blue-600 leading-snug break-words">
                                         {(Array.isArray(o.shipping_info?.reservation_reasons) && o.shipping_info.reservation_reasons.length > 0)
                                           ? o.shipping_info.reservation_reasons.join('，')
                                           : '预约订单'}
