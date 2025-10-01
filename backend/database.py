@@ -5394,16 +5394,20 @@ class CouponDB:
     
     @staticmethod
     def cleanup_revoked_coupons() -> int:
-        """清理24小时前撤回的优惠券（保留已使用的优惠券）"""
+        """清理24小时前撤回的优惠券（保留已使用的优惠券）
+        
+        注意：优先使用撤回时间（revoked_at），如果为 NULL 则使用发放时间（created_at）
+        这样可以兼容历史遗留数据（revoked_at 为 NULL 的情况）
+        """
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
                 # 删除24小时前撤回的优惠券
+                # COALESCE: 优先使用 revoked_at，如果为 NULL 则使用 created_at
                 cursor.execute('''
                     DELETE FROM coupons
                     WHERE status = 'revoked' 
-                    AND revoked_at IS NOT NULL
-                    AND datetime(revoked_at) <= datetime('now', '-1 day')
+                    AND datetime(COALESCE(revoked_at, created_at)) <= datetime('now', '-1 day')
                 ''')
                 deleted_count = cursor.rowcount
                 conn.commit()
