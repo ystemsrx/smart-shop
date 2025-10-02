@@ -3180,7 +3180,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                   <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
                 </div>
                 <div className="flex-[2]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约说明 · 选填</label>
                   <input
                     type="text"
                     name="reservation_note"
