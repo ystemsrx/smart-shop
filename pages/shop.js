@@ -168,14 +168,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <h3 className={`text-sm font-semibold leading-tight line-clamp-2 mb-2 ${
                 (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
               }`}>
-                <span className="inline-flex items-center gap-2">
-                  <span>{product.name}</span>
-                  {requiresReservation && (
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[10px] font-semibold shadow-sm">
-                      预约
-                    </span>
-                  )}
-                </span>
+                {product.name}
               </h3>
               
               {/* 分类标签 */}
@@ -191,7 +184,12 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             {/* 右侧：价格信息 */}
             <div className="flex flex-col items-end text-right shrink-0">
               {/* 当前价格 */}
-              <div className="mb-1">
+              <div className="mb-1 flex items-center gap-1.5">
+                {requiresReservation && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold shadow-sm flex-shrink-0">
+                    预
+                  </span>
+                )}
                 <span className={`text-lg font-bold whitespace-nowrap ${
                   (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
                 }`}>
@@ -273,7 +271,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               className="flex-1 btn-glass hover:bg-blue-50 text-blue-600 border-blue-200 flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <i className="fas fa-list-ul"></i>
-              <span>选规格</span>
+              {/* 如果有规格且是预约商品，在手机端只显示图标 */}
+              <span className={requiresReservation ? "hidden sm:inline" : ""}>选规格</span>
             </button>
           ) : isInCart ? (
             // 购物车中商品的数量调整控件
@@ -1154,7 +1153,7 @@ export default function Shop() {
                 <p className="text-sm text-gray-600 mt-1">{specModalProduct.name}</p>
                 {modalRequiresReservation && (
                   <div className="mt-2 text-xs text-blue-600 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[10px] font-semibold shadow-sm">预约</span>
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold shadow-sm">预</span>
                     <span>{formatReservationCutoff(modalReservationCutoff)}</span>
                   </div>
                 )}

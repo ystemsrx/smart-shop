@@ -3307,6 +3307,7 @@ const VariantManager = ({ productId, apiPrefix }) => {
             </div>
           </div>
           <button 
+            type="button"
             onClick={addVariant} 
             className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-all shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
           >
@@ -3340,6 +3341,7 @@ const VariantManager = ({ productId, apiPrefix }) => {
                       <span className="text-sm font-semibold text-gray-900">{v.name}</span>
               </div>
                     <button 
+                      type="button"
                       onClick={()=>removeVariant(v.id)} 
                       className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="删除规格"
@@ -6007,11 +6009,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       if (response && response.product) {
         const newProduct = response.product;
         setProducts(prevProducts => [newProduct, ...prevProducts]); // 将新商品添加到列表开头
-        alert('商品添加成功！');
         setShowAddModal(false);
       } else {
         // 如果服务器没有返回商品数据，则重新加载
-        alert('商品添加成功！');
         setShowAddModal(false);
         await loadData(); // 重新加载数据
       }
@@ -6065,7 +6065,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         });
       }
       
-      alert('商品更新成功！');
       setEditingProduct(null);
       setShowEditModal(false);
       
