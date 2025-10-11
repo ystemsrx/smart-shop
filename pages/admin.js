@@ -2526,8 +2526,8 @@ const ProductTable = ({
                       </div>
                       <div className="ml-4">
                         <div className="flex items-center gap-2">
-                          <div className={`text-sm font-medium transition-all duration-200 ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
-                            {product.name}
+                          <div className={`text-sm font-medium transition-all duration-200 ${isActive ? 'text-gray-900' : 'text-gray-500'}`} title={product.name}>
+                            {product.name && product.name.length > 10 ? product.name.slice(0, 10) + '...' : product.name}
                             {!isActive && <span className="ml-2 text-xs text-red-500">(已下架)</span>}
                           </div>
                           {isHot && (
