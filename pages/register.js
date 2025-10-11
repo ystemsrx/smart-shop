@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
 import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
+import PastelBackground from '../components/ModalCard';
 
 export default function Register() {
   const router = useRouter();
@@ -153,14 +154,14 @@ export default function Register() {
           <title>注册 - {shopName}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         </Head>
-        <div className="min-h-screen flex items-center justify-center" style={{
-          background: 'linear-gradient(135deg, #f97316 0%, #ec4899 25%, #a855f7 50%, #06b6d4 75%, #10b981 100%)'
-        }}>
-          <div className="text-center text-white">
-            <div className="loading-dots text-white mb-4"></div>
-            <p>检查注册状态中...</p>
+        <PastelBackground>
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center text-gray-700">
+              <div className="loading-dots text-gray-700 mb-4"></div>
+              <p>检查注册状态中...</p>
+            </div>
           </div>
-        </div>
+        </PastelBackground>
       </>
     );
   }
@@ -173,28 +174,28 @@ export default function Register() {
           <title>注册 - {shopName}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         </Head>
-        <div className="min-h-screen flex items-center justify-center" style={{
-          background: 'linear-gradient(135deg, #f97316 0%, #ec4899 25%, #a855f7 50%, #06b6d4 75%, #10b981 100%)'
-        }}>
-          <div className="text-center text-white max-w-md mx-auto px-4">
-            <div className="mb-6">
-              <i className="fas fa-exclamation-triangle text-6xl text-yellow-300 mb-4"></i>
+        <PastelBackground>
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center text-gray-700 max-w-md mx-auto px-4">
+              <div className="mb-6">
+                <i className="fas fa-exclamation-triangle text-6xl text-yellow-500 mb-4"></i>
+              </div>
+              <h1 className="text-2xl font-bold mb-4">注册功能未启用</h1>
+              <p className="text-gray-600 mb-6">
+                管理员暂未开放用户注册功能，请联系管理员或使用现有账号登录。
+              </p>
+              <p className="text-sm text-gray-500 mb-4">
+                3秒后自动跳转到登录页面...
+              </p>
+              <button
+                onClick={() => router.push('/login')}
+                className="btn-primary text-white px-6 py-2 rounded-lg"
+              >
+                立即前往登录
+              </button>
             </div>
-            <h1 className="text-2xl font-bold mb-4">注册功能未启用</h1>
-            <p className="text-white/80 mb-6">
-              管理员暂未开放用户注册功能，请联系管理员或使用现有账号登录。
-            </p>
-            <p className="text-sm text-white/60 mb-4">
-              3秒后自动跳转到登录页面...
-            </p>
-            <button
-              onClick={() => router.push('/login')}
-              className="btn-primary text-white px-6 py-2 rounded-lg"
-            >
-              立即前往登录
-            </button>
           </div>
-        </div>
+        </PastelBackground>
       </>
     );
   }
@@ -206,27 +207,8 @@ export default function Register() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       
-      <div className="min-h-screen relative overflow-hidden" style={{
-        background: 'linear-gradient(135deg, #f97316 0%, #ec4899 25%, #a855f7 50%, #06b6d4 75%, #10b981 100%)'
-      }}>
-        {/* 动态背景装饰 */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-20 -left-20 w-80 h-80 rounded-full bg-white/15 backdrop-blur-3xl animate-pulse"></div>
-          <div className="absolute top-40 -right-32 w-96 h-96 rounded-full bg-orange-400/20 backdrop-blur-3xl"></div>
-          <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 w-72 h-72 rounded-full bg-pink-400/20 backdrop-blur-3xl"></div>
-          <div className="absolute top-20 left-1/4 w-64 h-64 rounded-full bg-purple-400/15 backdrop-blur-3xl animate-bounce" style={{animationDuration: '3s'}}></div>
-          <div className="absolute bottom-32 right-1/4 w-56 h-56 rounded-full bg-cyan-400/20 backdrop-blur-3xl"></div>
-        </div>
-
-        {/* 网格背景 */}
-        <div className="absolute inset-0 opacity-10">
-          <div style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.1'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            backgroundSize: '60px 60px'
-          }} className="w-full h-full"></div>
-        </div>
-
-        <div className="relative z-10 min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <PastelBackground>
+        <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
           {/* 顶部Logo和标题 */}
           <div className="sm:mx-auto sm:w-full sm:max-w-md animate-apple-fade-in">
             <div className="flex justify-center mb-8">
@@ -425,7 +407,7 @@ export default function Register() {
             </div>
           </div>
         </div>
-      </div>
+      </PastelBackground>
     </>
   );
 }

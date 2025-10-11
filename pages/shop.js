@@ -9,6 +9,7 @@ import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName } from '../utils/runtimeConfig';
+import PastelBackground from '../components/ModalCard';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -932,18 +933,9 @@ export default function Shop() {
       {/* 顶部导航（移动端优化） */}
       <Nav active={navActive} />
 
-      <div className="min-h-screen pt-16" style={{
-        background: 'linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)'
-      }}>
-        {/* 背景装饰 */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-blue-400/10 blur-3xl"></div>
-          <div className="absolute top-60 -left-40 w-96 h-96 rounded-full bg-purple-400/10 blur-3xl"></div>
-          <div className="absolute bottom-40 right-20 w-64 h-64 rounded-full bg-pink-400/10 blur-3xl"></div>
-        </div>
-
+      <PastelBackground className="pt-16">
         {/* 主要内容 */}
-        <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {!shopOpen && (
             <div className="mb-6 card-glass p-4 border border-orange-200/50 text-orange-800 animate-apple-fade-in">
               <div className="flex items-start gap-3">
@@ -1129,7 +1121,7 @@ export default function Shop() {
 
         {/* 右下角悬浮购物车 */}
         <FloatingCart ref={cartWidgetRef} count={cart?.total_quantity ?? 0} />
-      </div>
+      </PastelBackground>
 
       {/* 规格选择弹窗 */}
       {showSpecModal && specModalProduct && (

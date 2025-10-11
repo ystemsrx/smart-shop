@@ -1307,7 +1307,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                 <p className="text-gray-400 mt-1">请使用上方搜索框添加商品</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto p-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
                 {selectedItems.map(item => (
                   <div 
                     key={`${item.product_id}_${item.variant_id || 'base'}`} 
@@ -1347,13 +1347,25 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                         </div>
                       </div>
                       
-                      {/* 状态标签 */}
-                      {!item.available && (
-                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                      {/* 状态标签 - 包括正常、缺货、下架 */}
+                      <div className="mt-2">
+                        {item.available && item.is_active !== false && item.is_active !== 0 ? (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                            <i className="fas fa-check-circle text-[10px]"></i>
+                            <span>正常</span>
+                          </div>
+                        ) : !item.available && (item.is_active === false || item.is_active === 0) ? (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                            <i className="fas fa-pause-circle text-[10px]"></i>
+                            <span>下架</span>
+                          </div>
+                        ) : !item.available ? (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
                           <i className="fas fa-exclamation-circle text-[10px]"></i>
                           <span>缺货</span>
                         </div>
-                      )}
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 ))}

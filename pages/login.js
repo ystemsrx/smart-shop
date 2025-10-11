@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
 import { getShopName } from '../utils/runtimeConfig';
+import PastelBackground from '../components/ModalCard';
 
 export default function Login() {
   const router = useRouter();
@@ -69,27 +70,8 @@ export default function Login() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       
-       <div className="min-h-screen relative overflow-hidden" style={{
-         background: 'linear-gradient(135deg, #f97316 0%, #ec4899 25%, #a855f7 50%, #06b6d4 75%, #10b981 100%)'
-       }}>
-         {/* 动态背景装饰 */}
-         <div className="absolute inset-0 overflow-hidden">
-           <div className="absolute -top-20 -left-20 w-80 h-80 rounded-full bg-white/15 backdrop-blur-3xl animate-pulse"></div>
-           <div className="absolute top-40 -right-32 w-96 h-96 rounded-full bg-orange-400/20 backdrop-blur-3xl"></div>
-           <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 w-72 h-72 rounded-full bg-pink-400/20 backdrop-blur-3xl"></div>
-           <div className="absolute top-20 left-1/4 w-64 h-64 rounded-full bg-purple-400/15 backdrop-blur-3xl animate-bounce" style={{animationDuration: '3s'}}></div>
-           <div className="absolute bottom-32 right-1/4 w-56 h-56 rounded-full bg-cyan-400/20 backdrop-blur-3xl"></div>
-         </div>
-
-        {/* 网格背景 */}
-        <div className="absolute inset-0 opacity-10">
-          <div style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.1'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            backgroundSize: '60px 60px'
-          }} className="w-full h-full"></div>
-        </div>
-
-        <div className="relative z-10 min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <PastelBackground>
+        <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
           {/* 顶部Logo和标题 */}
           <div className="sm:mx-auto sm:w-full sm:max-w-md animate-apple-fade-in">
             <div className="flex justify-center mb-8">
@@ -261,7 +243,7 @@ export default function Login() {
             </div>
           </div>
         </div>
-      </div>
+      </PastelBackground>
     </>
   );
 }
