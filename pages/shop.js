@@ -87,7 +87,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const reservationNote = (product.reservation_note || '').trim();
 
   return (
-    <div className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out animate-apple-fade-in h-[420px] flex flex-col ${
+    <div className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out h-[420px] flex flex-col ${
       (isOutOfStock || isDown)
         ? 'opacity-60 grayscale cursor-not-allowed'
         : 'hover:scale-105'
@@ -325,7 +325,7 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHot
   const isActive = (value) => selectedCategory === value;
 
   return (
-    <div className="mb-8 animate-apple-slide-up animate-delay-200">
+    <div className="mb-8 opacity-0 animate-apple-slide-up animate-delay-200">
       <div className="flex items-center gap-3 mb-4">
         <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
           <i className="fas fa-layer-group text-white text-sm"></i>
@@ -339,7 +339,7 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHot
             className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
               isActive('hot')
                 ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
-                : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+                : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -353,7 +353,7 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHot
           className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
             isActive('all')
               ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
-              : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+              : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
           }`}
         >
           <div className="flex items-center gap-2">
@@ -367,10 +367,10 @@ const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHot
             <button
               key={category.id}
               onClick={() => onCategoryChange(value)}
-              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 animate-apple-fade-in ${
+              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 opacity-0 animate-apple-fade-in ${
                 isActive(value)
                   ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
-                  : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 backdrop-blur-sm'
+                  : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
               }`}
               style={{ animationDelay: `${index * 0.05}s` }}
             >
@@ -394,16 +394,16 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
   };
 
   return (
-    <div className="mb-8 animate-apple-fade-in animate-delay-100">
+    <div className="mb-8 opacity-0 animate-apple-fade-in animate-delay-100">
       <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto">
         <div className="relative group">
            {/* 背景光晕 */}
            <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-pink-600 rounded-2xl blur opacity-30 group-hover:opacity-50 transition-opacity duration-300"></div>
           
           {/* 搜索框主体 */}
-          <div className="relative flex items-center bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-lg">
+          <div className="relative flex items-center bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
             {/* 搜索图标 */}
-            <div className="absolute left-4 text-gray-400 group-focus-within:text-blue-500 transition-colors">
+            <div className="absolute left-4 text-gray-400 group-focus-within:text-orange-500 transition-colors">
               <i className="fas fa-search"></i>
             </div>
             
@@ -413,7 +413,7 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="搜索您喜欢的商品..."
-              className="flex-1 pl-12 pr-4 py-4 bg-transparent text-gray-900 placeholder-gray-500 outline-none text-lg"
+              className="flex-1 pl-12 pr-4 py-4 bg-transparent text-gray-900 placeholder-gray-400 outline-none text-lg"
             />
             
             {/* 搜索按钮 */}
@@ -937,14 +937,14 @@ export default function Shop() {
         {/* 主要内容 */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {!shopOpen && (
-            <div className="mb-6 card-glass p-4 border border-orange-200/50 text-orange-800 animate-apple-fade-in">
+            <div className="mb-6 card-glass p-4 border border-orange-300/50 shadow-sm opacity-0 animate-apple-fade-in">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <i className="fas fa-exclamation-triangle text-orange-600"></i>
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium mb-1">{isAgent ? '店铺提醒' : '店铺提醒'}</p>
-                  <SimpleMarkdown className="text-sm text-orange-700">
+                  <p className="font-medium mb-1 text-orange-900">{isAgent ? '店铺提醒' : '店铺提醒'}</p>
+                  <SimpleMarkdown className="text-sm text-orange-800">
                     {shopNote || '当前打烊，暂不支持结算，仅可加入购物车'}
                   </SimpleMarkdown>
                 </div>
@@ -953,7 +953,7 @@ export default function Shop() {
           )}
           
           {/* 页面标题区域 */}
-          <div className="mb-12 text-center animate-apple-fade-in">
+          <div className="mb-12 text-center opacity-0 animate-apple-fade-in">
             <div className="flex justify-center mb-6">
               <div className="relative">
                 <div className="absolute -inset-4 bg-gradient-to-r from-orange-500 to-pink-600 rounded-3xl blur-2xl opacity-30"></div>
@@ -969,18 +969,18 @@ export default function Shop() {
               精选优质零食，为您提供贴心配送服务，让美味触手可及
             </p>
             
-            {/* 统计信息 */}
-            <div className="flex justify-center items-center gap-8 mt-8 text-sm text-gray-600">
+              {/* 统计信息 */}
+            <div className="flex justify-center items-center gap-8 mt-8 text-sm text-gray-700">
               <div className="flex items-center gap-2">
                 <i className="fas fa-truck text-green-500"></i>
                 <span>满10免费配送</span>
               </div>
-              <div className="w-1 h-1 bg-gray-300 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
               <div className="flex items-center gap-2">
                 <i className="fas fa-clock text-blue-500"></i>
                 <span>最快3分钟送达</span>
               </div>
-              <div className="w-1 h-1 bg-gray-300 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
               <div className="flex items-center gap-2">
                 <i className="fas fa-star text-yellow-500"></i>
                 <span>商品优质保证</span>
@@ -991,7 +991,7 @@ export default function Shop() {
               <div className="mt-6 flex justify-center">
                 <button
                   onClick={openLocationModal}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/80 text-gray-700 border border-white/40 shadow-md hover:shadow-lg transition-all duration-300"
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/90 text-gray-700 border border-gray-200/60 shadow-md hover:shadow-lg transition-all duration-300 hover:bg-white"
                 >
                   <span className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-600">
                     <i className="fas fa-location-dot"></i>
@@ -1065,8 +1065,8 @@ export default function Shop() {
                     {products.map((product, index) => (
                       <div 
                         key={product.id}
-                        className="animate-apple-fade-in"
-                        style={{ animationDelay: `${index * 0.1}s` }}
+                        className="opacity-0 animate-apple-fade-in"
+                        style={{ animationDelay: `${index * 0.05}s` }}
                       >
                         <ProductCard
                           product={product}
@@ -1083,15 +1083,15 @@ export default function Shop() {
                   
                   {/* 底部提示线 */}
                   <div className="flex items-center justify-center gap-4 mt-12 mb-20">
-                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-gray-300"></div>
-                    <span className="text-sm text-gray-400 font-medium">到底了</span>
-                    <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-300 to-gray-300"></div>
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-400 to-gray-400"></div>
+                    <span className="text-sm text-gray-500 font-medium">到底了</span>
+                    <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-400 to-gray-400"></div>
                   </div>
                 </>
               ) : (
-                <div className="text-center py-20 animate-apple-fade-in">
+                <div className="text-center py-20 opacity-0 animate-apple-fade-in">
                   <div className="max-w-md mx-auto">
-                    <div className="w-24 h-24 bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                    <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
                       <i className="fas fa-shopping-basket text-gray-400 text-3xl"></i>
                     </div>
                     <h3 className="text-xl font-semibold text-gray-900 mb-2">
@@ -1126,7 +1126,7 @@ export default function Shop() {
       {/* 规格选择弹窗 */}
       {showSpecModal && specModalProduct && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-apple-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 animate-apple-fade-in"
           onClick={(e) => {
             // 点击背景关闭弹窗
             if (e.target === e.currentTarget) {
@@ -1134,7 +1134,7 @@ export default function Shop() {
             }
           }}
         >
-          <div className="card-glass max-w-md w-full mx-4 p-6 shadow-2xl border border-white/30 animate-apple-scale-in">
+          <div className="card-glass max-w-md w-full mx-4 p-6 shadow-2xl border border-gray-200/50 opacity-0 animate-apple-scale-in">
             {/* 弹窗头部 */}
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -1168,12 +1168,12 @@ export default function Shop() {
                 .map((variant, index) => (
                 <label 
                   key={variant.id} 
-                  className={`block transform transition-all duration-200 animate-apple-slide-up ${
+                  className={`block transform transition-all duration-200 opacity-0 animate-apple-slide-up ${
                     variant.stock === 0 
-                      ? 'cursor-not-allowed opacity-50' 
+                      ? 'cursor-not-allowed' 
                       : 'cursor-pointer hover:scale-105'
                   }`}
-                  style={{ animationDelay: `${index * 0.1}s` }}
+                  style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div className={`p-4 rounded-xl border-2 transition-all duration-200 ${
                     variant.stock === 0
