@@ -3342,37 +3342,31 @@ const VariantManager = ({ productId, apiPrefix }) => {
           </div>
         ) : (
           <>
-            <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
               {variants.map((v, index) => (
-                <div key={v.id} className="bg-gray-50 hover:bg-teal-50 rounded-lg p-3 border-2 border-gray-200 hover:border-teal-300 transition-all group">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                        {index + 1}
-                </div>
-                      <span className="text-sm font-semibold text-gray-900">{v.name}</span>
-              </div>
-                    <button 
-                      type="button"
-                      onClick={()=>removeVariant(v.id)} 
-                      className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="删除规格"
-                    >
-                      <i className="fas fa-trash-alt text-xs"></i>
-                    </button>
-                  </div>
+                <div key={v.id} className="relative group rounded-xl border-2 border-teal-200 bg-teal-50/30 hover:bg-teal-50 p-3 transition-all hover:shadow-md">
+                  {/* 删除按钮 - 圆形叉号 */}
+                  <button
+                    type="button"
+                    onClick={()=>removeVariant(v.id)}
+                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
+                    title="删除规格"
+                  >
+                    <i className="fas fa-times text-xs"></i>
+                  </button>
                   
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
+                  {/* 规格信息 */}
+                  <div className="pr-2">
+                    <div className="mb-2">
                       <label className="text-xs text-gray-600 mb-1 block">名称</label>
                       <input 
-                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
                         defaultValue={v.name} 
                         onBlur={(e)=>updateVariant(v.id,{name:e.target.value})} 
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-600 mb-1 block">库存</label>
+                      <label className="text-xs text-gray-600 mb-1 block">库存数量</label>
                       <input 
                         type="number" 
                         min={0} 
@@ -3382,9 +3376,9 @@ const VariantManager = ({ productId, apiPrefix }) => {
                       />
                     </div>
                   </div>
-            </div>
+                </div>
           ))}
-        </div>
+            </div>
             
             <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 text-xs text-gray-700">
               <div className="flex items-start gap-2">
@@ -4268,31 +4262,25 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
             </div>
           ) : (
             <>
-              <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
                 {variants.map((v, index) => (
-                  <div key={v.id} className="bg-gray-50 hover:bg-teal-50 rounded-lg p-3 border-2 border-gray-200 hover:border-teal-300 transition-all group">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold">
-                          {index + 1}
-                        </div>
-                        <span className="text-sm font-semibold text-gray-900">{v.name}</span>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={()=>removeVariant(v.id)} 
-                        className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="删除规格"
-                      >
-                        <i className="fas fa-trash-alt text-xs"></i>
-                      </button>
-                    </div>
+                  <div key={v.id} className="relative group rounded-xl border-2 border-teal-200 bg-teal-50/30 hover:bg-teal-50 p-3 transition-all hover:shadow-md">
+                    {/* 删除按钮 - 圆形叉号 */}
+                    <button
+                      type="button"
+                      onClick={()=>removeVariant(v.id)}
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
+                      title="删除规格"
+                    >
+                      <i className="fas fa-times text-xs"></i>
+                    </button>
                     
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
+                    {/* 规格信息 */}
+                    <div className="pr-2">
+                      <div className="mb-2">
                         <label className="text-xs text-gray-600 mb-1 block">名称</label>
                         <input 
-                          className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                          className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
                           value={v.name} 
                           onChange={(e)=>{
                             setVariants(variants.map(item => item.id === v.id ? {...item, name: e.target.value} : item));
@@ -4300,7 +4288,7 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">库存</label>
+                        <label className="text-xs text-gray-600 mb-1 block">库存数量</label>
                         <input 
                           type="number" 
                           min={0} 
