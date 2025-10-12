@@ -10,6 +10,7 @@ import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
+import ProductDetailModal from '../components/ProductDetailModal';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -32,7 +33,7 @@ const formatReservationCutoff = (cutoffTime) => {
 };
 
 // 商品卡片组件
-const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, itemsMap = {}, isLoading }) => {
+const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, onOpenDetailModal, itemsMap = {}, isLoading }) => {
   const { user } = useAuth();
   const [showReservationInfo, setShowReservationInfo] = useState(true);
   
@@ -87,11 +88,19 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const reservationNote = (product.reservation_note || '').trim();
 
   return (
-    <div className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out h-[420px] flex flex-col ${
-      (isOutOfStock || isDown)
-        ? 'opacity-60 grayscale cursor-not-allowed'
-        : 'hover:scale-105'
-    }`}>
+    <div 
+      className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out h-[420px] flex flex-col ${
+        (isOutOfStock || isDown)
+          ? 'opacity-60 grayscale cursor-not-allowed'
+          : 'hover:scale-105 cursor-pointer'
+      }`}
+      onClick={(e) => {
+        // 如果点击的是按钮或其子元素，不打开详情
+        if (e.target.closest('button')) return;
+        // 打开详情弹窗
+        onOpenDetailModal && onOpenDetailModal(product);
+      }}
+    >
       <div className="aspect-square w-full overflow-hidden relative bg-gradient-to-br from-gray-50 to-gray-100">
         {/* 折扣角标 */}
         {hasDiscount && (
@@ -295,7 +304,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                   disabled={
                     isLoading || cartQuantity >= product.stock
                   }
-                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
+                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
                   aria-label="增加"
                 >
                   <i className="fas fa-plus text-xs"></i>
@@ -470,6 +479,10 @@ export default function Shop() {
   const modalRequiresReservation = Boolean(specModalProduct?.reservation_required);
   const modalReservationCutoff = specModalProduct?.reservation_cutoff;
   const modalReservationNote = (specModalProduct?.reservation_note || '').trim();
+
+  // 商品详情弹窗状态
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailModalProduct, setDetailModalProduct] = useState(null);
 
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
   const flyToCart = (startEl) => {
@@ -752,6 +765,18 @@ export default function Shop() {
     setShowSpecModal(false);
     setSpecModalProduct(null);
     setSelectedVariant(null);
+  };
+
+  // 打开商品详情弹窗
+  const openDetailModal = (product) => {
+    setDetailModalProduct(product);
+    setShowDetailModal(true);
+  };
+
+  // 关闭商品详情弹窗
+  const closeDetailModal = () => {
+    setShowDetailModal(false);
+    setDetailModalProduct(null);
   };
 
   // 添加到购物车（乐观更新）
@@ -1074,6 +1099,7 @@ export default function Shop() {
                           onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
                           onStartFly={(el) => flyToCart(el)}
                           onOpenSpecModal={openSpecModal}
+                          onOpenDetailModal={openDetailModal}
                           itemsMap={cartItemsMap}
                           isLoading={cartLoading}
                         />
@@ -1287,6 +1313,19 @@ export default function Shop() {
           </div>
         </div>
       )}
+
+      {/* 商品详情弹窗 */}
+      <ProductDetailModal
+        product={detailModalProduct}
+        isOpen={showDetailModal}
+        onClose={closeDetailModal}
+        onAddToCart={handleAddToCart}
+        onUpdateQuantity={handleUpdateQuantity}
+        cartItemsMap={cartItemsMap}
+        onStartFly={flyToCart}
+        isLoading={cartLoading}
+        user={user}
+      />
     </>
   );
 }
