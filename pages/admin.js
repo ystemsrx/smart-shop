@@ -1641,14 +1641,20 @@ const GiftThresholdPanel = ({ apiPrefix }) => {
                       {threshold.items.slice(0, 5).map((item, idx) => (
                         <div 
                           key={idx} 
-                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                          className={`inline-flex flex-col gap-1 px-3 py-2 rounded-lg text-xs font-medium border ${
                             item.available 
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                               : 'bg-red-50 text-red-700 border-red-200'
                           }`}
                         >
-                          <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
-                          <i className={`fas ${item.available ? 'fa-check-circle text-emerald-600' : 'fa-times-circle text-red-600'}`}></i>
+                          <div className="flex items-center gap-2">
+                            <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
+                            <i className={`fas ${item.available ? 'fa-check-circle text-emerald-600' : 'fa-times-circle text-red-600'}`}></i>
+                          </div>
+                          <div className="flex items-center gap-1 text-gray-600">
+                            <i className="fas fa-box text-[10px]"></i>
+                            <span>库存：{item.stock !== undefined && item.stock !== null ? item.stock : 0}</span>
+                          </div>
                         </div>
                       ))}
                       {threshold.items.length > 5 && (
@@ -3872,32 +3878,36 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${isVisible ? 'bg-black/50 backdrop-blur-sm' : 'bg-black/0'}`}>
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl mx-4 max-h-[85vh] flex flex-col overflow-hidden transform transition-all duration-300 ${isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}>
-        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <i className="fas fa-receipt text-indigo-600"></i>
-              订单详情
-            </h3>
-            <p className="text-sm text-gray-600 mt-1 font-mono break-all">订单号：{order?.id || '-'}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {statusBadge}
-            {createdAtDisplay && (
-              <div className="text-xs text-gray-500">创建时间：{createdAtDisplay}</div>
-            )}
-            <button
-              onClick={onClose}
-              className="w-10 h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-sm transition-all hover:scale-110"
-            >
-              <i className="fas fa-times"></i>
-            </button>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 max-h-[95vh] flex flex-col overflow-hidden transform transition-all duration-300 ${isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}>
+        {/* 右上角关闭按钮 */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-lg transition-all hover:scale-110"
+        >
+          <i className="fas fa-times"></i>
+        </button>
+        
+        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50">
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <i className="fas fa-receipt text-indigo-600"></i>
+                订单详情
+              </h3>
+              <p className="text-sm text-gray-600 mt-1 font-mono break-all">订单号：{order?.id || '-'}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {statusBadge}
+              {createdAtDisplay && (
+                <div className="text-xs text-gray-500">创建时间：{createdAtDisplay}</div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto lg:overflow-hidden p-6 pb-8 space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-fit lg:h-[480px]">
+        <div className="flex-1 overflow-y-auto p-6 pb-12 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:items-start">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col lg:h-[calc(95vh-260px)]">
               <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
                 <i className="fas fa-box text-indigo-500"></i>
                 <span className="text-sm font-semibold text-gray-900">商品明细</span>
@@ -3908,13 +3918,12 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                   暂无商品记录
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto">
-                  <div className="divide-y divide-gray-100">
-                    {items.map((it, idx) => (
-                      <div 
-                        key={`${it.product_id || 'item'}_${idx}`} 
-                        className="px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
-                      >
+                <div className="divide-y divide-gray-100 max-h-[400px] lg:max-h-none overflow-y-auto lg:flex-1 lg:min-h-0">
+                  {items.map((it, idx) => (
+                    <div 
+                      key={`${it.product_id || 'item'}_${idx}`} 
+                      className="px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+                    >
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex-1 min-w-0">
                             {/* 商品名称和标签 */}
@@ -3980,19 +3989,18 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            <div className="space-y-6 lg:h-[480px] flex flex-col">
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
+            <div className="flex flex-col gap-6 lg:h-[calc(95vh-260px)]">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col lg:flex-shrink-0">
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
                   <i className="fas fa-user text-indigo-500"></i>
                   <span className="text-sm font-semibold text-gray-900">收货信息</span>
                 </div>
-                <div className="px-4 py-4 text-sm text-gray-700 space-y-2 flex-1 overflow-y-auto">
+                <div className="px-4 py-4 text-sm text-gray-700 space-y-2">
                   <div>昵称：{order?.shipping_info?.name || '—'}</div>
                   <div>电话：{order?.shipping_info?.phone || '—'}</div>
                   <div>地址：{order?.shipping_info?.full_address || '—'}</div>
@@ -4011,12 +4019,12 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                 </div>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col lg:flex-1 lg:min-h-0">
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
                   <i className="fas fa-info-circle text-indigo-500"></i>
                   <span className="text-sm font-semibold text-gray-900">订单概览</span>
                 </div>
-                <div className="px-4 py-4 text-sm text-gray-700 space-y-2 flex-1 overflow-y-auto">
+                <div className="px-4 py-4 text-sm text-gray-700 space-y-2">
                   <div className="flex justify-between">
                     <span>支付方式</span>
                     <span>{paymentMethod}</span>

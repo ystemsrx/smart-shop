@@ -143,6 +143,7 @@ export default function Orders() {
   const [error, setError] = useState('');
   const [payOrderId, setPayOrderId] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [viewingOrder, setViewingOrder] = useState(null);
   const [filter, setFilter] = useState('全部');
   const [tick, setTick] = useState(0); // 用于每秒刷新倒计时
   const [lotteryOpen, setLotteryOpen] = useState(false);
@@ -463,10 +464,8 @@ export default function Orders() {
                 </div>
               ) : filteredOrders.map((o, index) => {
                 const us = getUnifiedStatus(o);
-                const isOpen = !!expanded[o.id];
                 const showCountdown = us === '未付款' && (o.payment_status === 'pending' || !o.payment_status);
                 const remainSec = showCountdown ? getRemainSeconds(o) : 0;
-                const displayItems = collapseAutoGiftItemsForDisplay(o.items || []);
                 return (
                   <div 
                     key={o.id} 
@@ -514,11 +513,11 @@ export default function Orders() {
                             <p className="text-xs text-gray-500">订单总额</p>
                           </div>
                           <button
-                            onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
+                            onClick={() => setViewingOrder(o)}
                             className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 hover:text-gray-900 transition-colors whitespace-nowrap"
                           >
-                            <i className={`fas ${isOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`}></i>
-                            <span>{isOpen ? '收起' : '详情'}</span>
+                            <i className="fas fa-eye"></i>
+                            <span>查看详情</span>
                           </button>
                         </div>
                       </div>
@@ -555,11 +554,11 @@ export default function Orders() {
                             <p className="text-xs text-gray-500">订单总额</p>
                           </div>
                           <button
-                            onClick={() => { setExpanded(prev => ({ ...prev, [o.id]: !isOpen })); }}
+                            onClick={() => setViewingOrder(o)}
                             className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
                           >
-                            <i className={`fas ${isOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`}></i>
-                            <span>{isOpen ? '收起详情' : '查看详情'}</span>
+                            <i className="fas fa-eye"></i>
+                            <span>查看详情</span>
                           </button>
                         </div>
                       </div>
@@ -567,46 +566,32 @@ export default function Orders() {
 
                     {/* body */}
                     <div className="px-4 sm:px-6 py-4">
-                      {/* 手机端：纵向布局 */}
-                      <div className="flex flex-col md:hidden gap-4 mb-4">
-                        {/* 订单号和支付方式 */}
-                        <div className="bg-gray-50 rounded-xl p-3">
-                          <div className="flex items-center justify-between gap-3">
+                      {/* 订单基本信息卡片 */}
+                      <div className="bg-gray-50 rounded-xl p-4">
+                        <div className="grid grid-cols-2 gap-4">
                             {/* 订单号 */}
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <div className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i className="fas fa-hashtag text-emerald-600 text-xs"></i>
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <i className="fas fa-hashtag text-emerald-600 text-sm"></i>
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs text-gray-500 mb-0.5">订单编号</p>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono text-xs text-gray-900 truncate">{o.id.replace('order_', '')}</span>
-                                  <button
-                                    className={`px-1.5 py-0.5 text-xs rounded transition-all whitespace-nowrap flex-shrink-0 ${
-                                      copiedOrderId === o.id 
-                                        ? 'bg-green-100 text-green-600' 
-                                        : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-600'
-                                    }`}
-                                    onClick={() => copyToClipboard(o.id)}
-                                  >
-                                    <i className={`fas ${copiedOrderId === o.id ? 'fa-check' : 'fa-copy'}`}></i>
-                                  </button>
+                              <p className="text-xs text-gray-500">订单编号</p>
+                              <p className="font-mono text-sm text-gray-900 truncate">{o.id.replace('order_', '')}</p>
                                 </div>
                               </div>
-                            </div>
+
                             {/* 支付方式 */}
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <div className="w-7 h-7 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i className="fas fa-credit-card text-green-600 text-xs"></i>
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <i className="fas fa-credit-card text-green-600 text-sm"></i>
                               </div>
-                              <div>
-                                <p className="text-xs text-gray-500 mb-0.5">支付方式</p>
+                            <div className="min-w-0">
+                              <p className="text-xs text-gray-500">支付方式</p>
                                 <div className="flex items-center gap-1">
                                   {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500 text-xs"></i>}
-                                  <span className="text-xs text-gray-900 whitespace-nowrap">
+                                <span className="text-sm text-gray-900 whitespace-nowrap">
                                     {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
                                   </span>
-                                </div>
                               </div>
                             </div>
                           </div>
@@ -616,260 +601,13 @@ export default function Orders() {
                         {us === '未付款' && (
                           <button 
                             onClick={() => handleShowPayModal(o.id)} 
-                            className="btn-primary w-full px-6 py-2.5 text-sm flex items-center justify-center gap-2 transform hover:scale-105 transition-all duration-300"
+                            className="btn-primary w-full mt-4 px-6 py-2.5 text-sm flex items-center justify-center gap-2 transform hover:scale-105 transition-all duration-300"
                           >
                             <i className="fas fa-credit-card"></i>
                             <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
                           </button>
                         )}
                       </div>
-
-                      {/* 电脑端：横向布局 */}
-                      <div className="hidden md:grid md:grid-cols-3 gap-4 mb-4">
-                        {/* 订单号和支付方式 - 占2/3 */}
-                        <div className="col-span-2 bg-gray-50 rounded-xl p-4">
-                          <div className="flex items-center gap-6">
-                            <div className="flex items-center gap-3 flex-1">
-                              <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i className="fas fa-hashtag text-emerald-600 text-sm"></i>
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-xs text-gray-500 mb-1">订单号码</p>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-sm text-gray-900 whitespace-nowrap">{o.id}</span>
-                                  <button
-                                    className={`px-2 py-1 text-xs rounded-md transition-all whitespace-nowrap ${
-                                      copiedOrderId === o.id 
-                                        ? 'bg-green-100 text-green-600' 
-                                        : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-600'
-                                    }`}
-                                    onClick={() => copyToClipboard(o.id)}
-                                  >
-                                    <i className={`fas ${copiedOrderId === o.id ? 'fa-check' : 'fa-copy'} mr-1`}></i>
-                                    {copiedOrderId === o.id ? '已复制' : '复制'}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i className="fas fa-credit-card text-green-600 text-sm"></i>
-                              </div>
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">支付方式</p>
-                                <div className="flex items-center gap-2 whitespace-nowrap">
-                                  {o.payment_method === 'wechat' && <i className="fab fa-weixin text-green-500"></i>}
-                                  <span className="text-sm text-gray-900">
-                                    {o.payment_method === 'wechat' ? '微信支付' : (o.payment_method || '—')}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 操作按钮和状态提示 - 占1/3 */}
-                        <div className="col-span-1">
-                          {us === '未付款' && (
-                            <button 
-                              onClick={() => handleShowPayModal(o.id)} 
-                              className="btn-primary w-full h-full px-6 py-2.5 text-sm flex items-center justify-center gap-2 transform hover:scale-105 transition-all duration-300"
-                            >
-                              <i className="fas fa-credit-card"></i>
-                              <span>{o.payment_status === 'failed' ? '重新付款' : '立即付款'}</span>
-                            </button>
-                          )}
-                          {us !== '未付款' && (() => {
-                            const meta = {
-                              '待确认': {
-                                box: 'bg-amber-50 border-amber-200',
-                                text: 'text-amber-700',
-                                sub: 'text-amber-600',
-                                icon: 'fas fa-clock',
-                                title: '待确认',
-                                desc: '已提交付款，正在核验，请耐心等待'
-                              },
-                              '待配送': {
-                                box: 'bg-cyan-50 border-cyan-200',
-                                text: 'text-cyan-700',
-                                sub: 'text-cyan-600',
-                                icon: 'fas fa-box',
-                                title: '待配送',
-                                desc: '付款已确认，正在备货与安排配送'
-                              },
-                              '配送中': {
-                                box: 'bg-purple-50 border-purple-200',
-                                text: 'text-purple-700',
-                                sub: 'text-purple-600',
-                                icon: 'fas fa-truck',
-                                title: '配送中',
-                                desc: '配送员正在路上，请保持手机畅通'
-                              },
-                              '已完成': {
-                                box: 'bg-green-50 border-green-200',
-                                text: 'text-green-700',
-                                sub: 'text-green-600',
-                                icon: 'fas fa-check-circle',
-                                title: '已完成',
-                                desc: '订单已送达，感谢您的购买'
-                              }
-                            }[us] || {
-                              box: 'bg-gray-50 border-gray-200',
-                              text: 'text-gray-700',
-                              sub: 'text-gray-600',
-                              icon: 'fas fa-info-circle',
-                              title: us || '状态更新',
-                              desc: '订单状态已更新'
-                            };
-                            return (
-                              <div className={`${meta.box} rounded-xl p-4 border h-full flex flex-col justify-center`}>
-                                <div className={`flex items-center gap-2 ${meta.text}`}>
-                                  <i className={meta.icon}></i>
-                                  <span className="text-sm font-medium">{meta.title}</span>
-                                </div>
-                                <p className={`text-xs mt-1 ${meta.sub}`}>{meta.desc}</p>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-
-                      {isOpen && (
-                        <div className="mt-4 sm:mt-6 grid grid-cols-2 gap-2 sm:gap-4 lg:gap-6 animate-apple-slide-up">
-                          {/* 商品明细 */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-3 sm:mb-4">
-                              <div className="w-5 h-5 sm:w-6 sm:h-6 bg-orange-100 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-shopping-basket text-orange-600 text-[10px] sm:text-xs"></i>
-                              </div>
-                              <h4 className="text-xs sm:text-sm font-semibold text-gray-900">商品明细</h4>
-                            </div>
-                            <div className="space-y-2 sm:space-y-3">
-                              {displayItems.map((it, idx) => (
-                                <div 
-                                  key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
-                                  className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 hover:shadow-md transition-shadow"
-                                >
-                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-3">
-                                    <div className="flex-1 min-w-0">
-                                      <h5 className="font-medium text-gray-900 text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                                        <span className="break-words">{it.name}</span>
-                                        {it.is_lottery && (
-                                          <span className="px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200 whitespace-nowrap">抽奖</span>
-                                        )}
-                                        {it.is_reservation && (
-                                          <span className="px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">预约</span>
-                                        )}
-                                      </h5>
-                                      {it.variant_name && (
-                                        <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-[10px] sm:text-xs rounded-full border border-cyan-200">
-                                          {it.variant_name}
-                                        </span>
-                                      )}
-                                      <div className="flex items-center gap-3 sm:gap-4 mt-2 text-[10px] sm:text-xs text-gray-500 flex-wrap">
-                                        <span className="flex items-center gap-1">
-                                          <i className="fas fa-cubes"></i>
-                                          数量: {it.quantity}
-                                        </span>
-                                        <span className="flex items-center gap-1">
-                                          <i className="fas fa-tag"></i>
-                                          单价: ¥{it.unit_price}
-                                        </span>
-                                      </div>
-                                      {it.is_reservation && (
-                                        <div className="mt-2 text-[10px] sm:text-[11px] text-blue-600 leading-snug break-words">
-                                          {formatReservationCutoff(it.reservation_cutoff)}
-                                          {it.reservation_note ? ` · ${it.reservation_note}` : ''}
-                                        </div>
-                                      )}
-                                      {(it.is_lottery || it.is_auto_gift) && (
-                                        <div className="mt-2 text-[10px] sm:text-xs text-pink-600">
-                                          <div className="font-medium break-words">
-                                            {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
-                                            {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="text-left sm:text-right flex-shrink-0">
-                                      <p className="font-semibold text-gray-900 text-sm sm:text-base">¥{it.subtotal}</p>
-                                      <p className="text-xs text-gray-500">小计</p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          
-                          {/* 收货信息 */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-3 sm:mb-4">
-                              <div className="w-5 h-5 sm:w-6 sm:h-6 bg-green-100 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-map-marker-alt text-green-600 text-[10px] sm:text-xs"></i>
-                              </div>
-                              <h4 className="text-xs sm:text-sm font-semibold text-gray-900">收货信息</h4>
-                            </div>
-                            <div className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4">
-                              <div className="space-y-2.5 sm:space-y-3">
-                                <div className="flex items-center gap-2 sm:gap-3">
-                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                    <i className="fas fa-user text-emerald-600 text-xs sm:text-sm"></i>
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="text-[10px] sm:text-xs text-gray-500">收件人</p>
-                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words">{o.shipping_info?.name}</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 sm:gap-3">
-                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                    <i className="fas fa-phone text-green-600 text-xs sm:text-sm"></i>
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="text-[10px] sm:text-xs text-gray-500">联系电话</p>
-                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words">{o.shipping_info?.phone}</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-start gap-2 sm:gap-3">
-                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-cyan-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                    <i className="fas fa-home text-cyan-600 text-xs sm:text-sm"></i>
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-[10px] sm:text-xs text-gray-500">收货地址</p>
-                                    <p className="text-xs sm:text-sm font-medium text-gray-900 break-words leading-relaxed">{o.shipping_info?.full_address}</p>
-                                  </div>
-                                </div>
-                                {o.note && (
-                                  <div className="flex items-start gap-2 sm:gap-3">
-                                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                      <i className="fas fa-comment text-orange-600 text-xs sm:text-sm"></i>
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-[10px] sm:text-xs text-gray-500">订单备注</p>
-                                      <p className="text-xs sm:text-sm font-medium text-gray-900 break-words leading-relaxed">{o.note}</p>
-                                    </div>
-                                  </div>
-                                )}
-                                {o.shipping_info?.reservation && (
-                                  <div className="flex items-start gap-2 sm:gap-3">
-                                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                      <i className="fas fa-calendar-day text-blue-600 text-xs sm:text-sm"></i>
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-[10px] sm:text-xs text-gray-500">预约说明</p>
-                                      <p className="text-xs sm:text-sm font-medium text-blue-600 leading-relaxed break-words">
-                                        {(Array.isArray(o.shipping_info?.reservation_reasons) && o.shipping_info.reservation_reasons.length > 0)
-                                          ? o.shipping_info.reservation_reasons.join('，')
-                                          : '预约订单'}
-                                        {o.shipping_info?.reservation_closure_note ? ` · ${o.shipping_info.reservation_closure_note}` : ''}
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -877,7 +615,7 @@ export default function Orders() {
             </div>
           )}
         </main>
-      </div>
+                      </div>
 
       {/* 微信收款码弹窗 */}
       {payOrderId && (
@@ -888,10 +626,10 @@ export default function Orders() {
             <div className="text-center mb-5 sm:mb-6">
               <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-lg">
                 <i className="fab fa-weixin text-white text-xl sm:text-2xl"></i>
-              </div>
+                              </div>
               <h3 className="text-lg sm:text-xl font-semibold text-white mb-1.5 sm:mb-2">微信扫码支付</h3>
               <p className="text-white/80 text-xs sm:text-sm">请使用微信扫描下方二维码完成支付</p>
-            </div>
+                                </div>
 
             {/* 二维码区域 */}
             <div className="bg-white rounded-2xl p-3 sm:p-4 mb-5 sm:mb-6 shadow-lg">
@@ -901,8 +639,8 @@ export default function Orders() {
                     <div className="text-center px-4">
                       <div className="text-3xl sm:text-4xl mb-3 sm:mb-4">⚠️</div>
                       <p className="text-gray-600 text-sm sm:text-lg font-medium">暂不可付款，请联系管理员</p>
-                    </div>
-                  </div>
+                              </div>
+                            </div>
                 ) : (
                   <div className="text-center">
                     <img 
@@ -910,17 +648,17 @@ export default function Orders() {
                       alt={paymentQr.name || "收款码"} 
                       className="w-full h-64 sm:h-80 object-contain rounded-xl" 
                     />
-                  </div>
+                              </div>
                 )
               ) : (
                 <div className="w-full h-64 sm:h-80 flex items-center justify-center bg-gray-100 rounded-xl">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-7 w-7 sm:h-8 sm:w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
                     <p className="text-gray-600 text-xs sm:text-sm">正在加载收款码...</p>
-                  </div>
-                </div>
+                                </div>
+                              </div>
               )}
-            </div>
+                            </div>
 
             {/* 操作按钮 */}
             <div className="space-y-2.5 sm:space-y-3">
@@ -940,7 +678,7 @@ export default function Orders() {
                 <i className="fas fa-clock"></i>
                 <span>稍后支付</span>
               </button>
-            </div>
+                          </div>
 
             {/* 关闭按钮 */}
             <button
@@ -949,6 +687,203 @@ export default function Orders() {
             >
               <i className="fas fa-times text-sm"></i>
             </button>
+                        </div>
+        </div>
+      )}
+
+      {/* 订单详情弹窗 */}
+      {viewingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-apple-fade-in px-4">
+          <div className="absolute inset-0" onClick={() => setViewingOrder(null)}></div>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 max-h-[85vh] flex flex-col overflow-hidden animate-apple-scale-in z-10">
+            {/* 右上角关闭按钮 */}
+                            <button 
+              onClick={() => setViewingOrder(null)}
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-lg transition-all hover:scale-110"
+                            >
+              <i className="fas fa-times"></i>
+                            </button>
+            
+            {/* 标题栏 */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <i className="fas fa-receipt text-orange-600"></i>
+                    订单详情
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1 font-mono break-all">订单号：{viewingOrder.id}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <StatusBadge status={getUnifiedStatus(viewingOrder)} />
+                  {viewingOrder.is_reservation && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-sky-500 rounded-full shadow-sm">
+                      <i className="fas fa-calendar-check"></i>
+                      <span>预约订单</span>
+                    </span>
+                  )}
+                  <div className="text-xs text-gray-500">创建时间：{formatDate(viewingOrder.created_at_timestamp ?? viewingOrder.created_at)}</div>
+                                </div>
+                        </div>
+                      </div>
+
+            {/* 内容区域 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* 商品明细 */}
+                          <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-6 h-6 bg-orange-100 rounded-lg flex items-center justify-center">
+                      <i className="fas fa-shopping-basket text-orange-600 text-xs"></i>
+                              </div>
+                    <h4 className="text-sm font-semibold text-gray-900">商品明细</h4>
+                            </div>
+                  <div className="space-y-3">
+                    {collapseAutoGiftItemsForDisplay(viewingOrder.items || []).map((it, idx) => (
+                                <div 
+                                  key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
+                        className="bg-white border border-gray-200 rounded-xl p-3 hover:shadow-md transition-shadow"
+                                >
+                        <div className="flex justify-between items-start gap-3">
+                                    <div className="flex-1 min-w-0">
+                            <h5 className="font-medium text-gray-900 text-sm flex items-center gap-2 flex-wrap">
+                                        <span className="break-words">{it.name}</span>
+                                        {it.is_lottery && (
+                                <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200 whitespace-nowrap">抽奖</span>
+                                        )}
+                                        {it.is_reservation && (
+                                <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">预约</span>
+                                        )}
+                                      </h5>
+                                      {it.variant_name && (
+                              <span className="inline-block mt-1 px-2 py-0.5 bg-cyan-100 text-cyan-600 text-xs rounded-full border border-cyan-200">
+                                          {it.variant_name}
+                                        </span>
+                                      )}
+                            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+                                        <span className="flex items-center gap-1">
+                                          <i className="fas fa-cubes"></i>
+                                          数量: {it.quantity}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <i className="fas fa-tag"></i>
+                                          单价: ¥{it.unit_price}
+                                        </span>
+                                      </div>
+                                      {it.is_reservation && (
+                              <div className="mt-2 text-[11px] text-blue-600 leading-snug break-words">
+                                          {formatReservationCutoff(it.reservation_cutoff)}
+                                          {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                                        </div>
+                                      )}
+                                      {(it.is_lottery || it.is_auto_gift) && (
+                              <div className="mt-2 text-xs text-pink-600">
+                                          <div className="font-medium break-words">
+                                            {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
+                                            {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="font-semibold text-gray-900 text-base">¥{it.subtotal}</p>
+                                      <p className="text-xs text-gray-500">小计</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          {/* 收货信息 */}
+                          <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-6 h-6 bg-green-100 rounded-lg flex items-center justify-center">
+                      <i className="fas fa-map-marker-alt text-green-600 text-xs"></i>
+                              </div>
+                    <h4 className="text-sm font-semibold text-gray-900">收货信息</h4>
+                            </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <i className="fas fa-user text-emerald-600 text-sm"></i>
+                                  </div>
+                                  <div className="min-w-0">
+                          <p className="text-xs text-gray-500">收件人</p>
+                          <p className="text-sm font-medium text-gray-900 break-words">{viewingOrder.shipping_info?.name}</p>
+                                  </div>
+                                </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <i className="fas fa-phone text-green-600 text-sm"></i>
+                                  </div>
+                                  <div className="min-w-0">
+                          <p className="text-xs text-gray-500">联系电话</p>
+                          <p className="text-sm font-medium text-gray-900 break-words">{viewingOrder.shipping_info?.phone}</p>
+                                  </div>
+                                </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <i className="fas fa-home text-cyan-600 text-sm"></i>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                          <p className="text-xs text-gray-500">收货地址</p>
+                          <p className="text-sm font-medium text-gray-900 break-words leading-relaxed">{viewingOrder.shipping_info?.full_address}</p>
+                                  </div>
+                                </div>
+                      {viewingOrder.note && (
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-comment text-orange-600 text-sm"></i>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                            <p className="text-xs text-gray-500">订单备注</p>
+                            <p className="text-sm font-medium text-gray-900 break-words leading-relaxed">{viewingOrder.note}</p>
+                                    </div>
+                                  </div>
+                                )}
+                      {viewingOrder.shipping_info?.reservation && (
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-calendar-day text-blue-600 text-sm"></i>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                            <p className="text-xs text-gray-500">预约说明</p>
+                            <p className="text-sm font-medium text-blue-600 leading-relaxed break-words">
+                              {(Array.isArray(viewingOrder.shipping_info?.reservation_reasons) && viewingOrder.shipping_info.reservation_reasons.length > 0)
+                                ? viewingOrder.shipping_info.reservation_reasons.join('，')
+                                          : '预约订单'}
+                              {viewingOrder.shipping_info?.reservation_closure_note ? ` · ${viewingOrder.shipping_info.reservation_closure_note}` : ''}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                  {/* 金额汇总 */}
+                  <div className="mt-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">商品总额</span>
+                        <span className="font-medium text-gray-900">¥{viewingOrder.total_amount}</span>
+                          </div>
+                      {viewingOrder.discount_amount > 0 && (
+                        <div className="flex justify-between text-sm text-pink-600">
+                          <span>优惠券减免</span>
+                          <span>-¥{Number(viewingOrder.discount_amount).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="pt-2 border-t border-gray-300 flex justify-between items-center">
+                        <span className="font-semibold text-gray-900">订单总额</span>
+                        <span className="text-lg font-bold text-orange-600">¥{viewingOrder.total_amount}</span>
+                    </div>
+                  </div>
+            </div>
+      </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
