@@ -26,6 +26,48 @@ const formatReservationCutoff = (cutoffTime) => {
   return `今日 ${cutoffTime} 后配送`;
 };
 
+const collapseAutoGiftItemsForDisplay = (items = []) => {
+  if (!Array.isArray(items)) return [];
+  const grouped = [];
+  const indexLookup = new Map();
+
+  items.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const parsedQuantity = Number.parseInt(item.quantity, 10);
+    const quantity = Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1;
+
+    if (item.is_auto_gift && item.product_id) {
+      const variantKey = item.variant_id || 'base';
+      const key = `${item.product_id}__${variantKey}`;
+      if (indexLookup.has(key)) {
+        const idx = indexLookup.get(key);
+        const existing = grouped[idx];
+        const existingQty = Number(existing.quantity) || 0;
+        const existingSubtotal = Number(existing.subtotal) || 0;
+        grouped[idx] = {
+          ...existing,
+          quantity: existingQty + quantity,
+          subtotal: existingSubtotal + (Number(item.subtotal) || 0)
+        };
+      } else {
+        const clone = { ...item };
+        clone.quantity = quantity;
+        clone.subtotal = Number(item.subtotal) || 0;
+        grouped.push(clone);
+        indexLookup.set(key, grouped.length - 1);
+      }
+      return;
+    }
+
+    const clone = { ...item };
+    clone.quantity = quantity;
+    clone.subtotal = Number(item.subtotal) || 0;
+    grouped.push(clone);
+  });
+
+  return grouped;
+};
+
 // 统一状态计算（与管理端保持一致）
 const getUnifiedStatus = (order) => {
   const ps = order?.payment_status;
@@ -424,6 +466,7 @@ export default function Orders() {
                 const isOpen = !!expanded[o.id];
                 const showCountdown = us === '未付款' && (o.payment_status === 'pending' || !o.payment_status);
                 const remainSec = showCountdown ? getRemainSeconds(o) : 0;
+                const displayItems = collapseAutoGiftItemsForDisplay(o.items || []);
                 return (
                   <div 
                     key={o.id} 
@@ -702,7 +745,7 @@ export default function Orders() {
                               <h4 className="text-xs sm:text-sm font-semibold text-gray-900">商品明细</h4>
                             </div>
                             <div className="space-y-2 sm:space-y-3">
-                              {o.items?.map((it, idx) => (
+                              {displayItems.map((it, idx) => (
                                 <div 
                                   key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
                                   className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 hover:shadow-md transition-shadow"

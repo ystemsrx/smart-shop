@@ -3782,11 +3782,17 @@ async def create_order(
                     try:
                         selected_gifts = GiftThresholdDB.pick_gifts_for_threshold(threshold_id, owner_scope_id, applicable_times)
                         for gift in selected_gifts:
+                            try:
+                                gift_quantity = int(gift.get('quantity', 1))
+                            except Exception:
+                                gift_quantity = 1
+                            if gift_quantity <= 0:
+                                continue
                             gift_item = {
                                 "product_id": gift.get('product_id'),
                                 "name": gift.get('display_name') or gift.get('product_name') or '满额赠品',
                                 "unit_price": 0.0,
-                                "quantity": 1,
+                                "quantity": gift_quantity,
                                 "subtotal": 0.0,
                                 "category": gift.get('category') or '满额赠品',
                                 "img_path": gift.get('img_path') or '',
@@ -4235,12 +4241,24 @@ class AutoGiftUpdateRequest(BaseModel):
     items: List[AutoGiftItemInput] = []
 
 
+def normalize_per_order_limit(value: Optional[Any]) -> Optional[int]:
+    """将传入的每单赠品上限标准化为正整数或None"""
+    if value is None:
+        return None
+    try:
+        numeric = int(value)
+    except (ValueError, TypeError):
+        return None
+    return numeric if numeric > 0 else None
+
+
 # 满额门槛配置模型
 class GiftThresholdCreate(BaseModel):
     threshold_amount: float
     gift_products: bool = False
     gift_coupon: bool = False
     coupon_amount: float = 0.0
+    per_order_limit: Optional[int] = None
     items: List[AutoGiftItemInput] = []
 
 
@@ -4249,6 +4267,7 @@ class GiftThresholdUpdate(BaseModel):
     gift_products: Optional[bool] = None
     gift_coupon: Optional[bool] = None
     coupon_amount: Optional[float] = None
+    per_order_limit: Optional[int] = None
     is_active: Optional[bool] = None
     items: Optional[List[AutoGiftItemInput]] = None
 
@@ -4923,13 +4942,21 @@ async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Req
         if payload.gift_coupon and payload.coupon_amount <= 0:
             return error_response("优惠券金额必须大于0", 400)
 
+        normalized_limit = None
+        if payload.per_order_limit is not None:
+            raw_limit = int(payload.per_order_limit)
+            if raw_limit < 0:
+                return error_response("每单赠品上限必须为正整数或留空", 400)
+            normalized_limit = normalize_per_order_limit(raw_limit)
+
         # 创建门槛配置
         threshold_id = GiftThresholdDB.create_threshold(
             owner_id=owner_id,
             threshold_amount=payload.threshold_amount,
             gift_products=payload.gift_products,
             gift_coupon=payload.gift_coupon,
-            coupon_amount=payload.coupon_amount if payload.gift_coupon else 0.0
+            coupon_amount=payload.coupon_amount if payload.gift_coupon else 0.0,
+            per_order_limit=normalized_limit
         )
 
         # 添加商品到门槛
@@ -4962,12 +4989,20 @@ async def agent_create_gift_threshold(payload: GiftThresholdCreate, request: Req
         if payload.gift_coupon and payload.coupon_amount <= 0:
             return error_response("优惠券金额必须大于0", 400)
 
+        normalized_limit = None
+        if payload.per_order_limit is not None:
+            raw_limit = int(payload.per_order_limit)
+            if raw_limit < 0:
+                return error_response("每单赠品上限必须为正整数或留空", 400)
+            normalized_limit = normalize_per_order_limit(raw_limit)
+
         threshold_id = GiftThresholdDB.create_threshold(
             owner_id=owner_id,
             threshold_amount=payload.threshold_amount,
             gift_products=payload.gift_products,
             gift_coupon=payload.gift_coupon,
-            coupon_amount=payload.coupon_amount if payload.gift_coupon else 0.0
+            coupon_amount=payload.coupon_amount if payload.gift_coupon else 0.0,
+            per_order_limit=normalized_limit
         )
 
         if payload.items and payload.gift_products:
@@ -5003,6 +5038,18 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         
         if payload.gift_coupon and payload.coupon_amount is not None and payload.coupon_amount <= 0:
             return error_response("优惠券金额必须大于0", 400)
+
+        per_order_limit_param = None
+        if 'per_order_limit' in payload.__fields_set__:
+            raw_limit_value = payload.per_order_limit
+            if raw_limit_value is None:
+                per_order_limit_param = 0
+            else:
+                raw_limit = int(raw_limit_value)
+                if raw_limit < 0:
+                    return error_response("每单赠品上限必须为正整数或留空", 400)
+                normalized_limit = normalize_per_order_limit(raw_limit)
+                per_order_limit_param = normalized_limit if normalized_limit is not None else 0
         
         # 更新基础配置
         GiftThresholdDB.update_threshold(
@@ -5012,6 +5059,7 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             gift_products=payload.gift_products,
             gift_coupon=payload.gift_coupon,
             coupon_amount=payload.coupon_amount,
+            per_order_limit=per_order_limit_param,
             is_active=payload.is_active
         )
 
@@ -5048,6 +5096,18 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         if payload.gift_coupon and payload.coupon_amount is not None and payload.coupon_amount <= 0:
             return error_response("优惠券金额必须大于0", 400)
 
+        per_order_limit_param = None
+        if 'per_order_limit' in payload.__fields_set__:
+            raw_limit_value = payload.per_order_limit
+            if raw_limit_value is None:
+                per_order_limit_param = 0
+            else:
+                raw_limit = int(raw_limit_value)
+                if raw_limit < 0:
+                    return error_response("每单赠品上限必须为正整数或留空", 400)
+                normalized_limit = normalize_per_order_limit(raw_limit)
+                per_order_limit_param = normalized_limit if normalized_limit is not None else 0
+
         GiftThresholdDB.update_threshold(
             threshold_id=threshold_id,
             owner_id=owner_id,
@@ -5055,6 +5115,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             gift_products=payload.gift_products,
             gift_coupon=payload.gift_coupon,
             coupon_amount=payload.coupon_amount,
+            per_order_limit=per_order_limit_param,
             is_active=payload.is_active
         )
 

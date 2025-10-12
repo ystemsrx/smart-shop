@@ -1431,94 +1431,239 @@ const GiftThresholdPanel = ({ apiPrefix }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="px-6 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-medium text-gray-900">满额门槛配置</h3>
-          <p className="text-sm text-gray-600">设置多个满额门槛，可以选择发放商品或优惠券。</p>
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* 顶部控制栏 - 使用渐变背景与抽奖配置一致 */}
+      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 px-6 py-4 border-b border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <i className="fas fa-gift text-emerald-500"></i>
+              满额门槛配置
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>
+          </div>
+          
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 shadow-sm transition-colors"
+          >
+            <i className="fas fa-plus text-sm"></i>
+            添加门槛
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
-        >
-          <i className="fas fa-plus text-xs"></i>
-          添加门槛
-        </button>
       </div>
       
-      {loading ? (
-        <div className="px-6 py-6 text-sm text-gray-500">加载中...</div>
-      ) : thresholds.length === 0 ? (
-        <div className="px-6 py-10 text-center text-gray-500">暂未配置满额门槛，点击右上角按钮添加。</div>
-      ) : (
-        <div className="divide-y">
-          {thresholds.map((threshold) => (
-            <div key={threshold.id} className="px-6 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <h4 className="text-base font-medium text-gray-900">
-                    满 {threshold.threshold_amount} 元
-                  </h4>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    threshold.is_active 
-                      ? 'bg-green-100 text-green-700 border border-green-200' 
-                      : 'bg-gray-100 text-gray-500 border border-gray-200'
-                  }`}>
-                    {threshold.is_active ? '启用' : '停用'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleToggleActive(threshold)}
-                    className="text-xs text-indigo-600 hover:text-indigo-800"
-                  >
-                    {threshold.is_active ? '停用' : '启用'}
-                  </button>
-                  <button
-                    onClick={() => setEditingThreshold(threshold)}
-                    className="text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => handleDelete(threshold.id)}
-                    className="text-xs text-red-600 hover:text-red-800"
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                <div className="flex items-center gap-1">
-                  <i className={`fas fa-gift ${threshold.gift_products ? 'text-green-500' : 'text-gray-300'}`}></i>
-                  <span>赠送商品: {threshold.gift_products ? `${threshold.items?.filter(i => i.available).length || 0} 种可用` : '否'}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <i className={`fas fa-ticket-alt ${threshold.gift_coupon ? 'text-blue-500' : 'text-gray-300'}`}></i>
-                  <span>赠送优惠券: {threshold.gift_coupon ? `${threshold.coupon_amount} 元` : '否'}</span>
-                </div>
-              </div>
-              
-              {threshold.gift_products && threshold.items?.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {threshold.items.slice(0, 5).map((item, idx) => (
-                    <div key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 rounded text-xs">
-                      <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
-                      <span className={`ml-1 ${item.available ? 'text-green-600' : 'text-red-500'}`}>
-                        {item.available ? '✓' : '×'}
+      {/* 内容区域 */}
+      <div className="p-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center gap-3">
+              <i className="fas fa-spinner fa-spin text-3xl text-emerald-500"></i>
+              <p className="text-sm text-gray-500">加载中...</p>
+            </div>
+          </div>
+        ) : thresholds.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+              <i className="fas fa-gift text-3xl text-gray-400"></i>
+            </div>
+            <p className="text-gray-500 text-base">暂未配置满额门槛</p>
+            <p className="text-gray-400 text-sm mt-1">点击右上角按钮添加</p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {thresholds.map((threshold) => (
+              <div 
+                key={threshold.id} 
+                className={`bg-gradient-to-br ${
+                  threshold.is_active 
+                    ? 'from-white to-emerald-50/30' 
+                    : 'from-white to-gray-50'
+                } rounded-xl border-2 ${
+                  threshold.is_active 
+                    ? 'border-emerald-200 shadow-md' 
+                    : 'border-gray-200 shadow-sm'
+                } p-5 transition-all hover:shadow-lg`}
+              >
+                {/* 顶部标题栏 */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
+                      threshold.is_active 
+                        ? 'bg-emerald-100' 
+                        : 'bg-gray-100'
+                    }`}>
+                      <i className={`fas fa-coins text-lg ${
+                        threshold.is_active 
+                          ? 'text-emerald-600' 
+                          : 'text-gray-400'
+                      }`}></i>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-lg font-bold text-gray-900">
+                        满 {threshold.threshold_amount} 元
+                      </h4>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        threshold.is_active 
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' 
+                          : 'bg-gray-100 text-gray-500 border border-gray-300'
+                      }`}>
+                        {threshold.is_active ? '● 启用中' : '○ 已停用'}
                       </span>
                     </div>
-                  ))}
-                  {threshold.items.length > 5 && (
-                    <span className="text-xs text-gray-500">+{threshold.items.length - 5} 更多...</span>
-                  )}
+                  </div>
+                  
+                  {/* 操作按钮组 */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleActive(threshold)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        threshold.is_active
+                          ? 'bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-200'
+                          : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
+                      }`}
+                    >
+                      <i className={`fas ${threshold.is_active ? 'fa-pause' : 'fa-play'} mr-1`}></i>
+                      {threshold.is_active ? '停用' : '启用'}
+                    </button>
+                    <button
+                      onClick={() => setEditingThreshold(threshold)}
+                      className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 text-xs font-medium transition-colors"
+                    >
+                      <i className="fas fa-edit mr-1"></i>
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleDelete(threshold.id)}
+                      className="px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 text-xs font-medium transition-colors"
+                    >
+                      <i className="fas fa-trash mr-1"></i>
+                      删除
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                
+                {/* 配置详情卡片 */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                    threshold.gift_products 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                      threshold.gift_products 
+                        ? 'bg-green-100' 
+                        : 'bg-gray-100'
+                    }`}>
+                      <i className={`fas fa-gift text-sm ${
+                        threshold.gift_products 
+                          ? 'text-green-600' 
+                          : 'text-gray-400'
+                      }`}></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-gray-500 font-medium">赠送商品</div>
+                      <div className={`text-sm font-bold truncate ${
+                        threshold.gift_products 
+                          ? 'text-green-700' 
+                          : 'text-gray-400'
+                      }`}>
+                        {threshold.gift_products ? `${threshold.items?.filter(i => i.available).length || 0} 种可用` : '否'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                    threshold.gift_coupon 
+                      ? 'bg-blue-50 border-blue-200' 
+                      : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                      threshold.gift_coupon 
+                        ? 'bg-blue-100' 
+                        : 'bg-gray-100'
+                    }`}>
+                      <i className={`fas fa-ticket-alt text-sm ${
+                        threshold.gift_coupon 
+                          ? 'text-blue-600' 
+                          : 'text-gray-400'
+                      }`}></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-gray-500 font-medium">赠送优惠券</div>
+                      <div className={`text-sm font-bold truncate ${
+                        threshold.gift_coupon 
+                          ? 'text-blue-700' 
+                          : 'text-gray-400'
+                      }`}>
+                        {threshold.gift_coupon ? `${threshold.coupon_amount} 元` : '否'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                    threshold.per_order_limit 
+                      ? 'bg-purple-50 border-purple-200' 
+                      : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                      threshold.per_order_limit 
+                        ? 'bg-purple-100' 
+                        : 'bg-gray-100'
+                    }`}>
+                      <i className={`fas ${threshold.per_order_limit ? 'fa-layer-group' : 'fa-infinity'} text-sm ${
+                        threshold.per_order_limit 
+                          ? 'text-purple-600' 
+                          : 'text-gray-400'
+                      }`}></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-gray-500 font-medium">每单上限</div>
+                      <div className={`text-sm font-bold truncate ${
+                        threshold.per_order_limit 
+                          ? 'text-purple-700' 
+                          : 'text-gray-400'
+                      }`}>
+                        {threshold.per_order_limit ? `${threshold.per_order_limit} 份` : '不限'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 商品列表 */}
+                {threshold.gift_products && threshold.items?.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <i className="fas fa-box text-sm text-gray-500"></i>
+                      <span className="text-sm font-semibold text-gray-700">赠品列表</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {threshold.items.slice(0, 5).map((item, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                            item.available 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                              : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
+                        >
+                          <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
+                          <i className={`fas ${item.available ? 'fa-check-circle text-emerald-600' : 'fa-times-circle text-red-600'}`}></i>
+                        </div>
+                      ))}
+                      {threshold.items.length > 5 && (
+                        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+                          +{threshold.items.length - 5} 更多...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       
       {showCreateModal && (
         <GiftThresholdModal
@@ -1731,6 +1876,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
     gift_products: false,
     gift_coupon: false,
     coupon_amount: '',
+    per_order_limit: '',
     items: []
   });
   const [selectedItems, setSelectedItems] = useState([]);
@@ -1747,6 +1893,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
         gift_products: false,
         gift_coupon: false,
         coupon_amount: '',
+        per_order_limit: '',
         items: []
       });
       setSelectedItems([]);
@@ -1762,6 +1909,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
         gift_products: threshold.gift_products || false,
         gift_coupon: threshold.gift_coupon || false,
         coupon_amount: threshold.coupon_amount?.toString() || '',
+        per_order_limit: threshold.per_order_limit ? threshold.per_order_limit.toString() : '',
         items: threshold.items || []
       });
       setSelectedItems(threshold.items?.map(item => ({
@@ -1808,6 +1956,19 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
       return;
     }
 
+    let perOrderLimit = null;
+    if (formData.per_order_limit !== '') {
+      const trimmed = String(formData.per_order_limit).trim();
+      if (trimmed !== '') {
+        const parsedLimit = Number.parseInt(trimmed, 10);
+        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+          alert('每单赠送上限必须为正整数，留空表示不限');
+          return;
+        }
+        perOrderLimit = parsedLimit;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -1815,6 +1976,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
         gift_products: formData.gift_products,
         gift_coupon: formData.gift_coupon,
         coupon_amount: formData.gift_coupon ? parseFloat(formData.coupon_amount) : 0,
+        per_order_limit: perOrderLimit !== null ? perOrderLimit : null,
         items: formData.gift_products ? selectedItems.map(item => ({
           product_id: item.product_id,
           variant_id: item.variant_id || null
@@ -1863,23 +2025,40 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
   };
 
   return (
-    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/40 transition-opacity`}>
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none opacity-0'} flex items-center justify-center bg-black/50 backdrop-blur-sm transition-all duration-200`}>
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {threshold ? '编辑满额门槛' : '添加满额门槛'}
-          </h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600">
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[85vh] flex flex-col overflow-hidden transform transition-all duration-200 ${open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}>
+        {/* 顶部标题栏 - 渐变背景 */}
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 px-6 py-5 border-b-2 border-emerald-100 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+              <i className="fas fa-gift text-emerald-600 text-lg"></i>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900">
+                {threshold ? '编辑满额门槛' : '添加满额门槛'}
+              </h3>
+              <p className="text-xs text-gray-600 mt-0.5">
+                {threshold ? '修改现有的满额赠送规则' : '创建新的满额赠送规则'}
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="w-10 h-10 rounded-full bg-white hover:bg-red-50 border-2 border-gray-200 hover:border-red-200 flex items-center justify-center text-gray-600 hover:text-red-600 transition-all shadow-sm"
+          >
             <i className="fas fa-times"></i>
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-          <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+          <div className="p-6 space-y-6 flex-1 overflow-y-auto bg-gray-50">
           {/* 门槛金额 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">门槛金额</label>
+          <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm">
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 mb-3">
+              <i className="fas fa-coins text-amber-500"></i>
+              门槛金额
+            </label>
             <div className="relative">
               <input
                 type="number"
@@ -1887,43 +2066,90 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                 min="0"
                 value={formData.threshold_amount}
                 onChange={(e) => setFormData({...formData, threshold_amount: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-3 pr-12 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-lg font-medium transition-all"
                 placeholder="请输入门槛金额"
                 required
               />
-              <span className="absolute right-3 top-2 text-gray-400">元</span>
+              <span className="absolute right-4 top-3.5 text-gray-500 font-medium">元</span>
             </div>
+            <p className="text-xs text-gray-500 mt-2">
+              <i className="fas fa-info-circle mr-1"></i>
+              订单金额达到此数值时将触发赠送
+            </p>
           </div>
 
-          {/* 赠品类型选择 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">赠品类型</label>
-            <div className="space-y-3">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.gift_products}
-                  onChange={(e) => setFormData({...formData, gift_products: e.target.checked})}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">赠送商品</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={formData.gift_coupon}
-                  onChange={(e) => setFormData({...formData, gift_coupon: e.target.checked})}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">赠送优惠券</span>
-              </label>
+          {/* 赠品类型选择 + 每单上限 */}
+          <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm space-y-4">
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <i className="fas fa-gift text-pink-500"></i>
+              赠品配置
+            </label>
+            
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* 赠品类型 */}
+              <div>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-3">
+                  <i className="fas fa-tags text-pink-500"></i>
+                  赠品类型
+                </label>
+                <div className="flex gap-3">
+                  <label className="flex items-center justify-center gap-2 h-[52px] px-3 border-2 border-gray-200 rounded-lg hover:border-green-300 hover:bg-green-50 cursor-pointer transition-all flex-1">
+                    <input
+                      type="checkbox"
+                      checked={formData.gift_products}
+                      onChange={(e) => setFormData({...formData, gift_products: e.target.checked})}
+                      className="w-5 h-5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm font-medium text-gray-900">赠送商品</span>
+                    <i className="fas fa-box text-green-500 ml-auto"></i>
+                  </label>
+                  <label className="flex items-center justify-center gap-2 h-[52px] px-3 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all flex-1">
+                    <input
+                      type="checkbox"
+                      checked={formData.gift_coupon}
+                      onChange={(e) => setFormData({...formData, gift_coupon: e.target.checked})}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-900">赠送优惠券</span>
+                    <i className="fas fa-ticket-alt text-blue-500 ml-auto"></i>
+                  </label>
+                </div>
+              </div>
+              
+              {/* 每单上限 */}
+              <div>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-3">
+                  <i className="fas fa-layer-group text-purple-500"></i>
+                  每单赠送上限
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={formData.per_order_limit}
+                    onChange={(e) => setFormData({...formData, per_order_limit: e.target.value})}
+                    className="w-full px-4 py-3 pr-12 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                    placeholder="不限制"
+                  />
+                  <span className="absolute right-4 top-3.5 text-gray-500 font-medium">份</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  <i className="fas fa-info-circle mr-1"></i>
+                  仅限满额赠送商品，留空代表不限制数量
+                </p>
+              </div>
             </div>
           </div>
 
           {/* 优惠券金额 */}
           {formData.gift_coupon && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">优惠券金额</label>
+            <div className="bg-white rounded-xl border-2 border-blue-200 p-5 shadow-sm">
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 mb-3">
+                <i className="fas fa-ticket-alt text-blue-500"></i>
+                优惠券金额
+              </label>
               <div className="relative">
                 <input
                   type="number"
@@ -1931,39 +2157,44 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                   min="0"
                   value={formData.coupon_amount}
                   onChange={(e) => setFormData({...formData, coupon_amount: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-4 py-3 pr-12 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-medium transition-all"
                   placeholder="请输入优惠券金额"
                   required
                 />
-                <span className="absolute right-3 top-2 text-gray-400">元</span>
+                <span className="absolute right-4 top-3.5 text-blue-600 font-medium">元</span>
               </div>
+              <p className="text-xs text-gray-500 mt-2">
+                <i className="fas fa-info-circle mr-1"></i>
+                满足条件后将自动发放此金额的优惠券
+              </p>
             </div>
           )}
 
           {/* 商品选择 */}
           {formData.gift_products && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">选择商品</label>
-              <div className="border border-gray-300 rounded-md p-4 space-y-4">
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="搜索商品..."
-                />
-                
+            <div className="bg-white rounded-xl border-2 border-green-200 p-5 shadow-sm">
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 mb-4">
+                <i className="fas fa-box text-green-500"></i>
+                选择赠送商品
+              </label>
+              
+              <div className="space-y-4">
+                {/* 已选择商品 */}
                 {selectedItems.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 mb-2">已选择商品：</p>
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-green-700 flex items-center gap-2">
+                      <i className="fas fa-check-circle text-green-600"></i>
+                      已选择 {selectedItems.length} 个商品
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {selectedItems.map((item, idx) => (
-                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">
-                          {item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}
+                        <span key={idx} className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 border-2 border-green-300 text-green-800 rounded-lg text-sm font-medium">
+                          <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
                           <button
                             type="button"
                             onClick={() => handleItemToggle(item)}
-                            className="text-indigo-500 hover:text-indigo-700"
+                            className="w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center text-red-600 text-xs transition-colors"
+                            title="移除"
                           >
                             ×
                           </button>
@@ -1973,63 +2204,122 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                   </div>
                 )}
                 
-                {searchLoading ? (
-                  <div className="text-center py-4 text-gray-500">搜索中...</div>
-                ) : searchResults.length > 0 ? (
-                  <div className="max-h-32 overflow-y-auto space-y-2">
-                    {searchResults.map((item) => {
-                      const isSelected = selectedItems.some(si => 
-                        si.product_id === item.product_id && 
-                        (si.variant_id || null) === (item.variant_id || null)
-                      );
-                      
-                      return (
-                        <div
-                          key={`${item.product_id}_${item.variant_id || 'base'}`}
-                          className={`p-2 border rounded cursor-pointer ${
-                            isSelected ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-gray-50'
-                          }`}
-                          onClick={() => handleItemToggle(item)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-medium">{item.product_name}</span>
-                              {item.variant_name && (
-                                <span className="ml-2 text-gray-500">({item.variant_name})</span>
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              库存: {item.stock}
+                {/* 搜索框 */}
+                <div className="relative">
+                  <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    placeholder="搜索商品名称或规格..."
+                  />
+                </div>
+                
+                {/* 搜索结果 */}
+                <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
+                  {searchLoading ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                      <i className="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                      <p className="text-sm">搜索中...</p>
+                    </div>
+                  ) : searchResults.length > 0 ? (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-200">
+                      {searchResults.map((item) => {
+                        const isSelected = selectedItems.some(si => 
+                          si.product_id === item.product_id && 
+                          (si.variant_id || null) === (item.variant_id || null)
+                        );
+                        
+                        return (
+                          <div
+                            key={`${item.product_id}_${item.variant_id || 'base'}`}
+                            className={`p-4 cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'bg-green-50 hover:bg-green-100' 
+                                : 'hover:bg-gray-50'
+                            }`}
+                            onClick={() => handleItemToggle(item)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                  isSelected ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                                }`}>
+                                  <i className={`fas ${isSelected ? 'fa-check' : 'fa-box'} text-sm`}></i>
+                                </div>
+                                <div className="flex-1">
+                                  <p className="font-medium text-gray-900">{item.product_name}</p>
+                                  {item.variant_name && (
+                                    <p className="text-sm text-gray-500">{item.variant_name}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                                  item.stock > 0 
+                                    ? 'bg-emerald-100 text-emerald-700' 
+                                    : 'bg-red-100 text-red-700'
+                                }`}>
+                                  库存: {item.stock}
+                                </div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : searchTerm ? (
-                  <div className="text-center py-4 text-gray-500">没有找到相关商品</div>
-                ) : null}
+                        );
+                      })}
+                    </div>
+                  ) : searchTerm ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                      <i className="fas fa-search text-3xl mb-2"></i>
+                      <p className="text-sm">没有找到相关商品</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                      <i className="fas fa-info-circle text-3xl mb-2"></i>
+                      <p className="text-sm">输入关键词搜索商品</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
 
           </div>
           
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {saving ? '保存中...' : (threshold ? '更新' : '创建')}
-            </button>
+          {/* 底部操作栏 */}
+          <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-t-2 border-gray-200 flex justify-between items-center gap-3 flex-shrink-0">
+            <p className="text-xs text-gray-500 flex items-center gap-1.5">
+              <i className="fas fa-info-circle"></i>
+              提交后配置立即生效
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-100 hover:border-gray-400 font-medium transition-all shadow-sm"
+              >
+                <i className="fas fa-times mr-2"></i>
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-all shadow-md flex items-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    保存中...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check"></i>
+                    {threshold ? '更新配置' : '创建配置'}
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -3507,9 +3797,265 @@ const getUnifiedStatus = (order) => {
   return '待配送';
 };
 
+const collapseAutoGiftItemsForDisplay = (items = []) => {
+  if (!Array.isArray(items)) return [];
+  const grouped = [];
+  const indexLookup = new Map();
+
+  items.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const baseQuantity = Number.parseInt(item.quantity, 10);
+    const quantity = Number.isFinite(baseQuantity) && baseQuantity > 0 ? baseQuantity : 1;
+    if (item.is_auto_gift && item.product_id) {
+      const variantKey = item.variant_id || 'base';
+      const groupKey = `${item.product_id}__${variantKey}`;
+      if (indexLookup.has(groupKey)) {
+        const idx = indexLookup.get(groupKey);
+        const existing = grouped[idx];
+        const existingQty = Number(existing.quantity) || 0;
+        const existingSubtotal = Number(existing.subtotal) || 0;
+        grouped[idx] = {
+          ...existing,
+          quantity: existingQty + quantity,
+          subtotal: existingSubtotal + (Number(item.subtotal) || 0)
+        };
+      } else {
+        const clone = { ...item };
+        clone.quantity = quantity;
+        clone.subtotal = Number(item.subtotal) || 0;
+        grouped.push(clone);
+        indexLookup.set(groupKey, grouped.length - 1);
+      }
+      return;
+    }
+
+    const clone = { ...item };
+    clone.quantity = quantity;
+    clone.subtotal = Number(item.subtotal) || 0;
+    grouped.push(clone);
+  });
+
+  return grouped;
+};
+
+const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate, getUnifiedStatusFn }) => {
+  const [isVisible, setIsVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
+    }
+  }, [open]);
+
+  if (!open && !isVisible) return null;
+
+  const items = collapseAutoGiftItemsForDisplay(order?.items || []);
+  const status = order && typeof getUnifiedStatusFn === 'function' ? getUnifiedStatusFn(order) : '';
+  const statusBadge = status && typeof renderStatusBadge === 'function' ? renderStatusBadge(status) : null;
+  const createdAtDisplay = order && typeof formatDate === 'function'
+    ? formatDate(order.created_at_timestamp ?? order.created_at)
+    : '';
+  const paymentMethod = order?.payment_method === 'wechat'
+    ? '微信支付'
+    : (order?.payment_method || '未知');
+  const discountAmount = Number(order?.discount_amount ?? 0);
+  const totalAmount = Number(order?.total_amount ?? 0);
+  const couponAmount = Number(order?.coupon_amount ?? 0);
+
+  const reservationFlag = order?.shipping_info?.reservation;
+  const reservationReasons = Array.isArray(order?.shipping_info?.reservation_reasons)
+    ? order.shipping_info.reservation_reasons.filter(Boolean)
+    : [];
+
+  return (
+    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${isVisible ? 'bg-black/50 backdrop-blur-sm' : 'bg-black/0'}`}>
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl mx-4 max-h-[85vh] flex flex-col overflow-hidden transform transition-all duration-300 ${isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}>
+        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <i className="fas fa-receipt text-indigo-600"></i>
+              订单详情
+            </h3>
+            <p className="text-sm text-gray-600 mt-1 font-mono break-all">订单号：{order?.id || '-'}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {statusBadge}
+            {createdAtDisplay && (
+              <div className="text-xs text-gray-500">创建时间：{createdAtDisplay}</div>
+            )}
+            <button
+              onClick={onClose}
+              className="w-10 h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-sm transition-all hover:scale-110"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto lg:overflow-hidden p-6 pb-8 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-fit lg:h-[480px]">
+              <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
+                <i className="fas fa-box text-indigo-500"></i>
+                <span className="text-sm font-semibold text-gray-900">商品明细</span>
+                <span className="text-xs text-gray-500">共 {items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)} 件</span>
+              </div>
+              {items.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center px-4 py-6 text-sm text-gray-500">
+                  暂无商品记录
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="divide-y divide-gray-100">
+                    {items.map((it, idx) => (
+                      <div 
+                        key={`${it.product_id || 'item'}_${idx}`} 
+                        className="px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            {/* 商品名称和标签 */}
+                            <div className="text-gray-900 font-medium flex items-center gap-2 flex-wrap mb-1">
+                              <span title={it.name}>{it.name}</span>
+                              {it.is_lottery && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200 flex-shrink-0">
+                                  <i className="fas fa-trophy"></i>
+                                  <span>抽奖</span>
+                                </span>
+                              )}
+                              {it.is_auto_gift && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200 flex-shrink-0">
+                                  <i className="fas fa-gift"></i>
+                                  <span>赠品</span>
+                                </span>
+                              )}
+                              {it.variant_name && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 flex-shrink-0">
+                                  <i className="fas fa-tag"></i>
+                                  <span>{it.variant_name}</span>
+                                </span>
+                              )}
+                              {it.is_reservation && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex-shrink-0">
+                                  <i className="fas fa-calendar-check"></i>
+                                  <span>预约</span>
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* 数量和单价 */}
+                            <div className="text-gray-500 text-xs mt-1">
+                              数量 x{Number(it.quantity) || 0} · 单价 ¥{Number(it.unit_price || 0).toFixed(2)}
+                            </div>
+                            
+                            {/* 预约信息 */}
+                            {it.is_reservation && (
+                              <div className="text-[11px] text-blue-600 mt-1 leading-snug break-words">
+                                <i className="fas fa-info-circle mr-1"></i>
+                                {formatReservationCutoff(it.reservation_cutoff)}
+                                {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                              </div>
+                            )}
+                            
+                            {/* 赠品信息 */}
+                            {(it.is_lottery || it.is_auto_gift) && (
+                              <div className="text-xs text-pink-600 mt-1">
+                                <i className="fas fa-gift mr-1"></i>
+                                <span className="font-medium">
+                                  {it.is_lottery ? '抽奖赠' : '满额赠'}：
+                                  {(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name)) || '-'}
+                                  {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* 小计金额 */}
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-gray-900 font-semibold">¥{Number(it.subtotal || 0).toFixed(2)}</div>
+                            <div className="text-xs text-gray-500">小计</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-6 lg:h-[480px] flex flex-col">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
+                  <i className="fas fa-user text-indigo-500"></i>
+                  <span className="text-sm font-semibold text-gray-900">收货信息</span>
+                </div>
+                <div className="px-4 py-4 text-sm text-gray-700 space-y-2 flex-1 overflow-y-auto">
+                  <div>昵称：{order?.shipping_info?.name || '—'}</div>
+                  <div>电话：{order?.shipping_info?.phone || '—'}</div>
+                  <div>地址：{order?.shipping_info?.full_address || '—'}</div>
+                  {order?.note && (
+                    <div>备注：<span className="text-red-600">{order.note}</span></div>
+                  )}
+                  {reservationFlag && (
+                    <div className="flex items-start gap-2 text-xs text-blue-600">
+                      <i className="fas fa-calendar-day mt-0.5"></i>
+                      <span className="leading-snug break-words">
+                        {reservationReasons.length > 0 ? reservationReasons.join('，') : '预约订单'}
+                        {order?.shipping_info?.reservation_closure_note ? ` · ${order.shipping_info.reservation_closure_note}` : ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
+                  <i className="fas fa-info-circle text-indigo-500"></i>
+                  <span className="text-sm font-semibold text-gray-900">订单概览</span>
+                </div>
+                <div className="px-4 py-4 text-sm text-gray-700 space-y-2 flex-1 overflow-y-auto">
+                  <div className="flex justify-between">
+                    <span>支付方式</span>
+                    <span>{paymentMethod}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>订单金额</span>
+                    <span className="font-medium text-gray-900">¥{totalAmount.toFixed(2)}</span>
+                  </div>
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-pink-600">
+                      <span>优惠抵扣</span>
+                      <span>-¥{discountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {couponAmount > 0 && (
+                    <div className="flex justify-between text-indigo-600">
+                      <span>赠送优惠券</span>
+                      <span>{couponAmount.toFixed(2)} 元</span>
+                    </div>
+                  )}
+                  {order?.gift_threshold_amount && (
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>触发满额门槛</span>
+                      <span>¥{Number(order.gift_threshold_amount).toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 订单表格组件
 const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders, onRefresh, searchValue, onSearchChange, page = 0, hasMore = false, onPrevPage, onNextPage }) => {
-  const [expanded, setExpanded] = React.useState({});
+  const [viewingOrder, setViewingOrder] = React.useState(null);
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
     const colorClasses = {
@@ -3673,86 +4219,16 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                       ))}
                     </select>
                     <button
-                      onClick={() => setExpanded(prev => ({...prev, [order.id]: !prev[order.id]}))}
-                      className="text-sm text-indigo-600 hover:underline"
-                    >{expanded[order.id] ? '收起明细' : '查看明细'}</button>
+                      onClick={() => setViewingOrder(order)}
+                      className="group flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 text-blue-600 border border-blue-200 hover:border-blue-300 rounded-lg text-xs font-medium shadow-sm hover:shadow-md transition-all duration-200 transform hover:scale-105"
+                      title="查看订单详情"
+                    >
+                      <i className="fas fa-eye text-xs"></i>
+                      <span>查看</span>
+                    </button>
                   </div>
                 </td>
               </tr>
-              {expanded[order.id] && (
-                <tr key={order.id + '_details'} className="bg-gray-50">
-                  <td colSpan={8} className="px-6 py-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 mb-2">商品明细</div>
-                        <div className="divide-y divide-gray-200 border rounded-md">
-                          {(order.items || []).map((it, idx) => (
-                            <div key={idx} className="px-3 py-2 text-sm">
-                              <div className="flex justify-between items-start gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-gray-900 truncate flex items-center gap-2">
-                                    {it.name}
-                                    {it.is_lottery && (
-                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200">抽奖</span>
-                                    )}
-                                    {it.is_auto_gift && (
-                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200">赠品</span>
-                                    )}
-                                    {it.variant_name && (
-                                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{it.variant_name}</span>
-                                    )}
-                                    {it.is_reservation && (
-                                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200">预约</span>
-                                    )}
-                                  </div>
-                                  <div className="text-gray-500 mt-1">x{it.quantity} · 单价 ¥{it.unit_price}</div>
-                                  {it.is_reservation && (
-                                    <div className="text-[11px] text-blue-600 mt-1 leading-snug break-words">
-                                      {formatReservationCutoff(it.reservation_cutoff)}
-                                      {it.reservation_note ? ` · ${it.reservation_note}` : ''}
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="text-right">
-                                  {(it.is_lottery || it.is_auto_gift) && (
-                                    <div className="mb-2 text-xs text-pink-600 text-right max-w-32">
-                                      <div className="font-medium">
-                                        {it.is_lottery ? '抽奖赠' : '满额赠'}：{(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name))}
-                                        {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
-                                      </div>
-                                    </div>
-                                  )}
-                                  <div className="text-gray-900 font-medium">¥{it.subtotal}</div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 mb-2">收货信息</div>
-                        <div className="text-sm text-gray-600 space-y-1 border rounded-md px-3 py-2">
-                          <div>昵称：{order.shipping_info?.name}</div>
-                          <div>电话：{order.shipping_info?.phone}</div>
-                          <div>地址：{order.shipping_info?.full_address}</div>
-                          {order.note && <div>备注：<span className="text-red-600">{order.note}</span></div>}
-                          {order.shipping_info?.reservation && (
-                            <div className="flex items-start gap-2 text-xs text-blue-600">
-                              <i className="fas fa-calendar-day mt-0.5"></i>
-                              <span className="leading-snug break-words">
-                                {(Array.isArray(order.shipping_info?.reservation_reasons) && order.shipping_info.reservation_reasons.length > 0)
-                                  ? order.shipping_info.reservation_reasons.join('，')
-                                  : '预约订单'}
-                                {order.shipping_info?.reservation_closure_note ? ` · ${order.shipping_info.reservation_closure_note}` : ''}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
               </React.Fragment>
             ))}
           </tbody>
@@ -3773,6 +4249,15 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
           <p className="text-gray-500">暂无订单</p>
         </div>
       )}
+
+      <OrderDetailsModal
+        open={!!viewingOrder}
+        onClose={() => setViewingOrder(null)}
+        order={viewingOrder}
+        renderStatusBadge={getStatusBadge}
+        formatDate={formatDate}
+        getUnifiedStatusFn={getUnifiedStatus}
+      />
     </div>
   );
 };

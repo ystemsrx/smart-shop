@@ -915,6 +915,7 @@ def init_database():
                     gift_products INTEGER DEFAULT 0,      -- 是否赠送商品（1：是，0：否）
                     gift_coupon INTEGER DEFAULT 0,        -- 是否赠送优惠券（1：是，0：否）
                     coupon_amount REAL DEFAULT 0.0,       -- 优惠券金额
+                    per_order_limit INTEGER,              -- 每单赠品数量上限（NULL/0 表示不限）
                     is_active INTEGER DEFAULT 1,          -- 是否启用
                     sort_order INTEGER DEFAULT 0,         -- 排序权重
                     owner_id TEXT,
@@ -924,6 +925,10 @@ def init_database():
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_amount ON gift_thresholds(threshold_amount)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_gift_threshold_active ON gift_thresholds(is_active)')
+            try:
+                cursor.execute('ALTER TABLE gift_thresholds ADD COLUMN per_order_limit INTEGER')
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -5599,7 +5604,8 @@ class GiftThresholdDB:
         threshold_amount: float,
         gift_products: bool = False,
         gift_coupon: bool = False,
-        coupon_amount: float = 0.0
+        coupon_amount: float = 0.0,
+        per_order_limit: Optional[int] = None
     ) -> str:
         """创建新的满额门槛配置"""
         import uuid
@@ -5609,14 +5615,15 @@ class GiftThresholdDB:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO gift_thresholds 
-                (id, threshold_amount, gift_products, gift_coupon, coupon_amount, is_active, sort_order, owner_id)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                (id, threshold_amount, gift_products, gift_coupon, coupon_amount, per_order_limit, is_active, sort_order, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
             ''', (
                 threshold_id,
                 threshold_amount,
                 1 if gift_products else 0,
                 1 if gift_coupon else 0,
                 coupon_amount,
+                per_order_limit if per_order_limit is not None else None,
                 int(threshold_amount),
                 owner_id
             ))
@@ -5632,6 +5639,7 @@ class GiftThresholdDB:
         gift_products: Optional[bool] = None,
         gift_coupon: Optional[bool] = None,
         coupon_amount: Optional[float] = None,
+        per_order_limit: Optional[int] = None,
         is_active: Optional[bool] = None
     ) -> bool:
         """更新门槛配置"""
@@ -5650,6 +5658,9 @@ class GiftThresholdDB:
         if coupon_amount is not None:
             updates.append("coupon_amount = ?")
             params.append(coupon_amount)
+        if per_order_limit is not None:
+            updates.append("per_order_limit = ?")
+            params.append(per_order_limit if per_order_limit > 0 else None)
         if is_active is not None:
             updates.append("is_active = ?")
             params.append(1 if is_active else 0)
@@ -5746,6 +5757,13 @@ class GiftThresholdDB:
             if threshold_amount > 0 and amount >= threshold_amount:
                 # 计算可以获得多少次这个门槛的奖励
                 times = int(amount // threshold_amount)
+                per_order_limit = threshold.get('per_order_limit')
+                try:
+                    per_order_limit_int = int(per_order_limit) if per_order_limit is not None else None
+                except (TypeError, ValueError):
+                    per_order_limit_int = None
+                if per_order_limit_int is not None and per_order_limit_int > 0:
+                    times = min(times, per_order_limit_int)
                 threshold['applicable_times'] = times
                 applicable.append(threshold)
         
@@ -5786,20 +5804,17 @@ class GiftThresholdDB:
         variant_name = chosen.get('variant_name')
         display_name = f"{product_name}（{variant_name}）" if variant_name else product_name
         
-        results = []
-        for _ in range(actual_count):
-            results.append({
-                'threshold_item_id': chosen.get('id'),
-                'product_id': chosen.get('product_id'),
-                'variant_id': chosen.get('variant_id'),
-                'product_name': product_name,
-                'variant_name': variant_name,
-                'display_name': display_name,
-                'img_path': chosen.get('img_path'),
-                'category': chosen.get('category') or '满额赠品'
-            })
-        
-        return results
+        return [{
+            'threshold_item_id': chosen.get('id'),
+            'product_id': chosen.get('product_id'),
+            'variant_id': chosen.get('variant_id'),
+            'product_name': product_name,
+            'variant_name': variant_name,
+            'display_name': display_name,
+            'img_path': chosen.get('img_path'),
+            'category': chosen.get('category') or '满额赠品',
+            'quantity': actual_count
+        }]
 
 
 
