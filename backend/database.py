@@ -2725,7 +2725,20 @@ class AdminDB:
     def soft_delete_admin(admin_id: str) -> bool:
         if admin_id in AdminDB.SAFE_SUPER_ADMINS:
             return False
-        return AdminDB.update_admin(admin_id, is_active=0)
+        success = AdminDB.update_admin(admin_id, is_active=0)
+        if success:
+            AdminDB.bump_token_version(admin_id)
+        else:
+            # 已经处于停用状态时也尝试终结旧会话
+            admin = AdminDB.get_admin(admin_id, include_disabled=True)
+            try:
+                inactive = admin and int(admin.get('is_active', 1) or 1) != 1
+            except Exception:
+                inactive = bool(admin and str(admin.get('is_active')).strip().lower() in ('0', 'false'))
+            if inactive:
+                AdminDB.bump_token_version(admin_id)
+                return True
+        return success
 
     @staticmethod
     def restore_admin(admin_id: str) -> bool:
@@ -4195,6 +4208,69 @@ class UserProfileDB:
             return UserDB.resolve_user_reference(user_identifier)
         else:
             return UserDB.resolve_user_reference(user_identifier)
+
+    @staticmethod
+    def count_users_by_scope(
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None,
+        agent_id: Optional[str] = None
+    ) -> int:
+        """统计指定范围内的注册用户数量"""
+        normalized_addresses = [aid for aid in (address_ids or []) if aid]
+        normalized_buildings = [bid for bid in (building_ids or []) if bid]
+
+        filters: List[str] = [
+            "student_id IS NOT NULL",
+            "TRIM(student_id) != ''",
+            "((address_id IS NOT NULL AND TRIM(address_id) != '') OR (building_id IS NOT NULL AND TRIM(building_id) != ''))"
+        ]
+        params: List[Any] = []
+
+        if agent_id:
+            filters.append("agent_id = ?")
+            params.append(agent_id)
+
+        coverage_clauses: List[str] = []
+        if normalized_addresses:
+            placeholders = ','.join('?' * len(normalized_addresses))
+            coverage_clauses.append(f"address_id IN ({placeholders})")
+            params.extend(normalized_addresses)
+        if normalized_buildings:
+            placeholders = ','.join('?' * len(normalized_buildings))
+            coverage_clauses.append(f"building_id IN ({placeholders})")
+            params.extend(normalized_buildings)
+
+        if coverage_clauses:
+            filters.append('(' + ' OR '.join(coverage_clauses) + ')')
+        elif agent_id:
+            filters.append("agent_id IS NOT NULL AND TRIM(agent_id) != ''")
+
+        where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f'''
+                    SELECT COUNT(DISTINCT student_id) AS count
+                    FROM user_profiles
+                    {where_sql}
+                ''', tuple(params))
+                row = cursor.fetchone()
+                if not row:
+                    count = 0
+                elif hasattr(row, 'keys') and 'count' in row.keys():
+                    count = int(row['count'] or 0)
+                else:
+                    count = int(row[0] or 0)
+            except Exception as e:
+                logger.error(f"统计用户配置数量失败: {e}")
+                return 0
+
+        if count == 0 and not agent_id and not normalized_addresses and not normalized_buildings:
+            # 回退到 users 表计数，确保兼容旧数据
+            return UserDB.count_users()
+
+        return count
 
     @staticmethod
     def get_shipping(user_identifier: Union[str, int]) -> Optional[Dict]:

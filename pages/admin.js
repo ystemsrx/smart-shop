@@ -5937,9 +5937,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       const agentQuery = isAdmin ? buildQueryString('agent_id', normalizedFilter || 'self') : '';
 
       const statsPromise = apiRequest(`/admin/stats${ownerQuery}`);
-      const usersCountPromise = isAdmin
-        ? apiRequest('/admin/users/count')
-        : Promise.resolve({ data: { count: 0 } });
+      const usersCountPromise = apiRequest(`/admin/users/count${ownerQuery}`);
       const productsPromise = apiRequest(`${staffPrefix}/products${ownerQuery}`);
       const categoriesPromise = isAdmin
         ? apiRequest(`/admin/categories${ownerQuery}`)

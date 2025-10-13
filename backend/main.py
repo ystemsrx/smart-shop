@@ -894,6 +894,47 @@ def serialize_agent_account(agent: Dict[str, Any], include_buildings: bool = Tru
     return data
 
 
+def compute_registered_user_count(owner_ids: Optional[List[str]]) -> int:
+    """
+    根据归属范围统计注册用户数量。
+    - owner_ids 为 None 时统计所有用户
+    - owner_ids 包含 'admin' 时同样统计所有用户
+    - 其余情况根据代理分配的地址/楼栋统计
+    """
+    try:
+        if not owner_ids:
+            return UserProfileDB.count_users_by_scope()
+
+        agent_ids = [oid for oid in owner_ids if oid and oid != 'admin']
+        if not agent_ids:
+            return UserProfileDB.count_users_by_scope()
+
+        address_ids: Set[str] = set()
+        building_ids: Set[str] = set()
+        for agent_id in agent_ids:
+            assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
+            for record in assignments or []:
+                addr = record.get('address_id')
+                bld = record.get('building_id')
+                if addr:
+                    address_ids.add(addr)
+                if bld:
+                    building_ids.add(bld)
+
+        agent_id_filter = agent_ids[0] if len(agent_ids) == 1 else None
+        if agent_id_filter and not address_ids and not building_ids:
+            return UserProfileDB.count_users_by_scope(agent_id=agent_id_filter)
+
+        return UserProfileDB.count_users_by_scope(
+            address_ids=list(address_ids),
+            building_ids=list(building_ids),
+            agent_id=agent_id_filter
+        )
+    except Exception as exc:
+        logger.error(f"计算注册用户数量失败: {exc}")
+        return 0
+
+
 def validate_building_ids(building_ids: Optional[List[str]]) -> Tuple[List[str], List[str]]:
     valid: List[str] = []
     invalid: List[str] = []
@@ -1569,17 +1610,52 @@ async def update_shop_settings(request: Request):
 # ==================== 学号搜索（管理员） ====================
 
 @app.get("/admin/students/search")
-async def admin_search_students(request: Request, q: str = ""):
-    """按学号模糊搜索（基于已存在的学号）。每输入1个字符就查询。"""
+async def admin_search_students(request: Request, q: str = "", limit: int = 20):
+    """按学号模糊搜索，代理仅能看到负责地址内的用户"""
     staff = get_current_staff_required_from_cookie(request)
     try:
         like = f"%{q.strip()}%" if q else "%"
+        scope = build_staff_scope(staff)
+        address_ids = [aid for aid in (scope.get('address_ids') or []) if aid]
+        building_ids = [bid for bid in (scope.get('building_ids') or []) if bid]
+
         from database import get_db_connection
         with get_db_connection() as conn:
             cur = conn.cursor()
-            cur.execute('SELECT id, name FROM users WHERE id LIKE ? ORDER BY id ASC LIMIT 20', (like,))
+            params: List[Any] = [like]
+            filters: List[str] = ["u.id LIKE ?"]
+
+            if staff.get('type') == 'agent':
+                if not address_ids and not building_ids:
+                    return success_response("搜索成功", {"students": []})
+                coverage_parts: List[str] = []
+                if address_ids:
+                    placeholders = ','.join('?' * len(address_ids))
+                    coverage_parts.append(f"up.address_id IN ({placeholders})")
+                    params.extend(address_ids)
+                if building_ids:
+                    placeholders = ','.join('?' * len(building_ids))
+                    coverage_parts.append(f"up.building_id IN ({placeholders})")
+                    params.extend(building_ids)
+                filters.append('(' + ' OR '.join(coverage_parts) + ')')
+                filters.append("((up.address_id IS NOT NULL AND TRIM(up.address_id) != '') OR (up.building_id IS NOT NULL AND TRIM(up.building_id) != ''))")
+
+            query = f'''
+                SELECT DISTINCT
+                    u.id AS student_id,
+                    COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(up.name), ''), u.id) AS student_name
+                FROM users u
+                LEFT JOIN user_profiles up
+                  ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
+                WHERE {' AND '.join(filters)}
+                ORDER BY u.id ASC
+                LIMIT ?
+            '''
+            params.append(max(1, min(limit, 50)))
+            cur.execute(query, tuple(params))
             rows = cur.fetchall() or []
-            items = [{"id": r[0], "name": r[1]} for r in rows]
+
+        items = [{"id": row["student_id"], "name": row["student_name"]} for row in rows]
         return success_response("搜索成功", {"students": items})
     except Exception as e:
         logger.error(f"搜索学号失败: {e}")
@@ -2121,23 +2197,43 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
         if not agent or (agent.get('role') or '').lower() != 'agent':
             return error_response("代理不存在", 404)
 
+        def normalize_active(value: Any) -> bool:
+            try:
+                return int(value) == 1
+            except Exception:
+                return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+        original_active = normalize_active(agent.get('is_active', 1))
+        needs_token_reset = False
+
         update_fields: Dict[str, Any] = {}
         if payload.password:
             if len(payload.password) < 4:
                 return error_response("密码至少4位", 400)
             update_fields['password'] = payload.password
+            needs_token_reset = True
         if payload.name:
             update_fields['name'] = payload.name.strip()
         if payload.is_active is not None:
-            update_fields['is_active'] = 1 if payload.is_active else 0
+            new_active = normalize_active(payload.is_active)
+            update_fields['is_active'] = 1 if new_active else 0
+            if new_active != original_active:
+                needs_token_reset = True
 
         if update_fields:
-            AdminDB.update_admin(agent_id, **update_fields)
+            updated = AdminDB.update_admin(agent_id, **update_fields)
+            if not updated:
+                return error_response("更新代理信息失败", 400)
 
         invalid_buildings: List[str] = []
         if payload.building_ids is not None:
             valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
-            AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
+            assignments_ok = AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
+            if not assignments_ok:
+                return error_response("更新代理负责楼栋失败", 500)
+
+        if needs_token_reset:
+            AdminDB.bump_token_version(agent_id)
 
         refreshed = AdminDB.get_admin(agent_id, include_disabled=True)
         data = serialize_agent_account(refreshed)
@@ -2158,8 +2254,11 @@ async def admin_delete_agent(agent_id: str, request: Request):
         agent = AdminDB.get_admin(agent_id, include_disabled=True)
         if not agent or (agent.get('role') or '').lower() != 'agent':
             return error_response("代理不存在", 404)
-        AdminDB.soft_delete_admin(agent_id)
-        AgentAssignmentDB.set_agent_buildings(agent_id, [])
+        deleted = AdminDB.soft_delete_admin(agent_id)
+        if not deleted:
+            return error_response("停用代理失败", 400)
+        if not AgentAssignmentDB.set_agent_buildings(agent_id, []):
+            logger.warning(f"清空代理 {agent_id} 的楼栋关联失败")
         return success_response("代理已停用")
     except Exception as e:
         logger.error(f"删除代理失败: {e}")
@@ -2171,10 +2270,10 @@ async def admin_delete_agent(agent_id: str, request: Request):
 # 收款码数据模型
 class PaymentQrCreateRequest(BaseModel):
     name: str
-    
+
 class PaymentQrUpdateRequest(BaseModel):
     name: Optional[str] = None
-    
+
 class PaymentQrStatusRequest(BaseModel):
     is_enabled: bool
 
@@ -3224,11 +3323,7 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
             owner_ids=owner_ids,
             include_unassigned=include_unassigned
         )
-        # 注册人数
-        try:
-            users_count = UserDB.count_users()
-        except Exception:
-            users_count = 0
+        users_count = compute_registered_user_count(owner_ids)
 
         total_stock = 0
         for p in products:
@@ -3254,12 +3349,19 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
         return error_response("获取统计信息失败", 500)
 
 @app.get("/admin/users/count")
-async def get_users_count(request: Request):
-    """获取注册人数（users 表中的学号数量）"""
-    admin = get_current_admin_required_from_cookie(request)
+async def get_users_count(request: Request, owner_id: Optional[str] = None):
+    """根据当前工作人员权限范围获取注册人数"""
+    staff = get_current_staff_required_from_cookie(request)
     try:
-        cnt = UserDB.count_users()
-        return success_response("获取注册人数成功", {"count": cnt})
+        scope = build_staff_scope(staff)
+        owner_ids, _, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_id)
+        count = compute_registered_user_count(owner_ids)
+        return success_response("获取注册人数成功", {
+            "count": count,
+            "owner_filter": normalized_filter
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取注册人数失败: {e}")
         return error_response("获取注册人数失败", 500)
