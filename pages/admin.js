@@ -3844,7 +3844,7 @@ const collapseAutoGiftItemsForDisplay = (items = []) => {
   return grouped;
 };
 
-const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate, getUnifiedStatusFn }) => {
+const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate, getUnifiedStatusFn, agentLabel }) => {
   const [isVisible, setIsVisible] = React.useState(false);
 
   React.useEffect(() => {
@@ -3869,6 +3869,7 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
   const discountAmount = Number(order?.discount_amount ?? 0);
   const totalAmount = Number(order?.total_amount ?? 0);
   const couponAmount = Number(order?.coupon_amount ?? 0);
+  const resolvedAgentLabel = agentLabel || order?.agent_id || '未分配';
 
   const reservationFlag = order?.shipping_info?.reservation;
   const reservationReasons = Array.isArray(order?.shipping_info?.reservation_reasons)
@@ -4026,6 +4027,10 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                 </div>
                 <div className="px-4 py-4 text-sm text-gray-700 space-y-2">
                   <div className="flex justify-between">
+                    <span>所属代理</span>
+                    <span>{resolvedAgentLabel}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span>支付方式</span>
                     <span>{paymentMethod}</span>
                   </div>
@@ -4062,7 +4067,24 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
 };
 
 // 订单表格组件
-const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders = [], onSelectOrder, onSelectAllOrders, onBatchDeleteOrders, onRefresh, searchValue, onSearchChange, page = 0, hasMore = false, onPrevPage, onNextPage }) => {
+const OrderTable = ({
+  orders,
+  onUpdateUnifiedStatus,
+  isLoading,
+  selectedOrders = [],
+  onSelectOrder,
+  onSelectAllOrders,
+  onBatchDeleteOrders,
+  onRefresh,
+  searchValue,
+  onSearchChange,
+  page = 0,
+  hasMore = false,
+  onPrevPage,
+  onNextPage,
+  agentNameMap = {},
+  showAgentInfo = false
+}) => {
   const [viewingOrder, setViewingOrder] = React.useState(null);
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
@@ -4173,6 +4195,11 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
                     <div className="text-sm text-gray-500">
                       {order.payment_method === 'wechat' ? '微信支付' : order.payment_method}
                     </div>
+                    {showAgentInfo && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        代理: {agentNameMap?.[order.agent_id] || (order.agent_id ? order.agent_id : '未分配')}
+                      </div>
+                    )}
                     {Boolean(order.is_reservation) && (
                       <div className="mt-1">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-white bg-blue-500 rounded-full">
@@ -4265,6 +4292,7 @@ const OrderTable = ({ orders, onUpdateUnifiedStatus, isLoading, selectedOrders =
         renderStatusBadge={getStatusBadge}
         formatDate={formatDate}
         getUnifiedStatusFn={getUnifiedStatus}
+        agentLabel={viewingOrder ? (agentNameMap?.[viewingOrder.agent_id] || viewingOrder.agent_id || '未分配') : '未分配'}
       />
     </div>
   );
@@ -5796,6 +5824,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   // 代理管理相关状态
   const initialAgentForm = { account: '', password: '', name: '', building_ids: [], is_active: true };
   const [agents, setAgents] = useState([]);
+  const [deletedAgents, setDeletedAgents] = useState([]);
   
   // 抽奖警告状态
   const [lotteryHasStockWarning, setLotteryHasStockWarning] = useState(false);
@@ -5805,6 +5834,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [agentForm, setAgentForm] = useState(initialAgentForm);
   const [agentSaving, setAgentSaving] = useState(false);
   const [agentError, setAgentError] = useState('');
+  const [showDeletedAgentsModal, setShowDeletedAgentsModal] = useState(false);
 
   // 收款码管理相关状态
   const [paymentQrs, setPaymentQrs] = useState([]);
@@ -5842,6 +5872,16 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     const target = orderAgentOptions.find(agent => agent.id === orderAgentFilter);
     return `${target?.name || orderAgentFilter} 的订单`;
   }, [isAdmin, orderAgentFilter, orderAgentOptions, user]);
+
+  const orderAgentNameMap = useMemo(() => {
+    const map = {};
+    orderAgentOptions.forEach(agent => {
+      if (agent?.id) {
+        map[agent.id] = agent.name || agent.id;
+      }
+    });
+    return map;
+  }, [orderAgentOptions]);
 
   // 楼栋管理状态（已合并到地址列表）
 
@@ -6167,6 +6207,15 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     ]);
   };
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    const normalized = (orderAgentFilter || 'self').toString().toLowerCase();
+    if (normalized === 'self' || normalized === 'all') return;
+    if (orderAgentOptions.some(option => option.id === orderAgentFilter)) return;
+    if (orderAgentOptions.length === 0) return;
+    void handleOrderAgentFilterChange('self');
+  }, [isAdmin, orderAgentFilter, orderAgentOptions, handleOrderAgentFilterChange]);
+
   // 地址操作
   const loadAddresses = async () => {
     if (!isAdmin) {
@@ -6203,6 +6252,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const loadAgents = async () => {
     if (!isAdmin) {
       setAgents([]);
+      setDeletedAgents([]);
       setOrderAgentOptions([]);
       return;
     }
@@ -6210,18 +6260,28 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setAgentError('');
     try {
       const res = await apiRequest('/admin/agents?include_inactive=1');
-      const list = res.data?.agents || [];
+      const list = (res.data?.agents || []).filter(item => item && !item.is_deleted);
+      const deletedList = (res.data?.deleted_agents || []).filter(item => item && item.id);
       setAgents(list);
-      const normalized = list
+      setDeletedAgents(deletedList);
+      const normalizedActive = list
         .filter(item => item && item.id)
         .map(item => ({
           id: item.id,
           name: item.name || item.id,
-          isActive: item.is_active !== false
+          isActive: item.is_active !== false,
+          isDeleted: false
         }));
-      setOrderAgentOptions(normalized);
+      const normalizedDeleted = deletedList.map(item => ({
+        id: item.id,
+        name: `${item.name || item.id}（已删除）`,
+        isActive: false,
+        isDeleted: true
+      }));
+      setOrderAgentOptions([...normalizedActive, ...normalizedDeleted]);
     } catch (e) {
       setAgents([]);
+      setDeletedAgents([]);
       setAgentError(e.message || '获取代理列表失败');
       setOrderAgentOptions([]);
     } finally {
@@ -6273,6 +6333,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       }
       if (!editingAgent && !payload.password) {
         setAgentError('请设置代理初始密码');
+        return;
+      }
+      // 验证密码长度：如果填写了密码，必须至少3位
+      if (payload.password && payload.password.length < 3) {
+        setAgentError('密码至少需要3位');
         return;
       }
       if (!payload.building_ids || payload.building_ids.length === 0) {
@@ -7338,7 +7403,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                       <option value="all">全部订单</option>
                       {orderAgentOptions.map(agent => (
                         <option key={agent.id} value={agent.id}>
-                          {agent.name}{agent.isActive ? '' : '（停用）'}
+                          {agent.name}{(!agent.isActive && !agent.isDeleted) ? '（停用）' : ''}
                         </option>
                       ))}
                     </select>
@@ -7416,6 +7481,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     hasMore={orderHasMore}
                     onPrevPage={() => handlePrevPage()}
                     onNextPage={() => handleNextPage()}
+                    agentNameMap={orderAgentNameMap}
+                    showAgentInfo={isAdmin}
                   />
                 </>
               )}
@@ -7454,7 +7521,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               </div>
 
               {/* 统计卡片 */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
                 <div className="bg-gradient-to-br from-indigo-50 to-blue-100 rounded-2xl p-6 border border-indigo-200/50 hover:shadow-lg transition-all duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -7505,6 +7572,20 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => setShowDeletedAgentsModal(true)}
+                  className="bg-gradient-to-br from-gray-50 to-slate-100 rounded-2xl p-6 border border-gray-300/50 hover:shadow-lg transition-all duration-300 hover:from-gray-100 hover:to-slate-200 cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-gray-500 to-gray-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <i className="fas fa-archive text-white text-lg"></i>
+                    </div>
+                    <div className="text-left">
+                      <div className="text-2xl font-bold text-gray-700">{deletedAgents.length}</div>
+                      <div className="text-sm text-gray-600">已删除</div>
+                    </div>
+                  </div>
+                </button>
               </div>
 
               {agentError && (
@@ -7744,10 +7825,21 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                               value={agentForm.password}
                               onChange={(e) => setAgentForm(prev => ({ ...prev, password: e.target.value }))}
                               placeholder={editingAgent ? '留空则不修改密码' : '请输入初始密码'}
-                              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                              className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all duration-200 ${
+                                agentForm.password && agentForm.password.length > 0 && agentForm.password.length < 3
+                                  ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                                  : 'border-gray-300 focus:ring-indigo-500 focus:border-transparent'
+                              }`}
                             />
-                            {editingAgent && (
-                              <p className="text-xs text-gray-500 mt-1.5">仅在需要重置密码时填写</p>
+                            {agentForm.password && agentForm.password.length > 0 && agentForm.password.length < 3 ? (
+                              <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1">
+                                <i className="fas fa-exclamation-circle"></i>
+                                密码至少需要3位
+                              </p>
+                            ) : editingAgent ? (
+                              <p className="text-xs text-gray-500 mt-1.5">仅在需要重置密码时填写，至少3位</p>
+                            ) : (
+                              <p className="text-xs text-gray-500 mt-1.5">密码至少3位</p>
                             )}
                           </div>
                           <div>
@@ -7913,7 +8005,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                         </button>
                         <button
                           onClick={handleAgentSave}
-                          disabled={agentSaving}
+                          disabled={agentSaving || (agentForm.password && agentForm.password.length > 0 && agentForm.password.length < 3)}
                           className="px-6 py-2.5 text-sm font-medium bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
                         >
                           {agentSaving ? (
@@ -7927,6 +8019,134 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                               {editingAgent ? '保存修改' : '创建代理'}
                             </>
                           )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 已删除代理弹窗 */}
+              {showDeletedAgentsModal && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                  <div className="flex min-h-screen items-center justify-center p-4">
+                    {/* 背景遮罩 */}
+                    <div 
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
+                      onClick={() => setShowDeletedAgentsModal(false)}
+                    ></div>
+                    
+                    {/* 模态框内容 */}
+                    <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
+                      {/* 模态框头部 */}
+                      <div className="bg-gradient-to-r from-gray-500 to-gray-600 px-6 py-5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                              <i className="fas fa-archive text-white text-lg"></i>
+                            </div>
+                            <div>
+                              <h3 className="text-xl font-bold text-white">已删除代理</h3>
+                              <p className="text-sm text-white/80 mt-0.5">查看已删除的代理账号历史信息</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setShowDeletedAgentsModal(false)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all duration-200"
+                          >
+                            <i className="fas fa-times text-lg"></i>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 模态框内容 */}
+                      <div className="p-6 overflow-y-auto max-h-[calc(80vh-140px)]">
+                        {deletedAgents.length === 0 ? (
+                          <div className="text-center py-16">
+                            <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                              <i className="fas fa-archive text-gray-400 text-3xl"></i>
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-700 mb-2">暂无已删除代理</h3>
+                            <p className="text-sm text-gray-500">没有已删除的代理记录</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
+                              <div className="flex items-start gap-2">
+                                <i className="fas fa-info-circle mt-0.5"></i>
+                                <div>
+                                  <p className="font-medium">历史数据已保留</p>
+                                  <p className="text-xs mt-1 text-amber-700">
+                                    已删除的代理订单数据已保留，可在订单管理的"查看范围"中选择对应的「（已删除）」选项查看历史订单。
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-3">
+                              {deletedAgents.map((agent, index) => (
+                                <div 
+                                  key={agent.id}
+                                  className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all duration-200"
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-4 flex-1">
+                                      <div className="w-12 h-12 bg-gradient-to-br from-gray-400 to-gray-500 rounded-xl flex items-center justify-center text-white font-bold shadow-lg flex-shrink-0">
+                                        {index + 1}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <h4 className="text-base font-bold text-gray-900">
+                                            {agent.name || agent.id}
+                                          </h4>
+                                          <span className="px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded-lg border border-red-200">
+                                            已删除
+                                          </span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                                            <i className="fas fa-user text-xs text-gray-400 w-4"></i>
+                                            <span className="font-mono">{agent.id}</span>
+                                          </div>
+                                          {agent.deleted_at && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                              <i className="fas fa-calendar-times text-xs text-gray-400 w-4"></i>
+                                              <span>
+                                                删除时间: {new Date(agent.deleted_at).toLocaleString('zh-CN')}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {agent.building_ids && agent.building_ids.length > 0 && (
+                                            <div className="flex items-start gap-2 text-sm text-gray-600">
+                                              <i className="fas fa-building text-xs text-gray-400 w-4 mt-1"></i>
+                                              <div className="flex flex-wrap gap-1.5">
+                                                <span className="text-gray-500">曾负责:</span>
+                                                {agent.building_ids.map((bid, idx) => (
+                                                  <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded-lg text-xs border border-gray-200">
+                                                    {buildingLabelMap[bid] || bid}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* 模态框底部 */}
+                      <div className="border-t border-gray-200 bg-gray-50/50 px-6 py-4 flex justify-end">
+                        <button
+                          onClick={() => setShowDeletedAgentsModal(false)}
+                          className="px-6 py-2.5 text-sm font-medium bg-gray-600 hover:bg-gray-700 text-white rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl"
+                        >
+                          关闭
                         </button>
                       </div>
                     </div>

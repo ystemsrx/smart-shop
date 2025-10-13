@@ -3,7 +3,7 @@ import sqlite3
 import json
 import logging
 from datetime import datetime, timedelta, date
-from typing import Optional, Dict, Any, List, Tuple, Union
+from typing import Optional, Dict, Any, List, Tuple, Union, Set
 from contextlib import contextmanager
 import os
 import uuid
@@ -70,7 +70,8 @@ def auto_migrate_database(conn) -> None:
             'payment_qr_path': 'TEXT',
             'is_active': 'INTEGER DEFAULT 1',
             'token_version': 'INTEGER DEFAULT 0',
-            'updated_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+            'updated_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+            'deleted_at': 'TIMESTAMP'
         },
         'products': {
             'is_active': 'INTEGER DEFAULT 1',
@@ -537,7 +538,8 @@ def init_database():
                 is_active INTEGER DEFAULT 1,
                 token_version INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP
             )
         ''')
         
@@ -636,6 +638,19 @@ def init_database():
                 UNIQUE(building_id)
             )
         ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS agent_deletions (
+                agent_id TEXT PRIMARY KEY,
+                agent_name TEXT,
+                address_ids TEXT,
+                building_ids TEXT,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                replacement_agent_id TEXT,
+                replacement_agent_name TEXT,
+                replaced_at TIMESTAMP
+            )
+        ''')
         
         # 代理独立打烊状态表
         cursor.execute('''
@@ -671,6 +686,7 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_agent ON agent_buildings(agent_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_building ON agent_buildings(building_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_buildings_address ON agent_buildings(address_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_deletions_replaced ON agent_deletions(replaced_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_agent ON agent_status(agent_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_is_open ON agent_status(is_open)')
         
@@ -2620,7 +2636,11 @@ class AdminDB:
         return admin
 
     @staticmethod
-    def get_admin(admin_id: str, include_disabled: bool = False) -> Optional[Dict[str, Any]]:
+    def get_admin(
+        admin_id: str,
+        include_disabled: bool = False,
+        include_deleted: bool = False
+    ) -> Optional[Dict[str, Any]]:
         with get_db_connection() as conn:
             try:
                 cursor = safe_execute_with_migration(conn, 'SELECT * FROM admins WHERE id = ?', (admin_id,), 'admins')
@@ -2628,6 +2648,8 @@ class AdminDB:
                 if not row:
                     return None
                 data = dict(row)
+                if not include_deleted and data.get('deleted_at'):
+                    return None
                 if not include_disabled:
                     try:
                         if int(data.get('is_active', 1) or 1) != 1:
@@ -2640,7 +2662,11 @@ class AdminDB:
                 return None
 
     @staticmethod
-    def list_admins(role: Optional[str] = None, include_disabled: bool = False) -> List[Dict[str, Any]]:
+    def list_admins(
+        role: Optional[str] = None,
+        include_disabled: bool = False,
+        include_deleted: bool = False
+    ) -> List[Dict[str, Any]]:
         with get_db_connection() as conn:
             try:
                 clauses = []
@@ -2650,12 +2676,16 @@ class AdminDB:
                     params.append(role)
                 if not include_disabled:
                     clauses.append('(is_active IS NULL OR is_active = 1)')
+                if not include_deleted:
+                    clauses.append('(deleted_at IS NULL OR deleted_at = "")')
                 where_sql = ('WHERE ' + ' AND '.join(clauses)) if clauses else ''
                 cursor = safe_execute_with_migration(conn, f'SELECT * FROM admins {where_sql} ORDER BY created_at DESC', tuple(params), 'admins')
                 rows = cursor.fetchall() or []
                 results = []
                 for row in rows:
                     data = dict(row)
+                    if not include_deleted and data.get('deleted_at'):
+                        continue
                     # 再次过滤以防止旧库缺少字段
                     if not include_disabled and int(data.get('is_active', 1) or 1) != 1:
                         continue
@@ -2680,11 +2710,16 @@ class AdminDB:
 
     @staticmethod
     def update_admin(admin_id: str, **fields) -> bool:
-        allowed_fields = {'password', 'name', 'role', 'payment_qr_path', 'is_active'}
+        allowed_fields = {'password', 'name', 'role', 'payment_qr_path', 'is_active', 'deleted_at'}
         updates = []
         params: List[Any] = []
         for key, value in fields.items():
-            if key in allowed_fields and value is not None:
+            if key not in allowed_fields:
+                continue
+            if key == 'deleted_at':
+                updates.append(f"{key} = ?")
+                params.append(value)
+            elif value is not None:
                 updates.append(f"{key} = ?")
                 params.append(value)
         if not updates:
@@ -2725,24 +2760,31 @@ class AdminDB:
     def soft_delete_admin(admin_id: str) -> bool:
         if admin_id in AdminDB.SAFE_SUPER_ADMINS:
             return False
-        success = AdminDB.update_admin(admin_id, is_active=0)
+        timestamp = datetime.utcnow().isoformat()
+        success = AdminDB.update_admin(admin_id, is_active=0, deleted_at=timestamp)
         if success:
             AdminDB.bump_token_version(admin_id)
-        else:
-            # 已经处于停用状态时也尝试终结旧会话
-            admin = AdminDB.get_admin(admin_id, include_disabled=True)
-            try:
-                inactive = admin and int(admin.get('is_active', 1) or 1) != 1
-            except Exception:
-                inactive = bool(admin and str(admin.get('is_active')).strip().lower() in ('0', 'false'))
-            if inactive:
-                AdminDB.bump_token_version(admin_id)
-                return True
-        return success
+            return True
+
+        # 如果没有更新任何内容，判断是否已经处于停用/删除状态
+        admin = AdminDB.get_admin(admin_id, include_disabled=True, include_deleted=True)
+        if not admin:
+            return False
+        try:
+            inactive = int(admin.get('is_active', 1) or 1) != 1
+        except Exception:
+            inactive = str(admin.get('is_active')).strip().lower() in ('0', 'false')
+        already_deleted = bool(admin.get('deleted_at'))
+        if inactive or already_deleted:
+            AdminDB.bump_token_version(admin_id)
+            if not already_deleted:
+                AdminDB.update_admin(admin_id, deleted_at=timestamp)
+            return True
+        return False
 
     @staticmethod
     def restore_admin(admin_id: str) -> bool:
-        return AdminDB.update_admin(admin_id, is_active=1)
+        return AdminDB.update_admin(admin_id, is_active=1, deleted_at=None)
 
 
 class AgentAssignmentDB:
@@ -2892,6 +2934,175 @@ class AgentAssignmentDB:
             entry['buildings'] = buildings
             result.append(entry)
         return result
+
+
+class AgentDeletionDB:
+    @staticmethod
+    def _unique(values: Optional[List[Optional[str]]]) -> List[str]:
+        ordered: List[str] = []
+        seen: Set[str] = set()
+        for value in values or []:
+            if not value:
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            ordered.append(value)
+        return ordered
+
+    @staticmethod
+    def record_deletion(
+        agent_id: str,
+        agent_name: Optional[str],
+        address_ids: Optional[List[Optional[str]]],
+        building_ids: Optional[List[Optional[str]]]
+    ) -> bool:
+        if not agent_id:
+            return False
+        normalized_addresses = AgentDeletionDB._unique(address_ids)
+        normalized_buildings = AgentDeletionDB._unique(building_ids)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    '''
+                    INSERT INTO agent_deletions (
+                        agent_id,
+                        agent_name,
+                        address_ids,
+                        building_ids,
+                        deleted_at,
+                        replacement_agent_id,
+                        replacement_agent_name,
+                        replaced_at
+                    )
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, NULL, NULL)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                        agent_name = excluded.agent_name,
+                        address_ids = excluded.address_ids,
+                        building_ids = excluded.building_ids,
+                        deleted_at = CURRENT_TIMESTAMP,
+                        replacement_agent_id = NULL,
+                        replacement_agent_name = NULL,
+                        replaced_at = NULL
+                    ''',
+                    (
+                        agent_id,
+                        agent_name or agent_id,
+                        json.dumps(normalized_addresses, ensure_ascii=False),
+                        json.dumps(normalized_buildings, ensure_ascii=False)
+                    )
+                )
+                conn.commit()
+                return True
+            except Exception as exc:
+                logger.error(f"记录代理删除信息失败: {exc}")
+                conn.rollback()
+                return False
+
+    @staticmethod
+    def list_active_records() -> List[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    '''
+                    SELECT agent_id, agent_name, address_ids, building_ids, deleted_at
+                    FROM agent_deletions
+                    WHERE replaced_at IS NULL
+                    ORDER BY deleted_at DESC
+                    '''
+                )
+                rows = cursor.fetchall() or []
+                results: List[Dict[str, Any]] = []
+                for row in rows:
+                    data = dict(row)
+                    try:
+                        data['address_ids'] = json.loads(data.get('address_ids') or '[]')
+                    except Exception:
+                        data['address_ids'] = []
+                    try:
+                        data['building_ids'] = json.loads(data.get('building_ids') or '[]')
+                    except Exception:
+                        data['building_ids'] = []
+                    results.append(data)
+                return results
+            except Exception as exc:
+                logger.error(f"获取删除代理记录失败: {exc}")
+                return []
+
+    @staticmethod
+    def mark_replaced_by_assignments(
+        assignments: Optional[List[Dict[str, Any]]],
+        replacement_agent_id: Optional[str],
+        replacement_agent_name: Optional[str]
+    ) -> int:
+        if not assignments:
+            return 0
+        address_ids = AgentDeletionDB._unique([item.get('address_id') for item in assignments])
+        building_ids = AgentDeletionDB._unique([item.get('building_id') for item in assignments])
+        return AgentDeletionDB.mark_replaced(
+            address_ids,
+            building_ids,
+            replacement_agent_id,
+            replacement_agent_name
+        )
+
+    @staticmethod
+    def mark_replaced(
+        address_ids: Optional[List[str]],
+        building_ids: Optional[List[str]],
+        replacement_agent_id: Optional[str],
+        replacement_agent_name: Optional[str]
+    ) -> int:
+        normalized_addresses = set(address_ids or [])
+        normalized_buildings = set(building_ids or [])
+        if not normalized_addresses and not normalized_buildings:
+            return 0
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    '''
+                    SELECT agent_id, address_ids, building_ids
+                    FROM agent_deletions
+                    WHERE replaced_at IS NULL
+                    '''
+                )
+                rows = cursor.fetchall() or []
+                updated = 0
+                for row in rows:
+                    try:
+                        record_addresses = set(json.loads(row['address_ids'] or '[]'))
+                    except Exception:
+                        record_addresses = set()
+                    try:
+                        record_buildings = set(json.loads(row['building_ids'] or '[]'))
+                    except Exception:
+                        record_buildings = set()
+                    if not record_addresses and not record_buildings:
+                        continue
+                    if (normalized_addresses and record_addresses.intersection(normalized_addresses)) or \
+                       (normalized_buildings and record_buildings.intersection(normalized_buildings)):
+                        cursor.execute(
+                            '''
+                            UPDATE agent_deletions
+                            SET replacement_agent_id = ?,
+                                replacement_agent_name = ?,
+                                replaced_at = CURRENT_TIMESTAMP
+                            WHERE agent_id = ?
+                            ''',
+                            (replacement_agent_id, replacement_agent_name, row['agent_id'])
+                        )
+                        updated += cursor.rowcount
+                conn.commit()
+                return updated
+            except Exception as exc:
+                logger.error(f"标记删除代理已被接替失败: {exc}")
+                conn.rollback()
+                return 0
+
 
 # 订单相关操作
 class OrderDB:

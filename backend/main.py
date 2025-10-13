@@ -24,7 +24,7 @@ from database import (
     VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB,
     PaymentQrDB, DeliverySettingsDB
 )
-from database import AgentAssignmentDB
+from database import AgentAssignmentDB, AgentDeletionDB
 from auth import (
     AuthManager, get_current_user_optional, get_current_user_required,
     get_current_admin, set_auth_cookie, clear_auth_cookie,
@@ -787,7 +787,7 @@ def resolve_owner_filter_for_staff(
     if lower == 'all':
         return None, True, 'all'
 
-    target = AdminDB.get_admin(filter_value, include_disabled=True)
+    target = AdminDB.get_admin(filter_value, include_disabled=True, include_deleted=True)
     if not target or (target.get('role') or '').lower() != 'agent':
         raise HTTPException(status_code=400, detail="指定的代理不存在")
 
@@ -887,7 +887,9 @@ def serialize_agent_account(agent: Dict[str, Any], include_buildings: bool = Tru
         "type": 'agent' if (agent.get('role') or '').lower() == 'agent' else 'admin',
         "created_at": agent.get('created_at'),
         "payment_qr_path": agent.get('payment_qr_path'),
-        "is_active": False if str(agent.get('is_active', 1)).strip() in ('0', 'False', 'false') else True
+        "is_active": False if str(agent.get('is_active', 1)).strip() in ('0', 'False', 'false') else True,
+        "deleted_at": agent.get('deleted_at'),
+        "is_deleted": bool(agent.get('deleted_at'))
     }
     if include_buildings:
         data["buildings"] = AgentAssignmentDB.get_buildings_for_agent(agent.get('id'))
@@ -2153,10 +2155,41 @@ async def admin_reorder_buildings(payload: BuildingReorderRequest, request: Requ
 async def admin_list_agents(request: Request, include_inactive: bool = False):
     staff = get_current_super_admin_required_from_cookie(request)
     include_disabled = str(include_inactive).lower() in ("1", "true", "yes")
+    include_deleted_param = request.query_params.get('include_deleted')
+    include_deleted = include_disabled or (
+        include_deleted_param is not None and str(include_deleted_param).lower() in ("1", "true", "yes")
+    )
     try:
-        agents = AdminDB.list_admins(role='agent', include_disabled=include_disabled)
+        agents = AdminDB.list_admins(
+            role='agent',
+            include_disabled=include_disabled,
+            include_deleted=False
+        )
         data = [serialize_agent_account(agent) for agent in agents]
-        return success_response("获取代理列表成功", {"agents": data})
+        deleted_agents: List[Dict[str, Any]] = []
+        if include_deleted:
+            for record in AgentDeletionDB.list_active_records():
+                agent_id = record.get('agent_id')
+                # 检查该已删除代理是否有订单
+                has_orders = False
+                if agent_id:
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM orders WHERE agent_id = ?", (agent_id,))
+                        order_count = cursor.fetchone()[0]
+                        has_orders = order_count > 0
+                
+                # 只有有订单的已删除代理才添加到列表中
+                if has_orders:
+                    deleted_agents.append({
+                        "id": agent_id,
+                        "name": record.get('agent_name') or agent_id,
+                        "deleted_at": record.get('deleted_at'),
+                        "address_ids": record.get('address_ids') or [],
+                        "building_ids": record.get('building_ids') or [],
+                        "is_deleted": True
+                    })
+        return success_response("获取代理列表成功", {"agents": data, "deleted_agents": deleted_agents})
     except Exception as e:
         logger.error(f"获取代理列表失败: {e}")
         return error_response("获取代理列表失败", 500)
@@ -2169,8 +2202,8 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
         account = payload.account.strip()
         if not account:
             return error_response("账号不能为空", 400)
-        if not payload.password or len(payload.password) < 4:
-            return error_response("密码至少4位", 400)
+        if not payload.password or len(payload.password) < 3:
+            return error_response("密码至少3位", 400)
         name = payload.name.strip() if payload.name else payload.account
         created = AdminDB.create_admin(account, payload.password, name, role='agent')
         if not created:
@@ -2179,8 +2212,13 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
         valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
         if valid_buildings:
             AgentAssignmentDB.set_agent_buildings(account, valid_buildings)
+            new_assignments = AgentAssignmentDB.get_buildings_for_agent(account)
+            if new_assignments:
+                AgentDeletionDB.mark_replaced_by_assignments(new_assignments, account, name)
+        else:
+            new_assignments = []
 
-        agent = AdminDB.get_admin(account, include_disabled=True)
+        agent = AdminDB.get_admin(account, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(agent)
         data['invalid_buildings'] = invalid_buildings
         return success_response("代理创建成功", {"agent": data})
@@ -2193,9 +2231,11 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
 async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request: Request):
     staff = get_current_super_admin_required_from_cookie(request)
     try:
-        agent = AdminDB.get_admin(agent_id, include_disabled=True)
+        agent = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
         if not agent or (agent.get('role') or '').lower() != 'agent':
             return error_response("代理不存在", 404)
+        if agent.get('deleted_at'):
+            return error_response("该代理已删除，无法编辑", 400)
 
         def normalize_active(value: Any) -> bool:
             try:
@@ -2207,13 +2247,15 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
         needs_token_reset = False
 
         update_fields: Dict[str, Any] = {}
+        updated_name = agent.get('name')
         if payload.password:
-            if len(payload.password) < 4:
-                return error_response("密码至少4位", 400)
+            if len(payload.password) < 3:
+                return error_response("密码至少3位", 400)
             update_fields['password'] = payload.password
             needs_token_reset = True
         if payload.name:
-            update_fields['name'] = payload.name.strip()
+            updated_name = payload.name.strip()
+            update_fields['name'] = updated_name
         if payload.is_active is not None:
             new_active = normalize_active(payload.is_active)
             update_fields['is_active'] = 1 if new_active else 0
@@ -2231,14 +2273,26 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
             assignments_ok = AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
             if not assignments_ok:
                 return error_response("更新代理负责楼栋失败", 500)
+            fresh_assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
+            if fresh_assignments:
+                AgentDeletionDB.mark_replaced_by_assignments(
+                    fresh_assignments,
+                    agent_id,
+                    updated_name or agent_id
+                )
 
         if needs_token_reset:
             AdminDB.bump_token_version(agent_id)
 
-        refreshed = AdminDB.get_admin(agent_id, include_disabled=True)
+        refreshed = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(refreshed)
         if payload.building_ids is not None:
             data['invalid_buildings'] = invalid_buildings
+        AgentDeletionDB.mark_replaced_by_assignments(
+            data.get('buildings'),
+            agent_id,
+            data.get('name') or agent_id
+        )
         return success_response("代理更新成功", {"agent": data})
     except Exception as e:
         logger.error(f"更新代理失败: {e}")
@@ -2251,15 +2305,25 @@ async def admin_delete_agent(agent_id: str, request: Request):
     try:
         if agent_id in AdminDB.SAFE_SUPER_ADMINS:
             return error_response("禁止删除系统管理员", 400)
-        agent = AdminDB.get_admin(agent_id, include_disabled=True)
+        agent = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
         if not agent or (agent.get('role') or '').lower() != 'agent':
             return error_response("代理不存在", 404)
+        assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
         deleted = AdminDB.soft_delete_admin(agent_id)
         if not deleted:
             return error_response("停用代理失败", 400)
+        address_ids = [item.get('address_id') for item in assignments or []]
+        building_ids = [item.get('building_id') for item in assignments or []]
+        if not AgentDeletionDB.record_deletion(
+            agent_id,
+            agent.get('name') or agent_id,
+            address_ids,
+            building_ids
+        ):
+            logger.warning(f"记录代理删除信息失败: {agent_id}")
         if not AgentAssignmentDB.set_agent_buildings(agent_id, []):
             logger.warning(f"清空代理 {agent_id} 的楼栋关联失败")
-        return success_response("代理已停用")
+        return success_response("代理已删除")
     except Exception as e:
         logger.error(f"删除代理失败: {e}")
         return error_response("删除代理失败", 500)
