@@ -842,13 +842,22 @@ def resolve_staff_order_scope(
             'self'
         )
 
-    target = AdminDB.get_admin(filter_value, include_disabled=True)
+    target = AdminDB.get_admin(filter_value, include_disabled=True, include_deleted=True)
     if not target or (target.get('role') or '').lower() != 'agent':
         raise HTTPException(status_code=400, detail="指定的代理不存在")
 
     assignments = AgentAssignmentDB.get_buildings_for_agent(filter_value)
     address_ids = list({record.get('address_id') for record in assignments if record.get('address_id')}) or None
     building_ids = [record.get('building_id') for record in assignments if record.get('building_id')]
+    
+    # 如果代理已被删除且没有楼栋关联，从agent_deletions表中获取历史楼栋信息
+    if target.get('deleted_at') and not assignments:
+        deletion_records = AgentDeletionDB.list_active_records()
+        for record in deletion_records:
+            if record.get('agent_id') == filter_value:
+                address_ids = record.get('address_ids') or None
+                building_ids = record.get('building_ids') or None
+                break
 
     return filter_value, address_ids, building_ids, None, None, filter_value
 
@@ -2181,10 +2190,18 @@ async def admin_list_agents(request: Request, include_inactive: bool = False):
                 
                 # 只有有订单的已删除代理才添加到列表中
                 if has_orders:
+                    deleted_at_raw = record.get('deleted_at')
+                    deleted_at_timestamp = None
+                    if deleted_at_raw:
+                        try:
+                            deleted_at_timestamp = convert_sqlite_timestamp_to_unix(deleted_at_raw, agent_id)
+                        except Exception as e:
+                            logger.warning(f"转换删除时间失败 {agent_id}: {e}")
+                    
                     deleted_agents.append({
                         "id": agent_id,
                         "name": record.get('agent_name') or agent_id,
-                        "deleted_at": record.get('deleted_at'),
+                        "deleted_at": deleted_at_timestamp,
                         "address_ids": record.get('address_ids') or [],
                         "building_ids": record.get('building_ids') or [],
                         "is_deleted": True
@@ -2210,18 +2227,36 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
             return error_response("账号已存在", 400)
 
         valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
+        inherited_orders_count = 0
         if valid_buildings:
             AgentAssignmentDB.set_agent_buildings(account, valid_buildings)
             new_assignments = AgentAssignmentDB.get_buildings_for_agent(account)
             if new_assignments:
-                AgentDeletionDB.mark_replaced_by_assignments(new_assignments, account, name)
+                # 继承已删除代理的订单数据
+                address_ids = [item.get('address_id') for item in new_assignments]
+                building_ids = [item.get('building_id') for item in new_assignments]
+                inherited_orders_count = AgentDeletionDB.inherit_deleted_agent_orders(
+                    address_ids, 
+                    building_ids, 
+                    account, 
+                    name
+                )
+                if inherited_orders_count > 0:
+                    logger.info(f"新代理 {account} 继承了 {inherited_orders_count} 个订单")
         else:
             new_assignments = []
 
         agent = AdminDB.get_admin(account, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(agent)
         data['invalid_buildings'] = invalid_buildings
-        return success_response("代理创建成功", {"agent": data})
+        data['inherited_orders_count'] = inherited_orders_count
+        
+        # 如果继承了数据，在消息中提示
+        message = "代理创建成功"
+        if inherited_orders_count > 0:
+            message = f"代理创建成功，已自动继承相同区域已删除代理的所有数据（订单 {inherited_orders_count} 个及商品、配置、收款码等）"
+        
+        return success_response(message, {"agent": data})
     except Exception as e:
         logger.error(f"创建代理失败: {e}")
         return error_response("创建代理失败", 500)
@@ -2268,6 +2303,7 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
                 return error_response("更新代理信息失败", 400)
 
         invalid_buildings: List[str] = []
+        inherited_orders_count = 0
         if payload.building_ids is not None:
             valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
             assignments_ok = AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
@@ -2275,11 +2311,17 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
                 return error_response("更新代理负责楼栋失败", 500)
             fresh_assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
             if fresh_assignments:
-                AgentDeletionDB.mark_replaced_by_assignments(
-                    fresh_assignments,
-                    agent_id,
+                # 继承已删除代理的订单数据
+                address_ids = [item.get('address_id') for item in fresh_assignments]
+                building_ids = [item.get('building_id') for item in fresh_assignments]
+                inherited_orders_count = AgentDeletionDB.inherit_deleted_agent_orders(
+                    address_ids, 
+                    building_ids, 
+                    agent_id, 
                     updated_name or agent_id
                 )
+                if inherited_orders_count > 0:
+                    logger.info(f"代理 {agent_id} 更新楼栋后继承了 {inherited_orders_count} 个订单")
 
         if needs_token_reset:
             AdminDB.bump_token_version(agent_id)
@@ -2288,12 +2330,14 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
         data = serialize_agent_account(refreshed)
         if payload.building_ids is not None:
             data['invalid_buildings'] = invalid_buildings
-        AgentDeletionDB.mark_replaced_by_assignments(
-            data.get('buildings'),
-            agent_id,
-            data.get('name') or agent_id
-        )
-        return success_response("代理更新成功", {"agent": data})
+            data['inherited_orders_count'] = inherited_orders_count
+        
+        # 如果继承了数据，在消息中提示
+        message = "代理更新成功"
+        if inherited_orders_count > 0:
+            message = f"代理更新成功，已自动继承相同区域已删除代理的所有数据（订单 {inherited_orders_count} 个及商品、配置、收款码等）"
+        
+        return success_response(message, {"agent": data})
     except Exception as e:
         logger.error(f"更新代理失败: {e}")
         return error_response("更新代理失败", 500)

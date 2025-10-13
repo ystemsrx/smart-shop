@@ -8112,7 +8112,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                                             <div className="flex items-center gap-2 text-sm text-gray-600">
                                               <i className="fas fa-calendar-times text-xs text-gray-400 w-4"></i>
                                               <span>
-                                                删除时间: {new Date(agent.deleted_at).toLocaleString('zh-CN')}
+                                                删除时间: {typeof agent.deleted_at === 'number' 
+                                                  ? new Date(agent.deleted_at * 1000).toLocaleString('zh-CN')
+                                                  : new Date(agent.deleted_at).toLocaleString('zh-CN')}
                                               </span>
                                             </div>
                                           )}

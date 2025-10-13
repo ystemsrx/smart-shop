@@ -3102,6 +3102,231 @@ class AgentDeletionDB:
                 logger.error(f"标记删除代理已被接替失败: {exc}")
                 conn.rollback()
                 return 0
+    
+    @staticmethod
+    def inherit_deleted_agent_orders(
+        address_ids: Optional[List[str]],
+        building_ids: Optional[List[str]],
+        new_agent_id: str,
+        new_agent_name: Optional[str]
+    ) -> int:
+        """
+        当创建新代理时，继承相同地址/楼栋的已删除代理的所有数据。
+        包括：订单、商品、收款码、配置、优惠券、抽奖、用户配置等。
+        返回继承的订单数量。
+        """
+        normalized_addresses = set(address_ids or [])
+        normalized_buildings = set(building_ids or [])
+        if not normalized_addresses and not normalized_buildings:
+            return 0
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # 查找匹配的已删除代理
+                cursor.execute(
+                    '''
+                    SELECT agent_id, address_ids, building_ids
+                    FROM agent_deletions
+                    WHERE replaced_at IS NULL
+                    '''
+                )
+                rows = cursor.fetchall() or []
+                total_orders_updated = 0
+                deleted_agents_to_replace = []
+                
+                for row in rows:
+                    try:
+                        record_addresses = set(json.loads(row['address_ids'] or '[]'))
+                    except Exception:
+                        record_addresses = set()
+                    try:
+                        record_buildings = set(json.loads(row['building_ids'] or '[]'))
+                    except Exception:
+                        record_buildings = set()
+                    if not record_addresses and not record_buildings:
+                        continue
+                    
+                    # 检查是否有交集
+                    if (normalized_addresses and record_addresses.intersection(normalized_addresses)) or \
+                       (normalized_buildings and record_buildings.intersection(normalized_buildings)):
+                        deleted_agents_to_replace.append(row['agent_id'])
+                
+                # 批量继承所有数据
+                if deleted_agents_to_replace:
+                    for old_agent_id in deleted_agents_to_replace:
+                        logger.info(f"开始继承代理 {old_agent_id} 的所有数据到 {new_agent_id}")
+                        
+                        # 1. 继承订单 (agent_id)
+                        cursor.execute(
+                            'UPDATE orders SET agent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        orders_count = cursor.rowcount
+                        total_orders_updated += orders_count
+                        if orders_count > 0:
+                            logger.info(f"  - 继承订单: {orders_count} 个")
+                        
+                        # 2. 继承商品 (owner_id)
+                        cursor.execute(
+                            'UPDATE products SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        products_count = cursor.rowcount
+                        if products_count > 0:
+                            logger.info(f"  - 继承商品: {products_count} 个")
+                        
+                        # 3. 继承收款码 (owner_id, 同时检查 owner_type='agent')
+                        cursor.execute(
+                            'UPDATE payment_qr_codes SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ? AND owner_type = ?',
+                            (new_agent_id, old_agent_id, 'agent')
+                        )
+                        qr_count = cursor.rowcount
+                        if qr_count > 0:
+                            logger.info(f"  - 继承收款码: {qr_count} 个")
+                        
+                        # 4. 继承配置 (owner_id)
+                        cursor.execute(
+                            'UPDATE settings SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        settings_count = cursor.rowcount
+                        if settings_count > 0:
+                            logger.info(f"  - 继承配置: {settings_count} 条")
+                        
+                        # 5. 继承抽奖奖品 (owner_id)
+                        cursor.execute(
+                            'UPDATE lottery_prizes SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        prizes_count = cursor.rowcount
+                        if prizes_count > 0:
+                            logger.info(f"  - 继承抽奖奖品: {prizes_count} 个")
+                        
+                        # 6. 继承抽奖配置 (owner_id 作为主键)
+                        cursor.execute(
+                            'SELECT * FROM lottery_configs WHERE owner_id = ?',
+                            (old_agent_id,)
+                        )
+                        old_lottery_config = cursor.fetchone()
+                        if old_lottery_config:
+                            # 检查新代理是否已有配置
+                            cursor.execute('SELECT * FROM lottery_configs WHERE owner_id = ?', (new_agent_id,))
+                            if not cursor.fetchone():
+                                # 复制配置到新代理
+                                cursor.execute(
+                                    'INSERT INTO lottery_configs (owner_id, threshold_amount, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+                                    (new_agent_id, old_lottery_config['threshold_amount'])
+                                )
+                                logger.info(f"  - 继承抽奖配置")
+                            # 删除旧配置
+                            cursor.execute('DELETE FROM lottery_configs WHERE owner_id = ?', (old_agent_id,))
+                        
+                        # 7. 继承自动赠品 (owner_id)
+                        cursor.execute(
+                            'UPDATE auto_gift_items SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        gifts_count = cursor.rowcount
+                        if gifts_count > 0:
+                            logger.info(f"  - 继承自动赠品: {gifts_count} 个")
+                        
+                        # 8. 继承满赠阈值 (owner_id)
+                        cursor.execute(
+                            'UPDATE gift_thresholds SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        thresholds_count = cursor.rowcount
+                        if thresholds_count > 0:
+                            logger.info(f"  - 继承满赠阈值: {thresholds_count} 个")
+                        
+                        # 9. 继承配送设置 (owner_id)
+                        cursor.execute(
+                            'UPDATE delivery_settings SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        delivery_count = cursor.rowcount
+                        if delivery_count > 0:
+                            logger.info(f"  - 继承配送设置: {delivery_count} 条")
+                        
+                        # 10. 继承优惠券 (owner_id)
+                        cursor.execute(
+                            'UPDATE coupons SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        coupons_count = cursor.rowcount
+                        if coupons_count > 0:
+                            logger.info(f"  - 继承优惠券: {coupons_count} 张")
+                        
+                        # 11. 继承抽奖记录 (owner_id)
+                        cursor.execute(
+                            'UPDATE lottery_draws SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        draws_count = cursor.rowcount
+                        if draws_count > 0:
+                            logger.info(f"  - 继承抽奖记录: {draws_count} 条")
+                        
+                        # 12. 继承用户奖励 (owner_id)
+                        cursor.execute(
+                            'UPDATE user_rewards SET owner_id = ? WHERE owner_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        rewards_count = cursor.rowcount
+                        if rewards_count > 0:
+                            logger.info(f"  - 继承用户奖励: {rewards_count} 条")
+                        
+                        # 13. 继承代理状态 (agent_id 作为唯一约束)
+                        cursor.execute(
+                            'SELECT * FROM agent_status WHERE agent_id = ?',
+                            (old_agent_id,)
+                        )
+                        old_status = cursor.fetchone()
+                        if old_status:
+                            # 检查新代理是否已有状态
+                            cursor.execute('SELECT * FROM agent_status WHERE agent_id = ?', (new_agent_id,))
+                            if not cursor.fetchone():
+                                # 复制状态到新代理
+                                cursor.execute(
+                                    '''INSERT INTO agent_status 
+                                       (id, agent_id, is_open, closed_note, allow_reservation, updated_at, created_at) 
+                                       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''',
+                                    (new_agent_id + '_status', new_agent_id, old_status['is_open'], 
+                                     old_status.get('closed_note', ''), old_status.get('allow_reservation', 0))
+                                )
+                                logger.info(f"  - 继承代理状态")
+                            # 删除旧状态
+                            cursor.execute('DELETE FROM agent_status WHERE agent_id = ?', (old_agent_id,))
+                        
+                        # 14. 继承用户配置中的代理关联 (agent_id)
+                        cursor.execute(
+                            'UPDATE user_profiles SET agent_id = ? WHERE agent_id = ?',
+                            (new_agent_id, old_agent_id)
+                        )
+                        profiles_count = cursor.rowcount
+                        if profiles_count > 0:
+                            logger.info(f"  - 继承用户配置: {profiles_count} 个")
+                        
+                        # 标记已删除代理为已替换
+                        cursor.execute(
+                            '''
+                            UPDATE agent_deletions
+                            SET replacement_agent_id = ?,
+                                replacement_agent_name = ?,
+                                replaced_at = CURRENT_TIMESTAMP
+                            WHERE agent_id = ?
+                            ''',
+                            (new_agent_id, new_agent_name or new_agent_id, old_agent_id)
+                        )
+                        
+                        logger.info(f"完成继承代理 {old_agent_id} 的所有数据到 {new_agent_id}")
+                
+                conn.commit()
+                return total_orders_updated
+            except Exception as exc:
+                logger.error(f"继承已删除代理数据失败: {exc}")
+                conn.rollback()
+                return 0
 
 
 # 订单相关操作
