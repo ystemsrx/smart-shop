@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { getShopName } from '../utils/runtimeConfig';
+import CircularMenuButton from './CircularMenuButton';
 
 // 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders' | 'staff-shop' | 'staff-dashboard' | 'staff-backend'
 export default function Nav({ active = 'home' }) {
@@ -41,22 +42,15 @@ export default function Nav({ active = 'home' }) {
             <div className="flex items-center space-x-8">
               {/* 品牌Logo */}
               <div className="flex items-center space-x-3">
-                {/* 移动端：点击图标打开菜单，桌面端：链接到首页 */}
-                <button
-                  className="md:hidden flex items-center group"
-                  onClick={() => setMobileOpen(!mobileOpen)}
-                  aria-label="打开菜单"
-                >
-                  <div className="relative">
-                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg transform group-hover:scale-105 transition-transform duration-300">
-                       <i className="fas fa-shopping-bag text-white text-lg"></i>
-                     </div>
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-400 rounded-full flex items-center justify-center">
-                      <i className="fas fa-sparkles text-white text-xs"></i>
-                    </div>
-                  </div>
-                </button>
+                {/* 移动端：使用圆形汉堡菜单按钮 */}
+                <div className="md:hidden">
+                  <CircularMenuButton 
+                    isOpen={mobileOpen}
+                    onToggle={() => setMobileOpen(!mobileOpen)}
+                  />
+                </div>
                 
+                {/* 桌面端：品牌图标链接到首页 */}
                 <Link href="/" className="hidden md:flex items-center group">
                   <div className="relative">
                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg transform group-hover:scale-105 transition-transform duration-300">
