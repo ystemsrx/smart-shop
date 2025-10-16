@@ -78,6 +78,8 @@ const nextConfig = {
           { source: '/items/:path*', destination: `${cleanBase}/items/:path*` },
           // 将 /public/* 代理到后端，用于收款码等动态生成的静态文件
           { source: '/public/:path*', destination: `${cleanBase}/public/:path*` },
+          // 将 .txt 文件代理到后端，用于域名验证文件等
+          { source: '/:filename.txt', destination: `${cleanBase}/:filename.txt` },
         ]
       : [];
   }

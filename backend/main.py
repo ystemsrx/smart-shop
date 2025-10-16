@@ -6124,18 +6124,22 @@ async def serve_payment_qr(payment_id: str, extension: str):
         }
     )
 
-@app.get("/tencent{filename}")
-async def serve_tencent_verification(filename: str):
-    """Serve Tencent verification files"""
-    full_filename = f"tencent{filename}"
+@app.get("/{filename}.txt")
+async def serve_txt_files(filename: str):
+    """Serve any .txt files from public directory"""
+    full_filename = f"{filename}.txt"
     file_path = os.path.join(public_dir, full_filename)
+    
+    # Security check: prevent directory traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     
-    media_type = mimetypes.guess_type(file_path)[0] or "text/plain"
     return FileResponse(
         file_path, 
-        media_type=media_type,
+        media_type="text/plain",
         headers={
             "Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable",
             "Access-Control-Allow-Origin": "*",
