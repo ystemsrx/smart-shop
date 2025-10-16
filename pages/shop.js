@@ -8,7 +8,7 @@ import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
-import { getShopName } from '../utils/runtimeConfig';
+import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
 import ProductDetailModal from '../components/ProductDetailModal';
 
@@ -467,6 +467,7 @@ export default function Shop() {
   const [shopNote, setShopNote] = useState('');
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
+  const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
   
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
@@ -911,7 +912,7 @@ export default function Shop() {
     loadCart();
   }, [user, locationRevision]);
 
-  // 加载店铺/代理状态（打烊提示）
+  // 加载店铺/代理状态（打烊提示）和配送费设置
   useEffect(() => {
     (async () => {
       try {
@@ -938,6 +939,30 @@ export default function Shop() {
       }
     })();
   }, [location]);
+
+  // 加载配送费设置
+  useEffect(() => {
+    (async () => {
+      try {
+        const API_BASE = getApiBaseUrl();
+        const response = await fetch(`${API_BASE}/delivery-config`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        const result = await response.json();
+        if (result.success && result.data && result.data.delivery_config) {
+          const threshold = result.data.delivery_config.free_delivery_threshold;
+          // 使用 ?? 而不是 ||，这样 0 也是有效值
+          setFreeDeliveryThreshold(threshold !== undefined && threshold !== null ? parseFloat(threshold) : 10);
+        }
+      } catch (e) {
+        console.warn('获取配送费设置失败，使用默认值:', e);
+      }
+    })();
+  }, []);
 
   // 购物车数量变化时，角标弹跳（仅在数量增加时）
   useEffect(() => {
@@ -998,12 +1023,12 @@ export default function Shop() {
             <div className="flex justify-center items-center gap-8 mt-8 text-sm text-gray-700">
               <div className="flex items-center gap-2">
                 <i className="fas fa-truck text-green-500"></i>
-                <span>满10免费配送</span>
+                <span>{freeDeliveryThreshold === 0 ? '免费配送' : `满${freeDeliveryThreshold}免费配送`}</span>
               </div>
               <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
               <div className="flex items-center gap-2">
                 <i className="fas fa-clock text-blue-500"></i>
-                <span>最快3分钟送达</span>
+                <span>急速送达</span>
               </div>
               <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
               <div className="flex items-center gap-2">

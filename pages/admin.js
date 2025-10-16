@@ -3163,6 +3163,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
     stock: product.stock || '',
     description: product.description || '',
     cost: product.cost || '',
+    discount: (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10),
     is_hot: product.is_hot === 1 || product.is_hot === true,
     reservation_required: Boolean(product.reservation_required),
     reservation_cutoff: product.reservation_cutoff || '',
@@ -3305,8 +3306,8 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             </div>
           </div>
           
-          {/* 第三行：售价 + 成本价 */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* 第三行：售价 + 折扣 + 成本价 */}
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                 售价 <span className="text-red-500">*</span>
@@ -3325,6 +3326,26 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                   placeholder="0.00"
                 />
               </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                折扣
+              </label>
+              <select
+                name="discount"
+                value={formData.discount}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+              >
+                {Array.from({ length: 20 }).map((_, i) => {
+                  const val = 10 - i * 0.5;
+                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                  return (
+                    <option key={v} value={v}>{v}折</option>
+                  );
+                })}
+              </select>
             </div>
             
             <div>
@@ -3351,25 +3372,36 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           <div className="grid grid-cols-2 gap-4">
             {/* 预估利润 */}
             <div>
-              {formData.price && formData.cost && parseFloat(formData.price) > 0 && parseFloat(formData.cost) > 0 ? (
+              {formData.price && parseFloat(formData.price) > 0 ? (
+                (() => {
+                  const price = parseFloat(formData.price);
+                  const cost = parseFloat(formData.cost) || 0;
+                  const discount = parseFloat(formData.discount) || 10;
+                  const finalPrice = price * (discount / 10);
+                  const profit = finalPrice - cost;
+                  const profitRate = cost > 0 ? (profit / cost) * 100 : null;
+                  
+                  return (
                 <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 h-[42px] flex items-center">
                   <div className="flex items-center justify-between text-sm w-full">
                     <span className="text-gray-700 font-medium">利润</span>
                     <div className="text-right">
                       <span className="font-bold text-green-600">
-                        ¥{(parseFloat(formData.price) - parseFloat(formData.cost)).toFixed(2)}
+                            ¥{profit.toFixed(2)}
                       </span>
                       <span className="text-xs text-gray-500 ml-2">
-                        {(((parseFloat(formData.price) - parseFloat(formData.cost)) / parseFloat(formData.price)) * 100).toFixed(1)}%
+                            {profitRate !== null ? `${profitRate.toFixed(1)}%` : '-'}
                       </span>
                     </div>
                   </div>
                 </div>
+                  );
+                })()
               ) : (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] flex items-center justify-center">
                   <div className="flex items-center text-sm text-gray-400">
                     <i className="fas fa-calculator mr-2"></i>
-                    <span>填写售价和成本后显示</span>
+                    <span>填写售价后显示</span>
                   </div>
                 </div>
               )}
@@ -4354,6 +4386,7 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
     stock: '',
     description: '',
     cost: '',
+    discount: 10,
     is_hot: false,
     reservation_required: false,
     reservation_cutoff: '',
@@ -4528,8 +4561,8 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
             </div>
           </div>
           
-          {/* 第三行：售价 + 成本价 */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* 第三行：售价 + 折扣 + 成本价 */}
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                 售价 <span className="text-red-500">*</span>
@@ -4548,6 +4581,26 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
                   placeholder="0.00"
                 />
               </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                折扣
+              </label>
+              <select
+                name="discount"
+                value={formData.discount}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+              >
+                {Array.from({ length: 20 }).map((_, i) => {
+                  const val = 10 - i * 0.5;
+                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
+                  return (
+                    <option key={v} value={v}>{v}折</option>
+                  );
+                })}
+              </select>
             </div>
             
             <div>
@@ -4574,25 +4627,36 @@ const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = fa
           <div className="grid grid-cols-2 gap-4">
             {/* 预估利润 */}
             <div>
-              {formData.price && formData.cost && parseFloat(formData.price) > 0 && parseFloat(formData.cost) > 0 ? (
+              {formData.price && parseFloat(formData.price) > 0 ? (
+                (() => {
+                  const price = parseFloat(formData.price);
+                  const cost = parseFloat(formData.cost) || 0;
+                  const discount = parseFloat(formData.discount) || 10;
+                  const finalPrice = price * (discount / 10);
+                  const profit = finalPrice - cost;
+                  const profitRate = cost > 0 ? (profit / cost) * 100 : null;
+                  
+                  return (
                 <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 h-[42px] flex items-center">
                   <div className="flex items-center justify-between text-sm w-full">
                     <span className="text-gray-700 font-medium">利润</span>
                     <div className="text-right">
                       <span className="font-bold text-green-600">
-                        ¥{(parseFloat(formData.price) - parseFloat(formData.cost)).toFixed(2)}
+                            ¥{profit.toFixed(2)}
                       </span>
                       <span className="text-xs text-gray-500 ml-2">
-                        {(((parseFloat(formData.price) - parseFloat(formData.cost)) / parseFloat(formData.price)) * 100).toFixed(1)}%
+                            {profitRate !== null ? `${profitRate.toFixed(1)}%` : '-'}
                       </span>
                     </div>
                   </div>
                 </div>
+                  );
+                })()
               ) : (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] flex items-center justify-center">
                   <div className="flex items-center text-sm text-gray-400">
                     <i className="fas fa-calculator mr-2"></i>
-                    <span>填写售价和成本后显示</span>
+                    <span>填写售价后显示</span>
                   </div>
                 </div>
               )}

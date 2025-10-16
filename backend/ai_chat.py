@@ -155,7 +155,7 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         lottery_enabled = lottery_config.get('is_enabled', True)
         
         # 构建配送费规则描述
-        if delivery_fee == 0:
+        if free_threshold == 0:
             shipping_rule = "Shipping: Free shipping for all orders"
         else:
             shipping_rule = f"Shipping: Free shipping for orders over ¥{free_threshold:.2f}; otherwise, a ¥{delivery_fee:.2f} delivery fee will be charged"
