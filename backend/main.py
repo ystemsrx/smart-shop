@@ -508,6 +508,8 @@ async def handle_product_creation(
     description: str,
     cost: float,
     owner_id: Optional[str],
+    discount: Optional[str] = None,
+    variants: Optional[str] = None,
     image: Optional[UploadFile],
     is_hot: bool = False,
     reservation_required: bool = False,
@@ -521,12 +523,22 @@ async def handle_product_creation(
         if image:
             img_path, new_file_path = await store_product_image(category, name, image)
 
+        # 处理折扣
+        discount_value = 10.0
+        if discount is not None:
+            try:
+                discount_value = float(discount)
+                if discount_value < 0.5 or discount_value > 10:
+                    return error_response("折扣范围应为0.5~10折", 400)
+            except Exception:
+                return error_response("无效的折扣", 400)
+
         product_data = {
             "name": name,
             "category": category,
             "price": price,
             "stock": stock,
-            "discount": 10.0,
+            "discount": discount_value,
             "description": description,
             "img_path": img_path,
             "cost": cost,
@@ -538,7 +550,33 @@ async def handle_product_creation(
         }
 
         product_id = ProductDB.create_product(product_data)
-        return success_response("商品创建成功", {"product_id": product_id})
+        
+        # 处理变体（规格）
+        if variants:
+            try:
+                import json
+                logger.info(f"收到 variants 数据: {variants}")
+                variants_list = json.loads(variants)
+                logger.info(f"解析后的 variants_list: {variants_list}")
+                if isinstance(variants_list, list) and len(variants_list) > 0:
+                    for variant in variants_list:
+                        if isinstance(variant, dict) and 'name' in variant:
+                            variant_id = VariantDB.create_variant(
+                                product_id=product_id,
+                                name=variant['name'],
+                                stock=int(variant.get('stock', 0))
+                            )
+                            logger.info(f"成功创建变体: {variant_id}, 名称: {variant['name']}, 库存: {variant.get('stock', 0)}")
+                else:
+                    logger.warning(f"variants_list 不是有效的列表或为空: {variants_list}")
+            except json.JSONDecodeError as e:
+                logger.error(f"创建商品变体失败 - JSON解析错误: {e}, 原始数据: {variants}")
+            except Exception as e:
+                logger.error(f"创建商品变体失败: {e}, 类型: {type(e).__name__}", exc_info=True)
+        
+        # 返回创建的商品信息，方便前端直接使用
+        created_product = ProductDB.get_product_by_id(product_id)
+        return success_response("商品创建成功", {"product_id": product_id, "product": created_product})
 
     except HTTPException as exc:
         if new_file_path:
@@ -3271,6 +3309,8 @@ async def create_product(
     description: str = Form(""),
     cost: float = Form(0.0),
     owner_id: Optional[str] = Form(None),
+    discount: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),
     is_hot: Optional[str] = Form(None),
     reservation_required: Optional[str] = Form(None),
     reservation_cutoff: Optional[str] = Form(None),
@@ -3289,6 +3329,8 @@ async def create_product(
         description=description,
         cost=cost,
         owner_id=owner_id,
+        discount=discount,
+        variants=variants,
         image=image,
         is_hot=is_truthy(is_hot),
         reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
@@ -3306,6 +3348,8 @@ async def agent_create_product(
     stock: int = Form(0),
     description: str = Form(""),
     cost: float = Form(0.0),
+    discount: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),
     is_hot: Optional[str] = Form(None),
     reservation_required: Optional[str] = Form(None),
     reservation_cutoff: Optional[str] = Form(None),
@@ -3324,6 +3368,8 @@ async def agent_create_product(
         description=description,
         cost=cost,
         owner_id=agent_owner_id,
+        discount=discount,
+        variants=variants,
         image=image,
         is_hot=is_truthy(is_hot),
         reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
@@ -3486,6 +3532,13 @@ async def get_product_details(product_id: str, request: Request):
             return error_response("商品不存在", 404)
         if not staff_can_access_product(staff, product):
             return error_response("无权访问该商品", 403)
+
+        # 补充规格信息（与 /products 路由保持一致）
+        variants = VariantDB.get_by_product(product_id)
+        product["variants"] = variants
+        product["has_variants"] = len(variants) > 0
+        if product["has_variants"]:
+            product["total_variant_stock"] = sum(v.get("stock", 0) for v in variants)
 
         return success_response("获取商品详情成功", {"product": product})
     

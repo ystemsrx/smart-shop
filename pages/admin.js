@@ -3154,8 +3154,155 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
   );
 };
 
+// 本地规格管理器（不立即应用，只修改本地状态）
+const LocalVariantManager = ({ variants, loading, onChange }) => {
+  const [newName, setNewName] = useState('');
+  const [newStock, setNewStock] = useState(0);
+
+  const addVariant = () => {
+    if (!newName.trim()) {
+      alert('请输入规格名称');
+      return;
+    }
+    
+    if (variants.some(v => v.name === newName.trim())) {
+      alert('规格名称已存在');
+      return;
+    }
+    
+    const newVariant = {
+      id: `temp_${Date.now()}`, // 临时ID，提交时会识别为新增
+      name: newName.trim(),
+      stock: parseInt(newStock) || 0
+    };
+    
+    onChange([...variants, newVariant]);
+    setNewName('');
+    setNewStock(0);
+  };
+  
+  const removeVariant = (id) => {
+    onChange(variants.filter(v => v.id !== id));
+  };
+  
+  const updateVariant = (id, field, value) => {
+    onChange(variants.map(v => {
+      if (v.id === id) {
+        return { ...v, [field]: field === 'stock' ? (parseInt(value) || 0) : value };
+      }
+      return v;
+    }));
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
+      <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-5 py-4 border-b-2 border-gray-200">
+        <div className="flex items-center gap-2">
+          <i className="fas fa-layer-group text-teal-600"></i>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">商品规格</h3>
+            <p className="text-xs text-gray-600 mt-0.5">多规格库存管理</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-5 space-y-4">
+        {/* 添加规格表单 */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">规格名称</label>
+              <input 
+                value={newName} 
+                onChange={e => setNewName(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && (e.preventDefault(), addVariant())}
+                placeholder="例如：原味、中杯" 
+                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">库存数量</label>
+              <input 
+                type="number" 
+                value={newStock} 
+                min={0} 
+                onChange={e => setNewStock(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && (e.preventDefault(), addVariant())}
+                placeholder="0" 
+                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
+              />
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={addVariant} 
+            className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-all shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <i className="fas fa-plus"></i>
+            添加规格
+          </button>
+        </div>
+        
+        {/* 规格列表 */}
+        {loading ? (
+          <div className="flex items-center justify-center py-6 text-gray-500">
+            <i className="fas fa-spinner fa-spin mr-2"></i>
+            <span className="text-sm">加载中...</span>
+          </div>
+        ) : variants.length === 0 ? (
+          <div className="text-center py-6 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+            <i className="fas fa-cube text-gray-400 text-3xl mb-2"></i>
+            <p className="text-sm font-medium text-gray-600">暂无规格</p>
+            <p className="text-xs text-gray-500 mt-1">添加规格后可独立管理库存</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
+              {variants.map((v) => (
+                <div key={v.id} className="relative group rounded-xl border-2 border-teal-200 bg-teal-50/30 hover:bg-teal-50 p-3 transition-all hover:shadow-md">
+                  {/* 删除按钮 - 圆形叉号 */}
+                  <button
+                    type="button"
+                    onClick={() => removeVariant(v.id)}
+                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
+                    title="删除规格"
+                  >
+                    <i className="fas fa-times text-xs"></i>
+                  </button>
+                  
+                  {/* 规格信息 */}
+                  <div className="pr-2">
+                    <div className="mb-2">
+                      <label className="text-xs text-gray-600 mb-1 block">名称</label>
+                      <input 
+                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                        value={v.name} 
+                        onChange={(e) => updateVariant(v.id, 'name', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">库存数量</label>
+                      <input 
+                        type="number" 
+                        min={0} 
+                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
+                        value={v.stock} 
+                        onChange={(e) => updateVariant(v.id, 'stock', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // 编辑商品表单组件
-const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false }) => {
+const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false, onRefreshProduct }) => {
   const [formData, setFormData] = useState({
     name: product.name || '',
     category: product.category || '',
@@ -3170,6 +3317,38 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
     reservation_note: product.reservation_note || ''
   });
   const [imageFile, setImageFile] = useState(null);
+  const { apiRequest } = useApi();
+  
+  // 规格状态管理（本地状态，只在提交时应用）
+  const [variantsState, setVariantsState] = useState({
+    loaded: false,
+    original: [], // 原始规格数据（用于对比变更）
+    current: []   // 当前编辑中的规格数据
+  });
+
+  // 加载规格数据
+  useEffect(() => {
+    const loadVariants = async () => {
+      try {
+        const res = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
+        const variants = res?.data?.variants || [];
+        setVariantsState({
+          loaded: true,
+          original: JSON.parse(JSON.stringify(variants)), // 深拷贝
+          current: JSON.parse(JSON.stringify(variants))
+        });
+      } catch (err) {
+        console.error('加载规格失败:', err);
+        setVariantsState({
+          loaded: true,
+          original: [],
+          current: []
+        });
+      }
+    };
+    
+    loadVariants();
+  }, [product.id]);
 
   const handleInputChange = (e) => {
     setFormData({
@@ -3215,7 +3394,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     // 验证必填字段
@@ -3238,13 +3417,96 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
       return;
     }
     
-    onSubmit({
+    // 先提交商品基本信息
+    const submitData = {
       ...formData,
       price,
       stock,
       is_hot: !!formData.is_hot,
-      image: imageFile
+      image: imageFile,
+      skipCloseModal: true // 告诉handleEditProduct不要立即关闭弹窗
+    };
+    
+    await onSubmit(submitData);
+    
+    // 然后应用规格变更
+    try {
+      await applyVariantChanges();
+      
+      // 规格变更完成后，刷新该商品的数据
+      if (onRefreshProduct) {
+        try {
+          await onRefreshProduct(product.id);
+        } catch (refreshErr) {
+          console.error('刷新商品数据失败:', refreshErr);
+        }
+      }
+      
+      // 所有完成后，手动关闭弹窗
+      if (onCancel) {
+        onCancel();
+      }
+    } catch (err) {
+      console.error('应用规格变更失败:', err);
+      alert('商品信息已保存，但规格更新失败：' + (err.message || '未知错误'));
+      // 即使失败也关闭弹窗并尝试刷新
+      if (onRefreshProduct) {
+        try {
+          await onRefreshProduct(product.id);
+        } catch {}
+      }
+      if (onCancel) {
+        onCancel();
+      }
+    }
+  };
+  
+  // 应用规格变更到服务器
+  const applyVariantChanges = async () => {
+    const { original, current } = variantsState;
+    
+    // 判断是否为临时ID（新增的规格）
+    const isTempId = (id) => typeof id === 'string' && id.startsWith('temp_');
+    
+    // 判断是否为真实ID（从服务器加载的规格）
+    const isRealId = (id) => !isTempId(id) && (typeof id === 'number' || typeof id === 'string');
+    
+    // 找出被删除的规格（在original中有真实ID，但在current中找不到）
+    const deletedVariants = original.filter(o => 
+      isRealId(o.id) && !current.find(c => String(c.id) === String(o.id))
+    );
+    
+    // 找出新增的规格（id是临时ID）
+    const newVariants = current.filter(c => isTempId(c.id));
+    
+    // 找出被修改的规格（在original和current中都有，但内容不同）
+    const updatedVariants = current.filter(c => {
+      if (isTempId(c.id)) return false;
+      const orig = original.find(o => String(o.id) === String(c.id));
+      if (!orig) return false;
+      return orig.name !== c.name || orig.stock !== c.stock;
     });
+    
+    // 依次执行删除、新增、更新操作
+    for (const v of deletedVariants) {
+      await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${v.id}`.replace('//', '/'), {
+        method: 'DELETE'
+      });
+    }
+    
+    for (const v of newVariants) {
+      await apiRequest(`${apiPrefix}/products/${product.id}/variants`, {
+        method: 'POST',
+        body: JSON.stringify({ name: v.name, stock: v.stock })
+      });
+    }
+    
+    for (const v of updatedVariants) {
+      await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${v.id}`.replace('//', '/'), {
+        method: 'PUT',
+        body: JSON.stringify({ name: v.name, stock: v.stock })
+      });
+    }
   };
 
   return (
@@ -3535,10 +3797,16 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           )}
         </div>
 
-      {/* 3. 规格管理 */}
-      <VariantManager 
-        productId={product.id} 
-        apiPrefix={apiPrefix}
+      {/* 3. 规格管理（本地状态版本） */}
+      <LocalVariantManager 
+        variants={variantsState.current}
+        loading={!variantsState.loaded}
+        onChange={(newVariants) => {
+          setVariantsState(prev => ({
+            ...prev,
+            current: newVariants
+          }));
+        }}
       />
 
       {/* 底部操作按钮 */}
@@ -6614,6 +6882,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         formData.append('image', productData.image);
       }
       
+      // 添加discount数据
+      if (productData.discount !== undefined && productData.discount !== null) {
+        formData.append('discount', productData.discount);
+      }
+      
       // 添加variants数据
       if (productData.variants && productData.variants.length > 0) {
         formData.append('variants', JSON.stringify(productData.variants));
@@ -6654,6 +6927,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         stock: productData.stock,
         description: productData.description,
         cost: productData.cost || 0,
+        discount: productData.discount !== undefined && productData.discount !== null ? productData.discount : 10,
         is_hot: !!productData.is_hot,
         reservation_required: !!productData.reservation_required,
         reservation_cutoff: productData.reservation_cutoff || '',
@@ -6665,6 +6939,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       const hasStockStructureChange = productData.stock !== editingProduct.stock;
       const hasCategoryChange = productData.category !== editingProduct.category;
       const hasNameChange = productData.name !== editingProduct.name;
+      const skipCloseModal = productData.skipCloseModal; // 是否跳过关闭弹窗（规格变更尚未应用）
       
       await apiRequest(`${staffPrefix}/products/${editingProduct.id}`, {
         method: 'PUT',
@@ -6685,34 +6960,73 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         });
       }
       
-      setEditingProduct(null);
-      setShowEditModal(false);
+      // 如果不跳过关闭弹窗，则正常关闭
+      if (!skipCloseModal) {
+        setEditingProduct(null);
+        setShowEditModal(false);
+      }
       
       // 判断是否需要完整刷新：图片更新、库存结构变化、分类变化、名称变化等
-      // 或者可能存在变体变化的情况（通过检查当前商品是否有变体来推断）
+      // 如果skipCloseModal为true，说明还有规格变更要应用，延迟到规格变更完成后再刷新
       const needsFullRefresh = hasImageUpdate || hasStockStructureChange || hasCategoryChange || hasNameChange;
       
-      if (needsFullRefresh) {
-        // 如果有关键变更，刷新整个商品列表以确保数据同步
-        await loadData();
-      } else {
-        // 如果只是简单更新，使用乐观更新
-        const updatedProducts = products.map(p => {
-          if (p.id === editingProduct.id) {
-            return {
-              ...p,
-              ...updateData
-            };
+      if (!skipCloseModal) {
+        // 只在不跳过关闭弹窗时才刷新（规格变更会在完成后统一刷新）
+        if (needsFullRefresh) {
+          // 如果有关键变更，刷新整个商品列表以确保数据同步
+          await loadData();
+        } else {
+          // 即使是简单更新，也需要重新获取该商品的完整数据（包括规格信息）
+          // 以确保 has_variants 等字段是最新的
+          try {
+            const refreshedProduct = await apiRequest(`${staffPrefix}/products/${editingProduct.id}`);
+            const updatedProducts = products.map(p => {
+              if (p.id === editingProduct.id) {
+                return {
+                  ...p,
+                  ...updateData,
+                  // 使用服务器返回的最新规格相关数据
+                  has_variants: refreshedProduct.data?.product?.has_variants || false,
+                  total_variant_stock: refreshedProduct.data?.product?.total_variant_stock,
+                  variants: refreshedProduct.data?.product?.variants
+                };
+              }
+              return p;
+            });
+            setProducts(updatedProducts);
+          } catch (refreshErr) {
+            // 如果重新获取失败，降级到完整刷新
+            console.error('重新获取商品数据失败，执行完整刷新:', refreshErr);
+            await loadData();
           }
-          return p;
-        });
-        setProducts(updatedProducts);
+        }
       }
       
     } catch (err) {
       alert(err.message || '更新商品失败');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // 刷新单个商品数据（用于确保规格等信息是最新的）
+  const refreshSingleProduct = async (productId) => {
+    try {
+      const refreshedProduct = await apiRequest(`${staffPrefix}/products/${productId}`);
+      if (refreshedProduct.data?.product) {
+        const updatedProducts = products.map(p => {
+          if (p.id === productId) {
+            return {
+              ...p,
+              ...refreshedProduct.data.product
+            };
+          }
+          return p;
+        });
+        setProducts(updatedProducts);
+      }
+    } catch (err) {
+      console.error('刷新商品数据失败:', err);
     }
   };
 
@@ -8711,6 +9025,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         <Modal
           isOpen={showEditModal}
           onClose={() => {
+            // 点击关闭不应用变更，直接关闭
             setShowEditModal(false);
             setEditingProduct(null);
           }}
@@ -8723,9 +9038,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               onSubmit={handleEditProduct}
               isLoading={isSubmitting}
               onCancel={() => {
+                // 点击取消不应用变更，直接关闭
                 setShowEditModal(false);
                 setEditingProduct(null);
               }}
+              onRefreshProduct={refreshSingleProduct}
               apiPrefix={staffPrefix}
               isAdmin={isAdmin}
             />
