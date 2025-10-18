@@ -9,3 +9,4 @@ aiofiles==23.2.1
 brotli==1.1.0
 Pillow>=9.0.0
 python-dotenv>=1.0.1
+openai>=1.40.2

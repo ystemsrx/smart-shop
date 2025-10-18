@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
+import { ChevronDown, Check } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -738,6 +740,24 @@ const Bubble = ({ role, children }) => {
   );
 };
 
+const ThinkingBubble = ({ content }) => (
+  <div className="flex w-full justify-start">
+    <div className="max-w-[80%] rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-500 shadow-sm">
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Thinking</div>
+      <div className="whitespace-pre-wrap text-sm text-gray-500">{content || "…"}</div>
+    </div>
+  </div>
+);
+
+const ErrorBubble = ({ message }) => (
+  <div className="flex w-full justify-start">
+    <div className="max-w-[80%] rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-700 shadow-sm">
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-500">Error</div>
+      <div className="whitespace-pre-wrap">{message}</div>
+    </div>
+  </div>
+);
+
 // 加载指示器组件
 const LoadingIndicator = () => {
   return (
@@ -1011,16 +1031,91 @@ export default function ChatModern({ user }) {
   const [inp, setInp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const [modelError, setModelError] = useState("");
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const first = msgs.length === 0;
   const genId = useId();
   const { endRef, containerRef } = useSmartAutoScroll(msgs);
   const abortControllerRef = useRef(null);
+  const thinkingMsgIdRef = useRef(null);
+
+  const selectedModelMeta = useMemo(
+    () => models.find((item) => item.model === selectedModel) || null,
+    [models, selectedModel]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadModels = async () => {
+      try {
+        const baseUrl = getApiBaseUrl();
+        const apiUrl = `${baseUrl.replace(/\/$/, '')}/ai/models`;
+        const response = await fetch(apiUrl, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        const list = Array.isArray(data?.models) ? data.models : [];
+        if (cancelled) return;
+        setModels(list);
+        setModelError("");
+        if (list.length > 0) {
+          setSelectedModel((prev) => {
+            if (prev && list.some((item) => item.model === prev)) {
+              return prev;
+            }
+            return list[0].model;
+          });
+        } else {
+          setSelectedModel("");
+          setModelError("未配置可用模型");
+        }
+      } catch (err) {
+        console.error("加载模型列表失败:", err);
+        if (!cancelled) {
+          setModelError("模型列表加载失败，请稍后重试");
+          setModels([]);
+          setSelectedModel("");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingModels(false);
+        }
+      }
+    };
+
+    loadModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 点击外部关闭模型选择器
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (modelSelectorOpen && !event.target.closest('.relative.inline-block')) {
+        setModelSelectorOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [modelSelectorOpen]);
 
 
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    thinkingMsgIdRef.current = null;
+    setShowThinking(false);
   };
 
   const push = (role, content) => setMsgs((s) => [...s, { id: genId(), role, content }]);
@@ -1046,9 +1141,12 @@ export default function ChatModern({ user }) {
   };
 
   // SSE客户端实现
-  const sendMessage = async (messages) => {
+  const sendMessage = async (messages, modelValue) => {
     const baseUrl = getApiBaseUrl();
     const API_URL = `${baseUrl.replace(/\/$/, '')}/ai/chat`;
+    if (!modelValue) {
+      throw new Error("缺少有效模型配置");
+    }
     
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -1061,7 +1159,7 @@ export default function ChatModern({ user }) {
           "Accept": "text/event-stream",
         },
         credentials: 'include', // 包含Cookie认证
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, model: modelValue }),
         signal: controller.signal,
       });
 
@@ -1092,6 +1190,26 @@ export default function ChatModern({ user }) {
             
             try {
               const data = JSON.parse(dataStr);
+
+              if (data.type === "reasoning") {
+                if (!streamHasStarted) {
+                  streamHasStarted = true;
+                  setShowThinking(false);
+                }
+                const reasoningDelta = data.delta || "";
+                if (thinkingMsgIdRef.current == null) {
+                  const newId = genId();
+                  thinkingMsgIdRef.current = newId;
+                  setMsgs((s) => [...s, { id: newId, role: "assistant_thinking", content: reasoningDelta }]);
+                } else {
+                  const currentId = thinkingMsgIdRef.current;
+                  setMsgs((s) => s.map((m) => m.id === currentId
+                    ? { ...m, content: (m.content || "") + reasoningDelta }
+                    : m
+                  ));
+                }
+                continue;
+              }
               
               if (data.type === "delta" && data.role === "assistant") {
                 if (!streamHasStarted) {
@@ -1187,6 +1305,7 @@ export default function ChatModern({ user }) {
                 if (toolCallsInProgress.size === 0) {
                   assistantMessageAdded = false;
                   assistantContent = "";
+                  thinkingMsgIdRef.current = null;
                 }
 
                 // 以 role:tool 写入消息历史
@@ -1197,16 +1316,20 @@ export default function ChatModern({ user }) {
 
               } else if (data.type === "completed") {
                 // 对话完成
+                thinkingMsgIdRef.current = null;
+                setShowThinking(false);
                 break;
               } else if (data.type === "error") {
                 // 处理后端错误
-                // 添加错误消息给用户
-                if (!assistantMessageAdded) {
-                  push("assistant", "");
-                  assistantMessageAdded = true;
-                }
-                assistantContent += `\n\n⚠️ 系统遇到问题：${data.error}`;
-                updateLastMessage(assistantContent);
+                setShowThinking(false);
+                thinkingMsgIdRef.current = null;
+                assistantMessageAdded = false;
+                assistantContent = "";
+                const errorText = data.error || "生成失败，请稍后重试。";
+                setMsgs((s) => ([
+                  ...s,
+                  { id: genId(), role: 'error', content: errorText }
+                ]));
                 break;
               }
             } catch (e) {
@@ -1221,17 +1344,24 @@ export default function ChatModern({ user }) {
         console.log('Stream generation stopped by user.');
         return; 
       }
+      setShowThinking(false);
+      thinkingMsgIdRef.current = null;
       // 添加错误消息
-      push("assistant", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
+      push("error", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
     }
   };
 
   const handleSend = async () => {
     const txt = inp.trim();
     if (!txt || isLoading) return;
+    if (!selectedModel) {
+      push("error", modelError || "模型未就绪，请稍后重试。");
+      return;
+    }
     
     setIsLoading(true);
     setShowThinking(true);
+    thinkingMsgIdRef.current = null;
     push("user", txt);
     setInp("");
     
@@ -1243,7 +1373,7 @@ export default function ChatModern({ user }) {
         .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
         .map(msg => ({ role: msg.role, content: msg.content }));
       
-      await sendMessage(apiMessages);
+      await sendMessage(apiMessages, selectedModel);
     } finally {
       setIsLoading(false);
       setShowThinking(false);
@@ -1252,6 +1382,7 @@ export default function ChatModern({ user }) {
   };
   const clear = () => {
     handleStop();
+    thinkingMsgIdRef.current = null;
     setMsgs([]);
   };
   const PAD = "pb-40";
@@ -1261,42 +1392,117 @@ export default function ChatModern({ user }) {
     <TextType {...TEXTTYPE_PROPS} />
   ), []);
 
-  const Header = useMemo(() => (
-    <header className="sticky top-0 z-20 w-full border-b border-gray-200 bg-white">
-      <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-          <img 
-            src="/logo.png" 
-            alt={SHOP_NAME}
-            className="h-8 w-auto object-contain"
-          />
-          <span>AI Chat</span>
+  // Header组件 - 提取为共享组件
+  const Header = useMemo(() => {
+    // 获取当前选中模型的显示名称
+    const getSelectedModelLabel = () => {
+      if (isLoadingModels) return "加载中...";
+      if (models.length === 0) return "无可用模型";
+      if (!selectedModel) return "选择模型";
+      const model = models.find((m) => m.model === selectedModel);
+      return model ? `${model.name}${model.supports_thinking ? ' · Thinking' : ''}` : "选择模型";
+    };
+
+    return (
+      <header className="fixed top-14 left-0 right-0 z-40 bg-white">
+        <div className="flex h-14 items-center justify-between px-4">
+          <div className="flex items-center">
+            <div className="relative inline-block text-left">
+              <button
+                onClick={() => setModelSelectorOpen(!modelSelectorOpen)}
+                disabled={isLoading || isLoadingModels || models.length === 0}
+                className="flex items-center justify-start gap-2 bg-transparent text-gray-900 rounded-xl px-3 py-1.5 hover:bg-gray-100 transition disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+              >
+                <span className="font-semibold text-sm">{getSelectedModelLabel()}</span>
+                <ChevronDown 
+                  className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${modelSelectorOpen ? "rotate-180" : "rotate-0"}`} 
+                />
+              </button>
+
+              <AnimatePresence>
+                {modelSelectorOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute z-50 mt-2 min-w-full rounded-xl bg-white border border-gray-200 shadow-lg backdrop-blur-md overflow-hidden whitespace-nowrap"
+                  >
+                    {models.map((m) => {
+                      const modelLabel = `${m.name}${m.supports_thinking ? ' · Thinking' : ''}`;
+                      const isSelected = selectedModel === m.model;
+                      
+                      return (
+                        <button
+                          key={m.model}
+                          onClick={() => {
+                            setSelectedModel(m.model);
+                            setModelSelectorOpen(false);
+                            if (m.model) {
+                              setModelError("");
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 transition whitespace-nowrap ${
+                            isSelected ? "bg-gray-50" : ""
+                          }`}
+                        >
+                          <div className="font-medium text-sm">{modelLabel}</div>
+                          {isSelected && <Check className="h-3.5 w-3.5 flex-shrink-0 text-green-500 ml-2" />}
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+          <button onClick={clear} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50" disabled={isLoading}>
+            清空
+          </button>
         </div>
-        <button onClick={clear} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 shadow-sm hover:bg-gray-50">清空</button>
-      </div>
-    </header>
-  ), []);
+        {modelError && (
+          <div className="px-4 pb-2 text-xs text-red-500">
+            {modelError}
+          </div>
+        )}
+      </header>
+    );
+  }, [selectedModel, isLoading, isLoadingModels, models, selectedModelMeta, modelError, modelSelectorOpen]);
 
   return (
-    <div className="relative flex min-h-[calc(100vh-56px)] flex-col bg-white text-gray-900">
+    <div className="relative flex h-screen flex-col bg-white text-gray-900 overflow-hidden">
       {first ? (
-        <main className="grid flex-1 place-items-center p-6">
-          <section className="w-full max-w-3xl space-y-8">
-            <div className="text-center">
-              {welcomeTextComponent}
-            </div>
-            <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="问我任何问题…" autoFocus isLoading={isLoading} />
-          </section>
-        </main>
+        <>
+          {Header}
+          <main className="flex flex-1 items-center justify-center px-6 pt-28">
+            <section className="w-full max-w-3xl space-y-8">
+              <div className="text-center">
+                {welcomeTextComponent}
+              </div>
+              <InputBar
+                value={inp}
+                onChange={setInp}
+                onSend={handleSend}
+                onStop={handleStop}
+                placeholder="问我任何问题…"
+                autoFocus
+                isLoading={isLoading}
+              />
+            </section>
+          </main>
+        </>
       ) : (
         <>
           {Header}
-          <main ref={containerRef} className={cx("flex-1 overflow-y-auto", PAD)}>
+
+          <main ref={containerRef} className={cx("flex-1 overflow-y-auto pt-28", PAD)}>
             <div className="mx-auto w-full max-w-4xl px-4 pt-6">
               <div className="mx-auto flex max-w-3xl flex-col gap-4">
                 {msgs.map((m) => {
                   if (m.role === "assistant") {
                     return <MarkdownRenderer key={m.id} content={m.content} />;
+                  } else if (m.role === "assistant_thinking") {
+                    return <ThinkingBubble key={m.id} content={m.content} />;
                   } else if (m.role === "tool_call") {
                     return (
                       <ToolCallCard
@@ -1311,6 +1517,8 @@ export default function ChatModern({ user }) {
                     );
                   } else if (m.role === "user") {
                     return <Bubble key={m.id} role={m.role}>{m.content}</Bubble>;
+                  } else if (m.role === "error") {
+                    return <ErrorBubble key={m.id} message={m.content} />;
                   }
                   // 跳过其他角色的消息（如 tool 角色，已经在卡片中显示）
                   return null;
@@ -1320,9 +1528,17 @@ export default function ChatModern({ user }) {
               </div>
             </div>
           </main>
+
           <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white">
             <div className="mx-auto max-w-4xl px-4 py-4">
-              <InputBar value={inp} onChange={setInp} onSend={handleSend} onStop={handleStop} placeholder="继续提问…" isLoading={isLoading} />
+              <InputBar
+                value={inp}
+                onChange={setInp}
+                onSend={handleSend}
+                onStop={handleStop}
+                placeholder="继续提问…"
+                isLoading={isLoading}
+              />
             </div>
           </div>
         </>

@@ -48,10 +48,8 @@ export default function Home() {
       {/* 统一导航栏 */}
       <Nav active="home" />
 
-      {/* 聊天界面 */}
-      <div className="pt-16">
-        <ChatModern user={user} />
-      </div>
+      {/* 聊天界面 - 无需额外padding，ChatUI内部已处理 */}
+      <ChatModern user={user} />
       
       {/* 未登录提示 */}
       {!user && (

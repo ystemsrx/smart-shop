@@ -70,13 +70,14 @@ const TextType = memo(({
 
     // 光标闪烁动画
     if (showCursor && cursorRef.current) {
-      gsap.set(cursorRef.current, { opacity: 1 });
+      gsap.set(cursorRef.current, { opacity: 1, visibility: 'visible' });
       gsap.to(cursorRef.current, {
         opacity: 0,
         duration: cursorBlinkDuration,
         repeat: -1,
         yoyo: true,
-        ease: "power2.inOut"
+        ease: "power2.inOut",
+        immediateRender: true
       });
     }
 
@@ -220,6 +221,11 @@ const TextType = memo(({
         timelineRef.current.kill();
       }
       
+      // 清理光标动画
+      if (cursorRef.current) {
+        gsap.killTweensOf(cursorRef.current);
+      }
+      
       isInitializedRef.current = false;
     };
   }, [text, typingSpeed, pauseDuration, deletingSpeed, cursorBlinkDuration, showCursor, randomOrder]);
@@ -233,7 +239,7 @@ const TextType = memo(({
         <span 
           ref={cursorRef} 
           className="text-3xl font-semibold ml-1"
-          style={{ display: 'inline-block' }}
+          style={{ display: 'inline-block', opacity: 1, visibility: 'visible' }}
         >
           {cursorCharacter}
         </span>

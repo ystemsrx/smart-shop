@@ -5,44 +5,87 @@ import json
 import time
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-import httpx
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from contextlib import asynccontextmanager
+from openai import AsyncOpenAI
+from openai._types import NOT_GIVEN
 
 # 导入数据库和认证模块
 from database import ProductDB, CartDB, ChatLogDB, CategoryDB, DeliverySettingsDB, GiftThresholdDB, UserProfileDB, AgentAssignmentDB, get_db_connection, LotteryConfigDB
 from auth import get_current_user_optional, get_current_staff_from_cookie, get_current_user_from_cookie
-from config import get_settings
+from config import get_settings, ModelConfig
 
 # 配置日志
 logger = logging.getLogger(__name__)
 settings = get_settings()
 MODEL_CANDIDATES = settings.model_order
-API_URL = settings.api_url
+MODEL_INDEX = {cfg.name: cfg for cfg in MODEL_CANDIDATES}
+DEFAULT_MODEL = MODEL_CANDIDATES[0] if MODEL_CANDIDATES else None
 
 if not settings.api_key:
     logger.warning("AI API key is not configured; upstream requests may be rejected.")
 
-# HTTP客户端配置
-transport = httpx.AsyncHTTPTransport(retries=0, http2=False)
-limits = httpx.Limits(max_connections=200, max_keepalive_connections=50)
-default_headers = {}
-if settings.api_key:
-    default_headers["Authorization"] = f"Bearer {settings.api_key}"
-client = httpx.AsyncClient(
-    timeout=httpx.Timeout(300.0), 
-    limits=limits, 
-    transport=transport,
-    headers=default_headers
+ai_client = AsyncOpenAI(
+    api_key=settings.api_key,
+    base_url=settings.api_url,
 )
 
-UPSTREAM_SSE_HEADERS = {
-    "Accept": "text/event-stream",
-    "Accept-Encoding": "identity", 
-    "Cache-Control": "no-cache"
-}
+
+def resolve_model_config(model_name: Optional[str]) -> ModelConfig:
+    """根据名称获取模型配置，默认返回首个模型。"""
+    if model_name:
+        cfg = MODEL_INDEX.get(model_name)
+        if cfg:
+            return cfg
+        logger.warning("Requested model %s is not configured; falling back to default model.", model_name)
+    if not DEFAULT_MODEL:
+        raise RuntimeError("No AI models configured.")
+    return DEFAULT_MODEL
+
+
+def _coerce_to_dict(value: Any) -> Dict[str, Any]:
+    """将任意对象尽量转换为字典，便于统一处理。"""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump()
+        except Exception:
+            pass
+    if hasattr(value, "dict"):
+        try:
+            return value.dict()
+        except Exception:
+            pass
+    return {}
+
+
+def _extract_text(content: Any) -> str:
+    """从OpenAI SDK返回的content结构中提取文本。"""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            else:
+                item_dict = _coerce_to_dict(item)
+                text_val = item_dict.get("text") or item_dict.get("content")
+                if isinstance(text_val, str):
+                    parts.append(text_val)
+        return "".join(parts)
+    if isinstance(content, dict):
+        text_val = content.get("text") or content.get("content")
+        if isinstance(text_val, str):
+            return text_val
+    return ""
 
 # ===== 辅助函数 =====
 
@@ -237,50 +280,117 @@ Smart Shopping Assistant for *{shop_name}*
         return get_fallback_system_prompt()
 
 
-# ===== 模型故障转移函数 =====
+# ===== 模型调用辅助函数 =====
 
-async def make_request_with_fallback(messages, tools, stream=True):
+async def stream_model_response(
+    model_config: ModelConfig,
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    send
+) -> Tuple[str, Dict[int, Dict[str, Any]], Optional[str]]:
     """
-    使用故障转移机制调用模型API
-    按顺序尝试不同的模型，如果某个模型返回非200状态码则尝试下一个
+    使用指定模型执行流式对话，边读取OpenAI SDK的流式结果边透传给前端。
+    返回助手的完整文本、工具调用缓冲以及结束原因。
     """
-    for model_config in MODEL_CANDIDATES:
-        model_name = model_config.name
-        supports_thinking = model_config.supports_thinking
-        
-        # 构建请求payload
-        payload = {
-            "model": model_name,
-            "messages": messages,
-            "stream": stream,
-            "tools": tools
-        }
-        
-        # 只有支持thinking的模型才添加该参数
-        if supports_thinking:
-            payload["thinking"] = {"type": "disabled"}
-        
-        logger.info(f"尝试使用模型: {model_name}")
-        
-        try:
-            if stream:
-                # 流式请求
-                response = client.stream("POST", API_URL, json=payload, headers=UPSTREAM_SSE_HEADERS)
-                return response, model_name
-            else:
-                # 非流式请求
-                response = await client.post(API_URL, json=payload, headers={"Accept-Encoding":"identity"})
-                response.raise_for_status()
-                return response, model_name
-        except httpx.HTTPStatusError as e:
-            logger.warning(f"模型 {model_name} 返回错误状态码 {e.response.status_code}, 尝试下一个模型")
-            continue
-        except Exception as e:
-            logger.warning(f"模型 {model_name} 请求失败: {e}, 尝试下一个模型")
-            continue
-    
-    # 所有模型都失败了
-    raise Exception("所有模型都不可用")
+    payload: Dict[str, Any] = {
+        "model": model_config.name,
+        "messages": messages,
+        "stream": True,
+    }
+    if tools:
+        payload["tools"] = tools
+    extra_body: Dict[str, Any] = {}
+    if model_config.supports_thinking:
+        extra_body["reasoning"] = {"effort": "low"}
+
+    logger.info(f"调用模型: {model_config.name} ({model_config.label})")
+
+    try:
+        stream = await ai_client.chat.completions.create(
+            **payload,
+            extra_body=extra_body if extra_body else NOT_GIVEN,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"模型 {model_config.name} 初始化失败: {exc}") from exc
+
+    tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
+    assistant_text_parts: List[str] = []
+    finish_reason: Optional[str] = None
+
+    try:
+        async for chunk in stream:
+            chunk_dict = chunk if isinstance(chunk, dict) else _coerce_to_dict(chunk)
+            if not chunk_dict:
+                continue
+
+            if "error" in chunk_dict and chunk_dict["error"]:
+                error_detail = chunk_dict["error"]
+                if isinstance(error_detail, dict):
+                    message = error_detail.get("message") or json.dumps(error_detail, ensure_ascii=False)
+                else:
+                    message = str(error_detail)
+                raise RuntimeError(message)
+
+            choices = chunk_dict.get("choices") or []
+            for choice in choices:
+                choice_dict = choice if isinstance(choice, dict) else _coerce_to_dict(choice)
+                delta_dict = _coerce_to_dict(choice_dict.get("delta"))
+
+                reasoning_piece = delta_dict.get("reasoning")
+                reasoning_text = _extract_text(reasoning_piece)
+                if reasoning_text:
+                    await send(_sse("message", {"type": "reasoning", "delta": reasoning_text, "role": "assistant"}))
+
+                content_piece = delta_dict.get("content")
+                content_text = _extract_text(content_piece)
+                if content_text:
+                    assistant_text_parts.append(content_text)
+                    await send(_sse("message", {"type": "delta", "delta": content_text, "role": "assistant"}))
+
+                tool_parts = delta_dict.get("tool_calls") or []
+                for tool_part in tool_parts:
+                    tool_dict = tool_part if isinstance(tool_part, dict) else _coerce_to_dict(tool_part)
+                    index = tool_dict.get("index", 0)
+                    try:
+                        index = int(index)
+                    except Exception:
+                        index = 0
+
+                    if index not in tool_calls_buffer:
+                        tool_calls_buffer[index] = {
+                            "id": "",
+                            "type": tool_dict.get("type") or "function",
+                            "function": {"name": "", "arguments": ""}
+                        }
+
+                    if tool_dict.get("id"):
+                        tool_calls_buffer[index]["id"] = tool_dict["id"]
+
+                    func_dict = _coerce_to_dict(tool_dict.get("function"))
+                    if func_dict.get("name"):
+                        tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
+
+                    arguments_value = func_dict.get("arguments")
+                    if arguments_value:
+                        if isinstance(arguments_value, str):
+                            arg_text = arguments_value
+                        else:
+                            try:
+                                arg_text = json.dumps(arguments_value, ensure_ascii=False)
+                            except TypeError:
+                                arg_text = str(arguments_value)
+                        existing = tool_calls_buffer[index]["function"]["arguments"]
+                        tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
+
+                finish_reason_value = choice_dict.get("finish_reason")
+                if not finish_reason_value and hasattr(choice, "finish_reason"):
+                    finish_reason_value = getattr(choice, "finish_reason")
+                if finish_reason_value:
+                    finish_reason = finish_reason_value
+    except Exception:
+        raise
+
+    return "".join(assistant_text_parts), tool_calls_buffer, finish_reason
 
 
 def get_fallback_system_prompt() -> str:
@@ -925,7 +1035,8 @@ async def handle_tool_calls_and_continue(
     base_messages: List[Dict[str, Any]],
     tool_calls: List[Dict[str, Any]], 
     send,
-    request: Request
+    request: Request,
+    model_config: ModelConfig
 ):
     """处理工具调用并继续对话"""
     for i, tc in enumerate(tool_calls, 1):
@@ -979,88 +1090,47 @@ async def handle_tool_calls_and_continue(
     retries = 2
     for attempt in range(retries + 1):
         try:
-            # 使用故障转移机制
-            upstream, used_model = await make_request_with_fallback(messages_with_system, tools, stream=True)
-            logger.info(f"成功使用模型: {used_model}")
-            
-            async with upstream as upstream_response:
-                upstream_response.raise_for_status()
-                tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
-                assistant_text_parts: List[str] = []
-                finish_reason: Optional[str] = None
+            assistant_content, tool_calls_buffer, finish_reason = await stream_model_response(
+                model_config,
+                messages_with_system,
+                tools,
+                send
+            )
 
-                async for line in upstream_response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data = line[6:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                    except Exception:
-                        continue
+            if tool_calls_buffer:
+                assistant_message = {
+                    "role": "assistant",
+                    "content": assistant_content,
+                    "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
+                }
+                base_messages.append(assistant_message)
 
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta = choice.get("delta", {})
+                if user_id and assistant_content:
+                    ChatLogDB.add_log(user_id, "assistant", assistant_content)
 
-                    if "content" in delta and delta["content"]:
-                        text = delta["content"]
-                        assistant_text_parts.append(text)
-                        await send(_sse("message", {"type": "delta", "delta": text, "role": "assistant"}))
+                ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
+                await handle_tool_calls_and_continue(user_id, base_messages, ordered, send, request, model_config)
+            else:
+                if user_id and assistant_content:
+                    ChatLogDB.add_log(user_id, "assistant", assistant_content)
 
-                    # 处理工具调用
-                    if "tool_calls" in delta and delta["tool_calls"]:
-                        for part in delta["tool_calls"]:
-                            idx = part.get("index", 0)
-                            if idx not in tool_calls_buffer:
-                                tool_calls_buffer[idx] = {
-                                    "id": "",
-                                    "type": "function",
-                                    "function": {"name": "", "arguments": ""}
-                                }
-                            if part.get("id"):
-                                tool_calls_buffer[idx]["id"] = part["id"]
-                            f = part.get("function") or {}
-                            if f.get("name"):
-                                tool_calls_buffer[idx]["function"]["name"] = f["name"]
-                            if f.get("arguments"):
-                                tool_calls_buffer[idx]["function"]["arguments"] += f["arguments"]
-
-                    if choice.get("finish_reason"):
-                        finish_reason = choice["finish_reason"]
-
-                # 如果有新的工具调用，递归处理
-                if tool_calls_buffer:
-                    assistant_content = "".join(assistant_text_parts)
-                    base_messages.append({
-                        "role": "assistant",
-                        "content": assistant_content,
-                        "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
-                    })
-                    
-                    # 记录助手回复
-                    if user_id:
-                        ChatLogDB.add_log(user_id, "assistant", assistant_content)
-
-                    ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
-                    await handle_tool_calls_and_continue(user_id, base_messages, ordered, send, request)
-                else:
-                    # 记录最终助手回复
-                    final_content = "".join(assistant_text_parts)
-                    if user_id and final_content:
-                        ChatLogDB.add_log(user_id, "assistant", final_content)
-                    
-                    await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
+                await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
             break
         except Exception as e:
-            logger.warning(f"上游流式失败 (尝试 {attempt+1}/{retries+1}): {e}")
+            logger.warning(f"模型响应失败 (尝试 {attempt+1}/{retries+1}): {e}")
             if attempt >= retries:
-                await send(_sse("error", {"type": "error", "error": f"上游流式失败: {e}"}))
+                await send(_sse("error", {"type": "error", "error": f"对话失败: {e}"}))
 
-async def stream_chat(user: Optional[Dict], init_messages: List[Dict[str, Any]], request: Request) -> StreamingResponse:
+async def stream_chat(
+    user: Optional[Dict],
+    init_messages: List[Dict[str, Any]],
+    request: Request,
+    selected_model_name: Optional[str]
+) -> StreamingResponse:
     """AI聊天流式响应"""
     queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
     user_id = user["id"] if user else None
+    model_config = resolve_model_config(selected_model_name)
 
     async def send(chunk: bytes):
         try:
@@ -1083,91 +1153,43 @@ async def stream_chat(user: Optional[Dict], init_messages: List[Dict[str, Any]],
                     if msg.get("role") == "user":
                         ChatLogDB.add_log(user_id, "user", msg.get("content", ""))
 
-            # 添加系统提示词
             messages_with_system = _add_system_prompt(init_messages, request)
+            logger.info(f"AI聊天开始，模型: {model_config.name} ({model_config.label})")
             tools = get_available_tools(user_id)
 
             retries = 2
             for attempt in range(retries + 1):
                 try:
-                    # 使用故障转移机制
-                    upstream, used_model = await make_request_with_fallback(messages_with_system, tools, stream=True)
-                    logger.info(f"成功使用模型: {used_model}")
-                    
-                    async with upstream as upstream_response:
-                        upstream_response.raise_for_status()
-                        tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
-                        assistant_text_parts: List[str] = []
-                        finish_reason: Optional[str] = None
+                    assistant_text, tool_calls_buffer, finish_reason = await stream_model_response(
+                        model_config,
+                        messages_with_system,
+                        tools,
+                        send
+                    )
 
-                        async for line in upstream_response.aiter_lines():
-                            if not line or not line.startswith("data: "):
-                                continue
-                            data = line[6:].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                            except Exception:
-                                continue
-
-                            choice = (chunk.get("choices") or [{}])[0]
-                            delta = choice.get("delta", {})
-
-                            if "content" in delta and delta["content"]:
-                                text = delta["content"]
-                                assistant_text_parts.append(text)
-                                await send(_sse("message", {"type": "delta", "delta": text, "role": "assistant"}))
-
-                            # 处理工具调用
-                            if "tool_calls" in delta and delta["tool_calls"]:
-                                for part in delta["tool_calls"]:
-                                    idx = part.get("index", 0)
-                                    if idx not in tool_calls_buffer:
-                                        tool_calls_buffer[idx] = {
-                                            "id": "",
-                                            "type": "function",
-                                            "function": {"name": "", "arguments": ""}
-                                        }
-                                    if part.get("id"):
-                                        tool_calls_buffer[idx]["id"] = part["id"]
-                                    f = part.get("function") or {}
-                                    if f.get("name"):
-                                        tool_calls_buffer[idx]["function"]["name"] = f["name"]
-                                    if f.get("arguments"):
-                                        tool_calls_buffer[idx]["function"]["arguments"] += f["arguments"]
-
-                            if choice.get("finish_reason"):
-                                finish_reason = choice["finish_reason"]
-
-                        assistant_joined = "".join(assistant_text_parts)
-                        messages = init_messages + [{
+                    if tool_calls_buffer:
+                        assistant_message = {
                             "role": "assistant",
-                            "content": assistant_joined,
-                            "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())] if tool_calls_buffer else None
-                        }]
+                            "content": assistant_text,
+                            "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
+                        }
+                        messages = init_messages + [assistant_message]
 
-                        # 如果有工具调用
-                        if tool_calls_buffer:
-                            # 记录助手回复
-                            if user_id:
-                                ChatLogDB.add_log(user_id, "assistant", assistant_joined)
-                            
-                            ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
-                            await handle_tool_calls_and_continue(user_id, messages, ordered, send, request)
-                        else:
-                            # 记录助手回复
-                            if user_id:
-                                ChatLogDB.add_log(user_id, "assistant", assistant_joined)
-                            
-                            await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
+                        if user_id and assistant_text:
+                            ChatLogDB.add_log(user_id, "assistant", assistant_text)
 
+                        ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
+                        await handle_tool_calls_and_continue(user_id, messages, ordered, send, request, model_config)
+                    else:
+                        if user_id and assistant_text:
+                            ChatLogDB.add_log(user_id, "assistant", assistant_text)
+
+                        await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
                     break
                 except Exception as e:
-                    logger.warning(f"上游请求失败 (尝试 {attempt+1}/{retries+1}): {e}")
+                    logger.warning(f"模型响应失败 (尝试 {attempt+1}/{retries+1}): {e}")
                     if attempt >= retries:
                         await send(_sse("error", {"type": "error", "error": f"对话失败: {e}"}))
-
         finally:
             try:
                 await queue.put(None)

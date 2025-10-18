@@ -135,6 +135,7 @@ class AdminAccount:
 @dataclass(frozen=True)
 class ModelConfig:
     name: str
+    label: str
     supports_thinking: bool
 
 
@@ -237,13 +238,19 @@ def get_settings() -> Settings:
         raise RuntimeError("API_URL environment variable is required")
 
     model_names = _split_csv(os.getenv("MODEL"))
+    model_labels = _split_csv(os.getenv("MODEL_NAME"))
     if not model_names:
-        model_names = ["glm-4.5-flash"]
-    thinking_models = {name.lower() for name in _split_csv(os.getenv("BIGMODEL_SUPPORTS_THINKING"))}
-    model_order = [
-        ModelConfig(name=model, supports_thinking=model.lower() in thinking_models)
-        for model in model_names
-    ]
+        raise RuntimeError("MODEL environment variable must provide at least one model")
+    if not model_labels:
+        raise RuntimeError("MODEL_NAME environment variable must provide display names for models")
+    if len(model_names) != len(model_labels):
+        raise RuntimeError("MODEL and MODEL_NAME must contain the same number of entries")
+
+    supports_thinking_raw = {name.strip().lower() for name in _split_csv(os.getenv("SUPPORTS_THINKING"))}
+    model_order = []
+    for model, label in zip(model_names, model_labels):
+        supports_thinking = model.strip().lower() in supports_thinking_raw
+        model_order.append(ModelConfig(name=model, label=label, supports_thinking=supports_thinking))
 
     return Settings(
         env=env_value,

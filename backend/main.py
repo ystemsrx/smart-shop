@@ -1236,6 +1236,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
+    model: Optional[str] = None
 
 class ProductUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -5715,6 +5716,22 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
 
 from ai_chat import stream_chat
 
+
+@app.get("/ai/models")
+async def list_ai_models():
+    """返回可用模型列表及其能力，用于前端渲染模型选择器。"""
+    configs = get_settings().model_order
+    return {
+        "models": [
+            {
+                "model": cfg.name,
+                "name": cfg.label,
+                "supports_thinking": cfg.supports_thinking,
+            }
+            for cfg in configs
+        ]
+    }
+
 @app.post("/ai/chat")
 async def ai_chat(
     request: ChatRequest,
@@ -5731,7 +5748,8 @@ async def ai_chat(
             logger.info(f"AI聊天请求 - 用户未登录: {e}")
         
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-        return await stream_chat(user, messages, http_request)
+        selected_model = (request.model or "").strip()
+        return await stream_chat(user, messages, http_request, selected_model)
     except Exception as e:
         logger.error(f"AI聊天失败: {e}")
         raise HTTPException(status_code=500, detail="AI聊天服务暂时不可用")
