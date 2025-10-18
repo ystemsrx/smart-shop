@@ -4456,6 +4456,10 @@ class OrderDB:
                 try:
                     items_json = json.loads(row[0])
                     for item in items_json:
+                        # 排除抽奖和赠品商品
+                        if item.get('is_lottery') or item.get('is_auto_gift'):
+                            continue
+                        
                         product_id = item.get('product_id')
                         product_name = item.get('name', '未知商品')
                         quantity = int(item.get('quantity', 0))
@@ -4491,6 +4495,10 @@ class OrderDB:
                 try:
                     items_json = json.loads(row[0])
                     for item in items_json:
+                        # 排除抽奖和赠品商品
+                        if item.get('is_lottery') or item.get('is_auto_gift'):
+                            continue
+                        
                         product_id = item.get('product_id')
                         quantity = int(item.get('quantity', 0))
                         
