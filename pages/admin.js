@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useApi, useAdminShop, useAgentStatus } from '../hooks/useAuth';
@@ -2993,6 +2994,8 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value || '');
   const [isLoading, setIsLoading] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const inputRef = useRef(null);
   const { apiRequest } = useApi();
 
   useEffect(() => {
@@ -3097,6 +3100,42 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
     setInputValue(value || '');
   }, [value]);
 
+  // 更新下拉框位置
+  useEffect(() => {
+    if (showSuggestions && inputRef.current) {
+      const updatePosition = () => {
+        const rect = inputRef.current.getBoundingClientRect();
+        const dropdownMaxHeight = 240; // max-h-60 = 15rem = 240px
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        
+        // 判断下拉框应该向下还是向上展开
+        const shouldShowAbove = spaceBelow < dropdownMaxHeight && spaceAbove > spaceBelow;
+        
+        setDropdownPosition({
+          top: shouldShowAbove ? rect.top - 4 : rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+          showAbove: shouldShowAbove
+        });
+      };
+      
+      updatePosition();
+      
+      // 监听滚动和窗口大小变化，实时更新位置
+      const handleScroll = () => updatePosition();
+      const handleResize = () => updatePosition();
+      
+      window.addEventListener('scroll', handleScroll, true);
+      window.addEventListener('resize', handleResize);
+      
+      return () => {
+        window.removeEventListener('scroll', handleScroll, true);
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+  }, [showSuggestions]);
+
   const handleInputChange = (e) => {
     const newValue = e.target.value;
     setInputValue(newValue);
@@ -3117,40 +3156,58 @@ const CategoryInput = ({ value, onChange, required = false, disabled = false, ad
       );
 
   return (
-    <div className="relative">
-      <input
-        type="text"
-        value={inputValue}
-        onChange={handleInputChange}
-        onFocus={() => setShowSuggestions(true)}
-        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-        required={required}
-        disabled={disabled}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
-        placeholder="输入或选择分类"
-      />
+    <>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={inputValue}
+          onChange={handleInputChange}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          required={required}
+          disabled={disabled}
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all disabled:bg-gray-100"
+          placeholder="输入或选择分类"
+        />
+      </div>
       
-      {showSuggestions && categories.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-          {filteredCategories.length > 0 ? (
-            filteredCategories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
-                onClick={() => handleSelectCategory(category.name)}
-              >
-                {category.name}
-              </button>
-            ))
-          ) : (
-            <div className="px-3 py-2 text-gray-500 text-sm">
-              没有匹配的分类
-            </div>
-          )}
-        </div>
+      {/* 使用 Portal 渲染下拉框到 body，避免被父容器的 overflow 裁剪 */}
+      {showSuggestions && categories.length > 0 && typeof document !== 'undefined' && (
+        ReactDOM.createPortal(
+          <div 
+            className="bg-white border border-gray-300 rounded-lg shadow-xl max-h-60 overflow-auto"
+            style={{
+              position: 'fixed',
+              [dropdownPosition.showAbove ? 'bottom' : 'top']: dropdownPosition.showAbove 
+                ? `${window.innerHeight - dropdownPosition.top}px`
+                : `${dropdownPosition.top}px`,
+              left: `${dropdownPosition.left}px`,
+              width: `${dropdownPosition.width}px`,
+              zIndex: 9999
+            }}
+          >
+            {filteredCategories.length > 0 ? (
+              filteredCategories.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  className="w-full px-3 py-2 text-left hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none transition-colors text-sm"
+                  onClick={() => handleSelectCategory(category.name)}
+                >
+                  {category.name}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-gray-500 text-sm">
+                没有匹配的分类
+              </div>
+            )}
+          </div>,
+          document.body
+        )
       )}
-    </div>
+    </>
   );
 };
 
