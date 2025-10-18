@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
 import { ChevronDown, Check } from "lucide-react";
@@ -30,92 +30,10 @@ const TEXTTYPE_PROPS = {
   randomOrder: true
 };
 
-// 智能自动滚动 Hook - 支持用户滚动检测和固定底栏适配
-const useSmartAutoScroll = (dep) => {
+// 消息容器引用 Hook - 仅提供手动滚动所需的 ref
+const useSmartAutoScroll = () => {
   const endRef = useRef(null);
   const containerRef = useRef(null);
-  const userScrolledRef = useRef(false);
-  const isNearBottomRef = useRef(true);
-  
-  // 检测是否接近底部（考虑固定输入栏高度）
-  const checkIfNearBottom = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return false;
-    
-    // 固定输入栏高度大约是 100px（包括padding），加上一些缓冲
-    const BOTTOM_OFFSET = 120;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const isNearBottom = scrollTop + clientHeight >= scrollHeight - BOTTOM_OFFSET;
-    
-    isNearBottomRef.current = isNearBottom;
-    return isNearBottom;
-  }, []);
-  
-  // 平滑滚动到底部（考虑固定输入栏）
-  const scrollToBottom = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    
-    // 滚动到底部但留出输入栏空间
-    const BOTTOM_OFFSET = 100;
-    const targetScrollTop = container.scrollHeight - container.clientHeight - BOTTOM_OFFSET;
-    
-    container.scrollTo({
-      top: Math.max(0, targetScrollTop),
-      behavior: 'smooth'
-    });
-  }, []);
-  
-  // 监听滚动事件
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    
-    let scrollTimeout;
-    const handleScroll = () => {
-      // 清除之前的超时
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-      
-      // 延迟检测，避免在自动滚动时误判为用户滚动
-      scrollTimeout = setTimeout(() => {
-        const wasNearBottom = isNearBottomRef.current;
-        const isNearBottom = checkIfNearBottom();
-        
-        // 如果从底部向上滚动，标记为用户主动滚动
-        if (wasNearBottom && !isNearBottom) {
-          userScrolledRef.current = true;
-        }
-        // 如果滚动回底部，重置用户滚动标记
-        else if (!wasNearBottom && isNearBottom) {
-          userScrolledRef.current = false;
-        }
-      }, 150);
-    };
-    
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-    };
-  }, [checkIfNearBottom]);
-  
-  // 自动滚动逻辑
-  useEffect(() => {
-    if (!dep) return;
-    
-    // 只有在用户没有主动滚动或者已经在底部时才自动滚动
-    if (!userScrolledRef.current || isNearBottomRef.current) {
-      // 使用 setTimeout 确保 DOM 更新完成后再滚动
-      setTimeout(() => {
-        scrollToBottom();
-      }, 50);
-    }
-  }, [dep, scrollToBottom]);
-  
   return { endRef, containerRef };
 };
 
