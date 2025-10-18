@@ -89,6 +89,12 @@ const MarkdownRenderer = ({ content }) => {
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
+    
+    // 处理 content 为 null 或空的情况（assistant 消息可能只有 tool_calls 而没有文本内容）
+    if (!content || content === null) {
+      containerRef.current.innerHTML = '';
+      return;
+    }
 
     // 配置Prism自动加载器
     if (window.Prism?.plugins?.autoloader) {
@@ -1155,6 +1161,8 @@ export default function ChatModern({ user }) {
       let assistantMessageAdded = false;
       let streamHasStarted = false;
       let toolCallsInProgress = new Set(); // 跟踪进行中的工具调用
+      let collectedToolCalls = []; // 收集所有的 tool_calls（用于构建 assistant 消息）
+      let assistantWithToolCallsAdded = false; // 标记是否已添加包含 tool_calls 的 assistant 消息
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1237,6 +1245,17 @@ export default function ChatModern({ user }) {
                 
                 const fn = data.function || {};
                 const argsText = (fn.arguments ?? "").toString();
+                
+                // 收集 tool_call 信息（用于构建 assistant 消息）
+                collectedToolCalls.push({
+                  id: data.tool_call_id,
+                  type: "function",
+                  function: {
+                    name: fn.name || "",
+                    arguments: argsText
+                  }
+                });
+                
                 pushToolCallCard({
                   tool_call_id: data.tool_call_id,
                   status: "running",
@@ -1301,6 +1320,32 @@ export default function ChatModern({ user }) {
                   error_message: isError ? (textVal || '工具执行出错') : '',
                 });
 
+                // 第一次工具完成时，添加包含 tool_calls 的 assistant 消息（用于严格模型的历史记录）
+                if (!assistantWithToolCallsAdded && collectedToolCalls.length > 0) {
+                  setMsgs((s) => {
+                    // 检查最后一条消息是否是空的 assistant 消息（通过 delta 添加的）
+                    const lastMsg = s.length > 0 ? s[s.length - 1] : null;
+                    const shouldRemoveLastMsg = lastMsg && 
+                                                lastMsg.role === 'assistant' && 
+                                                (!lastMsg.content || lastMsg.content === '') && 
+                                                !lastMsg.tool_calls;
+                    
+                    // 如果最后一条是空的 assistant 消息，移除它
+                    const filteredMsgs = shouldRemoveLastMsg ? s.slice(0, -1) : s;
+                    
+                    return [
+                      ...filteredMsgs,
+                      { 
+                        id: genId(), 
+                        role: 'assistant', 
+                        content: assistantContent || null,
+                        tool_calls: collectedToolCalls
+                      }
+                    ];
+                  });
+                  assistantWithToolCallsAdded = true;
+                }
+                
                 // 从进行中的集合移除该工具调用
                 toolCallsInProgress.delete(data.tool_call_id);
                 
@@ -1309,12 +1354,14 @@ export default function ChatModern({ user }) {
                   assistantMessageAdded = false;
                   assistantContent = "";
                   thinkingMsgIdRef.current = null;
+                  collectedToolCalls = []; // 清空收集的 tool_calls
+                  assistantWithToolCallsAdded = false;
                 }
 
-                // 以 role:tool 写入消息历史
+                // 以 role:tool 写入消息历史（必须包含 tool_call_id 用于严格模型）
                 setMsgs((s) => ([
                   ...s,
-                  { id: genId(), role: 'tool', content: resultType === 'json' ? stringify(result) : textVal },
+                  { id: genId(), role: 'tool', tool_call_id: data.tool_call_id, content: resultType === 'json' ? stringify(result) : textVal },
                 ]));
 
               } else if (data.type === "completed") {
@@ -1385,10 +1432,21 @@ export default function ChatModern({ user }) {
     try {
       // 构建消息历史
       const newMessages = [...msgs, { role: "user", content: txt }];
-      // 过滤 UI 专用消息，仅传 user/assistant/tool
+      // 过滤 UI 专用消息，仅传 user/assistant/tool，并保留必要的字段
       const apiMessages = newMessages
         .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-        .map(msg => ({ role: msg.role, content: msg.content }));
+        .map(msg => {
+          const apiMsg = { role: msg.role, content: msg.content };
+          // tool 消息必须包含 tool_call_id（严格模型要求）
+          if (msg.role === 'tool' && msg.tool_call_id) {
+            apiMsg.tool_call_id = msg.tool_call_id;
+          }
+          // assistant 消息如果有 tool_calls，需要包含
+          if (msg.role === 'assistant' && msg.tool_calls) {
+            apiMsg.tool_calls = msg.tool_calls;
+          }
+          return apiMsg;
+        });
       
       await sendMessage(apiMessages, selectedModel);
     } finally {
@@ -1517,6 +1575,10 @@ export default function ChatModern({ user }) {
               <div className="mx-auto flex max-w-3xl flex-col gap-4">
                 {msgs.map((m) => {
                   if (m.role === "assistant") {
+                    // 跳过只有 tool_calls 而没有文本内容的 assistant 消息（它们只用于历史记录）
+                    if ((!m.content || m.content === null) && m.tool_calls) {
+                      return null;
+                    }
                     return <MarkdownRenderer key={m.id} content={m.content} />;
                   } else if (m.role === "assistant_thinking") {
                     return <ThinkingBubble key={m.id} content={m.content} isComplete={m.isComplete} />;
@@ -1546,8 +1608,8 @@ export default function ChatModern({ user }) {
             </div>
           </main>
 
-          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white">
-            <div className="mx-auto max-w-4xl px-4 py-4">
+          <div className="fixed inset-x-0 bottom-0 z-30 bg-white">
+            <div className="mx-auto max-w-4xl px-4 pb-4">
               <InputBar
                 value={inp}
                 onChange={setInp}

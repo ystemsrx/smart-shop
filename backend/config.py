@@ -51,10 +51,24 @@ else:
     load_dotenv(override=False, encoding='utf-8')
 
 
+def _strip_quotes(value: str | None) -> str | None:
+    """去除环境变量值首尾的引号（单引号或双引号）"""
+    if not value:
+        return value
+    value = value.strip()
+    if len(value) >= 2:
+        if (value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'"):
+            return value[1:-1]
+    return value
+
+
 def _split_csv(value: str | None) -> List[str]:
+    """分割CSV字符串，同时去除每个值的引号"""
+    value = _strip_quotes(value)
     if not value:
         return []
-    return [item.strip() for item in value.split(",") if item.strip()]
+    # 分割后，对每个项目也去除可能的引号
+    return [_strip_quotes(item.strip()) or item.strip() for item in value.split(",") if item.strip()]
 
 
 def _as_int(value: str | None, default: int) -> int:
@@ -163,37 +177,37 @@ class Settings:
 
 @lru_cache()
 def get_settings() -> Settings:
-    env_value = _normalize_env(os.getenv("ENV"))
+    env_value = _normalize_env(_strip_quotes(os.getenv("ENV")))
     is_development = env_value == "development"
 
-    backend_host = os.getenv("DEV_BACKEND_HOST") if is_development else os.getenv("BACKEND_HOST")
+    backend_host = _strip_quotes(os.getenv("DEV_BACKEND_HOST")) if is_development else _strip_quotes(os.getenv("BACKEND_HOST"))
     backend_host = (backend_host or "0.0.0.0").strip()
 
-    backend_port = _as_int(os.getenv("BACKEND_PORT"), 9099)
-    dev_port = _as_int(os.getenv("DEV_BACKEND_PORT"), backend_port)
+    backend_port = _as_int(_strip_quotes(os.getenv("BACKEND_PORT")), 9099)
+    dev_port = _as_int(_strip_quotes(os.getenv("DEV_BACKEND_PORT")), backend_port)
     port = dev_port if is_development else backend_port
 
     log_level_key = "DEV_LOG_LEVEL" if is_development else "LOG_LEVEL"
-    log_level = (os.getenv(log_level_key) or os.getenv("LOG_LEVEL") or "INFO").upper()
+    log_level = (_strip_quotes(os.getenv(log_level_key)) or _strip_quotes(os.getenv("LOG_LEVEL")) or "INFO").upper()
 
-    db_path_value = os.getenv("DB_PATH", "dorm_shop.db").strip()
+    db_path_value = (_strip_quotes(os.getenv("DB_PATH")) or "dorm_shop.db").strip()
     db_path = Path(db_path_value)
     if not db_path.is_absolute():
         db_path = BASE_DIR / db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    db_reset = _as_bool(os.getenv("DB_RESET"), False)
+    db_reset = _as_bool(_strip_quotes(os.getenv("DB_RESET")), False)
 
-    jwt_secret = os.getenv("JWT_SECRET_KEY")
+    jwt_secret = _strip_quotes(os.getenv("JWT_SECRET_KEY"))
     if not jwt_secret:
         import secrets
 
         jwt_secret = secrets.token_hex(32)
 
-    jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256").strip() or "HS256"
-    access_days = _as_int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS"), 30)
+    jwt_algorithm = (_strip_quotes(os.getenv("JWT_ALGORITHM")) or "HS256").strip() or "HS256"
+    access_days = _as_int(_strip_quotes(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS")), 30)
 
-    login_api = os.getenv("LOGIN_API")
+    login_api = _strip_quotes(os.getenv("LOGIN_API"))
     if not login_api:
         raise RuntimeError("LOGIN_API environment variable is required")
 
@@ -222,18 +236,18 @@ def get_settings() -> Settings:
     if not allowed_origins:
         allowed_origins = ["*"]
 
-    cache_max_age = _as_int(os.getenv("STATIC_CACHE_MAX_AGE"), 60 * 60 * 24 * 30)
+    cache_max_age = _as_int(_strip_quotes(os.getenv("STATIC_CACHE_MAX_AGE")), 60 * 60 * 24 * 30)
 
-    raw_shop_name = os.getenv("SHOP_NAME")
+    raw_shop_name = _strip_quotes(os.getenv("SHOP_NAME"))
     shop_name = _safe_decode_string(raw_shop_name)
     if not shop_name:
         raise RuntimeError("SHOP_NAME environment variable is required")
 
-    api_key = os.getenv("API_KEY")
+    api_key = _strip_quotes(os.getenv("API_KEY"))
     if not api_key:
         raise RuntimeError("API_KEY environment variable is required")
     
-    api_url = os.getenv("API_URL")
+    api_url = _strip_quotes(os.getenv("API_URL"))
     if not api_url:
         raise RuntimeError("API_URL environment variable is required")
 

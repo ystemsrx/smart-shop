@@ -23,20 +23,51 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM base AS builder
+
+# 声明构建时参数
+ARG ENV=production
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_IMAGE_BASE_URL
+ARG NEXT_PUBLIC_FILE_BASE_URL
+ARG SHOP_NAME
+
+# 设置环境变量供构建使用
+ENV ENV=${ENV}
+ENV NEXT_PUBLIC_ENV=${ENV}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_IMAGE_BASE_URL=${NEXT_PUBLIC_IMAGE_BASE_URL}
+ENV NEXT_PUBLIC_FILE_BASE_URL=${NEXT_PUBLIC_FILE_BASE_URL}
+ENV SHOP_NAME=${SHOP_NAME}
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
-COPY .env ./.env
+
+# 构建前端
 RUN npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
+
+# 声明运行时参数（虽然已经内联，但保留用于其他可能的用途）
+ARG ENV=production
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_IMAGE_BASE_URL
+ARG NEXT_PUBLIC_FILE_BASE_URL
+ARG SHOP_NAME
+
+ENV ENV=${ENV}
+ENV NEXT_PUBLIC_ENV=${ENV}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_IMAGE_BASE_URL=${NEXT_PUBLIC_IMAGE_BASE_URL}
+ENV NEXT_PUBLIC_FILE_BASE_URL=${NEXT_PUBLIC_FILE_BASE_URL}
+ENV SHOP_NAME=${SHOP_NAME}
+
 WORKDIR /app
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./package.json
 COPY next.config.js ./next.config.js
-COPY .env ./.env
 
 EXPOSE 3000
 

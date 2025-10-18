@@ -21,11 +21,21 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
+      args:
+        ENV: ${ENV:-production}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_IMAGE_BASE_URL: ${NEXT_PUBLIC_IMAGE_BASE_URL}
+        NEXT_PUBLIC_FILE_BASE_URL: ${NEXT_PUBLIC_FILE_BASE_URL}
+        SHOP_NAME: ${SHOP_NAME}
     env_file:
       - .env
     environment:
       ENV: ${ENV:-production}
       NEXT_PUBLIC_ENV: ${ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_IMAGE_BASE_URL: ${NEXT_PUBLIC_IMAGE_BASE_URL}
+      NEXT_PUBLIC_FILE_BASE_URL: ${NEXT_PUBLIC_FILE_BASE_URL}
+      SHOP_NAME: ${SHOP_NAME}
     depends_on:
       - backend
     ports:
