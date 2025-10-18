@@ -740,14 +740,78 @@ const Bubble = ({ role, children }) => {
   );
 };
 
-const ThinkingBubble = ({ content }) => (
-  <div className="flex w-full justify-start">
-    <div className="max-w-[80%] rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-500 shadow-sm">
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Thinking</div>
-      <div className="whitespace-pre-wrap text-sm text-gray-500">{content || "…"}</div>
+const ThinkingBubble = ({ content, isComplete = false }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [startTime] = useState(Date.now());
+  const [elapsedTime, setElapsedTime] = useState(0);
+  
+  // 计算思考时长
+  useEffect(() => {
+    if (isComplete) {
+      // 思考完成时记录最终时长
+      setElapsedTime((Date.now() - startTime) / 1000);
+    } else {
+      // 思考进行中，每100ms更新一次时长
+      const timer = setInterval(() => {
+        setElapsedTime((Date.now() - startTime) / 1000);
+      }, 100);
+      return () => clearInterval(timer);
+    }
+  }, [isComplete, startTime]);
+
+  const containerClassName = cx(
+    "inline-flex max-w-[80%] flex-col items-start rounded-2xl border border-gray-100 bg-gray-50 text-sm leading-relaxed text-gray-500 shadow-sm transition-all",
+    isExpanded ? "w-full px-4 py-3" : "px-3 py-2"
+  );
+  
+  return (
+    <div className="flex w-full justify-start">
+      <div className={containerClassName}>
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
+          className="inline-flex items-center gap-2 text-[11px] font-semibold tracking-wide text-gray-400 transition-colors hover:text-gray-600 cursor-pointer"
+        >
+          {!isComplete && (
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              className="flex-shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+              </svg>
+            </motion.div>
+          )}
+          <span className="normal-case">{isComplete ? `Thought for ${elapsedTime.toFixed(1)}s` : "Thinking"}</span>
+          <motion.span
+            animate={{ rotate: isExpanded ? 180 : 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="flex items-center"
+          >
+            <ChevronDown size={14} strokeWidth={2.5} />
+          </motion.span>
+        </button>
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="thinking-details"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-500">{content || "…"}</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const ErrorBubble = ({ message }) => (
   <div className="flex w-full justify-start">
@@ -1200,7 +1264,7 @@ export default function ChatModern({ user }) {
                 if (thinkingMsgIdRef.current == null) {
                   const newId = genId();
                   thinkingMsgIdRef.current = newId;
-                  setMsgs((s) => [...s, { id: newId, role: "assistant_thinking", content: reasoningDelta }]);
+                  setMsgs((s) => [...s, { id: newId, role: "assistant_thinking", content: reasoningDelta, isComplete: false }]);
                 } else {
                   const currentId = thinkingMsgIdRef.current;
                   setMsgs((s) => s.map((m) => m.id === currentId
@@ -1216,6 +1280,17 @@ export default function ChatModern({ user }) {
                   streamHasStarted = true;
                   setShowThinking(false);
                 }
+                
+                // 当 assistant 开始回复时，标记 thinking 完成
+                if (thinkingMsgIdRef.current != null) {
+                  const thinkingId = thinkingMsgIdRef.current;
+                  setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
+                    ? { ...m, isComplete: true }
+                    : m
+                  ));
+                  thinkingMsgIdRef.current = null;
+                }
+                
                 if (!assistantMessageAdded) {
                   push("assistant", "");
                   assistantMessageAdded = true;
@@ -1227,6 +1302,16 @@ export default function ChatModern({ user }) {
                 if (!streamHasStarted) {
                   streamHasStarted = true;
                   setShowThinking(false);
+                }
+                
+                // 当工具调用开始时，标记 thinking 完成
+                if (thinkingMsgIdRef.current != null) {
+                  const thinkingId = thinkingMsgIdRef.current;
+                  setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
+                    ? { ...m, isComplete: true }
+                    : m
+                  ));
+                  thinkingMsgIdRef.current = null;
                 }
                 
                 // 将工具调用ID加入进行中的集合
@@ -1315,12 +1400,26 @@ export default function ChatModern({ user }) {
                 ]));
 
               } else if (data.type === "completed") {
-                // 对话完成
+                // 对话完成 - 标记任何未完成的 thinking 为完成
+                if (thinkingMsgIdRef.current != null) {
+                  const thinkingId = thinkingMsgIdRef.current;
+                  setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
+                    ? { ...m, isComplete: true }
+                    : m
+                  ));
+                }
                 thinkingMsgIdRef.current = null;
                 setShowThinking(false);
                 break;
               } else if (data.type === "error") {
-                // 处理后端错误
+                // 处理后端错误 - 标记任何未完成的 thinking 为完成
+                if (thinkingMsgIdRef.current != null) {
+                  const thinkingId = thinkingMsgIdRef.current;
+                  setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
+                    ? { ...m, isComplete: true }
+                    : m
+                  ));
+                }
                 setShowThinking(false);
                 thinkingMsgIdRef.current = null;
                 assistantMessageAdded = false;
@@ -1400,7 +1499,7 @@ export default function ChatModern({ user }) {
       if (models.length === 0) return "无可用模型";
       if (!selectedModel) return "选择模型";
       const model = models.find((m) => m.model === selectedModel);
-      return model ? `${model.name}${model.supports_thinking ? ' · Thinking' : ''}` : "选择模型";
+      return model ? `${model.name}${model.supports_thinking ? ' · Reasoning' : ''}` : "选择模型";
     };
 
     return (
@@ -1413,7 +1512,7 @@ export default function ChatModern({ user }) {
                 disabled={isLoading || isLoadingModels || models.length === 0}
                 className="flex items-center justify-start gap-2 bg-transparent text-gray-900 rounded-xl px-3 py-1.5 hover:bg-gray-100 transition disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
               >
-                <span className="font-semibold text-sm">{getSelectedModelLabel()}</span>
+                <span className="font-semibold text-sm text-gray-900">{getSelectedModelLabel()}</span>
                 <ChevronDown 
                   className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${modelSelectorOpen ? "rotate-180" : "rotate-0"}`} 
                 />
@@ -1429,7 +1528,7 @@ export default function ChatModern({ user }) {
                     className="absolute z-50 mt-2 min-w-full rounded-xl bg-white border border-gray-200 shadow-lg backdrop-blur-md overflow-hidden whitespace-nowrap"
                   >
                     {models.map((m) => {
-                      const modelLabel = `${m.name}${m.supports_thinking ? ' · Thinking' : ''}`;
+                      const modelLabel = `${m.name}${m.supports_thinking ? ' · Reasoning' : ''}`;
                       const isSelected = selectedModel === m.model;
                       
                       return (
@@ -1446,7 +1545,7 @@ export default function ChatModern({ user }) {
                             isSelected ? "bg-gray-50" : ""
                           }`}
                         >
-                          <div className="font-medium text-sm">{modelLabel}</div>
+                          <div className="font-medium text-sm text-gray-900">{modelLabel}</div>
                           {isSelected && <Check className="h-3.5 w-3.5 flex-shrink-0 text-green-500 ml-2" />}
                         </button>
                       );
@@ -1502,7 +1601,7 @@ export default function ChatModern({ user }) {
                   if (m.role === "assistant") {
                     return <MarkdownRenderer key={m.id} content={m.content} />;
                   } else if (m.role === "assistant_thinking") {
-                    return <ThinkingBubble key={m.id} content={m.content} />;
+                    return <ThinkingBubble key={m.id} content={m.content} isComplete={m.isComplete} />;
                   } else if (m.role === "tool_call") {
                     return (
                       <ToolCallCard
