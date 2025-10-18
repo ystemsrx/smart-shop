@@ -317,6 +317,119 @@ async def stream_model_response(
     assistant_text_parts: List[str] = []
     finish_reason: Optional[str] = None
 
+    THINK_START = "<think>"
+    THINK_END = "</think>"
+    think_mode_possible = bool(model_config.supports_thinking)
+    content_buffer = ""
+    think_mode_enabled = False
+    in_think_tag = False
+    should_skip_leading_newlines = False
+    is_first_content_piece = True
+
+    async def handle_content_delta(text: str) -> None:
+        nonlocal content_buffer, think_mode_enabled, in_think_tag
+        nonlocal should_skip_leading_newlines, is_first_content_piece, think_mode_possible
+
+        if not text:
+            return
+
+        if not think_mode_possible and THINK_START not in text:
+            assistant_text_parts.append(text)
+            await send(_sse("message", {"type": "delta", "delta": text, "role": "assistant"}))
+            return
+        if not think_mode_possible and THINK_START in text:
+            think_mode_possible = True
+
+        content_buffer += text
+
+        while content_buffer:
+            if is_first_content_piece:
+                is_first_content_piece = False
+                if content_buffer.startswith(THINK_START):
+                    think_mode_enabled = True
+                    in_think_tag = True
+                    content_buffer = content_buffer[len(THINK_START):]
+                    continue
+                stripped_for_think = content_buffer.lstrip()
+                if stripped_for_think.startswith(THINK_START):
+                    think_mode_enabled = True
+                    in_think_tag = True
+                    content_buffer = stripped_for_think[len(THINK_START):]
+                    continue
+
+            if think_mode_enabled and in_think_tag:
+                close_idx = content_buffer.find(THINK_END)
+                if close_idx != -1:
+                    reasoning_chunk = content_buffer[:close_idx]
+                    if reasoning_chunk:
+                        await send(_sse("message", {"type": "reasoning", "delta": reasoning_chunk, "role": "assistant"}))
+                    content_buffer = content_buffer[close_idx + len(THINK_END):]
+                    in_think_tag = False
+                    if content_buffer:
+                        content_buffer = content_buffer.lstrip()
+                        if content_buffer:
+                            should_skip_leading_newlines = False
+                        else:
+                            should_skip_leading_newlines = True
+                            content_buffer = ""
+                            break
+                    else:
+                        should_skip_leading_newlines = True
+                        break
+                    continue
+
+                safe_len = len(content_buffer)
+                max_check = min(len(THINK_END), len(content_buffer))
+                for i in range(1, max_check + 1):
+                    if THINK_END[:i] == content_buffer[-i:]:
+                        safe_len = len(content_buffer) - i
+                        break
+                if safe_len > 0:
+                    reasoning_chunk = content_buffer[:safe_len]
+                    if reasoning_chunk:
+                        await send(_sse("message", {"type": "reasoning", "delta": reasoning_chunk, "role": "assistant"}))
+                    content_buffer = content_buffer[safe_len:]
+                break
+
+            else:
+                if should_skip_leading_newlines:
+                    stripped = content_buffer.lstrip()
+                    if stripped:
+                        content_buffer = stripped
+                        should_skip_leading_newlines = False
+                    else:
+                        content_buffer = ""
+                        break
+
+                if think_mode_enabled and content_buffer.startswith(THINK_START):
+                    in_think_tag = True
+                    content_buffer = content_buffer[len(THINK_START):]
+                    continue
+                if think_mode_enabled:
+                    stripped_for_think = content_buffer.lstrip()
+                    if stripped_for_think.startswith(THINK_START):
+                        in_think_tag = True
+                        content_buffer = stripped_for_think[len(THINK_START):]
+                        continue
+
+                if think_mode_enabled:
+                    next_think = content_buffer.find(THINK_START)
+                    if next_think > 0:
+                        segment = content_buffer[:next_think]
+                        if segment:
+                            assistant_text_parts.append(segment)
+                            await send(_sse("message", {"type": "delta", "delta": segment, "role": "assistant"}))
+                        content_buffer = content_buffer[next_think + len(THINK_START):]
+                        in_think_tag = True
+                        continue
+
+                segment = content_buffer
+                if segment:
+                    assistant_text_parts.append(segment)
+                    await send(_sse("message", {"type": "delta", "delta": segment, "role": "assistant"}))
+                content_buffer = ""
+                break
+
     try:
         async for chunk in stream:
             chunk_dict = chunk if isinstance(chunk, dict) else _coerce_to_dict(chunk)
@@ -344,8 +457,7 @@ async def stream_model_response(
                 content_piece = delta_dict.get("content")
                 content_text = _extract_text(content_piece)
                 if content_text:
-                    assistant_text_parts.append(content_text)
-                    await send(_sse("message", {"type": "delta", "delta": content_text, "role": "assistant"}))
+                    await handle_content_delta(content_text)
 
                 tool_parts = delta_dict.get("tool_calls") or []
                 for tool_part in tool_parts:
@@ -371,7 +483,7 @@ async def stream_model_response(
                         tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
 
                     arguments_value = func_dict.get("arguments")
-                    if arguments_value:
+                    if arguments_value is not None:
                         if isinstance(arguments_value, str):
                             arg_text = arguments_value
                         else:
@@ -379,8 +491,14 @@ async def stream_model_response(
                                 arg_text = json.dumps(arguments_value, ensure_ascii=False)
                             except TypeError:
                                 arg_text = str(arguments_value)
+                        normalized = arg_text.strip()
+                        if normalized in ("", "{}"):
+                            continue
                         existing = tool_calls_buffer[index]["function"]["arguments"]
-                        tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
+                        if existing.strip() in ("", "{}"):
+                            tool_calls_buffer[index]["function"]["arguments"] = arg_text
+                        else:
+                            tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
 
                 finish_reason_value = choice_dict.get("finish_reason")
                 if not finish_reason_value and hasattr(choice, "finish_reason"):

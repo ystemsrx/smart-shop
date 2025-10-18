@@ -2,7 +2,9 @@
 import os
 import re
 import asyncio
+from contextlib import asynccontextmanager
 import logging
+from collections import Counter
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, Set
 from pathlib import Path
@@ -110,10 +112,24 @@ ALLOW_ALL_ORIGINS = "*" in ALLOWED_ORIGINS
 STATIC_CACHE_MAX_AGE = settings.static_cache_max_age
 
 # FastAPI应用实例
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    background_tasks: List[asyncio.Task] = []
+    try:
+        background_tasks = await run_startup_tasks()
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+
 app = FastAPI(
     title="宿舍智能小商城API",
     description="基于FastAPI的宿舍智能小商城后端系统",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=app_lifespan
 )
 
 
@@ -1345,10 +1361,86 @@ class CouponIssueRequest(BaseModel):
     # ISO字符串或 'YYYY-MM-DD HH:MM:SS'，为空代表永久
     expires_at: Optional[str] = None
 
+def log_model_configuration_snapshot() -> None:
+    """记录环境变量与最终模型列表之间的差异，便于排查选择器缺少模型的问题。"""
+    env_models_raw = os.getenv("MODEL", "")
+    env_labels_raw = os.getenv("MODEL_NAME", "")
+    supports_raw = os.getenv("SUPPORTS_THINKING", "")
+
+    env_models = [item.strip() for item in env_models_raw.split(",") if item.strip()]
+    env_labels = [item.strip() for item in env_labels_raw.split(",") if item.strip()]
+    supports_flags = {item.strip().lower() for item in supports_raw.split(",") if item.strip()}
+
+    configured_models = settings.model_order
+    configured_names = [cfg.name for cfg in configured_models]
+
+    if not configured_models:
+        logger.error("模型选择器没有可用模型，请检查 MODEL/MODEL_NAME 环境变量。")
+        return
+
+    if env_models:
+        duplicate_models = [name for name, count in Counter(env_models).items() if count > 1]
+        if duplicate_models:
+            logger.warning("MODEL 环境变量中存在重复模型: %s", duplicate_models)
+
+        if len(env_models) != len(env_labels):
+            logger.warning(
+                "MODEL 与 MODEL_NAME 的数量不一致：MODEL=%d, MODEL_NAME=%d。多余的模型将不会出现在选择器中。",
+                len(env_models),
+                len(env_labels),
+            )
+
+        missing_models = [name for name in env_models if name not in configured_names]
+        if missing_models:
+            logger.warning(
+                "以下模型在环境变量中配置但未被加载：%s。"
+                "请确认模型名称与 MODEL_NAME 一一对应，并在修改 .env 后重新启动后端服务。",
+                missing_models,
+            )
+
+    logger.info(
+        "模型选择器当前可用模型：%s",
+        [
+            {
+                "model": cfg.name,
+                "label": cfg.label,
+                "supports_thinking": cfg.supports_thinking,
+            }
+            for cfg in configured_models
+        ],
+    )
+
+    logger.debug(
+        "模型配置原始环境变量：MODEL=%r, MODEL_NAME=%r, SUPPORTS_THINKING=%r（解析后=%s）。最终加载模型=%s，supports_thinking=%s。",
+        env_models_raw,
+        env_labels_raw,
+        supports_raw,
+        sorted(supports_flags),
+        configured_names,
+        [cfg.supports_thinking for cfg in configured_models],
+    )
+    
+    # 额外调试：检查 settings 对象的 ID 和 model_order 列表的 ID
+    logger.debug(f"settings 对象 ID: {id(settings)}, model_order 列表 ID: {id(settings.model_order)}")
+    logger.debug(f"get_settings() 缓存状态: {get_settings.cache_info()}")
+    
+    # 直接调用 get_settings() 检查是否与当前 settings 相同
+    fresh_settings = get_settings()
+    logger.debug(f"get_settings() 返回对象 ID: {id(fresh_settings)}, 是否为同一对象: {fresh_settings is settings}")
+    logger.debug(f"get_settings().model_order 长度: {len(fresh_settings.model_order)}, 列表: {[cfg.name for cfg in fresh_settings.model_order]}")
+
+    if env_models:
+        stale_models = [name for name in configured_names if name not in env_models]
+        if stale_models:
+            logger.debug(
+                "模型列表包含未在当前 MODEL 环境变量中的条目：%s。"
+                "若该情况出乎意料，请清理配置缓存或确认运行环境中没有其他来源的默认模型。",
+                stale_models,
+            )
+
 # 启动事件
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化"""
+async def run_startup_tasks() -> List[asyncio.Task]:
+    """应用启动时初始化并启动后台任务，返回需要在关闭时清理的任务列表"""
     logger.info("正在启动宿舍智能小商城API...")
     
     # 初始化数据库（包含收款码数据清理和迁移）
@@ -1379,11 +1471,14 @@ async def startup_event():
         logger.warning(f"修复旧配置数据归属失败: {e}")
     
     # 启动定时清理任务
-    asyncio.create_task(periodic_cleanup())
+    maintenance_tasks: List[asyncio.Task] = []
+    maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))
     # 每分钟清理一次过期未付款订单
-    asyncio.create_task(expired_unpaid_cleanup())
+    maintenance_tasks.append(asyncio.create_task(expired_unpaid_cleanup(), name="expired_unpaid_cleanup"))
     
+    log_model_configuration_snapshot()
     logger.info("宿舍智能小商城API启动完成")
+    return maintenance_tasks
 
 async def periodic_cleanup():
     """定时清理任务"""
@@ -5721,7 +5816,9 @@ from ai_chat import stream_chat
 async def list_ai_models():
     """返回可用模型列表及其能力，用于前端渲染模型选择器。"""
     configs = get_settings().model_order
-    return {
+    logger.info(f"/ai/models API调用 - 配置中的模型数量: {len(configs)}")
+    logger.info(f"/ai/models API调用 - 配置中的模型列表: {[(cfg.name, cfg.label) for cfg in configs]}")
+    result = {
         "models": [
             {
                 "model": cfg.name,
@@ -5731,6 +5828,8 @@ async def list_ai_models():
             for cfg in configs
         ]
     }
+    logger.info(f"/ai/models API调用 - 返回结果中的模型数量: {len(result['models'])}")
+    return result
 
 @app.post("/ai/chat")
 async def ai_chat(
