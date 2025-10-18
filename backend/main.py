@@ -1248,7 +1248,9 @@ class CartUpdateRequest(BaseModel):
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: Optional[str] = None  # content 可以为 None（assistant 消息如果只有 tool_calls）
+    tool_calls: Optional[List[Dict[str, Any]]] = None  # assistant 消息可能包含 tool_calls
+    tool_call_id: Optional[str] = None  # tool 消息必须包含 tool_call_id
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
@@ -5846,7 +5848,17 @@ async def ai_chat(
         except Exception as e:
             logger.info(f"AI聊天请求 - 用户未登录: {e}")
         
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        # 转换消息，保留所有必要字段（role, content, tool_calls, tool_call_id）
+        messages = []
+        for msg in request.messages:
+            message_dict = {"role": msg.role, "content": msg.content}
+            # 保留 tool_calls 和 tool_call_id（如果存在）
+            if msg.tool_calls is not None:
+                message_dict["tool_calls"] = msg.tool_calls
+            if msg.tool_call_id is not None:
+                message_dict["tool_call_id"] = msg.tool_call_id
+            messages.append(message_dict)
+        
         selected_model = (request.model or "").strip()
         return await stream_chat(user, messages, http_request, selected_model)
     except Exception as e:

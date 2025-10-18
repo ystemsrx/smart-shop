@@ -15,7 +15,19 @@ if exist "%ENV_FILE%" (
         if not "%%A"=="" (
             set "KEY=%%A"
             set "VALUE=%%B"
-            for /f "delims=" %%I in ("!VALUE!") do set "!KEY!=%%I"
+            
+            REM Remove leading/trailing spaces
+            for /f "tokens=* delims= " %%I in ("!VALUE!") do set "VALUE=%%I"
+            
+            REM Remove surrounding quotes (both single and double)
+            if "!VALUE:~0,1!"=="""" if "!VALUE:~-1!"=="""" (
+                set "VALUE=!VALUE:~1,-1!"
+            )
+            if "!VALUE:~0,1!"=="'" if "!VALUE:~-1!"=="'" (
+                set "VALUE=!VALUE:~1,-1!"
+            )
+            
+            set "!KEY!=!VALUE!"
         )
     )
 )
