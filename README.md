@@ -218,49 +218,59 @@ docker-compose down
 复制 `.env.example` 为 `.env` 并根据需要调整：
 
 ```env
-# 运行环境
+# ==================================================
+# 智能小商城 - 环境配置示例文件
+# ==================================================
+# 复制此文件为 .env 并修改相应配置
+
+# 运行环境（development 或 production）
 ENV=development
+# 商城名称
 SHOP_NAME=你的商城名称
 
-# JWT 鉴权
-JWT_SECRET_KEY=your_jwt_secret_key
+# JWT 认证配置
+JWT_SECRET_KEY=your_jwt_secret_key_here_please_change_this
 JWT_ALGORITHM=HS256
+# 用户访问令牌过期时间（天）
 ACCESS_TOKEN_EXPIRE_DAYS=30
 
-# 管理员（逗号分隔，多账号）
+# 管理员配置 (可一个或多个，用逗号分隔)
 ADMIN_USERNAME=admin1,admin2
 ADMIN_PASSWORD=your_admin_password1,your_admin_password2
 
-# AI（示例为智谱清言）
-API_KEY=your_api_key_here
-API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
-MODEL=glm-4.5,glm-4.5-flash,glm-4-flash-250414,glm-4.0-flash
-BIGMODEL_SUPPORTS_THINKING=glm-4.5,glm-4.5-flash
+# AI 配置
+API_KEY=your_api_key
+API_URL=https://openrouter.ai/api/v1
+MODEL=openai/gpt-oss-20b:free,z-ai/glm-4.5-air:free
+MODEL_NAME=GPT-OSS,GLM 4.5
+# 支持思维链的模型（可选，需在 MODEL 中已配置）
+SUPPORTS_THINKING=openai/gpt-oss-20b:free,z-ai/glm-4.5-air:free
 
-# 第三方登录（可选）
+# 第三方登录 API (可选)
 LOGIN_API=https://your-login-api.com
 
-# 后端
+# 后端服务器配置
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=9099
 LOG_LEVEL=INFO
 
-# 数据库
+# 数据库配置
 DB_PATH=dorm_shop.db
+# 是否重置数据库（1：是，0：否）
 DB_RESET=0
 
-# 前端
+# 前端配置
 NEXT_PUBLIC_API_URL=https://your-api-domain.com
 NEXT_PUBLIC_IMAGE_BASE_URL=https://your-api-domain.com
 NEXT_PUBLIC_FILE_BASE_URL=https://your-api-domain.com
 
-# CORS
+# CORS 配置 (多个域名用逗号分隔)
 ALLOWED_ORIGINS=https://your-frontend-domain.com,http://localhost:3000
 
-# 静态资源缓存（秒）
+# 静态文件缓存配置 (秒)
 STATIC_CACHE_MAX_AGE=2592000
 
-# 开发环境（ENV=development 时生效）
+# 开发环境配置（仅开发时使用，即 ENV=development 时生效）
 DEV_NEXT_PUBLIC_API_URL=http://localhost:9099
 DEV_NEXT_PUBLIC_IMAGE_BASE_URL=http://localhost:9099
 DEV_NEXT_PUBLIC_FILE_BASE_URL=http://localhost:9099
