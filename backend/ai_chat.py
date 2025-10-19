@@ -242,7 +242,7 @@ def generate_dynamic_system_prompt(request: Request) -> str:
             pass
         
         # 构建配送费规则描述
-        if free_threshold == 0:
+        if delivery_fee == 0 or free_threshold == 0:
             shipping_rule = "Shipping: Free shipping for all orders"
         else:
             shipping_rule = f"Shipping: Free shipping for orders over ¥{free_threshold:.2f}; otherwise, a ¥{delivery_fee:.2f} delivery fee will be charged"
@@ -886,7 +886,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
         logger.error(f"搜索商品失败: {e}")
         return {"ok": False, "error": f"搜索失败: {str(e)}"}
 
-def get_cart_impl(user_id: str) -> Dict[str, Any]:
+def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, Any]:
     """获取购物车实现"""
     try:
         cart_data = CartDB.get_cart(user_id)
@@ -938,12 +938,14 @@ def get_cart_impl(user_id: str) -> Dict[str, Any]:
                         item["variant_name"] = variant.get("name")
                 cart_items.append(item)
 
-        # 获取配送费配置
+        # 获取配送费配置 - 根据用户当前的购物scope确定owner_id
         from database import DeliverySettingsDB
-        delivery_config = DeliverySettingsDB.get_delivery_config(None)  # AI聊天场景使用默认配置
+        scope = resolve_shopping_scope(request) if request else {}
+        owner_id = get_owner_id_from_scope(scope)
+        delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
         
-        # 运费规则：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
-        shipping_fee = 0.0 if total_quantity == 0 or items_subtotal >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
+        # 运费规则：购物车为空不收取，基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
+        shipping_fee = 0.0 if total_quantity == 0 or delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or items_subtotal >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
         return {
             "ok": True,
             "items": cart_items,
@@ -1272,7 +1274,7 @@ def execute_tool_locally(name: str, args: Dict[str, Any], user_id: Optional[str]
         elif name == "get_cart":
             if not user_id:
                 return {"ok": False, "error": "需要登录才能查看购物车"}
-            return get_cart_impl(user_id)
+            return get_cart_impl(user_id, request)
         elif name == "get_category":
             return get_category_impl(request)
         else:

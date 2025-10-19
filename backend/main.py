@@ -3017,8 +3017,8 @@ async def get_cart(request: Request):
         has_reservation_items = any(item.get('reservation_required') for item in active_cart_items)
         all_items_reservation_required = bool(active_cart_items) and all(item.get('reservation_required') for item in active_cart_items)
 
-        # 运费计算：购物车为空不收取，达到免配送费门槛免费，否则收取基础配送费
-        shipping_fee = 0.0 if total_quantity == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
+        # 运费计算：购物车为空不收取，基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
+        shipping_fee = 0.0 if total_quantity == 0 or delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
         cart_result = {
             "items": cart_items,
             "total_quantity": total_quantity,
@@ -4254,8 +4254,8 @@ async def create_order(
         owner_id = get_owner_id_from_scope(scope)
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
         
-        # 运费规则：达到免配送费门槛免费，否则收取基础配送费（商品金额为0时不收取）
-        shipping_fee = 0.0 if items_subtotal >= delivery_config['free_delivery_threshold'] else (delivery_config['delivery_fee'] if items_subtotal > 0 else 0.0)
+        # 运费规则：基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费（商品金额为0时不收取）
+        shipping_fee = 0.0 if delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or items_subtotal >= delivery_config['free_delivery_threshold'] else (delivery_config['delivery_fee'] if items_subtotal > 0 else 0.0)
 
         # 处理优惠券（每单最多1张；仅当商品金额严格大于券额时可用）
         discount_amount = 0.0

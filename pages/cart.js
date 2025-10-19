@@ -195,7 +195,9 @@ const OrderSummary = ({
   const total = Math.max(0, base - discount);
   const validLotteryThreshold = Number.isFinite(lotteryThreshold) && lotteryThreshold > 0 ? lotteryThreshold : 10;
   const shippingThreshold = deliveryConfig?.free_delivery_threshold || 10;
-  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold && (deliveryConfig?.delivery_fee > 0);
+  // 只要基础配送费或免配送费门槛任意一个为0，就是免运费
+  const isFreeShipping = (deliveryConfig?.delivery_fee === 0 || deliveryConfig?.free_delivery_threshold === 0);
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold && (deliveryConfig?.delivery_fee > 0) && !isFreeShipping;
   const needsLottery = lotteryEnabled && cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
   const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
   const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
@@ -690,8 +692,9 @@ export default function Cart() {
       return sum + (isActive ? parseFloat(item.subtotal) : 0);
     }, 0);
 
-    // 计算配送费
-    const shippingFee = totalPrice >= (deliveryConfig?.free_delivery_threshold || 10) ? 0 : (deliveryConfig?.delivery_fee || 0);
+    // 计算配送费：基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
+    const isFreeShipping = (deliveryConfig?.delivery_fee === 0 || deliveryConfig?.free_delivery_threshold === 0);
+    const shippingFee = isFreeShipping ? 0 : (totalPrice >= (deliveryConfig?.free_delivery_threshold || 10) ? 0 : (deliveryConfig?.delivery_fee || 0));
     const payableTotal = totalPrice + shippingFee;
 
     // 计算预约相关标志
@@ -751,8 +754,9 @@ export default function Cart() {
       return sum + (isActive ? parseFloat(item.subtotal) : 0);
     }, 0);
 
-    // 计算配送费
-    const shippingFee = totalPrice >= (deliveryConfig?.free_delivery_threshold || 10) ? 0 : (deliveryConfig?.delivery_fee || 0);
+    // 计算配送费：基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
+    const isFreeShipping = (deliveryConfig?.delivery_fee === 0 || deliveryConfig?.free_delivery_threshold === 0);
+    const shippingFee = isFreeShipping ? 0 : (totalPrice >= (deliveryConfig?.free_delivery_threshold || 10) ? 0 : (deliveryConfig?.delivery_fee || 0));
     const payableTotal = totalPrice + shippingFee;
 
     // 计算预约相关标志
