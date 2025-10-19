@@ -664,15 +664,15 @@ const Bubble = ({ role, children }) => {
   );
 };
 
-const ThinkingBubble = ({ content, isComplete = false }) => {
+const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [startTime] = useState(Date.now());
   const [elapsedTime, setElapsedTime] = useState(0);
   
   // 计算思考时长
   useEffect(() => {
-    if (isComplete) {
-      // 思考完成时记录最终时长
+    if (isComplete || isStopped) {
+      // 思考完成或被停止时记录最终时长
       setElapsedTime((Date.now() - startTime) / 1000);
     } else {
       // 思考进行中，每100ms更新一次时长
@@ -681,7 +681,7 @@ const ThinkingBubble = ({ content, isComplete = false }) => {
       }, 100);
       return () => clearInterval(timer);
     }
-  }, [isComplete, startTime]);
+  }, [isComplete, isStopped, startTime]);
 
   const containerClassName = cx(
     "inline-flex max-w-[80%] flex-col items-start rounded-2xl border border-gray-100 bg-gray-50 text-sm leading-relaxed text-gray-500 shadow-sm transition-all",
@@ -719,7 +719,7 @@ const ThinkingBubble = ({ content, isComplete = false }) => {
             isExpanded ? "hover:text-gray-600 cursor-pointer" : ""
           )}
         >
-          {!isComplete && (
+          {!isComplete && !isStopped && (
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -731,7 +731,11 @@ const ThinkingBubble = ({ content, isComplete = false }) => {
               </svg>
             </motion.div>
           )}
-          <span className="normal-case">{isComplete ? `Thought for ${elapsedTime.toFixed(1)}s` : "Thinking"}</span>
+          <span className="normal-case">
+            {isStopped 
+              ? "Stopped thinking" 
+              : (isComplete ? `Thought for ${elapsedTime.toFixed(1)}s` : "Thinking")}
+          </span>
           <motion.span
             animate={{ rotate: isExpanded ? 180 : 0 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
@@ -1135,6 +1139,14 @@ export default function ChatModern({ user }) {
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+    }
+    // 如果有正在进行的thinking消息,将其标记为stopped
+    if (thinkingMsgIdRef.current != null) {
+      const thinkingId = thinkingMsgIdRef.current;
+      setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
+        ? { ...m, isStopped: true }
+        : m
+      ));
     }
     thinkingMsgIdRef.current = null;
     setShowThinking(false);
@@ -1624,7 +1636,7 @@ export default function ChatModern({ user }) {
                     }
                     return <MarkdownRenderer key={m.id} content={m.content} />;
                   } else if (m.role === "assistant_thinking") {
-                    return <ThinkingBubble key={m.id} content={m.content} isComplete={m.isComplete} />;
+                    return <ThinkingBubble key={m.id} content={m.content} isComplete={m.isComplete} isStopped={m.isStopped} />;
                   } else if (m.role === "tool_call") {
                     return (
                       <ToolCallCard
