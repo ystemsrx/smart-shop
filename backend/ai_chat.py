@@ -196,8 +196,26 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
     }
 
 
-def generate_dynamic_system_prompt(request: Request) -> str:
-    """根据当前配送范围动态生成系统提示词"""
+def get_goals_section(user_id: Optional[str] = None) -> str:
+    """根据用户登录状态生成Goals部分"""
+    if user_id:
+        # 已登录用户
+        return """## Goals
+
+* Search and browse products
+* The user is currently logged in. You are able to manage the shopping cart (add, remove, update, view)
+* Provide shopping suggestions and product information"""
+    else:
+        # 未登录用户
+        return """## Goals
+
+* Search and browse products
+* Provide shopping suggestions and product information
+* The user is currently **not** logged in. Please guide them to log in at an appropriate time to access the full range of features, such as shopping cart management and purchasing"""
+
+
+def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = None) -> str:
+    """根据当前配送范围和用户登录状态动态生成系统提示词"""
     try:
         # 动态获取商店名称，避免模块级别的编码问题
         current_settings = get_settings()
@@ -284,6 +302,9 @@ def generate_dynamic_system_prompt(request: Request) -> str:
         if has_hot_products:
             hot_products_hint = "**Hot Products**: You can search for \"热销\" to retrieve all hot-selling products"
         
+        # 根据用户登录状态生成不同的 Goals
+        goals_section = get_goals_section(user_id)
+        
         system_prompt = f"""# Role
 
 Smart Shopping Assistant for *{shop_name}*
@@ -293,12 +314,7 @@ Smart Shopping Assistant for *{shop_name}*
 * Response language: 中文
 * Professional, friendly, helps users shop in *{shop_name}*
 
-## Goals
-
-* Search and browse products
-* [Login required] Manage shopping cart (add, remove, update, view)
-* Provide shopping suggestions and product information
-* If the tool list is **incomplete**(without shopping cart management), guide users to log in at the right time to unlock full functionality. Otherwise, do not mention login.
+{goals_section}
 
 ## Constraints
 
@@ -328,7 +344,7 @@ Smart Shopping Assistant for *{shop_name}*
     except Exception as e:
         logger.error(f"生成动态系统提示词失败: {e}")
         # 回退到静态系统提示词
-        return get_fallback_system_prompt()
+        return get_fallback_system_prompt(user_id)
 
 
 # ===== 模型调用辅助函数 =====
@@ -598,10 +614,13 @@ async def stream_model_response(
     return "".join(assistant_text_parts), tool_calls_buffer, finish_reason
 
 
-def get_fallback_system_prompt() -> str:
+def get_fallback_system_prompt(user_id: Optional[str] = None) -> str:
     """获取回退系统提示词"""
     current_settings = get_settings()
     shop_name = current_settings.shop_name
+    
+    # 根据用户登录状态生成不同的 Goals
+    goals_section = get_goals_section(user_id)
     
     return f"""# Role
 
@@ -612,12 +631,7 @@ Smart Shopping Assistant for *{shop_name}*
 * Response language: 中文
 * Professional, friendly, helps users shop in *{shop_name}*
 
-## Goals
-
-* Search and browse products
-* [Login required] Manage shopping cart (add, remove, update, view)
-* Provide shopping suggestions and product information
-* If the tool list is **incomplete**(without shopping cart management), guide users to log in at the right time to unlock full functionality. Otherwise, do not mention login.
+{goals_section}
 
 ## Constraints
 
@@ -782,22 +796,34 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                             for v in (vmap.get(product["id"], []) or [])
                         ]
                         rel = _relevance_score(product, q_str, discount_label)
-                        items.append({
+                        
+                        # 根据是否有规格来决定库存信息的返回方式
+                        has_variants = len(variants) > 0
+                        item_data = {
                             "product_id": product["id"],
                             "name": product["name"],
                             "category": product["category"],
                             "price": final_price,  # 返回打折后的价格
                             "original_price": product["price"],
                             "discount": discount_label,
-                            "stock": product["stock"],
-                            "in_stock": product["stock"] > 0,
                             "is_hot": bool(product.get("is_hot", 0)),
                             "relevance_score": rel,
                             "description": product.get("description", ""),
                             "img_path": product.get("img_path", ""),
                             "variants": variants,
-                            "has_variants": len(variants) > 0,
-                        })
+                            "has_variants": has_variants,
+                        }
+                        
+                        # 库存信息：有规格时不返回商品级别的stock，in_stock根据变体库存判断
+                        if has_variants:
+                            # 有规格：根据变体库存判断是否有货
+                            item_data["in_stock"] = any(v.get("stock", 0) > 0 for v in variants)
+                        else:
+                            # 无规格：返回商品级别的库存信息
+                            item_data["stock"] = product["stock"]
+                            item_data["in_stock"] = product["stock"] > 0
+                        
+                        items.append(item_data)
                     
                     all_results[q] = {
                         "ok": True,
@@ -863,22 +889,34 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                     for v in (vmap.get(product["id"], []) or [])
                 ]
                 rel = _relevance_score(product, q, discount_label)
-                items.append({
+                
+                # 根据是否有规格来决定库存信息的返回方式
+                has_variants = len(variants) > 0
+                item_data = {
                     "product_id": product["id"],
                     "name": product["name"],
                     "category": product["category"],
                     "price": final_price,
                     "original_price": product["price"],
                     "discount": discount_label,
-                    "stock": product["stock"],
-                    "in_stock": product["stock"] > 0,
                     "is_hot": bool(product.get("is_hot", 0)),
                     "relevance_score": rel,
                     "description": product.get("description", ""),
                     "img_path": product.get("img_path", ""),
                     "variants": variants,
-                    "has_variants": len(variants) > 0,
-                })
+                    "has_variants": has_variants,
+                }
+                
+                # 库存信息：有规格时不返回商品级别的stock，in_stock根据变体库存判断
+                if has_variants:
+                    # 有规格：根据变体库存判断是否有货
+                    item_data["in_stock"] = any(v.get("stock", 0) > 0 for v in variants)
+                else:
+                    # 无规格：返回商品级别的库存信息
+                    item_data["stock"] = product["stock"]
+                    item_data["in_stock"] = product["stock"] > 0
+                
+                items.append(item_data)
             
             return {"ok": True, "query": q, "count": len(items), "items": items}
             
@@ -1320,14 +1358,14 @@ def _sse(event: str, data: Dict[str, Any]) -> bytes:
     """生成SSE格式数据"""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
 
-def _add_system_prompt(messages: List[Dict[str, Any]], request: Request) -> List[Dict[str, Any]]:
+def _add_system_prompt(messages: List[Dict[str, Any]], request: Request, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """添加动态生成的系统提示词"""
     # 检查是否已有系统消息
     if messages and messages[0].get("role") == "system":
         return messages
     
     # 生成动态系统提示词
-    dynamic_prompt = generate_dynamic_system_prompt(request)
+    dynamic_prompt = generate_dynamic_system_prompt(request, user_id)
     if not dynamic_prompt or not dynamic_prompt.strip():
         return messages
     
@@ -1718,7 +1756,7 @@ async def handle_tool_calls_and_continue(
             ChatLogDB.add_log(user_id, "tool", json.dumps(tool_res, ensure_ascii=False))
 
     # 继续对话
-    messages_with_system = _add_system_prompt(base_messages, request)
+    messages_with_system = _add_system_prompt(base_messages, request, user_id)
     tools = get_available_tools(user_id)
 
     retries = 2
@@ -1827,7 +1865,7 @@ async def stream_chat(
                             content = ""
                         user_messages_to_log.append(content)
 
-            messages_with_system = _add_system_prompt(init_messages, request)
+            messages_with_system = _add_system_prompt(init_messages, request, user_id)
             logger.info(f"AI聊天开始，模型: {model_config.name} ({model_config.label})")
             tools = get_available_tools(user_id)
 
