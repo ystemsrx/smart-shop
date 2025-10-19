@@ -687,15 +687,37 @@ const ThinkingBubble = ({ content, isComplete = false }) => {
     "inline-flex max-w-[80%] flex-col items-start rounded-2xl border border-gray-100 bg-gray-50 text-sm leading-relaxed text-gray-500 shadow-sm transition-all",
     isExpanded ? "w-full px-4 py-3" : "px-3 py-2"
   );
+
+  // 点击处理：未展开时整个区域可点击展开，已展开时只有标题区域可点击收起
+  const handleContainerClick = (e) => {
+    // 未展开时，点击容器的任何地方都展开
+    if (!isExpanded) {
+      e.stopPropagation();
+      setIsExpanded(true);
+    }
+  };
+
+  const handleHeaderClick = (e) => {
+    // 已展开时，点击标题区域收起
+    if (isExpanded) {
+      e.stopPropagation();
+      setIsExpanded(false);
+    }
+  };
   
   return (
     <div className="flex w-full justify-start">
-      <div className={containerClassName}>
-        <button
-          type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-expanded={isExpanded}
-          className="inline-flex items-center gap-2 text-[11px] font-semibold tracking-wide text-gray-400 transition-colors hover:text-gray-600 cursor-pointer"
+      <div 
+        className={containerClassName}
+        onClick={handleContainerClick}
+        style={{ cursor: isExpanded ? 'default' : 'pointer' }}
+      >
+        <div
+          onClick={handleHeaderClick}
+          className={cx(
+            "inline-flex items-center gap-2 text-[11px] font-semibold tracking-wide text-gray-400 transition-colors w-full",
+            isExpanded ? "hover:text-gray-600 cursor-pointer" : ""
+          )}
         >
           {!isComplete && (
             <motion.div
@@ -717,7 +739,7 @@ const ThinkingBubble = ({ content, isComplete = false }) => {
           >
             <ChevronDown size={14} strokeWidth={2.5} />
           </motion.span>
-        </button>
+        </div>
         <AnimatePresence initial={false}>
           {isExpanded && (
             <motion.div
@@ -1256,7 +1278,16 @@ export default function ChatModern({ user }) {
                 toolCallsInProgress.add(data.tool_call_id);
                 
                 const fn = data.function || {};
-                const argsText = (fn.arguments ?? "").toString();
+                let argsTextRaw = fn.arguments;
+                let argsText = "";
+                if (argsTextRaw === undefined || argsTextRaw === null) {
+                  argsText = "{}";
+                } else {
+                  argsText = String(argsTextRaw).trim();
+                  if (!argsText) {
+                    argsText = "{}";
+                  }
+                }
                 
                 // 收集 tool_call 信息（用于构建 assistant 消息）
                 collectedToolCalls.push({
