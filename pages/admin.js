@@ -3257,7 +3257,7 @@ const LocalVariantManager = ({ variants, loading, onChange }) => {
         <div className="flex items-center gap-2">
           <i className="fas fa-layer-group text-teal-600"></i>
           <div>
-            <h3 className="text-base font-bold text-gray-900">商品规格</h3>
+            <h3 className="text-base font-bold text-gray-900">规格</h3>
             <p className="text-xs text-gray-600 mt-0.5">多规格库存管理</p>
           </div>
         </div>
@@ -3358,33 +3358,37 @@ const LocalVariantManager = ({ variants, loading, onChange }) => {
   );
 };
 
-// 编辑商品表单组件
-const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false, onRefreshProduct }) => {
+// 统一商品表单组件（支持添加和编辑）
+const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false, onRefreshProduct }) => {
+  const isEditMode = !!product;
+  
   const [formData, setFormData] = useState({
-    name: product.name || '',
-    category: product.category || '',
-    price: product.price || '',
-    stock: product.stock || '',
-    description: product.description || '',
-    cost: product.cost || '',
-    discount: (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10),
-    is_hot: product.is_hot === 1 || product.is_hot === true,
-    reservation_required: Boolean(product.reservation_required),
-    reservation_cutoff: product.reservation_cutoff || '',
-    reservation_note: product.reservation_note || ''
+    name: product?.name || '',
+    category: product?.category || '',
+    price: product?.price || '',
+    stock: product?.stock || '',
+    description: product?.description || '',
+    cost: product?.cost || '',
+    discount: (product && typeof product.discount === 'number' && product.discount) ? product.discount : (product?.discount ? parseFloat(product.discount) : 10),
+    is_hot: product ? (product.is_hot === 1 || product.is_hot === true) : false,
+    reservation_required: product ? Boolean(product.reservation_required) : false,
+    reservation_cutoff: product?.reservation_cutoff || '',
+    reservation_note: product?.reservation_note || ''
   });
   const [imageFile, setImageFile] = useState(null);
   const { apiRequest } = useApi();
   
   // 规格状态管理（本地状态，只在提交时应用）
   const [variantsState, setVariantsState] = useState({
-    loaded: false,
+    loaded: !isEditMode, // 添加模式不需要加载
     original: [], // 原始规格数据（用于对比变更）
     current: []   // 当前编辑中的规格数据
   });
 
-  // 加载规格数据
+  // 加载规格数据（仅编辑模式）
   useEffect(() => {
+    if (!isEditMode) return;
+    
     const loadVariants = async () => {
       try {
         const res = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
@@ -3405,7 +3409,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
     };
     
     loadVariants();
-  }, [product.id]);
+  }, [isEditMode, product?.id]);
 
   const handleInputChange = (e) => {
     setFormData({
@@ -3474,7 +3478,8 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
       return;
     }
     
-    // 先提交商品基本信息
+    if (isEditMode) {
+      // 编辑模式：先提交商品基本信息
     const submitData = {
       ...formData,
       price,
@@ -3515,6 +3520,17 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
       if (onCancel) {
         onCancel();
       }
+      }
+    } else {
+      // 添加模式：提交所有数据（包括规格）
+      onSubmit({
+        ...formData,
+        price,
+        stock,
+        is_hot: !!formData.is_hot,
+        image: imageFile,
+        variants: variantsState.current // 传递变体数据
+      });
     }
   };
   
@@ -3573,7 +3589,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
         <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <i className="fas fa-info-circle text-emerald-600"></i>
-            <h3 className="font-bold text-gray-900">商品信息</h3>
+            <h3 className="font-bold text-gray-900">信息</h3>
           </div>
       </div>
       
@@ -3581,7 +3597,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           {/* 第一行：商品名称（全宽） */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              商品名称 <span className="text-red-500">*</span>
+              名称 <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -3590,7 +3606,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
               value={formData.name}
               onChange={handleInputChange}
               className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all"
-              placeholder="例如：可口可乐 500ml"
+              placeholder="商品名称"
             />
           </div>
           
@@ -3598,7 +3614,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                商品分类 <span className="text-red-500">*</span>
+                分类 <span className="text-red-500">*</span>
               </label>
               <CategoryInput
                 value={formData.category}
@@ -3611,7 +3627,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                库存数量
+                库存
               </label>
               <input
                 type="number"
@@ -3669,7 +3685,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                成本价
+                成本
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">¥</span>
@@ -3709,7 +3725,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                             ¥{profit.toFixed(2)}
                       </span>
                       <span className="text-xs text-gray-500 ml-2">
-                            {profitRate !== null ? `${profitRate.toFixed(1)}%` : '-'}
+                            {profitRate !== null ? `${profitRate.toFixed(1)}%` : '--'}
                       </span>
                     </div>
                   </div>
@@ -3738,7 +3754,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                 />
                 <div className="flex items-center gap-1.5 text-sm">
                   <i className="fas fa-fire text-orange-500"></i>
-                  <span className="font-medium text-gray-900">标记为热销</span>
+                  <span className="font-medium text-gray-900">热销</span>
                 </div>
               </label>
             </div>
@@ -3758,7 +3774,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
             <div className="flex items-center gap-2">
               <i className="fas fa-image text-pink-600"></i>
-              <h3 className="font-bold text-gray-900">商品图片</h3>
+              <h3 className="font-bold text-gray-900">图片</h3>
           </div>
         </div>
         
@@ -3770,7 +3786,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             onChange={handleImageChange}
                 className="w-full text-xs text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gradient-to-r file:from-pink-500 file:to-rose-500 file:text-white hover:file:from-pink-600 hover:file:to-rose-600 file:cursor-pointer file:transition-all"
               />
-              <p className="text-xs text-gray-500 mt-2">支持 JPG、PNG，建议 400x400px</p>
+              <p className="text-xs text-gray-500 mt-2">支持 JPG、PNG，建议正方形</p>
             </div>
           </div>
         </div>
@@ -3781,7 +3797,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <i className="fas fa-align-left text-slate-600"></i>
-                <h3 className="font-bold text-gray-900">商品描述</h3>
+                <h3 className="font-bold text-gray-900">描述</h3>
               </div>
               <span className="text-xs text-gray-500">{formData.description?.length || 0} 字</span>
             </div>
@@ -3794,7 +3810,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             value={formData.description}
             onChange={handleInputChange}
               className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-200 transition-all resize-none"
-              placeholder="请描述商品信息，如规格、成分、使用方法等..."
+              placeholder="请描述商品信息..."
           />
           </div>
         </div>
@@ -3828,7 +3844,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
             <div className="p-5">
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预约截止</label>
                   <input
                     type="time"
                     name="reservation_cutoff"
@@ -3836,7 +3852,6 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                     onChange={handleInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
                   />
-                  <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
                 </div>
                 <div className="flex-[2]">
                   <label className="block text-sm font-medium text-gray-700 mb-1">预约说明 · 选填</label>
@@ -3846,7 +3861,7 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
                     value={formData.reservation_note}
                     onChange={handleInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                    placeholder="示例：21:30 前预约当日配送，超时次日送达。"
+                    placeholder={"默认显示：" + formatReservationCutoff(formData.reservation_cutoff)}
                   />
                 </div>
               </div>
@@ -3876,12 +3891,12 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           {isLoading ? (
             <span className="flex items-center justify-center gap-2">
               <i className="fas fa-spinner fa-spin"></i>
-              保存中...
+              {isEditMode ? '保存中...' : '添加中...'}
             </span>
           ) : (
             <span className="flex items-center justify-center gap-2">
-              <i className="fas fa-save"></i>
-              保存修改
+              <i className={`fas fa-${isEditMode ? 'save' : 'plus-circle'}`}></i>
+              {isEditMode ? '保存修改' : '添加'}
             </span>
           )}
           </button>
@@ -3894,155 +3909,6 @@ const EditProductForm = ({ product, onSubmit, isLoading, onCancel, apiPrefix, is
           </button>
         </div>
       </form>
-  );
-};
-
-// 规格管理（每个商品独立）
-const VariantManager = ({ productId, apiPrefix }) => {
-  const { apiRequest } = useApi();
-  const [variants, setVariants] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [newName, setNewName] = useState('');
-  const [newStock, setNewStock] = useState(0);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await apiRequest(`${apiPrefix}/products/${productId}/variants`);
-      setVariants(res?.data?.variants || []);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, [productId]);
-
-  const addVariant = async () => {
-    if (!newName) return;
-    await apiRequest(`${apiPrefix}/products/${productId}/variants`, { method: 'POST', body: JSON.stringify({ name: newName, stock: parseInt(newStock) || 0 })});
-    setNewName(''); setNewStock(0); 
-    await load();
-  };
-  const updateVariant = async (id, patch) => {
-    await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), {
-      method: 'PUT',
-      body: JSON.stringify(patch)
-    });
-    await load();
-  };
-  const removeVariant = async (id) => {
-    if (!confirm('确定删除该规格？')) return;
-    await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${id}`.replace('//', '/'), { method: 'DELETE' });
-    await load();
-  };
-
-  return (
-    <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
-      <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-5 py-4 border-b-2 border-gray-200">
-        <div className="flex items-center gap-2">
-          <i className="fas fa-layer-group text-teal-600"></i>
-          <div>
-            <h3 className="text-base font-bold text-gray-900">商品规格</h3>
-            <p className="text-xs text-gray-600 mt-0.5">多规格库存管理</p>
-      </div>
-        </div>
-      </div>
-      
-      <div className="p-5 space-y-4">
-        {/* 添加规格表单 */}
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">规格名称</label>
-              <input 
-                value={newName} 
-                onChange={e=>setNewName(e.target.value)} 
-                placeholder="例如：原味、中杯" 
-                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-700 mb-1.5 block">库存数量</label>
-              <input 
-                type="number" 
-                value={newStock} 
-                min={0} 
-                onChange={e=>setNewStock(e.target.value)} 
-                placeholder="0" 
-                className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
-              />
-            </div>
-          </div>
-          <button 
-            type="button"
-            onClick={addVariant} 
-            className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-all shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-            <i className="fas fa-plus"></i>
-            添加规格
-          </button>
-        </div>
-        
-        {/* 规格列表 */}
-      {loading ? (
-          <div className="flex items-center justify-center py-6 text-gray-500">
-            <i className="fas fa-spinner fa-spin mr-2"></i>
-            <span className="text-sm">加载中...</span>
-          </div>
-      ) : variants.length === 0 ? (
-          <div className="text-center py-6 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-            <i className="fas fa-cube text-gray-400 text-3xl mb-2"></i>
-            <p className="text-sm font-medium text-gray-600">暂无规格</p>
-            <p className="text-xs text-gray-500 mt-1">添加规格后可独立管理库存</p>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
-              {variants.map((v, index) => (
-                <div key={v.id} className="relative group rounded-xl border-2 border-teal-200 bg-teal-50/30 hover:bg-teal-50 p-3 transition-all hover:shadow-md">
-                  {/* 删除按钮 - 圆形叉号 */}
-                  <button
-                    type="button"
-                    onClick={()=>removeVariant(v.id)}
-                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
-                    title="删除规格"
-                  >
-                    <i className="fas fa-times text-xs"></i>
-                  </button>
-                  
-                  {/* 规格信息 */}
-                  <div className="pr-2">
-                    <div className="mb-2">
-                      <label className="text-xs text-gray-600 mb-1 block">名称</label>
-                      <input 
-                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
-                        defaultValue={v.name} 
-                        onBlur={(e)=>updateVariant(v.id,{name:e.target.value})} 
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-600 mb-1 block">库存数量</label>
-                      <input 
-                        type="number" 
-                        min={0} 
-                        className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
-                        defaultValue={v.stock} 
-                        onBlur={(e)=>updateVariant(v.id,{stock:parseInt(e.target.value)||0})} 
-                      />
-                    </div>
-                  </div>
-                </div>
-          ))}
-            </div>
-            
-            <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 text-xs text-gray-700">
-              <div className="flex items-start gap-2">
-                <i className="fas fa-info-circle text-cyan-600 mt-0.5 flex-shrink-0"></i>
-                <p>修改后自动保存。有规格时，总库存 = 各规格库存之和。</p>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
   );
 };
 
@@ -4702,558 +4568,6 @@ const Modal = ({ isOpen, onClose, title, children, size = "large" }) => {
   );
 };
 
-// 添加商品表单组件
-const AddProductForm = ({ onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    category: '',
-    price: '',
-    stock: '',
-    description: '',
-    cost: '',
-    discount: 10,
-    is_hot: false,
-    reservation_required: false,
-    reservation_cutoff: '',
-    reservation_note: ''
-  });
-  const [imageFile, setImageFile] = useState(null);
-  const [variants, setVariants] = useState([]);
-  const [newVariantName, setNewVariantName] = useState('');
-  const [newVariantStock, setNewVariantStock] = useState(0);
-
-  const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const compressImage = (file, { maxSize = 1280, quality = 0.8 } = {}) => new Promise((resolve, reject) => {
-    try {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-        const scale = Math.min(1, maxSize / Math.max(width, height));
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob((blob) => {
-          if (!blob) return reject(new Error('图片压缩失败'));
-          const newFile = new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-          resolve(newFile);
-        }, 'image/jpeg', quality);
-      };
-      img.onerror = () => reject(new Error('图片加载失败'));
-      img.src = URL.createObjectURL(file);
-    } catch (err) { reject(err); }
-  });
-
-  const handleImageChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const compressed = await compressImage(file, { maxSize: 1280, quality: 0.8 });
-      setImageFile(compressed);
-    } catch (err) {
-      setImageFile(file);
-    }
-  };
-
-  // 变体管理函数
-  const addVariant = () => {
-    if (!newVariantName.trim()) {
-      alert('请输入变体名称');
-      return;
-    }
-    
-    if (variants.some(v => v.name === newVariantName.trim())) {
-      alert('变体名称已存在');
-      return;
-    }
-    
-    setVariants([...variants, {
-      id: Date.now(), // 临时ID
-      name: newVariantName.trim(),
-      stock: parseInt(newVariantStock) || 0
-    }]);
-    setNewVariantName('');
-    setNewVariantStock(0);
-  };
-  
-  const removeVariant = (id) => {
-    setVariants(variants.filter(v => v.id !== id));
-  };
-  
-  const updateVariantStock = (id, newStock) => {
-    setVariants(variants.map(v => 
-      v.id === id ? { ...v, stock: parseInt(newStock) || 0 } : v
-    ));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    // 验证必填字段
-    if (!formData.name || !formData.category || !formData.price) {
-      alert('请填写必填字段');
-      return;
-    }
-    
-    // 验证价格
-    const price = parseFloat(formData.price);
-    if (isNaN(price) || price <= 0) {
-      alert('请输入有效的价格');
-      return;
-    }
-    
-    // 验证库存
-    const stock = parseInt(formData.stock) || 0;
-    if (stock < 0) {
-      alert('库存不能为负数');
-      return;
-    }
-    
-    onSubmit({
-      ...formData,
-      price,
-      stock,
-      image: imageFile,
-      variants // 传递变体数据
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* 1. 基础信息与价格 - 合并在一行 */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-info-circle text-emerald-600"></i>
-            <h3 className="font-bold text-gray-900">商品信息</h3>
-          </div>
-        </div>
-        
-        <div className="p-5 space-y-4">
-          {/* 第一行：商品名称（全宽） */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              商品名称 <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="name"
-              required
-              value={formData.name}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all"
-              placeholder="例如：可口可乐 500ml"
-            />
-          </div>
-          
-          {/* 第二行：商品分类 + 库存数量 */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                商品分类 <span className="text-red-500">*</span>
-              </label>
-              <CategoryInput
-                value={formData.category}
-                onChange={(value) => setFormData({...formData, category: value})}
-                required
-                adminMode={isAdmin}
-                apiPrefix={apiPrefix}
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                库存数量
-              </label>
-              <input
-                type="number"
-                name="stock"
-                min="0"
-                value={formData.stock}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
-                placeholder="0"
-              />
-            </div>
-          </div>
-          
-          {/* 第三行：售价 + 折扣 + 成本价 */}
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                售价 <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">¥</span>
-                <input
-                  type="number"
-                  name="price"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={formData.price}
-                  onChange={handleInputChange}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 transition-all"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                折扣
-              </label>
-              <select
-                name="discount"
-                value={formData.discount}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-              >
-                {Array.from({ length: 20 }).map((_, i) => {
-                  const val = 10 - i * 0.5;
-                  const v = Math.max(0.5, parseFloat(val.toFixed(1)));
-                  return (
-                    <option key={v} value={v}>{v}折</option>
-                  );
-                })}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                成本价
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">¥</span>
-                <input
-                  type="number"
-                  name="cost"
-                  min="0"
-                  step="0.01"
-                  value={formData.cost}
-                  onChange={handleInputChange}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-          </div>
-          
-          {/* 第四行：预估利润 + 热销标记 */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* 预估利润 */}
-            <div>
-              {formData.price && parseFloat(formData.price) > 0 ? (
-                (() => {
-                  const price = parseFloat(formData.price);
-                  const cost = parseFloat(formData.cost) || 0;
-                  const discount = parseFloat(formData.discount) || 10;
-                  const finalPrice = price * (discount / 10);
-                  const profit = finalPrice - cost;
-                  const profitRate = cost > 0 ? (profit / cost) * 100 : null;
-                  
-                  return (
-                <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 h-[42px] flex items-center">
-                  <div className="flex items-center justify-between text-sm w-full">
-                    <span className="text-gray-700 font-medium">利润</span>
-                    <div className="text-right">
-                      <span className="font-bold text-green-600">
-                            ¥{profit.toFixed(2)}
-                      </span>
-                      <span className="text-xs text-gray-500 ml-2">
-                            {profitRate !== null ? `${profitRate.toFixed(1)}%` : '-'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                  );
-                })()
-              ) : (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] flex items-center justify-center">
-                  <div className="flex items-center text-sm text-gray-400">
-                    <i className="fas fa-calculator mr-2"></i>
-                    <span>填写售价后显示</span>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            {/* 热销标记 */}
-            <div>
-              <label className="flex items-center gap-2 px-3 py-2 h-[42px] bg-orange-50 border border-orange-200 rounded-lg cursor-pointer hover:border-orange-300 transition-all">
-                <input
-                  type="checkbox"
-                  id="add_is_hot"
-                  checked={!!formData.is_hot}
-                  onChange={(e) => setFormData(prev => ({ ...prev, is_hot: e.target.checked }))}
-                  className="h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
-                />
-                <div className="flex items-center gap-1.5 text-sm">
-                  <i className="fas fa-fire text-orange-500"></i>
-                  <span className="font-medium text-gray-900">标记为热销</span>
-                </div>
-              </label>
-            </div>
-          </div>
-          
-          <p className="text-xs text-gray-500">
-            <i className="fas fa-info-circle mr-1"></i>
-            如有规格，总库存 = 各规格库存之和
-          </p>
-        </div>
-      </div>
-      
-      {/* 2. 图片与描述 - 并排 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* 商品图片 */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <i className="fas fa-image text-pink-600"></i>
-              <h3 className="font-bold text-gray-900">商品图片</h3>
-            </div>
-          </div>
-          
-          <div className="p-5">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-pink-400 transition-all bg-gray-50">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="w-full text-xs text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gradient-to-r file:from-pink-500 file:to-rose-500 file:text-white hover:file:from-pink-600 hover:file:to-rose-600 file:cursor-pointer file:transition-all"
-              />
-              <p className="text-xs text-gray-500 mt-2">支持 JPG、PNG，建议 400x400px</p>
-            </div>
-          </div>
-        </div>
-        
-        {/* 商品描述 */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="bg-gray-50 px-5 py-3 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="fas fa-align-left text-slate-600"></i>
-                <h3 className="font-bold text-gray-900">商品描述</h3>
-              </div>
-              <span className="text-xs text-gray-500">{formData.description?.length || 0} 字</span>
-            </div>
-          </div>
-          
-          <div className="p-5">
-            <textarea
-              name="description"
-              rows={4}
-              value={formData.description}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-200 transition-all resize-none"
-              placeholder="请描述商品信息，如规格、成分、使用方法等..."
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 3. 预约设置 */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center justify-between bg-gray-50 px-5 py-3 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-calendar-check text-teal-500"></i>
-            <h3 className="font-bold text-gray-900">预约设置</h3>
-          </div>
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4 text-teal-500 border-gray-300 rounded focus:ring-teal-400"
-              checked={formData.reservation_required}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setFormData(prev => ({
-                  ...prev,
-                  reservation_required: checked,
-                  reservation_cutoff: checked ? prev.reservation_cutoff : '',
-                  reservation_note: checked ? prev.reservation_note : ''
-                }));
-              }}
-            />
-            <span>启用预约</span>
-          </label>
-        </div>
-        {formData.reservation_required && (
-          <div className="p-5">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约截止时间</label>
-                <input
-                  type="time"
-                  name="reservation_cutoff"
-                  value={formData.reservation_cutoff}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                />
-                <p className="text-xs text-gray-500 mt-1">可选，设置当日预约截止时间，例如 21:30。</p>
-              </div>
-              <div className="flex-[2]">
-                <label className="block text-sm font-medium text-gray-700 mb-1">预约说明</label>
-                <input
-                  type="text"
-                  name="reservation_note"
-                  value={formData.reservation_note}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-400 focus:border-teal-400"
-                  placeholder="示例：21:30 前预约当日配送，超时次日送达。"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 4. 规格管理 */}
-      <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-5 py-4 border-b-2 border-gray-200">
-          <div className="flex items-center gap-2">
-            <i className="fas fa-layer-group text-teal-600"></i>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">商品规格</h3>
-              <p className="text-xs text-gray-600 mt-0.5">多规格库存管理（可选）</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-5 space-y-4">
-          {/* 添加规格表单 */}
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-700 mb-1.5 block">规格名称</label>
-                <input 
-                  value={newVariantName} 
-                  onChange={e=>setNewVariantName(e.target.value)} 
-                  placeholder="例如：原味、中杯" 
-                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700 mb-1.5 block">库存数量</label>
-                <input 
-                  type="number" 
-                  value={newVariantStock} 
-                  min={0} 
-                  onChange={e=>setNewVariantStock(e.target.value)} 
-                  placeholder="0" 
-                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
-                />
-              </div>
-            </div>
-            <button 
-              type="button"
-              onClick={addVariant} 
-              className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-all shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-            >
-              <i className="fas fa-plus"></i>
-              添加规格
-            </button>
-          </div>
-          
-          {/* 规格列表 */}
-          {variants.length === 0 ? (
-            <div className="text-center py-6 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-              <i className="fas fa-cube text-gray-400 text-3xl mb-2"></i>
-              <p className="text-sm font-medium text-gray-600">暂无规格</p>
-              <p className="text-xs text-gray-500 mt-1">添加规格后可独立管理库存</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
-                {variants.map((v, index) => (
-                  <div key={v.id} className="relative group rounded-xl border-2 border-teal-200 bg-teal-50/30 hover:bg-teal-50 p-3 transition-all hover:shadow-md">
-                    {/* 删除按钮 - 圆形叉号 */}
-                    <button
-                      type="button"
-                      onClick={()=>removeVariant(v.id)}
-                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
-                      title="删除规格"
-                    >
-                      <i className="fas fa-times text-xs"></i>
-                    </button>
-                    
-                    {/* 规格信息 */}
-                    <div className="pr-2">
-                      <div className="mb-2">
-                        <label className="text-xs text-gray-600 mb-1 block">名称</label>
-                        <input 
-                          className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
-                          value={v.name} 
-                          onChange={(e)=>{
-                            setVariants(variants.map(item => item.id === v.id ? {...item, name: e.target.value} : item));
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-600 mb-1 block">库存数量</label>
-                        <input 
-                          type="number" 
-                          min={0} 
-                          className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs font-medium focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200 transition-all" 
-                          value={v.stock} 
-                          onChange={(e)=>updateVariantStock(v.id, e.target.value)} 
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 text-xs text-gray-700">
-                <div className="flex items-start gap-2">
-                  <i className="fas fa-info-circle text-cyan-600 mt-0.5 flex-shrink-0"></i>
-                  <p>规格将在商品创建后保存。有规格时，总库存 = 各规格库存之和。</p>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* 底部操作按钮 */}
-      <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 rounded-xl shadow-lg flex gap-3 z-10">
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 px-5 rounded-lg font-bold hover:from-emerald-600 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all"
-        >
-          {isLoading ? (
-            <span className="flex items-center justify-center gap-2">
-              <i className="fas fa-spinner fa-spin"></i>
-              添加中...
-            </span>
-          ) : (
-            <span className="flex items-center justify-center gap-2">
-              <i className="fas fa-plus-circle"></i>
-              添加商品
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-6 py-3 bg-white border border-gray-300 rounded-lg text-gray-700 font-bold hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all"
-        >
-          取消
-        </button>
-      </div>
-    </form>
-  );
-};
-
 // 优惠券管理面板
 const CouponsPanel = ({ apiPrefix }) => {
   const { apiRequest } = useApi();
@@ -5270,7 +4584,7 @@ const CouponsPanel = ({ apiPrefix }) => {
   const [statusFilter, setStatusFilter] = React.useState('all'); // all, active, used, revoked
   const [searchUser, setSearchUser] = React.useState('');
 
-  // 实时查询学号（只有输入至少一个字符时才搜索）
+  // 实时查询（只有输入至少一个字符时才搜索）
   React.useEffect(() => {
     if (q.trim().length === 0) {
       setSuggests([]);
@@ -9062,14 +8376,14 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           )}
         </main>
 
-        {/* 添加商品弹窗 */}
+        {/* 商品表单弹窗（添加或编辑） */}
         <Modal
           isOpen={showAddModal}
           onClose={() => setShowAddModal(false)}
           title="添加商品"
           size="large"
         >
-          <AddProductForm
+          <ProductForm
             onSubmit={handleAddProduct}
             isLoading={isSubmitting}
             onCancel={() => setShowAddModal(false)}
@@ -9078,7 +8392,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           />
         </Modal>
 
-        {/* 编辑商品弹窗 */}
         <Modal
           isOpen={showEditModal}
           onClose={() => {
@@ -9086,11 +8399,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             setShowEditModal(false);
             setEditingProduct(null);
           }}
-          title="编辑商品"
+          title="编辑"
           size="large"
         >
           {editingProduct && (
-            <EditProductForm
+            <ProductForm
               product={editingProduct}
               onSubmit={handleEditProduct}
               isLoading={isSubmitting}
