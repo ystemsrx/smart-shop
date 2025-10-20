@@ -1167,8 +1167,12 @@ export default function ChatModern({ user }) {
   const updateLastMessage = (newContent) => {
     setMsgs((s) => {
       const newMsgs = [...s];
-      if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === "assistant") {
-        newMsgs[newMsgs.length - 1].content = newContent;
+      // 从后往前查找最后一条assistant消息并更新
+      for (let i = newMsgs.length - 1; i >= 0; i--) {
+        if (newMsgs[i].role === "assistant") {
+          newMsgs[i] = { ...newMsgs[i], content: newContent };
+          break;
+        }
       }
       return newMsgs;
     });
@@ -1263,12 +1267,18 @@ export default function ChatModern({ user }) {
                   thinkingMsgIdRef.current = null;
                 }
                 
-                if (!assistantMessageAdded) {
-                  push("assistant", "");
-                  assistantMessageAdded = true;
-                }
+                // 累加内容
                 assistantContent += data.delta;
-                updateLastMessage(assistantContent);
+                
+                // 关键修复：在单个setState中完成添加或更新，避免竞争条件
+                if (!assistantMessageAdded) {
+                  // 第一次delta：添加新的assistant消息（带初始内容）
+                  setMsgs((s) => [...s, { id: genId(), role: "assistant", content: assistantContent }]);
+                  assistantMessageAdded = true;
+                } else {
+                  // 后续delta：更新最后一条assistant消息
+                  updateLastMessage(assistantContent);
+                }
 
               } else if (data.type === "tool_status" && data.status === "started") {
                 if (!streamHasStarted) {
