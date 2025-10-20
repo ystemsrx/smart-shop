@@ -2610,11 +2610,37 @@ const ProductTable = ({
   showOnlyInactive,
   onToggleOutOfStockFilter,
   onToggleInactiveFilter,
-  operatingProducts
+  operatingProducts,
+  sortBy,
+  sortOrder,
+  onSortClick
 }) => {
   const isAllSelected = products.length > 0 && selectedProducts.length === products.length;
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
   const [bulkZhe, setBulkZhe] = React.useState('');
+  
+  // 排序指示器组件
+  const SortIndicator = ({ column, label }) => {
+    const isActive = sortBy === column;
+    const isAsc = sortOrder === 'asc';
+    
+    return (
+      <button
+        onClick={() => onSortClick && onSortClick(column)}
+        className="flex items-center gap-1 hover:text-gray-700 transition-colors group"
+      >
+        <span>{label}</span>
+        <div className="flex flex-col items-center">
+          <i className={`fas fa-caret-up text-xs -mb-1 transition-colors ${
+            isActive && isAsc ? 'text-indigo-600' : 'text-gray-300 group-hover:text-gray-400'
+          }`}></i>
+          <i className={`fas fa-caret-down text-xs transition-colors ${
+            isActive && !isAsc ? 'text-indigo-600' : 'text-gray-300 group-hover:text-gray-400'
+          }`}></i>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -2767,19 +2793,19 @@ const ProductTable = ({
                 商品信息
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                分类
+                <SortIndicator column="category" label="分类" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 热销
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                价格/折扣
+                <SortIndicator column="price" label="价格/折扣" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                库存
+                <SortIndicator column="stock" label="库存" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
-                创建时间
+                <SortIndicator column="created_at" label="创建时间" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">
                 操作
@@ -5482,6 +5508,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const [showOnlyInactive, setShowOnlyInactive] = useState(false);
   const [variantStockProduct, setVariantStockProduct] = useState(null);
   
+  // 排序状态管理
+  const [sortBy, setSortBy] = useState(null); // null表示默认排序，'category'|'price'|'stock'|'created_at'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc'|'desc'
+  
   // 商城显示下架商品的开关状态
   const [showInactiveInShop, setShowInactiveInShop] = useState(false);
   const [isLoadingShopSetting, setIsLoadingShopSetting] = useState(false);
@@ -6808,6 +6838,27 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
+  // 处理表头排序点击
+  const handleSortClick = (column) => {
+    if (sortBy === column) {
+      // 同一列再次点击，切换排序方向
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      // 点击不同的列
+      setSortBy(column);
+      // 设置默认排序方向
+      if (column === 'category') {
+        setSortOrder('asc'); // 分类：正序（字母>emoji>拼音）
+      } else if (column === 'price') {
+        setSortOrder('asc'); // 价格：正序（低到高）
+      } else if (column === 'stock') {
+        setSortOrder('desc'); // 库存：倒序（高到低）
+      } else if (column === 'created_at') {
+        setSortOrder('desc'); // 创建时间：倒序（新到旧）
+      }
+    }
+  };
+
   // 初始化加载
   useEffect(() => {
     if (!user || user.type !== expectedRole) return;
@@ -6838,11 +6889,130 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
     return (product.stock || 0) <= 0;
   };
-  const visibleProducts = filteredByCategory.filter((product) => {
+  
+  // 辅助函数：获取字符串中第一个有意义的字符
+  const getFirstSignificantChar = (str) => {
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      // 获取字母、数字、emoji或中文
+      if (/[A-Za-z0-9\u4e00-\u9fff]/.test(ch) || /[\u{1F000}-\u{1F9FF}]/u.test(ch)) {
+        return ch;
+      }
+    }
+    return '';
+  };
+  
+  // 辅助函数：判断字符类型（0: emoji, 1: 字母, 2: 数字, 3: 中文, 4: 其他）
+  const getCharType = (ch) => {
+    if (!ch) return 4; // 空或无意义
+    if (/[\u{1F000}-\u{1F9FF}]/u.test(ch)) return 0; // emoji
+    if (/[A-Za-z]/.test(ch)) return 1; // 字母
+    if (/[0-9]/.test(ch)) return 2; // 数字
+    if (/[\u4e00-\u9fff]/.test(ch)) return 3; // 中文
+    return 4; // 其他
+  };
+  
+  // 辅助函数：获取商品的实际库存
+  const getProductStock = (product) => {
+    if (product.has_variants) {
+      if (Array.isArray(product.variants) && product.variants.length > 0) {
+        return product.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+      }
+      if (typeof product.total_variant_stock === 'number') {
+        return product.total_variant_stock;
+      }
+      return 0;
+    }
+    return product.stock || 0;
+  };
+  
+  // 辅助函数：获取商品的折扣后价格
+  const getDiscountedPrice = (product) => {
+    const discount = (typeof product.discount === 'number' && product.discount) 
+      ? product.discount 
+      : (product.discount ? parseFloat(product.discount) : 10);
+    const hasDiscount = discount && discount > 0 && discount < 10;
+    return hasDiscount ? (Math.round(product.price * (discount / 10) * 100) / 100) : product.price;
+  };
+  
+  // 分类名称排序比较器（emoji > 字母 > 数字 > 拼音）
+  const compareCategoryName = (a, b) => {
+    const aName = String(a.category || '');
+    const bName = String(b.category || '');
+    
+    // 获取第一个有意义的字符
+    const aChar = getFirstSignificantChar(aName);
+    const bChar = getFirstSignificantChar(bName);
+    
+    // 获取字符类型
+    const aType = getCharType(aChar);
+    const bType = getCharType(bChar);
+    
+    // 首先按类型排序：emoji(0) > 字母(1) > 数字(2) > 中文(3) > 其他(4)
+    if (aType !== bType) {
+      return aType - bType;
+    }
+    
+    // 同类型内按拼音/字母/数字排序
+    try {
+      const collator = new Intl.Collator(
+        ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
+        { sensitivity: 'base', numeric: true }
+      );
+      return collator.compare(aName, bName);
+    } catch (e) {
+      return aName.localeCompare(bName, 'zh-Hans-u-co-pinyin');
+    }
+  };
+  
+  // 先筛选，再排序
+  let visibleProducts = filteredByCategory.filter((product) => {
     if (showOnlyOutOfStock && !isProductOutOfStock(product)) return false;
     if (showOnlyInactive && !isProductInactive(product)) return false;
     return true;
   });
+  
+  // 应用排序
+  if (sortBy === null) {
+    // 默认排序：热销在最前面，然后是普通商品，内部按分类名称（emoji>字母>数字>拼音）排序
+    visibleProducts = [...visibleProducts].sort((a, b) => {
+      const aIsHot = Boolean(a.is_hot);
+      const bIsHot = Boolean(b.is_hot);
+      
+      // 热销优先
+      if (aIsHot !== bIsHot) {
+        return bIsHot ? 1 : -1; // 热销的排前面
+      }
+      
+      // 同为热销或同为普通，按分类名称排序
+      return compareCategoryName(a, b);
+    });
+  } else {
+    // 用户手动排序
+    visibleProducts = [...visibleProducts].sort((a, b) => {
+      let result = 0;
+      
+      if (sortBy === 'category') {
+        result = compareCategoryName(a, b);
+      } else if (sortBy === 'price') {
+        const aPrice = getDiscountedPrice(a);
+        const bPrice = getDiscountedPrice(b);
+        result = aPrice - bPrice;
+      } else if (sortBy === 'stock') {
+        const aStock = getProductStock(a);
+        const bStock = getProductStock(b);
+        result = aStock - bStock;
+      } else if (sortBy === 'created_at') {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        result = aTime - bTime;
+      }
+      
+      // 应用排序方向
+      return sortOrder === 'desc' ? -result : result;
+    });
+  }
 
   return (
     <>
@@ -7128,6 +7298,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   onToggleOutOfStockFilter={setShowOnlyOutOfStock}
                   onToggleInactiveFilter={setShowOnlyInactive}
                   operatingProducts={operatingProducts}
+                  sortBy={sortBy}
+                  sortOrder={sortOrder}
+                  onSortClick={handleSortClick}
             />
           )}
             </>
