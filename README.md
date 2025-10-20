@@ -364,7 +364,7 @@ payload = {
 
 ## 🤖 AI 能力
 
-本系统集成 **智谱清言** 提供的 AI 助手（需自行前往[智谱AI 官网](https://bigmodel.cn/)申请 API Key 并配置到 `.env` 中）。
+本系统集成 **OpenAI** 兼容的 AI 助手（建议在 [OpenRouter](https://openrouter.ai/) 申请 API Key 并将接口地址配置到 `.env` 中）。
 
 **AI 功能**
 
