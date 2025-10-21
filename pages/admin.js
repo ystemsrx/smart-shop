@@ -5549,6 +5549,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const loadOrdersRef = useRef(null);
   const previousOrderSearchRef = useRef(orderSearch);
   const [orderLoading, setOrderLoading] = useState(false);
+  const [orderExporting, setOrderExporting] = useState(false);
   const [orderAgentFilter, setOrderAgentFilter] = useState('self');
   const [orderAgentOptions, setOrderAgentOptions] = useState([]);
 
@@ -5867,15 +5868,23 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
-  const buildOrdersQuery = (page = 0, search = '', agentFilterValue = orderAgentFilter) => {
+  const buildOrdersQueryParams = ({
+    limit = 20,
+    offset = 0,
+    search = '',
+    agentFilterValue = orderAgentFilter
+  } = {}) => {
     const params = new URLSearchParams();
-    params.set('limit', '20');
-    const p = parseInt(page) || 0;
-    params.set('offset', String(p * 20));
+    const normalizedLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
+    const normalizedOffset = Math.max(0, parseInt(offset, 10) || 0);
+    params.set('limit', String(normalizedLimit));
+    params.set('offset', String(normalizedOffset));
+
     const q = String(search || '').trim();
     if (q) {
       params.set('keyword', q);
     }
+
     if (isAdmin) {
       const rawFilter = (agentFilterValue ?? '').toString().trim();
       const lowerFilter = rawFilter.toLowerCase();
@@ -5887,7 +5896,15 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         params.set('agent_id', rawFilter);
       }
     }
-    return `${staffPrefix}/orders?` + params.toString();
+
+    return `${staffPrefix}/orders?${params.toString()}`;
+  };
+
+  const buildOrdersQuery = (page = 0, search = '', agentFilterValue = orderAgentFilter) => {
+    const limit = 20;
+    const p = parseInt(page, 10) || 0;
+    const offset = p * limit;
+    return buildOrdersQueryParams({ limit, offset, search, agentFilterValue });
   };
 
   const loadOrders = async (page = orderPage, search = orderSearch, agentFilterValue = orderAgentFilter) => {
@@ -5930,6 +5947,171 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const handleOrderRefresh = async () => {
     await loadOrders(orderPage, orderSearch, orderAgentFilter);
   };
+
+  const handleExportOrders = async () => {
+    if (orderExporting) return;
+    setOrderExporting(true);
+    try {
+      const limit = 200;
+      const allOrders = [];
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const url = buildOrdersQueryParams({
+          limit,
+          offset,
+          search: orderSearch,
+          agentFilterValue: orderAgentFilter
+        });
+        const res = await apiRequest(url);
+        const data = res?.data || {};
+        const batch = Array.isArray(data.orders) ? data.orders : [];
+        allOrders.push(...batch);
+
+        hasMore = !!data.has_more && batch.length > 0;
+        if (hasMore) {
+          offset += limit;
+        }
+      }
+
+      const scopedOrders = orderStatusFilter === '全部'
+        ? allOrders
+        : allOrders.filter((order) => getUnifiedStatus(order) === orderStatusFilter);
+
+      if (scopedOrders.length === 0) {
+        alert('当前筛选条件下没有可导出的订单');
+        return;
+      }
+
+      const xlsxModule = await import('xlsx');
+      const XLSXLib = xlsxModule?.default?.utils ? xlsxModule.default : xlsxModule;
+      if (!XLSXLib?.utils) {
+        throw new Error('未能加载 Excel 导出依赖，请稍后重试');
+      }
+
+      const header = [
+        '订单号',
+        '归属',
+        '用户名',
+        '电话',
+        '地址',
+        '详细地址',
+        '订单金额',
+        '订单信息',
+        '订单状态',
+        '创建时间'
+      ];
+
+      const formatDateStamp = (dateObj) => {
+        if (!(dateObj instanceof Date) || Number.isNaN(dateObj.valueOf())) return null;
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
+      };
+
+      const normalizeOrderDate = (order) => {
+        if (Number.isFinite(order?.created_at_timestamp)) {
+          return new Date(order.created_at_timestamp * 1000);
+        }
+        if (order?.created_at) {
+          const parsed = new Date(order.created_at);
+          if (!Number.isNaN(parsed.valueOf())) {
+            return parsed;
+          }
+        }
+        return null;
+      };
+
+      let earliestDate = null;
+
+      const rows = scopedOrders.map((order) => {
+        const shipping = order?.shipping_info && typeof order.shipping_info === 'object'
+          ? order.shipping_info
+          : {};
+        const ownerLabel = isAdmin
+          ? (orderAgentNameMap?.[order.agent_id] || order.agent_id || '未分配')
+          : (order.agent_id || user?.name || user?.id || '我的订单');
+        const addressParts = [shipping.dormitory, shipping.building].filter(Boolean);
+        const baseAddress = addressParts.join(' ') || shipping.full_address || '';
+        const detailSegments = [
+          shipping.room,
+          shipping.address_detail,
+          shipping.detail,
+          shipping.extra
+        ].filter(Boolean);
+        const detailAddress = detailSegments.join(' ') || '';
+        const totalValue = Number(order?.total_amount);
+        const totalText = Number.isFinite(totalValue)
+          ? totalValue.toFixed(2)
+          : String(order?.total_amount ?? '');
+        const items = Array.isArray(order?.items) ? order.items : [];
+        const itemSummary = items.map((item) => {
+          if (!item) return '';
+          const markers = [];
+          if (item.is_auto_gift) markers.push('赠品');
+          if (item.is_lottery) markers.push('抽奖');
+          const markerText = markers.length > 0 ? `[${markers.join('+')}]` : '';
+          const baseName = item.name || item.product_name || item.title || '未命名商品';
+          const variant = item.variant_name ? `(${item.variant_name})` : '';
+          const quantity = Number(item.quantity);
+          const quantityText = Number.isFinite(quantity) ? `x${quantity}` : '';
+          return [markerText, `${baseName}${variant}`.trim(), quantityText]
+            .filter(Boolean)
+            .join(' ');
+        }).filter(Boolean).join('\n');
+
+        const createdAtDate = normalizeOrderDate(order);
+        if (createdAtDate && (!earliestDate || createdAtDate < earliestDate)) {
+          earliestDate = createdAtDate;
+        }
+        const createdAtText = createdAtDate
+          ? createdAtDate.toLocaleString('zh-CN', { hour12: false })
+          : '';
+
+        return [
+          order?.id || '',
+          ownerLabel,
+          order?.student_id || order?.user_id || '',
+          shipping.phone || '',
+          baseAddress,
+          detailAddress,
+          totalText,
+          itemSummary,
+          getUnifiedStatus(order),
+          createdAtText
+        ].map((cell) => (cell == null ? '' : String(cell)));
+      });
+
+      const worksheetData = [header, ...rows];
+      const workbook = XLSXLib.utils.book_new();
+      const worksheet = XLSXLib.utils.aoa_to_sheet(worksheetData);
+      XLSXLib.utils.book_append_sheet(workbook, worksheet, '订单导出');
+
+      const excelBuffer = XLSXLib.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+
+      const todayStamp = formatDateStamp(new Date()) || '今日';
+      const earliestStamp = formatDateStamp(earliestDate || new Date()) || todayStamp;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `订单导出_${todayStamp}T${earliestStamp}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('导出订单失败:', error);
+      alert(error?.message || '导出订单失败，请稍后重试');
+    } finally {
+      setOrderExporting(false);
+    }
+  };
+
   const handlePrevPage = async () => {
     const next = Math.max(0, (orderPage || 0) - 1);
     await loadOrders(next, orderSearch, orderAgentFilter);
@@ -7393,16 +7575,26 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               ) : (
                 <>
                   {/* 筛选器 */}
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {['全部', ...UNIFIED_STATUS_ORDER].map((label) => (
-                      <button
-                        key={label}
-                        onClick={() => setOrderStatusFilter(label)}
-                        className={`px-3 py-1 rounded-md text-sm border ${orderStatusFilter === label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      {['全部', ...UNIFIED_STATUS_ORDER].map((label) => (
+                        <button
+                          key={label}
+                          onClick={() => setOrderStatusFilter(label)}
+                          className={`px-3 py-1 rounded-md text-sm border ${orderStatusFilter === label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={handleExportOrders}
+                      disabled={orderExporting}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <i className="fas fa-file-excel text-sm"></i>
+                      {orderExporting ? '导出中...' : '导出'}
+                    </button>
                   </div>
                   <OrderTable 
                     orders={(orderStatusFilter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === orderStatusFilter))}
