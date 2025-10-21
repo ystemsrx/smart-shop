@@ -7097,7 +7097,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             <div className="border-b border-gray-200">
               <nav className="-mb-px flex space-x-8">
                 <button
-                  onClick={() => setActiveTab('products')}
+                  onClick={() => {
+                    setActiveTab('products');
+                    loadData(orderAgentFilter, false, false);
+                  }}
                   className={`py-2 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'products'
                       ? 'border-indigo-500 text-indigo-600'
@@ -7107,7 +7110,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   商品管理
                 </button>
                 <button
-                  onClick={() => setActiveTab('orders')}
+                  onClick={() => {
+                    setActiveTab('orders');
+                    loadOrders(0, orderSearch, orderAgentFilter);
+                  }}
                   className={`py-2 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'orders'
                       ? 'border-indigo-500 text-indigo-600'
