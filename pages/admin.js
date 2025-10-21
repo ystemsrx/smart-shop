@@ -4716,8 +4716,13 @@ const CouponsPanel = ({ apiPrefix }) => {
       if (statusFilter === 'revoked' && c.status !== 'revoked') return false;
       if (statusFilter === 'expired' && (!c.expired || c.status !== 'active')) return false;
       
-      // 用户搜索
-      if (searchUser && !c.student_id.toLowerCase().includes(searchUser.toLowerCase())) return false;
+      // 用户搜索 - 支持用户名和昵称
+      if (searchUser) {
+        const searchLower = searchUser.toLowerCase();
+        const matchStudentId = c.student_id?.toLowerCase().includes(searchLower);
+        const matchUserName = c.user_name?.toLowerCase().includes(searchLower);
+        if (!matchStudentId && !matchUserName) return false;
+      }
       
       return true;
     });
@@ -4910,7 +4915,7 @@ const CouponsPanel = ({ apiPrefix }) => {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="搜索用户..."
+                  placeholder="搜索用户名或昵称..."
                   value={searchUser}
                   onChange={(e) => setSearchUser(e.target.value)}
                   className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
@@ -5031,7 +5036,12 @@ const CouponsPanel = ({ apiPrefix }) => {
                               <i className="fas fa-user text-indigo-600"></i>
                             </div>
                             <div>
-                              <div className="font-semibold text-gray-900">{studentId}</div>
+                              <div className="font-semibold text-gray-900">
+                                {studentId}
+                                {coupons[0]?.user_name && (
+                                  <span className="text-gray-600 font-normal"> （{coupons[0].user_name}）</span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-1">
                                 {activeCoupons.length > 0 && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">

@@ -5596,22 +5596,27 @@ class CouponDB:
                 user_ref = CouponDB._resolve_user_identifier(user_identifier)
                 if user_ref:
                     # 优先使用user_id查询，向后兼容student_id
-                    clauses.append('(user_id = ? OR student_id = ?)')
+                    clauses.append('(c.user_id = ? OR c.student_id = ?)')
                     params.extend([user_ref['user_id'], user_ref['student_id']])
                 else:
                     # 如果无法解析，返回空结果
                     return []
                     
             if owner_id is None:
-                clauses.append('owner_id IS NULL')
+                clauses.append('c.owner_id IS NULL')
             else:
-                clauses.append('owner_id = ?')
+                clauses.append('c.owner_id = ?')
                 params.append(owner_id)
 
-            query = 'SELECT * FROM coupons'
+            # LEFT JOIN users表以获取用户昵称
+            query = '''
+                SELECT c.*, u.name as user_name
+                FROM coupons c
+                LEFT JOIN users u ON c.student_id = u.id
+            '''
             if clauses:
                 query += ' WHERE ' + ' AND '.join(clauses)
-            query += ' ORDER BY created_at DESC'
+            query += ' ORDER BY c.created_at DESC'
             cursor.execute(query, params)
             rows = cursor.fetchall() or []
             items = [dict(r) for r in rows]
