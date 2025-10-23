@@ -2485,53 +2485,83 @@ const AutoGiftModal = ({ open, onClose, onSave, initialItems, apiRequest }) => {
 
 // 内联库存控制组件
 const StockControl = ({ product, onUpdateStock }) => {
-  const [stock, setStock] = useState(product.stock);
+  const normalizeStock = (value) => {
+    if (value === '' || value === null || value === undefined) {
+      return 0;
+    }
+    const parsed = typeof value === 'number' ? value : parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+      return 0;
+    }
+    return parsed < 0 ? 0 : parsed;
+  };
+
+  const [stock, setStock] = useState(() => normalizeStock(product.stock));
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   // 当商品库存发生变化时同步状态
   useEffect(() => {
-    setStock(product.stock);
+    setStock(normalizeStock(product.stock));
   }, [product.stock]);
 
-  const handleStockChange = async (newStock) => {
-    if (newStock < 0) return;
-    
+  const submitChange = async (changePayload) => {
+    const { optimisticStock } = changePayload;
+    if (typeof optimisticStock === 'number' && optimisticStock < 0) {
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await onUpdateStock(product.id, newStock);
-      // 成功后 stock 状态已经通过 product prop 的变化自动同步了
+      await onUpdateStock(product.id, changePayload);
     } catch (error) {
-      // 如果更新失败，恢复原值
-      setStock(product.stock);
+      setStock(normalizeStock(product.stock));
+      throw error;
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleIncrement = () => {
-    const newStock = stock + 1;
+    if (isLoading) return;
+    const newStock = normalizeStock(stock + 1);
     setStock(newStock);
-    handleStockChange(newStock);
+    submitChange({
+      mode: 'delta',
+      delta: 1,
+      optimisticStock: newStock
+    }).catch(() => {});
   };
 
   const handleDecrement = () => {
-    if (stock > 0) {
-      const newStock = stock - 1;
-      setStock(newStock);
-      handleStockChange(newStock);
-    }
+    if (isLoading) return;
+    const current = normalizeStock(stock);
+    if (current <= 0) return;
+    const newStock = Math.max(0, current - 1);
+    setStock(newStock);
+    submitChange({
+      mode: 'delta',
+      delta: -1,
+      optimisticStock: newStock
+    }).catch(() => {});
   };
 
   const handleInputChange = (e) => {
-    const newValue = parseInt(e.target.value) || 0;
-    setStock(newValue);
+    const newValue = parseInt(e.target.value, 10);
+    setStock(Number.isNaN(newValue) ? 0 : Math.max(0, newValue));
   };
 
   const handleInputBlur = () => {
     setIsEditing(false);
-    if (stock !== product.stock) {
-      handleStockChange(stock);
+    const normalizedProductStock = normalizeStock(product.stock);
+    const normalizedInput = normalizeStock(stock);
+    if (normalizedInput !== normalizedProductStock) {
+      setStock(normalizedInput);
+      submitChange({
+        mode: 'set',
+        target: normalizedInput,
+        optimisticStock: normalizedInput
+      }).catch(() => {});
     }
   };
 
@@ -2545,7 +2575,7 @@ const StockControl = ({ product, onUpdateStock }) => {
     <div className="flex items-center space-x-1">
       <button
         onClick={handleDecrement}
-        disabled={isLoading || stock <= 0}
+        disabled={isLoading || normalizeStock(stock) <= 0}
         className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200"
         title="减少库存"
       >
@@ -2572,7 +2602,7 @@ const StockControl = ({ product, onUpdateStock }) => {
           {isLoading ? (
             <div className="inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin"></div>
           ) : (
-            stock
+            normalizeStock(stock)
           )}
         </span>
       )}
@@ -2929,7 +2959,7 @@ const ProductTable = ({
                   ) : (
                     <StockControl 
                       product={product} 
-                      onUpdateStock={(productId, newStock) => onUpdateStock(productId, newStock)}
+                      onUpdateStock={onUpdateStock}
                     />
                   )}
                 </td>
@@ -3403,6 +3433,12 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
   });
   const [imageFile, setImageFile] = useState(null);
   const { apiRequest } = useApi();
+  const normalizeVariantStockValue = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = typeof value === 'number' ? value : parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return parsed < 0 ? 0 : parsed;
+  };
   
   // 规格状态管理（本地状态，只在提交时应用）
   const [variantsState, setVariantsState] = useState({
@@ -3418,7 +3454,10 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
     const loadVariants = async () => {
       try {
         const res = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
-        const variants = res?.data?.variants || [];
+        const variants = (res?.data?.variants || []).map(v => ({
+          ...v,
+          stock: normalizeVariantStockValue(v.stock)
+        }));
         setVariantsState({
           loaded: true,
           original: JSON.parse(JSON.stringify(variants)), // 深拷贝
@@ -3562,29 +3601,70 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
   
   // 应用规格变更到服务器
   const applyVariantChanges = async () => {
-    const { original, current } = variantsState;
+    let serverOriginal = [];
+    try {
+      const latest = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
+      serverOriginal = (latest?.data?.variants || []).map(v => ({
+        ...v,
+        stock: normalizeVariantStockValue(v.stock)
+      }));
+    } catch (err) {
+      console.error('获取最新规格失败，使用本地缓存继续:', err);
+      serverOriginal = (variantsState.original || []).map(v => ({
+        ...v,
+        stock: normalizeVariantStockValue(v.stock)
+      }));
+    }
+
+    const currentVariants = (variantsState.current || []).map(v => ({
+      ...v,
+      stock: normalizeVariantStockValue(v.stock)
+    }));
     
     // 判断是否为临时ID（新增的规格）
     const isTempId = (id) => typeof id === 'string' && id.startsWith('temp_');
     
     // 判断是否为真实ID（从服务器加载的规格）
     const isRealId = (id) => !isTempId(id) && (typeof id === 'number' || typeof id === 'string');
-    
-    // 找出被删除的规格（在original中有真实ID，但在current中找不到）
-    const deletedVariants = original.filter(o => 
-      isRealId(o.id) && !current.find(c => String(c.id) === String(o.id))
+
+    const serverMap = new Map(
+      serverOriginal
+        .filter(v => isRealId(v.id))
+        .map(v => [String(v.id), v])
+    );
+
+    const currentMap = new Map(
+      currentVariants
+        .filter(v => isRealId(v.id))
+        .map(v => [String(v.id), v])
     );
     
-    // 找出新增的规格（id是临时ID）
-    const newVariants = current.filter(c => isTempId(c.id));
+    // 找出被删除的规格（在服务器最新数据中存在真实ID，但当前编辑中不存在）
+    const deletedVariants = [];
+    for (const [id, serverVariant] of serverMap.entries()) {
+      if (!currentMap.has(id)) {
+        deletedVariants.push(serverVariant);
+      }
+    }
     
-    // 找出被修改的规格（在original和current中都有，但内容不同）
-    const updatedVariants = current.filter(c => {
-      if (isTempId(c.id)) return false;
-      const orig = original.find(o => String(o.id) === String(c.id));
-      if (!orig) return false;
-      return orig.name !== c.name || orig.stock !== c.stock;
-    });
+    const newVariants = [];
+    const updatedVariants = [];
+
+    for (const variant of currentVariants) {
+      if (isTempId(variant.id)) {
+        newVariants.push(variant);
+        continue;
+      }
+      const key = String(variant.id);
+      if (!serverMap.has(key)) {
+        newVariants.push(variant);
+        continue;
+      }
+      const serverVariant = serverMap.get(key);
+      if ((serverVariant.name || '') !== (variant.name || '') || normalizeVariantStockValue(serverVariant.stock) !== variant.stock) {
+        updatedVariants.push(variant);
+      }
+    }
     
     // 依次执行删除、新增、更新操作
     for (const v of deletedVariants) {
@@ -3596,14 +3676,15 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
     for (const v of newVariants) {
       await apiRequest(`${apiPrefix}/products/${product.id}/variants`, {
         method: 'POST',
-        body: JSON.stringify({ name: v.name, stock: v.stock })
+        body: JSON.stringify({ name: v.name, stock: normalizeVariantStockValue(v.stock) })
       });
     }
     
     for (const v of updatedVariants) {
-      await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${v.id}`.replace('//', '/'), {
+      const endpoint = `${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${v.id}`.replace('//', '/');
+      await apiRequest(endpoint, {
         method: 'PUT',
-        body: JSON.stringify({ name: v.name, stock: v.stock })
+        body: JSON.stringify({ name: v.name, stock: normalizeVariantStockValue(v.stock) })
       });
     }
   };
@@ -3939,17 +4020,32 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
 };
 
 // 规格库存编辑弹窗（仅库存增减与编辑）
-const VariantStockModal = ({ product, onClose, apiPrefix }) => {
+const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync }) => {
   const { apiRequest } = useApi();
   const [variants, setVariants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const normalizeVariantStock = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = typeof value === 'number' ? value : parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return parsed < 0 ? 0 : parsed;
+  };
+
   const load = async () => {
     setLoading(true);
     try {
       const res = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
-      setVariants(res?.data?.variants || []);
+      const variantList = (res?.data?.variants || []).map(v => ({
+        ...v,
+        stock: normalizeVariantStock(v.stock)
+      }));
+      setVariants(variantList);
+      if (product?.id && typeof onProductVariantsSync === 'function') {
+        const totalStock = variantList.reduce((sum, item) => sum + item.stock, 0);
+        onProductVariantsSync(product.id, { variants: variantList, totalStock });
+      }
     } catch (e) {
       alert(e.message || '加载规格失败');
     } finally {
@@ -3959,17 +4055,96 @@ const VariantStockModal = ({ product, onClose, apiPrefix }) => {
 
   useEffect(() => { load(); }, [product?.id]);
 
-  const updateStock = async (variantId, newStock) => {
-    if (newStock < 0) newStock = 0;
+  const updateStock = async (variantId, change = {}) => {
+    if (saving) return;
+    const { mode = 'set', delta, target, optimisticStock } = change || {};
+    const safeDeltaRaw = Number.isFinite(delta) ? delta : parseInt(delta, 10);
+    const safeDelta = Number.isNaN(safeDeltaRaw) ? 0 : safeDeltaRaw;
+
+    const currentVariant = variants.find(v => v.id === variantId);
+    if (!currentVariant) {
+      alert('未找到规格信息');
+      return;
+    }
+
+    const previousStock = normalizeVariantStock(currentVariant.stock);
+
+    const optimisticValue = (() => {
+      if (typeof optimisticStock === 'number') {
+        return normalizeVariantStock(optimisticStock);
+      }
+      if (mode === 'delta') {
+        return normalizeVariantStock(previousStock + safeDelta);
+      }
+      if (target !== undefined) {
+        return normalizeVariantStock(target);
+      }
+      return previousStock;
+    })();
+
+    setVariants(prev => prev.map(v => 
+      v.id === variantId ? { ...v, stock: optimisticValue } : v
+    ));
+
     setSaving(true);
     try {
-      await apiRequest(`${apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants'}/${variantId}`.replace('//', '/'), {
+      const latestResponse = await apiRequest(`${apiPrefix}/products/${product.id}/variants`);
+      const rawList = latestResponse?.data?.variants || [];
+      const latestList = rawList.map(v => ({
+        ...v,
+        stock: normalizeVariantStock(v.stock)
+      }));
+      const latestVariant = latestList.find(v => v.id === variantId);
+      if (!latestVariant) {
+        throw new Error('未找到最新规格信息');
+      }
+
+      const latestStock = normalizeVariantStock(latestVariant.stock);
+      const baseTotalStock = latestList.reduce((sum, item) => sum + item.stock, 0);
+
+      const nextStock = (() => {
+        if (mode === 'delta') {
+          return normalizeVariantStock(latestStock + safeDelta);
+        }
+        if (mode === 'set') {
+          const normalizedTarget = target !== undefined ? normalizeVariantStock(target) : optimisticValue;
+          return normalizedTarget;
+        }
+        return normalizeVariantStock(optimisticValue);
+      })();
+
+      const endpointBase = apiPrefix === '/agent' ? '/agent/variants' : '/admin/variants';
+      const endpoint = `${endpointBase}/${variantId}`.replace('//', '/');
+
+      if (nextStock === latestStock) {
+        setVariants(latestList);
+        if (product?.id && typeof onProductVariantsSync === 'function') {
+          onProductVariantsSync(product.id, { variants: latestList, totalStock: baseTotalStock });
+        }
+        return nextStock;
+      }
+
+      await apiRequest(endpoint, {
         method: 'PUT',
-        body: JSON.stringify({ stock: parseInt(newStock) || 0 })
+        body: JSON.stringify({ stock: nextStock })
       });
-      setVariants(prev => prev.map(v => v.id === variantId ? { ...v, stock: parseInt(newStock) || 0 } : v));
+
+      const updatedList = latestList.map(v => 
+        v.id === variantId ? { ...v, stock: nextStock } : v
+      );
+      setVariants(updatedList);
+      if (product?.id && typeof onProductVariantsSync === 'function') {
+        const updatedTotal = updatedList.reduce((sum, item) => sum + item.stock, 0);
+        onProductVariantsSync(product.id, { variants: updatedList, totalStock: updatedTotal });
+      }
+
+      return nextStock;
     } catch (e) {
+      setVariants(prev => prev.map(v => 
+        v.id === variantId ? { ...v, stock: previousStock } : v
+      ));
       alert(e.message || '更新库存失败');
+      throw e;
     } finally {
       setSaving(false);
     }
@@ -3986,36 +4161,60 @@ const VariantStockModal = ({ product, onClose, apiPrefix }) => {
           <div className="text-sm text-gray-500">加载中...</div>
         ) : (
           <div className="space-y-2 max-h-72 overflow-y-auto">
-            {(variants || []).map(v => (
-              <div key={v.id} className="flex items-center justify-between px-3 py-2 border rounded-md">
-                <div className="text-sm text-gray-800">{v.name}</div>
-                <div className="flex items-center space-x-1">
-                  <button
-                    onClick={() => updateStock(v.id, (parseInt(v.stock) || 0) - 1)}
-                    disabled={saving || (parseInt(v.stock) || 0) <= 0}
-                    className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
-                    title="减少库存"
-                  >-</button>
-                  <input
-                    type="number"
-                    className="w-16 px-1 py-0.5 text-center text-sm border border-gray-300 rounded"
-                    value={v.stock}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0;
-                      setVariants(prev => prev.map(x => x.id === v.id ? { ...x, stock: val } : x));
-                    }}
-                    onBlur={(e) => updateStock(v.id, parseInt(e.target.value) || 0)}
-                    min="0"
-                  />
-                  <button
-                    onClick={() => updateStock(v.id, (parseInt(v.stock) || 0) + 1)}
-                    disabled={saving}
-                    className="w-6 h-6 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
-                    title="增加库存"
-                  >+</button>
+            {(variants || []).map(v => {
+              const currentStock = normalizeVariantStock(v.stock);
+              return (
+                <div key={v.id} className="flex items-center justify-between px-3 py-2 border rounded-md">
+                  <div className="text-sm text-gray-800">{v.name}</div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => {
+                        const nextStock = Math.max(0, currentStock - 1);
+                        updateStock(v.id, {
+                          mode: 'delta',
+                          delta: -1,
+                          optimisticStock: nextStock
+                        }).catch(() => {});
+                      }}
+                      disabled={saving || currentStock <= 0}
+                      className="w-6 h-6 flex items-center justify-center bg-red-500 hover:bg-red-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      title="减少库存"
+                    >-</button>
+                    <input
+                      type="number"
+                      className="w-16 px-1 py-0.5 text-center text-sm border border-gray-300 rounded"
+                      value={currentStock}
+                      onChange={(e) => {
+                        const val = normalizeVariantStock(e.target.value);
+                        setVariants(prev => prev.map(x => x.id === v.id ? { ...x, stock: val } : x));
+                      }}
+                      onBlur={(e) => {
+                        const val = normalizeVariantStock(e.target.value);
+                        updateStock(v.id, {
+                          mode: 'set',
+                          target: val,
+                          optimisticStock: val
+                        }).catch(() => {});
+                      }}
+                      min="0"
+                    />
+                    <button
+                      onClick={() => {
+                        const nextStock = currentStock + 1;
+                        updateStock(v.id, {
+                          mode: 'delta',
+                          delta: 1,
+                          optimisticStock: nextStock
+                        }).catch(() => {});
+                      }}
+                      disabled={saving}
+                      className="w-6 h-6 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white text-xs rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      title="增加库存"
+                    >+</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <div className="mt-3 text-right">
@@ -6767,33 +6966,128 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
+  const normalizeStockValue = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = typeof value === 'number' ? value : parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return parsed < 0 ? 0 : parsed;
+  };
+
   // 更新库存（内联版本）
-  const handleUpdateStock = async (productId, newStock) => {
-    // 乐观更新：立即更新UI
-    const updatedProducts = products.map(p => 
-      p.id === productId ? { ...p, stock: newStock } : p
-    );
-    setProducts(updatedProducts);
-    
+  const handleUpdateStock = async (productId, change = {}) => {
+    const { mode = 'set', delta, target, optimisticStock } = change || {};
+    const safeDeltaRaw = Number.isFinite(delta) ? delta : parseInt(delta, 10);
+    const safeDelta = Number.isNaN(safeDeltaRaw) ? 0 : safeDeltaRaw;
+
+    const existingProduct = products.find(p => p.id === productId);
+    if (!existingProduct) {
+      alert('未找到要更新的商品');
+      return;
+    }
+
+    const previousStock = normalizeStockValue(existingProduct.stock);
+
+    const optimisticValue = (() => {
+      if (typeof optimisticStock === 'number') {
+        return normalizeStockValue(optimisticStock);
+      }
+      if (mode === 'delta') {
+        return normalizeStockValue(previousStock + safeDelta);
+      }
+      if (target !== undefined) {
+        return normalizeStockValue(target);
+      }
+      return previousStock;
+    })();
+
+    setProducts(prev => prev.map(p => 
+      p.id === productId ? { ...p, stock: optimisticValue } : p
+    ));
+
     try {
-      // 改用已验证可用的通用更新接口，以避免个别路由兼容问题
+      const latestResponse = await apiRequest(`${staffPrefix}/products/${productId}`);
+      const latestProduct = latestResponse?.data?.product;
+      if (!latestProduct) {
+        throw new Error('未获取到最新的商品信息');
+      }
+
+      const latestStock = normalizeStockValue(latestProduct.stock);
+
+      const nextStock = (() => {
+        if (mode === 'delta') {
+          return normalizeStockValue(latestStock + safeDelta);
+        }
+        if (mode === 'set') {
+          const normalizedTarget = target !== undefined ? normalizeStockValue(target) : optimisticValue;
+          return normalizedTarget;
+        }
+        return normalizeStockValue(optimisticValue);
+      })();
+
+      const applyLatestSnapshot = (baseProduct, stockValue) => {
+        const next = { ...baseProduct, stock: stockValue };
+        if (Array.isArray(latestProduct.variants)) {
+          next.variants = latestProduct.variants;
+          next.has_variants = latestProduct.has_variants;
+          if (typeof latestProduct.total_variant_stock !== 'undefined') {
+            next.total_variant_stock = latestProduct.total_variant_stock;
+          }
+        }
+        return next;
+      };
+
+      if (nextStock === latestStock) {
+        setProducts(prev => prev.map(p => 
+          p.id === productId ? applyLatestSnapshot(p, latestStock) : p
+        ));
+        return nextStock;
+      }
+
       await apiRequest(`${staffPrefix}/products/${productId}`, {
         method: 'PUT',
-        body: JSON.stringify({ stock: newStock })
+        body: JSON.stringify({ stock: nextStock })
       });
-      
-      // 静默更新，不显示成功提示，因为是实时操作
-      // 成功后不需要重新加载，UI已经更新
-      
+
+      setProducts(prev => prev.map(p => 
+        p.id === productId ? applyLatestSnapshot(p, nextStock) : p
+      ));
+
+      return nextStock;
     } catch (err) {
-      // 失败时回滚UI状态
-      const revertedProducts = products.map(p => 
-        p.id === productId ? { ...p, stock: products.find(op => op.id === productId)?.stock || 0 } : p
-      );
-      setProducts(revertedProducts);
+      setProducts(prev => prev.map(p => 
+        p.id === productId ? { ...p, stock: previousStock } : p
+      ));
       alert(err.message || '更新库存失败');
-      throw err; // 重新抛出错误让StockControl组件处理
+      throw err;
     }
+  };
+
+  const handleProductVariantsSync = (productId, payload = {}) => {
+    const variantList = Array.isArray(payload.variants) ? payload.variants : [];
+    const computedTotal = typeof payload.totalStock === 'number'
+      ? payload.totalStock
+      : variantList.reduce((sum, item) => sum + normalizeStockValue(item?.stock), 0);
+    const safeTotal = normalizeStockValue(computedTotal);
+
+    setProducts(prev => prev.map(p => {
+      if (p.id !== productId) return p;
+      return {
+        ...p,
+        variants: variantList,
+        has_variants: variantList.length > 0,
+        total_variant_stock: safeTotal
+      };
+    }));
+
+    setVariantStockProduct(prev => {
+      if (!prev || prev.id !== productId) return prev;
+      return {
+        ...prev,
+        variants: variantList,
+        has_variants: variantList.length > 0,
+        total_variant_stock: safeTotal
+      };
+    });
   };
 
   // 删除商品
@@ -8812,6 +9106,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             product={variantStockProduct}
             onClose={() => setVariantStockProduct(null)}
             apiPrefix={staffPrefix}
+            onProductVariantsSync={handleProductVariantsSync}
           />
         )}
       </div>
