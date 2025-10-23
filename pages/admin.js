@@ -4687,6 +4687,15 @@ const CouponsPanel = ({ apiPrefix }) => {
     }
   };
 
+  const handleDelete = async (id) => {
+    try {
+      await apiRequest(`${apiPrefix}/coupons/${id}`, { method: 'DELETE' });
+      await loadList();
+    } catch (e) {
+      alert(e.message || '删除失败');
+    }
+  };
+
   const toggleStudentExpanded = (studentId) => {
     const newExpanded = new Set(expandedStudents);
     if (newExpanded.has(studentId)) {
@@ -5144,19 +5153,17 @@ const CouponsPanel = ({ apiPrefix }) => {
                                             <i className="fas fa-ban mr-1"></i>
                                             撤回
                                           </button>
-                                        ) : c.status === 'revoked' && c.revoked_at ? (
-                                          <span className="text-xs text-gray-500">
-                                            {(() => {
-                                              const revokedTime = new Date(c.revoked_at);
-                                              const deleteTime = new Date(revokedTime.getTime() + 24 * 60 * 60 * 1000);
-                                              const now = new Date();
-                                              if (deleteTime > now) {
-                                                const hoursLeft = Math.ceil((deleteTime - now) / (1000 * 60 * 60));
-                                                return `${hoursLeft}小时后删除`;
-                                              }
-                                              return '待删除';
-                                            })()}
-                                          </span>
+                                        ) : c.status === 'revoked' ? (
+                                          <button 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDelete(c.id);
+                                            }} 
+                                            className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-medium hover:bg-gray-700 transition-colors shadow-sm"
+                                          >
+                                            <i className="fas fa-trash mr-1"></i>
+                                            删除
+                                          </button>
                                         ) : (
                                           <span className="text-gray-400 text-xs">—</span>
                                         )}

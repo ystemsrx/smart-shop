@@ -1932,6 +1932,32 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
         logger.error(f"代理撤回优惠券失败: {e}")
         return error_response("撤回失败", 500)
 
+@app.delete("/admin/coupons/{coupon_id}")
+async def admin_delete_coupon(coupon_id: str, request: Request):
+    admin = get_current_admin_required_from_cookie(request)
+    owner_id = get_owner_id_for_staff(admin)
+    try:
+        ok = CouponDB.permanently_delete_coupon(coupon_id, owner_id)
+        if not ok:
+            return error_response("删除失败，可能优惠券不存在或未撤回", 400)
+        return success_response("已删除")
+    except Exception as e:
+        logger.error(f"删除优惠券失败: {e}")
+        return error_response("删除失败", 500)
+
+@app.delete("/agent/coupons/{coupon_id}")
+async def agent_delete_coupon(coupon_id: str, request: Request):
+    agent, _ = require_agent_with_scope(request)
+    owner_id = get_owner_id_for_staff(agent)
+    try:
+        ok = CouponDB.permanently_delete_coupon(coupon_id, owner_id)
+        if not ok:
+            return error_response("删除失败，可能优惠券不存在或未撤回", 400)
+        return success_response("已删除")
+    except Exception as e:
+        logger.error(f"代理删除优惠券失败: {e}")
+        return error_response("删除失败", 500)
+
 # ==================== 商品路由 ====================
 
 @app.get("/products")
