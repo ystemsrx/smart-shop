@@ -4021,10 +4021,12 @@ class OrderDB:
                 chart_time_filter = "1=1"
                 chart_window_config = {'window_size': 24, 'step': 24}
             elif period == 'week':
-                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-28 days', 'localtime')"
+                # 增加到730天（约2年）的历史数据，支持往前翻约104次
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
                 chart_window_config = {'window_size': 7, 'step': 7}
             else:
-                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-120 days', 'localtime')"
+                # 月视图也增加到730天，支持往前翻约24次
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
                 chart_window_config = {'window_size': 30, 'step': 30}
 
             # 当前时间段销售额
