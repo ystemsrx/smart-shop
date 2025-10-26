@@ -4450,6 +4450,7 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                   <span className="text-sm font-semibold text-gray-900">收货信息</span>
                 </div>
                 <div className="px-4 py-4 text-sm text-gray-700 space-y-2">
+                  <div>用户：{order?.student_id || '—'}</div>
                   <div>昵称：{order?.shipping_info?.name || '—'}</div>
                   <div>电话：{order?.shipping_info?.phone || '—'}</div>
                   <div>地址：{order?.shipping_info?.full_address || '—'}</div>
