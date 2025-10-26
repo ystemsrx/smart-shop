@@ -271,8 +271,9 @@ class AuthManager:
         local_user = UserDB.get_user(student_id)
         
         if local_user:
-            # 用户存在，验证本地密码
-            if local_user['password'] == password:
+            # 用户存在，使用 UserDB.verify_user 来验证密码（会自动处理哈希和明文密码）
+            verified_user = UserDB.verify_user(student_id, password)
+            if verified_user:
                 # 密码正确，直接登录
                 logger.info(f"用户 {student_id} 使用本地凭据登录成功")
                 

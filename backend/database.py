@@ -7,11 +7,75 @@ from typing import Optional, Dict, Any, List, Tuple, Union, Set
 from contextlib import contextmanager
 import os
 import uuid
+import bcrypt
 
 from config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# ==================== 密码哈希工具函数 ====================
+
+def hash_password(password: str) -> str:
+    """
+    使用 bcrypt 对密码进行哈希加密
+    
+    Args:
+        password: 明文密码
+        
+    Returns:
+        str: bcrypt 哈希后的密码（包含 salt）
+    """
+    if not password:
+        raise ValueError("密码不能为空")
+    
+    # bcrypt 只接受 bytes
+    password_bytes = password.encode('utf-8')
+    # 生成 salt 并哈希密码
+    hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+    # 返回字符串形式（用于存储在数据库）
+    return hashed.decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    验证明文密码是否与哈希密码匹配
+    
+    Args:
+        plain_password: 明文密码
+        hashed_password: bcrypt 哈希后的密码
+        
+    Returns:
+        bool: 密码是否匹配
+    """
+    if not plain_password or not hashed_password:
+        return False
+    
+    try:
+        password_bytes = plain_password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception as e:
+        logger.error(f"密码验证失败: {e}")
+        return False
+
+def is_password_hashed(password: str) -> bool:
+    """
+    检查密码是否已经是 bcrypt 哈希格式
+    
+    Args:
+        password: 待检查的密码字符串
+        
+    Returns:
+        bool: 是否为 bcrypt 哈希格式
+    """
+    if not password:
+        return False
+    
+    # bcrypt 哈希的标准格式：$2a$, $2b$, $2x$, $2y$ 开头，长度通常为 60 字符
+    return (password.startswith('$2a$') or 
+            password.startswith('$2b$') or 
+            password.startswith('$2x$') or 
+            password.startswith('$2y$')) and len(password) == 60
 
 # 数据库配置
 DB_PATH = str(settings.db_path)
@@ -444,6 +508,75 @@ def migrate_user_profile_addresses(conn):
         logger.error(f"用户配置文件地址数据迁移失败: {e}")
         conn.rollback()
         raise
+
+def migrate_passwords_to_hash():
+    """
+    自动迁移明文密码到哈希格式
+    在数据库启动时执行，检查所有用户和管理员的密码
+    如果是明文密码，自动转换为 bcrypt 哈希格式
+    """
+    logger.info("开始检查并迁移密码...")
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 迁移用户密码
+        try:
+            cursor.execute('SELECT id, password FROM users')
+            users = cursor.fetchall()
+            
+            user_migrated_count = 0
+            for row in users:
+                user_id, password = row
+                if password and not is_password_hashed(password):
+                    # 明文密码，需要迁移
+                    try:
+                        hashed = hash_password(password)
+                        cursor.execute('UPDATE users SET password = ? WHERE id = ?', (hashed, user_id))
+                        user_migrated_count += 1
+                        logger.info(f"用户 {user_id} 的密码已迁移为哈希格式")
+                    except Exception as e:
+                        logger.error(f"迁移用户 {user_id} 密码失败: {e}")
+            
+            if user_migrated_count > 0:
+                conn.commit()
+                logger.info(f"✅ 成功迁移 {user_migrated_count} 个用户密码")
+            else:
+                logger.info("✅ 所有用户密码已经是哈希格式，无需迁移")
+                
+        except Exception as e:
+            logger.error(f"迁移用户密码时出错: {e}")
+            conn.rollback()
+        
+        # 迁移管理员/代理密码
+        try:
+            cursor.execute('SELECT id, password FROM admins')
+            admins = cursor.fetchall()
+            
+            admin_migrated_count = 0
+            for row in admins:
+                admin_id, password = row
+                if password and not is_password_hashed(password):
+                    # 明文密码，需要迁移
+                    try:
+                        hashed = hash_password(password)
+                        cursor.execute('UPDATE admins SET password = ? WHERE id = ?', (hashed, admin_id))
+                        admin_migrated_count += 1
+                        logger.info(f"管理员/代理 {admin_id} 的密码已迁移为哈希格式")
+                    except Exception as e:
+                        logger.error(f"迁移管理员 {admin_id} 密码失败: {e}")
+            
+            if admin_migrated_count > 0:
+                conn.commit()
+                logger.info(f"✅ 成功迁移 {admin_migrated_count} 个管理员/代理密码")
+            else:
+                logger.info("✅ 所有管理员/代理密码已经是哈希格式，无需迁移")
+                
+        except Exception as e:
+            logger.error(f"迁移管理员密码时出错: {e}")
+            conn.rollback()
+    
+    logger.info("密码迁移检查完成")
 
 def init_database():
     """初始化数据库表结构"""
@@ -1159,6 +1292,12 @@ def init_database():
         conn.rollback()
     finally:
         conn.close()
+    
+    # 在数据库初始化完成后，执行密码迁移（必须在 conn.close() 之后，因为迁移函数会创建自己的连接）
+    try:
+        migrate_passwords_to_hash()
+    except Exception as e:
+        logger.warning(f"密码自动迁移失败: {e}")
 
 @contextmanager
 def get_db_connection():
@@ -1230,6 +1369,9 @@ class UserDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
+                # 对密码进行哈希加密
+                hashed_password = hash_password(password)
+                
                 # 先检查表结构是否包含 user_id 字段
                 cursor.execute("PRAGMA table_info(users)")
                 columns = [row[1] for row in cursor.fetchall()]
@@ -1238,13 +1380,13 @@ class UserDB:
                     # 新表结构：包含 user_id 自增主键
                     cursor.execute(
                         'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
-                        (student_id, password, name)
+                        (student_id, hashed_password, name)
                     )
                 else:
                     # 旧表结构：只有 id 主键
                     cursor.execute(
                         'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
-                        (student_id, password, name)
+                        (student_id, hashed_password, name)
                     )
                 
                 conn.commit()
@@ -1346,8 +1488,25 @@ class UserDB:
     def verify_user(student_id: str, password: str) -> Optional[Dict]:
         """验证用户凭据"""
         user = UserDB.get_user(student_id)
-        if user and user['password'] == password:
-            return user
+        if not user:
+            return None
+        
+        stored_password = user['password']
+        # 检查存储的密码是否已经是哈希格式
+        if is_password_hashed(stored_password):
+            # 使用 bcrypt 验证
+            if verify_password(password, stored_password):
+                return user
+        else:
+            # 旧的明文密码，直接比较（兼容性处理）
+            if stored_password == password:
+                # 验证成功后，自动将明文密码升级为哈希密码
+                try:
+                    UserDB.update_user_password(student_id, password)
+                    logger.info(f"用户 {student_id} 的密码已自动升级为哈希格式")
+                except Exception as e:
+                    logger.warning(f"自动升级用户密码失败: {e}")
+                return user
         return None
     
     @staticmethod
@@ -1356,9 +1515,11 @@ class UserDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
+                # 对密码进行哈希加密
+                hashed_password = hash_password(new_password)
                 cursor.execute(
                     'UPDATE users SET password = ? WHERE id = ?',
-                    (new_password, student_id)
+                    (hashed_password, student_id)
                 )
                 success = cursor.rowcount > 0
                 conn.commit()
@@ -2502,8 +2663,27 @@ class AdminDB:
         admin = AdminDB.get_admin(admin_id)
         if not admin:
             return None
-        if admin.get('password') != password:
+        
+        stored_password = admin.get('password')
+        if not stored_password:
             return None
+        
+        # 检查存储的密码是否已经是哈希格式
+        if is_password_hashed(stored_password):
+            # 使用 bcrypt 验证
+            if not verify_password(password, stored_password):
+                return None
+        else:
+            # 旧的明文密码，直接比较（兼容性处理）
+            if stored_password != password:
+                return None
+            # 验证成功后，自动将明文密码升级为哈希密码
+            try:
+                AdminDB.update_admin(admin_id, password=password)
+                logger.info(f"管理员 {admin_id} 的密码已自动升级为哈希格式")
+            except Exception as e:
+                logger.warning(f"自动升级管理员密码失败: {e}")
+        
         return admin
 
     @staticmethod
@@ -2570,10 +2750,12 @@ class AdminDB:
     def create_admin(admin_id: str, password: str, name: str, role: str = 'agent', payment_qr_path: Optional[str] = None) -> bool:
         with get_db_connection() as conn:
             try:
+                # 对密码进行哈希加密
+                hashed_password = hash_password(password)
                 safe_execute_with_migration(conn, '''
                     INSERT INTO admins (id, password, name, role, payment_qr_path, is_active)
                     VALUES (?, ?, ?, ?, ?, 1)
-                ''', (admin_id, password, name, role, payment_qr_path), 'admins')
+                ''', (admin_id, hashed_password, name, role, payment_qr_path), 'admins')
                 conn.commit()
                 return True
             except sqlite3.IntegrityError:
@@ -2591,8 +2773,14 @@ class AdminDB:
                 updates.append(f"{key} = ?")
                 params.append(value)
             elif value is not None:
-                updates.append(f"{key} = ?")
-                params.append(value)
+                # 对密码字段进行特殊处理：进行哈希加密
+                if key == 'password':
+                    hashed_password = hash_password(value)
+                    updates.append(f"{key} = ?")
+                    params.append(hashed_password)
+                else:
+                    updates.append(f"{key} = ?")
+                    params.append(value)
         if not updates:
             return False
         updates.append('updated_at = CURRENT_TIMESTAMP')
