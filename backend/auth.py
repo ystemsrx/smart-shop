@@ -63,13 +63,11 @@ class AuthManager:
                 "Content-Type": "application/json",
                 "Accept": "*/*",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                              "Chrome/107.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI "
-                              "MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13) XWEB/8555",
+                              "Chrome/107.0.0.0 Safari/537.36",
                 "Referer": "",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-                "xweb_xhr": "1",
-                "1235d6": "true"
+                # 关闭压缩，避免上游返回 br/deflate 造成兼容性差异
+                "Accept-Encoding": "identity",
+                "Accept-Language": "zh-CN,zh;q=0.9"
             }
             
             payload = {
@@ -82,6 +80,7 @@ class AuthManager:
                  timeout=10.0,
                  follow_redirects=True  # 跟随重定向
              ) as client:
+                logger.info(f"登录API地址: {LOGIN_API}")
                 response = await client.post(
                     LOGIN_API,
                     json=payload,
@@ -148,39 +147,7 @@ class AuthManager:
                                 else:
                                     logger.error("⚠️  原始数据不是有效的JSON格式")
                         
-                        # 如果响应内容看起来像压缩数据但没有明确的Content-Encoding头
-                        # 检查前几个字节来识别gzip格式 (magic number: 1f 8b)
-                        elif len(raw_content) >= 2 and raw_content[:2] == b'\x1f\x8b':
-                            try:
-                                import gzip
-                                logger.warning("检测到gzip magic number，尝试强制解压缩...")
-                                decompressed_content = gzip.decompress(raw_content)
-                                raw_content = decompressed_content
-                                logger.info(f"强制gzip解压缩成功，内容长度: {len(raw_content)}")
-                            except Exception as decompress_error:
-                                logger.error(f"强制gzip解压缩失败: {decompress_error}")
-                        
-                        # 检查其他可能的压缩格式特征
-                        elif len(raw_content) >= 4:
-                            # 检查是否可能是损坏的压缩数据或其他格式
-                            first_bytes = raw_content[:4]
-                            logger.warning(f"未识别的数据格式，前4字节: {first_bytes.hex()}")
-                            
-                            # 尝试作为deflate数据处理
-                            try:
-                                import zlib
-                                logger.info("尝试作为deflate数据解压缩...")
-                                decompressed_content = zlib.decompress(raw_content)
-                                raw_content = decompressed_content
-                                logger.info(f"deflate解压缩成功，内容长度: {len(raw_content)}")
-                            except Exception:
-                                # 尝试作为原始deflate数据处理
-                                try:
-                                    decompressed_content = zlib.decompress(raw_content, -zlib.MAX_WBITS)
-                                    raw_content = decompressed_content
-                                    logger.info(f"原始deflate解压缩成功，内容长度: {len(raw_content)}")
-                                except Exception as e:
-                                    logger.warning(f"所有解压缩尝试都失败: {e}")
+                        # 不再对未声明编码的内容进行启发式解压，交由 httpx/default 处理
                         
                         # 现在尝试解码为文本
                         try:
@@ -232,8 +199,10 @@ class AuthManager:
                             }
                         else:
                             # 登录失败（账号密码错误等）
-                            error_msg = data.get("msg", "登录失败")
-                            logger.warning(f"API登录失败: {student_id} - {error_msg}")
+                            error_msg = data.get("msg") or data.get("message") or "登录失败"
+                            logger.warning(
+                                f"API登录失败: {student_id} - {error_msg}; status={response.status_code}; body={response_text[:200]}"
+                            )
                             return None
                             
                     except Exception as decode_error:
