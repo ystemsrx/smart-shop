@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
 // Link 不再使用，导航由通用组件处理
 import { useProducts, useCart, useAuth, useUserAgentStatus } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
+import InfiniteMenu from '../components/InfiniteMenu';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
@@ -30,6 +31,68 @@ const formatReservationCutoff = (cutoffTime) => {
   }
   
   return `今日 ${cutoffTime} 后配送`;
+};
+
+const getPricingMeta = (product = {}) => {
+  const basePrice = typeof product.price === 'number' ? product.price : parseFloat(product.price || '0');
+  const rawDiscount = product.discount;
+  const discountZhe =
+    typeof rawDiscount === 'number'
+      ? rawDiscount
+      : rawDiscount
+        ? parseFloat(rawDiscount)
+        : 10;
+  const hasDiscount = Boolean(discountZhe && discountZhe > 0 && discountZhe < 10);
+  const finalPrice = hasDiscount ? Math.round(basePrice * (discountZhe / 10) * 100) / 100 : basePrice;
+  return { discountZhe, hasDiscount, finalPrice };
+};
+
+const isProductDown = (product = {}) => product.is_active === 0 || product.is_active === false;
+
+const isVariantProduct = (product = {}) => Boolean(product.has_variants);
+
+const isProductOutOfStock = (product = {}) => {
+  if (isVariantProduct(product)) {
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      return product.variants.every(v => (v?.stock || 0) <= 0);
+    }
+    if (typeof product.total_variant_stock === 'number') {
+      return product.total_variant_stock === 0;
+    }
+    return false;
+  }
+  return (product.stock || 0) === 0;
+};
+
+const formatPriceDisplay = (value) => {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return '0';
+  return Number.isInteger(amount) ? amount.toString() : amount.toFixed(2);
+};
+
+const normalizeDescription = (value, maxLength = 48) => {
+  if (!value) return '';
+  const plain = String(value).replace(/\s+/g, ' ').trim();
+  if (plain.length <= maxLength) return plain;
+  return `${plain.slice(0, maxLength)}…`;
+};
+
+const buildSphereSubtitle = (product = {}) => {
+  const { finalPrice, hasDiscount, discountZhe } = getPricingMeta(product);
+  const parts = [`¥${formatPriceDisplay(finalPrice)}`];
+  if (hasDiscount) {
+    parts.push(`${discountZhe}折`);
+  }
+  if (product.category) {
+    parts.push(product.category);
+  }
+  if (product.reservation_required) {
+    parts.push('需预约');
+  }
+  if (product.is_hot) {
+    parts.push('热销');
+  }
+  return parts.join(' · ');
 };
 
 // 商品卡片组件
@@ -70,19 +133,17 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   };
 
   // 规格与数量
-  const isVariant = !!product.has_variants;
+  const isVariant = isVariantProduct(product);
   const cartQuantity = isVariant
     ? 0 // 有规格的商品不在卡片中显示数量调整
     : (itemsMap[`${product.id}`] || 0);
   // 是否在购物车中
   const isInCart = cartQuantity > 0;
   // 是否下架/缺货
-  const isDown = product.is_active === 0 || product.is_active === false;
-  const isOutOfStock = isVariant ? ((product.total_variant_stock || 0) === 0) : (product.stock === 0);
+  const isDown = isProductDown(product);
+  const isOutOfStock = isProductOutOfStock(product);
   const imageSrc = getProductImage(product);
-  const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
-  const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
-  const finalPrice = hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
+  const { discountZhe, hasDiscount, finalPrice } = getPricingMeta(product);
   const requiresReservation = Boolean(product.reservation_required);
   const reservationCutoff = product.reservation_cutoff;
   const reservationNote = (product.reservation_note || '').trim();
@@ -330,16 +391,48 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
 };
 
 // 分类过滤器组件
-const CategoryFilter = ({ categories, selectedCategory, onCategoryChange, hasHotProducts = false }) => {
+const CategoryFilter = ({
+  categories,
+  selectedCategory,
+  onCategoryChange,
+  hasHotProducts = false,
+  viewMode = 'grid',
+  onToggleView,
+  disableSphereToggle = false
+}) => {
   const isActive = (value) => selectedCategory === value;
+  const isSphere = viewMode === 'sphere';
+  const toggleAriaLabel = isSphere ? '切换为网格视图' : '切换为球形视图';
+  const toggleButtonIcon = isSphere ? 'fa-border-all' : 'fa-globe';
+  const toggleButtonLabel = isSphere ? '网格视图' : '球形视图';
 
   return (
     <div className="mb-8 opacity-0 animate-apple-slide-up animate-delay-200">
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
           <i className="fas fa-layer-group text-white text-sm"></i>
         </div>
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
+        {onToggleView && (
+          <div className="ml-auto mt-3 sm:mt-0">
+            <button
+              type="button"
+              onClick={onToggleView}
+              disabled={disableSphereToggle}
+              aria-pressed={isSphere}
+              aria-label={toggleAriaLabel}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-300 text-sm font-medium ${
+                isSphere
+                  ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white border-transparent shadow-lg'
+                  : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
+              } ${disableSphereToggle ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}`}
+              title={toggleAriaLabel}
+            >
+              <i className={`fas ${toggleButtonIcon}`}></i>
+              <span className="hidden sm:inline">{toggleButtonLabel}</span>
+            </button>
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap gap-3">
         {hasHotProducts && (
@@ -468,10 +561,93 @@ export default function Shop() {
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
+  const [viewMode, setViewMode] = useState('grid'); // grid | sphere
   
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
     : '请选择配送地址';
+  const isSphereView = viewMode === 'sphere';
+
+  const sphereItems = useMemo(() => {
+    if (!products || products.length === 0) {
+      return [];
+    }
+    return products.map(product => {
+      const productImage = getProductImage(product) || '/logo.png';
+      const subtitle = buildSphereSubtitle(product);
+      const rawDescription = product.description || product.short_description || product.tagline || '';
+      const fallbackDescription = product.category ? `分类：${product.category}` : '精选好物';
+      const description = normalizeDescription(rawDescription || fallbackDescription);
+      const isVariant = isVariantProduct(product);
+      const productKey = product?.id !== undefined && product?.id !== null
+        ? `${product.id}`
+        : String(product?.name ?? '');
+      const cartQuantity = cartItemsMap[productKey] || 0;
+      const stockValue = typeof product.stock === 'number'
+        ? product.stock
+        : (typeof product.stock === 'string' && product.stock.trim() !== '')
+          ? parseFloat(product.stock)
+          : NaN;
+      const normalizedStock = Number.isFinite(stockValue) ? stockValue : null;
+
+      let ctaLabel = '+';
+      let disabled = false;
+      let visualState = 'normal';
+      let statusText = '';
+      const supportsQuantity = !isVariant && !!user && !isProductDown(product) && !isProductOutOfStock(product);
+      const quantity = supportsQuantity ? cartQuantity : 0;
+      const limitReached = supportsQuantity && normalizedStock !== null && normalizedStock > 0 && cartQuantity >= normalizedStock;
+
+      if (!user) {
+        ctaLabel = '需登录';
+        disabled = true;
+        visualState = 'login_required';
+        statusText = ctaLabel;
+      } else if (isProductDown(product)) {
+        ctaLabel = '下架';
+        disabled = true;
+        visualState = 'down';
+        statusText = ctaLabel;
+      } else if (isProductOutOfStock(product)) {
+        ctaLabel = '缺货';
+        disabled = true;
+        visualState = 'out_of_stock';
+        statusText = ctaLabel;
+      } else if (isVariant) {
+        ctaLabel = '选规格';
+      } else if (limitReached) {
+        visualState = 'limit_reached';
+        statusText = '已达库存上限';
+      }
+
+      return {
+        id: product.id ?? product.name,
+        image: productImage,
+        title: product.name,
+        description,
+        subtitle,
+        ctaLabel,
+        disabled,
+        payload: product,
+        reservationRequired: Boolean(product.reservation_required),
+        visualState,
+        statusText,
+        supportsQuantity,
+        quantity,
+        limitReached,
+        stock: normalizedStock
+      };
+    });
+  }, [products, user, cartItemsMap]);
+
+  const hasSphereItems = sphereItems.length > 0;
+  const sphereToggleDisabled = isLoading || !hasSphereItems;
+
+  useEffect(() => {
+    if (viewMode === 'sphere' && !hasSphereItems) {
+      setViewMode('grid');
+    }
+  }, [viewMode, hasSphereItems]);
 
   // 规格选择弹窗状态
   const [showSpecModal, setShowSpecModal] = useState(false);
@@ -530,6 +706,15 @@ export default function Shop() {
     requestAnimationFrame(animate);
   };
 
+  const handleToggleView = () => {
+    if (viewMode === 'sphere') {
+      setViewMode('grid');
+      return;
+    }
+    if (sphereToggleDisabled) return;
+    setViewMode('sphere');
+  };
+
   // 加载购物车数据
   const loadCart = async () => {
     if (!user) {
@@ -562,27 +747,8 @@ export default function Shop() {
     const available = [];
     const deferred = [];
 
-    const isDown = (p) => (p.is_active === 0 || p.is_active === false);
-    const isOut = (p) => {
-      const isVariant = !!p.has_variants;
-      if (isVariant) {
-        const tvs = (p.total_variant_stock !== undefined && p.total_variant_stock !== null) ? p.total_variant_stock : null;
-        if (Array.isArray(p.variants) && p.variants.length > 0) {
-          return p.variants.every(v => (v.stock || 0) <= 0);
-        }
-        return tvs !== null ? (tvs === 0) : false;
-      }
-      return (p.stock === 0);
-    };
-
-    const getPriceWithDiscount = (product) => {
-      const discountZhe = typeof product.discount === 'number' ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
-      const hasDiscount = discountZhe && discountZhe > 0 && discountZhe < 10;
-      return hasDiscount ? (Math.round(product.price * (discountZhe / 10) * 100) / 100) : product.price;
-    };
-
     products.forEach(p => {
-      if (isDown(p) || isOut(p)) {
+      if (isProductDown(p) || isProductOutOfStock(p)) {
         deferred.push(p);
       } else {
         available.push(p);
@@ -593,7 +759,7 @@ export default function Shop() {
       const hotItems = [];
       const normalItems = [];
       arr.forEach(item => (Boolean(item.is_hot) ? hotItems : normalItems).push(item));
-      const byPrice = (a, b) => getPriceWithDiscount(a) - getPriceWithDiscount(b);
+      const byPrice = (a, b) => getPricingMeta(a).finalPrice - getPricingMeta(b).finalPrice;
       hotItems.sort(byPrice);
       normalItems.sort(byPrice);
       return [...hotItems, ...normalItems];
@@ -778,6 +944,64 @@ export default function Shop() {
   const closeDetailModal = () => {
     setShowDetailModal(false);
     setDetailModalProduct(null);
+  };
+
+  const handleSphereAction = (item, sourceElement) => {
+    const product = item?.payload;
+    if (!product) return;
+
+    if (!user) {
+      alert('请先登录才能添加商品到购物车');
+      return;
+    }
+
+    if (isProductDown(product)) {
+      alert('该商品已下架');
+      return;
+    }
+
+    if (isProductOutOfStock(product)) {
+      alert('该商品暂时缺货');
+      return;
+    }
+
+    if (isVariantProduct(product)) {
+      openSpecModal(product);
+      return;
+    }
+
+    const productKey = product?.id !== undefined && product?.id !== null
+      ? `${product.id}`
+      : String(product?.name ?? '');
+    const cartQuantity = cartItemsMap[productKey] || 0;
+    const stockValue = typeof product.stock === 'number'
+      ? product.stock
+      : (typeof product.stock === 'string' && product.stock.trim() !== '')
+        ? parseFloat(product.stock)
+        : NaN;
+    const normalizedStock = Number.isFinite(stockValue) ? stockValue : null;
+    if (normalizedStock !== null && normalizedStock > 0 && cartQuantity >= normalizedStock) {
+      alert('该商品已达到库存上限');
+      return;
+    }
+
+    if (sourceElement && typeof sourceElement.getBoundingClientRect === 'function') {
+      flyToCart(sourceElement);
+    }
+    handleAddToCart(product.id, null);
+  };
+
+  const handleSphereDecrement = (item) => {
+    const product = item?.payload;
+    if (!product || !user) return;
+    if (isVariantProduct(product)) return;
+
+    const productKey = product?.id !== undefined && product?.id !== null
+      ? `${product.id}`
+      : String(product?.name ?? '');
+    const cartQuantity = cartItemsMap[productKey] || 0;
+    const nextQuantity = Math.max(0, cartQuantity - 1);
+    handleUpdateQuantity(product.id, nextQuantity, null);
   };
 
   // 添加到购物车（乐观更新）
@@ -1076,6 +1300,9 @@ export default function Shop() {
               selectedCategory={selectedCategory}
               onCategoryChange={handleCategoryChange}
               hasHotProducts={hasGlobalHotProducts}
+              viewMode={viewMode}
+              onToggleView={handleToggleView}
+              disableSphereToggle={sphereToggleDisabled}
             />
           )}
 
@@ -1110,35 +1337,51 @@ export default function Shop() {
             <>
               {/* 商品列表 */}
               {products.length > 0 ? (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {products.map((product, index) => (
-                      <div 
-                        key={product.id}
-                        className="opacity-0 animate-apple-fade-in"
-                        style={{ animationDelay: `${index * 0.05}s` }}
-                      >
-                        <ProductCard
-                          product={product}
-                          onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
-                          onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
-                          onStartFly={(el) => flyToCart(el)}
-                          onOpenSpecModal={openSpecModal}
-                          onOpenDetailModal={openDetailModal}
-                          itemsMap={cartItemsMap}
-                          isLoading={cartLoading}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* 底部提示线 */}
-                  <div className="flex items-center justify-center gap-4 mt-12 mb-20">
-                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-400 to-gray-400"></div>
-                    <span className="text-sm text-gray-500 font-medium">到底了</span>
-                    <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-400 to-gray-400"></div>
-                  </div>
-                </>
+                isSphereView ? (
+                  <>
+                    <div className="relative w-full h-[480px] sm:h-[580px] lg:h-[620px]">
+                      <InfiniteMenu
+                        key={`sphere-${selectedCategory}-${searchQuery}-${products.length}`}
+                        items={sphereItems}
+                        onAddToCart={handleSphereAction}
+                        onDecrement={handleSphereDecrement}
+                      />
+                    </div>
+                    <div className="mt-8 mb-16 text-center text-sm text-gray-500">
+                      拖拽页面以浏览商品，点击中心按钮即可加入购物车。
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {products.map((product, index) => (
+                        <div 
+                          key={product.id}
+                          className="opacity-0 animate-apple-fade-in"
+                          style={{ animationDelay: `${index * 0.05}s` }}
+                        >
+                          <ProductCard
+                            product={product}
+                            onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
+                            onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
+                            onStartFly={(el) => flyToCart(el)}
+                            onOpenSpecModal={openSpecModal}
+                            onOpenDetailModal={openDetailModal}
+                            itemsMap={cartItemsMap}
+                            isLoading={cartLoading}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* 底部提示线 */}
+                    <div className="flex items-center justify-center gap-4 mt-12 mb-20">
+                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-400 to-gray-400"></div>
+                      <span className="text-sm text-gray-500 font-medium">到底了</span>
+                      <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-400 to-gray-400"></div>
+                    </div>
+                  </>
+                )
               ) : (
                 <div className="text-center py-20 opacity-0 animate-apple-fade-in">
                   <div className="max-w-md mx-auto">

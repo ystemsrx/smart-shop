@@ -11,6 +11,7 @@
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^4.6.2",
     "framer-motion": "^12.23.22",
+    "gl-matrix": "^3.4.4",
     "gsap": "^3.13.0",
     "lucide-react": "^0.546.0",
     "next": "^14.0.0",
