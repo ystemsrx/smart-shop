@@ -49,10 +49,16 @@ const createMissingValidation = () => ({
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   const isDown = item.is_active === 0 || item.is_active === false;
+  const stock = item.stock || 0;
+  const isStockLimitReached = item.quantity >= stock;
 
   const handleQuantityChange = (newQuantity) => {
     if (newQuantity < 1) {
       onUpdateQuantity(item.product_id, 0, item.variant_id || null);
+      return;
+    }
+    // 检查库存限制
+    if (newQuantity > stock) {
       return;
     }
     onUpdateQuantity(item.product_id, newQuantity, item.variant_id || null);
@@ -107,6 +113,9 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
           <div className="text-sm text-slate-600 font-medium">
             单价 <span className="text-slate-800">¥{item.unit_price}</span>
             {isDown && <span className="ml-2 text-xs text-slate-400">（不计入金额）</span>}
+            {!isDown && stock > 0 && (
+              <span className="ml-2 text-xs text-slate-500">库存 {stock}</span>
+            )}
           </div>
         </div>
         
@@ -129,8 +138,9 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
             <span className="w-12 h-9 flex items-center justify-center text-sm font-semibold bg-slate-50 border-x border-slate-200">{item.quantity}</span>
             <button
               onClick={() => handleQuantityChange(item.quantity + 1)}
-              disabled={isDown}
+              disabled={isDown || isStockLimitReached}
               className="w-9 h-9 flex items-center justify-center text-slate-600 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-teal-50 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title={isStockLimitReached ? '已达库存上限' : ''}
             >
               <i className="fas fa-plus text-xs"></i>
             </button>

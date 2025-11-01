@@ -1102,3 +1102,28 @@ body {
 .border-pulse {
   animation: border-glow 2s ease-in-out infinite;
 }
+
+/* Sphere view floating action button */
+.action-button {
+  transition: transform 0.48s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.48s ease;
+  transform: translate(-50%, calc(100% + 80px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.action-button.active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.action-button.inactive {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, calc(100% + 80px));
+}
+
+.action-button.active:hover,
+.action-button.active:focus-visible {
+  transform: translate(-50%, 0) scale(1.04);
+}
