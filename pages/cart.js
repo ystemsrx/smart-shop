@@ -49,8 +49,16 @@ const createMissingValidation = () => ({
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   const isDown = item.is_active === 0 || item.is_active === false;
-  const stock = item.stock || 0;
-  const isStockLimitReached = item.quantity >= stock;
+  const isNonSellable = Boolean(item.is_not_for_sale);
+  const rawStock = item.stock;
+  const normalizedStock = isNonSellable
+    ? null
+    : (typeof rawStock === 'number'
+        ? rawStock
+        : (typeof rawStock === 'string' && rawStock.trim() !== ''
+          ? parseFloat(rawStock)
+          : 0));
+  const isStockLimitReached = normalizedStock !== null && normalizedStock > 0 && item.quantity >= normalizedStock;
 
   const handleQuantityChange = (newQuantity) => {
     if (newQuantity < 1) {
@@ -58,7 +66,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
       return;
     }
     // 检查库存限制
-    if (newQuantity > stock) {
+    if (!isNonSellable && normalizedStock !== null && newQuantity > normalizedStock) {
       return;
     }
     onUpdateQuantity(item.product_id, newQuantity, item.variant_id || null);
@@ -103,6 +111,11 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
                 预约
               </span>
             )}
+            {isNonSellable && (
+              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-purple-50 to-violet-50 text-purple-600 rounded-full border border-purple-200/60 font-medium flex-shrink-0">
+                非卖品
+              </span>
+            )}
             {isDown && (
               <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200 flex-shrink-0">
                 暂时下架
@@ -112,18 +125,26 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
 
           <div className="text-sm text-slate-600 font-medium">
             单价 <span className="text-slate-800">¥{item.unit_price}</span>
-            {isDown && <span className="ml-2 text-xs text-slate-400">（不计入金额）</span>}
-            {!isDown && stock > 0 && (
-              <span className="ml-2 text-xs text-slate-500">库存 {stock}</span>
+            {(isDown || isNonSellable) && (
+              <span className="ml-2 text-xs text-slate-400">（不计入金额）</span>
+            )}
+            {!isDown && !isNonSellable && normalizedStock !== null && normalizedStock > 0 && (
+              <span className="ml-2 text-xs text-slate-500">库存 {normalizedStock}</span>
+            )}
+            {isNonSellable && (
+              <span className="ml-2 text-xs text-purple-600">库存 ∞</span>
             )}
           </div>
         </div>
-        
+
         {/* 右侧操作区 */}
         <div className="flex flex-col items-end gap-3">
           {/* 小计 */}
           <div className="text-right">
             <div className="text-xl font-bold text-emerald-600">¥{item.subtotal}</div>
+            {isNonSellable && (
+              <div className="text-[11px] text-purple-500">非卖品免计价</div>
+            )}
           </div>
           
           {/* 数量控制 */}

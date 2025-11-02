@@ -2516,6 +2516,7 @@ const StockControl = ({ product, onUpdateStock }) => {
     return parsed < 0 ? 0 : parsed;
   };
 
+  const isNonSellable = normalizeBooleanFlag(product.is_not_for_sale, false);
   const [stock, setStock] = useState(() => normalizeStock(product.stock));
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -2524,6 +2525,14 @@ const StockControl = ({ product, onUpdateStock }) => {
   useEffect(() => {
     setStock(normalizeStock(product.stock));
   }, [product.stock]);
+
+  if (isNonSellable) {
+    return (
+      <div className="flex items-center text-purple-600 font-semibold">
+        <i className="fas fa-infinity"></i>
+      </div>
+    );
+  }
 
   const submitChange = async (changePayload) => {
     const { optimisticStock } = changePayload;
@@ -2656,6 +2665,7 @@ const ProductTable = ({
   onToggleActive,
   onOpenVariantStock,
   onToggleHot,
+  onToggleNotForSale,
   showOnlyOutOfStock,
   showOnlyInactive,
   onToggleOutOfStockFilter,
@@ -2849,6 +2859,9 @@ const ProductTable = ({
                 热销
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                非卖品
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <SortIndicator column="price" label="价格/折扣" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -2865,6 +2878,7 @@ const ProductTable = ({
           <tbody className="bg-white divide-y divide-gray-200">
             {products.map((product) => {
               const isHot = Boolean(product.is_hot);
+              const isNonSellable = normalizeBooleanFlag(product.is_not_for_sale, false);
               const isSelected = selectedProducts.includes(product.id);
               const isActive = !(product.is_active === 0 || product.is_active === false);
               
@@ -2908,6 +2922,11 @@ const ProductTable = ({
                               热销
                             </span>
                           )}
+                          {isNonSellable && (
+                            <span className="px-2 py-0.5 text-xs font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full transition-all duration-200">
+                              非卖品
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm text-gray-500 max-w-xs truncate" title={product.description}>
                           {product.description && product.description.length > 10 
@@ -2935,6 +2954,22 @@ const ProductTable = ({
                       />
                       {operatingProducts?.has(product.id) && (
                         <div className="w-3 h-3 border border-orange-400 border-t-transparent rounded-full animate-spin ml-1"></div>
+                      )}
+                    </label>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={isNonSellable}
+                        onChange={(e) => onToggleNotForSale && onToggleNotForSale(product, e.target.checked)}
+                        disabled={operatingProducts?.has(product.id)}
+                        className={`h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 transition-all duration-200 ${
+                          operatingProducts?.has(product.id) ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                      />
+                      {operatingProducts?.has(product.id) && (
+                        <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin ml-1"></div>
                       )}
                     </label>
                   </td>
@@ -3441,12 +3476,13 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
   const [formData, setFormData] = useState({
     name: product?.name || '',
     category: product?.category || '',
-    price: product?.price || '',
-    stock: product?.stock || '',
+    price: (product?.price !== null && product?.price !== undefined) ? product.price : '',
+    stock: (product?.stock !== null && product?.stock !== undefined) ? product.stock : '',
     description: product?.description || '',
-    cost: product?.cost || '',
+    cost: (product?.cost !== null && product?.cost !== undefined) ? product.cost : '',
     discount: (product && typeof product.discount === 'number' && product.discount) ? product.discount : (product?.discount ? parseFloat(product.discount) : 10),
     is_hot: product ? (product.is_hot === 1 || product.is_hot === true) : false,
+    is_not_for_sale: product ? (product.is_not_for_sale === 1 || product.is_not_for_sale === true) : false,
     reservation_required: product ? Boolean(product.reservation_required) : false,
     reservation_cutoff: product?.reservation_cutoff || '',
     reservation_note: product?.reservation_note || ''
@@ -3551,7 +3587,7 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
     
     // 验证价格
     const price = parseFloat(formData.price);
-    if (isNaN(price) || price <= 0) {
+    if (isNaN(price) || price < 0) {
       alert('请输入有效的价格');
       return;
     }
@@ -3570,6 +3606,7 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
       price,
       stock,
       is_hot: !!formData.is_hot,
+      is_not_for_sale: !!formData.is_not_for_sale,
       image: imageFile,
       skipCloseModal: true // 告诉handleEditProduct不要立即关闭弹窗
     };
@@ -3608,14 +3645,15 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
       }
     } else {
       // 添加模式：提交所有数据（包括规格）
-      onSubmit({
-        ...formData,
-        price,
-        stock,
-        is_hot: !!formData.is_hot,
-        image: imageFile,
-        variants: variantsState.current // 传递变体数据
-      });
+    onSubmit({
+      ...formData,
+      price,
+      stock,
+      is_hot: !!formData.is_hot,
+      is_not_for_sale: !!formData.is_not_for_sale,
+      image: imageFile,
+      variants: variantsState.current // 传递变体数据
+    });
     }
   };
   
@@ -3756,15 +3794,21 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                 库存
               </label>
-              <input
-                type="number"
-                name="stock"
-                min="0"
-                value={formData.stock}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
-                placeholder="0"
-              />
+              {formData.is_not_for_sale ? (
+                <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg flex items-center justify-center h-[38px]">
+                  <i className="fas fa-infinity text-purple-600 text-base"></i>
+                </div>
+              ) : (
+                <input
+                  type="number"
+                  name="stock"
+                  min="0"
+                  value={formData.stock}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-200 transition-all"
+                  placeholder="0"
+                />
+              )}
             </div>
           </div>
           
@@ -3830,8 +3874,8 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
             </div>
           </div>
           
-          {/* 第四行：预估利润 + 热销标记 */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* 第四行：预估利润 + 标签 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 预估利润 */}
             <div>
               {formData.price && parseFloat(formData.price) > 0 ? (
@@ -3882,6 +3926,23 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
                 <div className="flex items-center gap-1.5 text-sm">
                   <i className="fas fa-fire text-orange-500"></i>
                   <span className="font-medium text-gray-900">热销</span>
+                </div>
+              </label>
+            </div>
+
+            {/* 非卖品标记 */}
+            <div>
+              <label className="flex items-center gap-2 px-3 py-2 h-[42px] bg-purple-50 border border-purple-200 rounded-lg cursor-pointer hover:border-purple-300 transition-all">
+                <input
+                  type="checkbox"
+                  id="edit_is_not_for_sale"
+                  checked={!!formData.is_not_for_sale}
+                  onChange={(e) => setFormData(prev => ({ ...prev, is_not_for_sale: e.target.checked }))}
+                  className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                />
+                <div className="flex items-center gap-1.5 text-sm">
+                  <i className="fas fa-infinity text-purple-600"></i>
+                  <span className="font-medium text-gray-900">非卖品</span>
                 </div>
               </label>
             </div>
@@ -6007,7 +6068,14 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
       setStats(mergedStats);
       const productPayload = productsData.data || {};
-      setProducts(productPayload.products || []);
+      const normalizedProducts = (productPayload.products || []).map((product) => ({
+        ...product,
+        is_active: normalizeBooleanFlag(product.is_active, true),
+        is_hot: normalizeBooleanFlag(product.is_hot, false),
+        is_not_for_sale: normalizeBooleanFlag(product.is_not_for_sale, false),
+        reservation_required: normalizeBooleanFlag(product.reservation_required, false)
+      }));
+      setProducts(normalizedProducts);
       // 管理端分类按拼音/英文排序（A-Z > 0-9 > 中文 > 其他）
       const rawCategories = isAdmin
         ? (categoriesData.data.categories || [])
@@ -6727,6 +6795,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       formData.append('description', productData.description);
       formData.append('cost', productData.cost || '0');
       formData.append('is_hot', productData.is_hot ? 'true' : 'false');
+      formData.append('is_not_for_sale', productData.is_not_for_sale ? 'true' : 'false');
       formData.append('reservation_required', productData.reservation_required ? 'true' : 'false');
       formData.append('reservation_cutoff', productData.reservation_cutoff || '');
       formData.append('reservation_note', productData.reservation_note || '');
@@ -6753,8 +6822,15 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       
       // 如果服务器返回了新创建的商品数据，直接添加到列表中
       if (response && response.product) {
-        const newProduct = response.product;
-        setProducts(prevProducts => [newProduct, ...prevProducts]); // 将新商品添加到列表开头
+        const raw = response.product;
+        const normalizedNewProduct = {
+          ...raw,
+          is_active: normalizeBooleanFlag(raw.is_active, true),
+          is_hot: normalizeBooleanFlag(raw.is_hot, false),
+          is_not_for_sale: normalizeBooleanFlag(raw.is_not_for_sale, false),
+          reservation_required: normalizeBooleanFlag(raw.reservation_required, false)
+        };
+        setProducts(prevProducts => [normalizedNewProduct, ...prevProducts]); // 将新商品添加到列表开头
         setShowAddModal(false);
       } else {
         // 如果服务器没有返回商品数据，则重新加载
@@ -6782,6 +6858,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         cost: productData.cost || 0,
         discount: productData.discount !== undefined && productData.discount !== null ? productData.discount : 10,
         is_hot: !!productData.is_hot,
+        is_not_for_sale: !!productData.is_not_for_sale,
         reservation_required: !!productData.reservation_required,
         reservation_cutoff: productData.reservation_cutoff || '',
         reservation_note: productData.reservation_note || ''
@@ -6833,15 +6910,20 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           // 以确保 has_variants 等字段是最新的
           try {
             const refreshedProduct = await apiRequest(`${staffPrefix}/products/${editingProduct.id}`);
+            const latest = refreshedProduct?.data?.product || null;
+            const normalizedLatest = latest ? {
+              ...latest,
+              is_active: normalizeBooleanFlag(latest.is_active, true),
+              is_hot: normalizeBooleanFlag(latest.is_hot, false),
+              is_not_for_sale: normalizeBooleanFlag(latest.is_not_for_sale, false),
+              reservation_required: normalizeBooleanFlag(latest.reservation_required, false)
+            } : null;
             const updatedProducts = products.map(p => {
               if (p.id === editingProduct.id) {
                 return {
                   ...p,
                   ...updateData,
-                  // 使用服务器返回的最新规格相关数据
-                  has_variants: refreshedProduct.data?.product?.has_variants || false,
-                  total_variant_stock: refreshedProduct.data?.product?.total_variant_stock,
-                  variants: refreshedProduct.data?.product?.variants
+                  ...(normalizedLatest || {})
                 };
               }
               return p;
@@ -6867,11 +6949,19 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     try {
       const refreshedProduct = await apiRequest(`${staffPrefix}/products/${productId}`);
       if (refreshedProduct.data?.product) {
+        const latest = refreshedProduct.data.product;
+        const normalizedLatest = {
+          ...latest,
+          is_active: normalizeBooleanFlag(latest.is_active, true),
+          is_hot: normalizeBooleanFlag(latest.is_hot, false),
+          is_not_for_sale: normalizeBooleanFlag(latest.is_not_for_sale, false),
+          reservation_required: normalizeBooleanFlag(latest.reservation_required, false)
+        };
         const updatedProducts = products.map(p => {
           if (p.id === productId) {
             return {
               ...p,
-              ...refreshedProduct.data.product
+              ...normalizedLatest
             };
           }
           return p;
@@ -7016,6 +7106,36 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         const newSet = new Set(prev);
         newSet.delete(product.id);
         return newSet;
+      });
+    }
+  };
+
+  const handleToggleNotForSale = async (product, nextFlag) => {
+    if (operatingProducts.has(product.id)) return;
+
+    setOperatingProducts(prev => new Set(prev).add(product.id));
+
+    const updatedProducts = products.map(p =>
+      p.id === product.id ? { ...p, is_not_for_sale: !!nextFlag } : p
+    );
+    setProducts(updatedProducts);
+
+    try {
+      await apiRequest(`${staffPrefix}/products/${product.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_not_for_sale: !!nextFlag })
+      });
+    } catch (e) {
+      const revertedProducts = products.map(p =>
+        p.id === product.id ? { ...p, is_not_for_sale: !nextFlag } : p
+      );
+      setProducts(revertedProducts);
+      alert(e.message || '更新非卖品状态失败');
+    } finally {
+      setOperatingProducts(prev => {
+        const next = new Set(prev);
+        next.delete(product.id);
+        return next;
       });
     }
   };
@@ -7425,6 +7545,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const filteredByCategory = productCategoryFilter === '全部' ? products : products.filter(p => p.category === productCategoryFilter);
   const isProductInactive = (product) => (product.is_active === 0 || product.is_active === false);
   const isProductOutOfStock = (product) => {
+    if (normalizeBooleanFlag(product.is_not_for_sale, false)) {
+      return false;
+    }
     if (product.has_variants) {
       if (Array.isArray(product.variants) && product.variants.length > 0) {
         return product.variants.every(variant => (variant.stock || 0) <= 0);
@@ -7462,6 +7585,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   
   // 辅助函数：获取商品的实际库存
   const getProductStock = (product) => {
+    if (normalizeBooleanFlag(product.is_not_for_sale, false)) {
+      return Number.POSITIVE_INFINITY;
+    }
     if (product.has_variants) {
       if (Array.isArray(product.variants) && product.variants.length > 0) {
         return product.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
@@ -7851,6 +7977,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   onToggleActive={handleToggleActive}
                   onOpenVariantStock={(p) => setVariantStockProduct(p)}
                   onToggleHot={handleToggleHot}
+                  onToggleNotForSale={handleToggleNotForSale}
                   showOnlyOutOfStock={showOnlyOutOfStock}
                   showOnlyInactive={showOnlyInactive}
                   onToggleOutOfStockFilter={setShowOnlyOutOfStock}

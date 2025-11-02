@@ -86,6 +86,21 @@ def _coerce_to_dict(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _is_truthy(value: Any) -> bool:
+    """轻量布尔转换，兼容字符串/数值。"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        try:
+            return int(value) != 0
+        except Exception:
+            return False
+    text = str(value).strip().lower()
+    return text in {"1", "true", "yes", "on"}
+
+
 def _extract_text(content: Any) -> str:
     """从OpenAI SDK返回的content结构中提取文本。"""
     if content is None:
@@ -772,6 +787,8 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                     if not show_inactive:
                         products = [p for p in products if p.get('is_active', 1) != 0]
                     
+                    products = [p for p in products if not _is_truthy(p.get("is_not_for_sale"))]
+                    
                     # 限制返回数量
                     products = products[:limit] if len(products) > limit else products
                     
@@ -868,6 +885,8 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
             # 根据商城设置过滤下架商品
             if not show_inactive:
                 products = [p for p in products if p.get('is_active', 1) != 0]
+
+            products = [p for p in products if not _is_truthy(p.get("is_not_for_sale"))]
             
             products = products[:limit] if len(products) > limit else products
             
