@@ -1383,7 +1383,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   );
 };
 
-const GiftThresholdPanel = ({ apiPrefix }) => {
+const GiftThresholdPanel = ({ apiPrefix, onWarningChange }) => {
   const { apiRequest } = useApi();
   const [thresholds, setThresholds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1391,14 +1391,34 @@ const GiftThresholdPanel = ({ apiPrefix }) => {
   const [editingThreshold, setEditingThreshold] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
+  // 计算是否有门槛存在库存问题
+  const checkForStockWarnings = useCallback((thresholdsData) => {
+    const hasStockWarnings = thresholdsData.some(threshold => {
+      if (!threshold.is_active) return false; // 只检查启用的门槛
+      if (!threshold.gift_products) return false; // 只检查赠送商品的门槛
+      const itemList = Array.isArray(threshold.items) ? threshold.items : [];
+      if (itemList.length === 0) return false; // 没有关联商品的门槛不算
+      const hasAvailable = itemList.some(item => item && item.available);
+      if (hasAvailable) return false; // 仍有可用的赠品则不警告
+      return true; // 所有关联商品都不可用（下架或无库存）
+    });
+    
+    if (typeof onWarningChange === 'function') {
+      onWarningChange(hasStockWarnings);
+    }
+  }, [onWarningChange]);
+
   const loadThresholds = async () => {
     setLoading(true);
     try {
       const res = await apiRequest(`${apiPrefix}/gift-thresholds?include_inactive=true`);
-      setThresholds(res?.data?.thresholds || []);
+      const thresholdsData = res?.data?.thresholds || [];
+      setThresholds(thresholdsData);
+      checkForStockWarnings(thresholdsData);
     } catch (e) {
       alert(e.message || '加载满额门槛配置失败');
       setThresholds([]);
+      checkForStockWarnings([]);
     } finally {
       setLoading(false);
     }
@@ -5779,6 +5799,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   
   // 抽奖警告状态
   const [lotteryHasStockWarning, setLotteryHasStockWarning] = useState(false);
+  // 满额门槛警告状态
+  const [giftThresholdHasStockWarning, setGiftThresholdHasStockWarning] = useState(false);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
@@ -5894,6 +5916,37 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
     if (user && user.type === expectedRole) {
       preloadLotteryWarning();
+    }
+  }, [user, expectedRole, staffPrefix, apiRequest]);
+
+  // 预加载满额门槛警告状态
+  useEffect(() => {
+    const preloadGiftThresholdWarning = async () => {
+      if (!user || user.type !== expectedRole) return;
+      
+      try {
+        const response = await apiRequest(`${staffPrefix}/gift-thresholds?include_inactive=true`);
+        const thresholdsData = response?.data?.thresholds || [];
+        
+        // 检查是否有启用的门槛的所有赠品都不可用
+        const hasWarning = thresholdsData.some(threshold => {
+          if (!threshold.is_active) return false; // 只检查启用的门槛
+          if (!threshold.gift_products) return false; // 只检查赠送商品的门槛
+          const itemList = Array.isArray(threshold.items) ? threshold.items : [];
+          if (itemList.length === 0) return false; // 没有关联商品的门槛不算
+          const hasAvailable = itemList.some(item => item && item.available);
+          if (hasAvailable) return false; // 仍有可用的赠品则不警告
+          return true; // 所有关联商品都不可用（下架或无库存）
+        });
+        
+        setGiftThresholdHasStockWarning(hasWarning);
+      } catch (error) {
+        console.error('预加载满额门槛警告检查失败:', error);
+      }
+    };
+
+    if (user && user.type === expectedRole) {
+      preloadGiftThresholdWarning();
     }
   }, [user, expectedRole, staffPrefix, apiRequest]);
 
@@ -7678,6 +7731,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     }`}
                   >
                     满额门槛
+                    {giftThresholdHasStockWarning && (
+                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <i className="fas fa-exclamation text-red-600"></i>
+                      </span>
+                    )}
                   </button>
                 )}
                 {allowedTabs.includes('coupons') && (
@@ -9054,7 +9112,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 <h2 className="text-lg font-medium text-gray-900">满额门槛</h2>
                 <p className="text-sm text-gray-600 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>                                                      
               </div>
-              <GiftThresholdPanel apiPrefix={staffPrefix} />
+              <GiftThresholdPanel 
+                apiPrefix={staffPrefix} 
+                onWarningChange={setGiftThresholdHasStockWarning}
+              />
             </>
           )}
         </main>
