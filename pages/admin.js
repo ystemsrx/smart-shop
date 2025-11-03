@@ -3010,7 +3010,7 @@ const ProductTable = ({
                       className={`transition-all duration-200 ${
                         operatingProducts?.has(product.id) 
                           ? 'text-gray-400 cursor-not-allowed' 
-                          : product.is_active === 0 
+                          : (product.is_active === 0 || product.is_active === false)
                             ? 'text-green-600 hover:text-green-800' 
                             : 'text-gray-600 hover:text-gray-800'
                       }`}
@@ -3021,7 +3021,7 @@ const ProductTable = ({
                           <span>处理中...</span>
                         </div>
                       ) : (
-                        product.is_active === 0 ? '上架' : '下架'
+                        (product.is_active === 0 || product.is_active === false) ? '上架' : '下架'
                       )}
                     </button>
                     <button

@@ -150,7 +150,8 @@ def build_staff_scope(staff: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "address_ids": None,
         "building_ids": None,
         "is_super_admin": False,
-        "agent_id": None
+        "agent_id": None,
+        "filter_admin_orders": False  # 新增：标记是否只查询管理员的订单（agent_id IS NULL）
     }
     if not staff:
         return scope
@@ -168,9 +169,10 @@ def build_staff_scope(staff: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "agent_id": staff['id']
         })
     else:
-        # admin统一使用'admin'作为owner_id
+        # admin统一使用'admin'作为owner_id，且只查询agent_id为NULL的订单
         scope.update({
-            "owner_ids": ['admin']
+            "owner_ids": ['admin'],
+            "filter_admin_orders": True  # 管理员只查询agent_id IS NULL的订单
         })
 
     return scope
@@ -5841,7 +5843,8 @@ async def get_dashboard_statistics(request: Request, period: str = 'week'):
             period,
             agent_id=scope.get('agent_id'),
             address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            building_ids=scope.get('building_ids'),
+            filter_admin_orders=scope.get('filter_admin_orders', False)
         )
         stats["scope"] = scope
         return success_response("获取仪表盘统计成功", stats)
@@ -5903,7 +5906,8 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
             offset=offset_val,
             agent_id=scope.get('agent_id'),
             address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            building_ids=scope.get('building_ids'),
+            filter_admin_orders=scope.get('filter_admin_orders', False)
         )
         customers_data['scope'] = scope
         return success_response("获取客户列表成功", customers_data)
