@@ -4560,11 +4560,15 @@ class UserProfileDB:
     def count_users_by_scope(
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
-        agent_id: Optional[str] = None
+        agent_id: Optional[str] = None,
+        exclude_address_ids: Optional[List[str]] = None,
+        exclude_building_ids: Optional[List[str]] = None
     ) -> int:
-        """统计指定范围内的注册用户数量"""
+        """统计指定范围内的注册用户数量，支持排除特定地址/楼栋"""
         normalized_addresses = [aid for aid in (address_ids or []) if aid]
         normalized_buildings = [bid for bid in (building_ids or []) if bid]
+        normalized_exclude_addresses = [aid for aid in (exclude_address_ids or []) if aid]
+        normalized_exclude_buildings = [bid for bid in (exclude_building_ids or []) if bid]
 
         filters: List[str] = [
             "student_id IS NOT NULL",
@@ -4592,6 +4596,16 @@ class UserProfileDB:
         elif agent_id:
             filters.append("agent_id IS NOT NULL AND TRIM(agent_id) != ''")
 
+        # 添加排除逻辑
+        if normalized_exclude_addresses:
+            placeholders = ','.join('?' * len(normalized_exclude_addresses))
+            filters.append(f"(address_id IS NULL OR address_id NOT IN ({placeholders}))")
+            params.extend(normalized_exclude_addresses)
+        if normalized_exclude_buildings:
+            placeholders = ','.join('?' * len(normalized_exclude_buildings))
+            filters.append(f"(building_id IS NULL OR building_id NOT IN ({placeholders}))")
+            params.extend(normalized_exclude_buildings)
+
         where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         with get_db_connection() as conn:
@@ -4613,7 +4627,7 @@ class UserProfileDB:
                 logger.error(f"统计用户配置数量失败: {e}")
                 return 0
 
-        if count == 0 and not agent_id and not normalized_addresses and not normalized_buildings:
+        if count == 0 and not agent_id and not normalized_addresses and not normalized_buildings and not normalized_exclude_addresses and not normalized_exclude_buildings:
             # 回退到 users 表计数，确保兼容旧数据
             return UserDB.count_users()
 

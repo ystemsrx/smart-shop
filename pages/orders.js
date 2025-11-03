@@ -739,7 +739,16 @@ export default function Orders() {
                     <h4 className="text-sm font-semibold text-gray-900">商品明细</h4>
                             </div>
                   <div className="space-y-3">
-                    {collapseAutoGiftItemsForDisplay(viewingOrder.items || []).map((it, idx) => (
+                    {collapseAutoGiftItemsForDisplay(viewingOrder.items || [])
+                      .sort((a, b) => {
+                        // 非卖品排到最后
+                        const aIsNonSellable = Boolean(a.is_not_for_sale);
+                        const bIsNonSellable = Boolean(b.is_not_for_sale);
+                        if (aIsNonSellable && !bIsNonSellable) return 1;
+                        if (!aIsNonSellable && bIsNonSellable) return -1;
+                        return 0;
+                      })
+                      .map((it, idx) => (
                                 <div 
                                   key={(it.product_id + (it.variant_id || '')) + '_' + idx} 
                         className="bg-white border border-gray-200 rounded-xl p-3 hover:shadow-md transition-shadow"
@@ -751,8 +760,14 @@ export default function Orders() {
                                         {it.is_lottery && (
                                 <span className="px-2 py-0.5 text-[10px] rounded-full bg-pink-100 text-pink-700 border border-pink-200 whitespace-nowrap">抽奖</span>
                                         )}
+                                        {it.is_auto_gift && (
+                                <span className="px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">赠品</span>
+                                        )}
                                         {it.is_reservation && (
                                 <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">预约</span>
+                                        )}
+                                        {it.is_not_for_sale && (
+                                <span className="px-2 py-0.5 text-[10px] rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">非卖</span>
                                         )}
                                       </h5>
                                       {it.variant_name && (
