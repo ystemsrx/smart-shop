@@ -49,8 +49,11 @@ const ProductDetailModal = ({
   // 重置选中的规格当商品变化时
   useEffect(() => {
     if (product?.has_variants && product?.variants?.length > 0) {
-      // 默认选择第一个有库存的规格
-      const firstAvailable = product.variants.find(v => v.stock > 0);
+      // 对于非卖品，默认选择第一个规格；对于普通商品，选择第一个有库存的规格
+      const isNonSellable = product.is_not_for_sale;
+      const firstAvailable = isNonSellable 
+        ? product.variants[0]
+        : product.variants.find(v => v.stock > 0);
       setSelectedVariant(firstAvailable?.id || null);
     } else {
       setSelectedVariant(null);
@@ -75,9 +78,11 @@ const ProductDetailModal = ({
   // 计算商品信息
   const isVariant = !!product.has_variants;
   const isDown = product.is_active === 0 || product.is_active === false;
-  const isOutOfStock = isVariant 
+  const isNonSellable = product.is_not_for_sale;
+  // 非卖品不算缺货
+  const isOutOfStock = isNonSellable ? false : (isVariant 
     ? ((product.total_variant_stock || 0) === 0) 
-    : (product.stock === 0);
+    : (product.stock === 0));
   
   const imageSrc = getProductImage(product);
   const discountZhe = typeof product.discount === 'number' 
@@ -100,6 +105,8 @@ const ProductDetailModal = ({
 
   // 获取当前选中规格的库存
   const getCurrentStock = () => {
+    // 非卖品返回无限大
+    if (isNonSellable) return Infinity;
     if (!isVariant) return product.stock;
     if (!selectedVariant) return 0;
     const variant = product.variants?.find(v => v.id === selectedVariant);
@@ -292,11 +299,13 @@ const ProductDetailModal = ({
                   <span className={`text-sm font-medium ${
                     isOutOfStock ? 'text-red-500' : 'text-gray-700'
                   }`}>
-                    {isVariant 
-                      ? (product.total_variant_stock !== undefined 
-                          ? `总库存 ${product.total_variant_stock}` 
-                          : '多规格商品') 
-                      : `库存 ${product.stock}`}
+                    {isNonSellable 
+                      ? '库存 ∞' 
+                      : (isVariant 
+                          ? (product.total_variant_stock !== undefined 
+                              ? `总库存 ${product.total_variant_stock}` 
+                              : '多规格商品') 
+                          : `库存 ${product.stock}`)}
                   </span>
                 </div>
                 
@@ -343,7 +352,8 @@ const ProductDetailModal = ({
                     .sort((a, b) => (b.stock || 0) - (a.stock || 0))
                     .map((variant) => {
                       const isSelected = selectedVariant === variant.id;
-                      const isUnavailable = variant.stock === 0;
+                      // 非卖品不算缺货
+                      const isUnavailable = isNonSellable ? false : (variant.stock === 0);
                       
                       return (
                         <button
@@ -363,10 +373,10 @@ const ProductDetailModal = ({
                           </div>
                           <div className="flex items-center gap-1.5">
                             <i className={`fas fa-box-open text-xs flex-shrink-0 ${
-                              variant.stock > 0 ? 'text-green-600' : 'text-red-500'
+                              (isNonSellable || variant.stock > 0) ? 'text-green-600' : 'text-red-500'
                             }`}></i>
                             <span className="text-xs text-gray-600">
-                              库存 {variant.stock}
+                              库存 {isNonSellable ? '∞' : variant.stock}
                             </span>
                           </div>
                           {isSelected && !isUnavailable && (
