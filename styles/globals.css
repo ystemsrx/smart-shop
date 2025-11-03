@@ -1127,3 +1127,54 @@ body {
 .action-button.active:focus-visible {
   transform: translate(-50%, 0) scale(1.04);
 }
+
+/* 购物车浮窗缩放动画 - 从右下角缩放 */
+@keyframes scale-in-bottom-right {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scale-out-bottom-right {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in-bottom-right 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-scale-out {
+  animation: scale-out-bottom-right 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* 背景淡出动画 */
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.animate-fade-out {
+  animation: fade-out 0.2s ease-out forwards;
+}
+
+/* 确保移动端浏览器的平滑滚动 */
+.cart-drawer-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}

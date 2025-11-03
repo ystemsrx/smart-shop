@@ -3085,6 +3085,8 @@ async def get_cart(request: Request):
             "total_price": round(total_price, 2),
             "shipping_fee": round(shipping_fee, 2),
             "payable_total": round(total_price + shipping_fee, 2),
+            "delivery_fee": delivery_config['delivery_fee'],
+            "free_delivery_threshold": delivery_config['free_delivery_threshold'],
             "lottery_threshold": LotteryConfigDB.get_threshold(owner_scope_id),
             "lottery_enabled": LotteryConfigDB.get_enabled(owner_scope_id),
             "address_validation": address_validation,
