@@ -308,9 +308,11 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             }`}>
               <i className="fas fa-box-open"></i>
               <span>
-                {isVariant
-                  ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
-                  : `库存 ${isNonSellable ? '∞' : (normalizedStock ?? 0)}`}
+                {isNonSellable
+                  ? '库存 ∞'
+                  : (isVariant
+                      ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
+                      : `库存 ${normalizedStock ?? 0}`)}
               </span>
             </div>
           )}
@@ -1438,7 +1440,9 @@ export default function Shop() {
       </PastelBackground>
 
       {/* 规格选择弹窗 */}
-      {showSpecModal && specModalProduct && (
+      {showSpecModal && specModalProduct && (() => {
+        const isModalNonSellable = Boolean(specModalProduct.is_not_for_sale);
+        return (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 animate-apple-fade-in"
           onClick={(e) => {
@@ -1479,18 +1483,20 @@ export default function Shop() {
             <div className="space-y-3 max-h-60 overflow-y-auto mb-6">
               {(specModalProduct.variants || [])
                 .sort((a, b) => (b.stock || 0) - (a.stock || 0)) // 按库存倒序排列，库存高的在前
-                .map((variant, index) => (
+                .map((variant, index) => {
+                  const isVariantOutOfStock = isModalNonSellable ? false : (variant.stock === 0);
+                  return (
                 <label 
                   key={variant.id} 
                   className={`block transform transition-all duration-200 opacity-0 animate-apple-slide-up ${
-                    variant.stock === 0 
+                    isVariantOutOfStock 
                       ? 'cursor-not-allowed' 
                       : 'cursor-pointer hover:scale-105'
                   }`}
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div className={`p-4 rounded-xl border-2 transition-all duration-200 ${
-                    variant.stock === 0
+                    isVariantOutOfStock
                       ? 'border-gray-200 bg-gray-50'
                       : selectedVariant === variant.id 
                       ? 'border-blue-500 bg-blue-50 shadow-md' 
@@ -1499,31 +1505,31 @@ export default function Shop() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          variant.stock === 0
+                          isVariantOutOfStock
                             ? 'border-gray-300 bg-gray-100'
                             : selectedVariant === variant.id 
                             ? 'border-blue-500 bg-blue-500' 
                             : 'border-gray-300'
                         }`}>
-                          {selectedVariant === variant.id && variant.stock > 0 && (
+                          {selectedVariant === variant.id && !isVariantOutOfStock && (
                             <i className="fas fa-check text-white text-xs"></i>
                           )}
-                          {variant.stock === 0 && (
+                          {isVariantOutOfStock && (
                             <i className="fas fa-times text-gray-400 text-xs"></i>
                           )}
                         </div>
                         <div>
                           <span className={`text-sm font-medium ${
-                            variant.stock === 0 ? 'text-gray-500' : 'text-gray-900'
+                            isVariantOutOfStock ? 'text-gray-500' : 'text-gray-900'
                           }`}>{variant.name}</span>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-xs flex items-center gap-1 ${
-                              variant.stock > 0 ? 'text-green-600' : 'text-red-500'
+                              (isModalNonSellable || variant.stock > 0) ? 'text-green-600' : 'text-red-500'
                             }`}>
                               <i className="fas fa-box-open"></i>
-                              库存 {variant.stock}
+                              库存 {isModalNonSellable ? '∞' : variant.stock}
                             </span>
-                            {variant.stock === 0 && (
+                            {isVariantOutOfStock && (
                               <span className="text-xs text-red-500 font-medium">已售罄</span>
                             )}
                           </div>
@@ -1535,13 +1541,14 @@ export default function Shop() {
                       name={`spec_${specModalProduct.id}`} 
                       value={variant.id} 
                       checked={selectedVariant === variant.id}
-                      onChange={() => variant.stock > 0 && setSelectedVariant(variant.id)}
-                      disabled={variant.stock === 0}
+                      onChange={() => !isVariantOutOfStock && setSelectedVariant(variant.id)}
+                      disabled={isVariantOutOfStock}
                       className="sr-only"
                     />
                   </div>
                 </label>
-              ))}
+                  );
+                })}
             </div>
 
             {/* 操作区域 */}
@@ -1550,6 +1557,7 @@ export default function Shop() {
                 (() => {
                   const qty = cartItemsMap[`${specModalProduct.id}@@${selectedVariant}`] || 0;
                   const stock = (specModalProduct.variants || []).find(v => v.id === selectedVariant)?.stock ?? 0;
+                  const hasStock = isModalNonSellable || stock > 0;
                   if (qty > 0) {
                     return (
                       <div className="flex items-center justify-center gap-4">
@@ -1565,7 +1573,7 @@ export default function Shop() {
                         </div>
                         <button
                           onClick={(e) => { flyToCart(e.currentTarget); handleUpdateQuantity(specModalProduct.id, qty + 1, selectedVariant); }}
-                          disabled={qty >= stock}
+                          disabled={!isModalNonSellable && qty >= stock}
                           className={`w-10 h-10 flex items-center justify-center ${modalRequiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
                           aria-label="增加"
                         >
@@ -1577,15 +1585,15 @@ export default function Shop() {
                   return (
                     <button
                       onClick={(e) => { flyToCart(e.currentTarget); handleAddToCart(specModalProduct.id, selectedVariant); }}
-                      disabled={stock === 0}
+                      disabled={!hasStock}
                       className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto transition-all duration-200 ${
-                        stock === 0
+                        !hasStock
                           ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
                           : (modalRequiresReservation
                               ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
                               : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105')
                       }`}
-                      title={stock === 0 ? '库存不足' : '添加到购物车'}
+                      title={!hasStock ? '库存不足' : '添加到购物车'}
                     >
                       <i className="fas fa-plus"></i>
                     </button>
@@ -1600,7 +1608,8 @@ export default function Shop() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 商品详情弹窗 */}
       <ProductDetailModal
