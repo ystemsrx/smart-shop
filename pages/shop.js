@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
-// Link 不再使用，导航由通用组件处理
-import { useProducts, useCart, useAuth, useUserAgentStatus } from '../hooks/useAuth';
+import { useRouter } from 'next/router';
+import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
 import InfiniteMenu from '../components/InfiniteMenu';
@@ -261,11 +261,6 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                 }`}>
                   <i className="fas fa-tag mr-1"></i>{product.category}
                 </span>
-                {isNonSellable && (
-                  <span className="px-2 py-0.5 text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full">
-                    非卖品
-                  </span>
-                )}
               </div>
             </div>
             
@@ -303,17 +298,24 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           
           {/* 库存信息 */}
           {!isDown && (
-            <div className={`text-xs flex items-center gap-1 ${
-              isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
-            }`}>
-              <i className="fas fa-box-open"></i>
-              <span>
-                {isNonSellable
-                  ? '库存 ∞'
-                  : (isVariant
-                      ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
-                      : `库存 ${normalizedStock ?? 0}`)}
-              </span>
+            <div className="text-xs flex items-center justify-between gap-2">
+              <div className={`flex items-center gap-1 ${
+                isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
+              }`}>
+                <i className="fas fa-box-open"></i>
+                <span>
+                  {isNonSellable
+                    ? '库存 ∞'
+                    : (isVariant
+                        ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
+                        : `库存 ${normalizedStock ?? 0}`)}
+                </span>
+              </div>
+              {isNonSellable && (
+                <span className="px-2 py-0.5 text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full flex-shrink-0">
+                  非卖品
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -557,11 +559,13 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
 };
 
 export default function Shop() {
+  const router = useRouter();
   const { user } = useAuth();
   const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
   const { addToCart, getCart, updateCart } = useCart();
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
+  const { apiRequest } = useApi();
   const navActive = user && (user.type === 'admin' || user.type === 'agent') ? 'staff-shop' : 'shop';
   const shopName = getShopName();
   
@@ -583,6 +587,12 @@ export default function Shop() {
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
   const [viewMode, setViewMode] = useState('grid'); // grid | sphere
+  const [showCartDrawer, setShowCartDrawer] = useState(false); // 购物车浮窗状态
+  const [isClosingDrawer, setIsClosingDrawer] = useState(false); // 购物车浮窗关闭动画状态
+  const [coupons, setCoupons] = useState([]); // 用户的优惠券列表
+  const [applyCoupon, setApplyCoupon] = useState(false); // 是否使用优惠券
+  const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
+  const couponAutoSelectedRef = useRef(false); // 追踪是否已自动选择过优惠券
   
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
@@ -671,6 +681,45 @@ export default function Shop() {
     }
   }, [viewMode, hasSphereItems]);
 
+  // 监听购物车总价变化，自动检查优惠券可用性
+  useEffect(() => {
+    if (!applyCoupon || !selectedCouponId || !coupons.length) return;
+    
+    const cartTotal = cart?.total_price || 0;
+    const selectedCoupon = coupons.find(c => c.id === selectedCouponId);
+    
+    if (selectedCoupon) {
+      const couponAmount = parseFloat(selectedCoupon.amount) || 0;
+      // 如果购物车总价不再满足优惠券使用条件，自动取消选择
+      if (cartTotal <= couponAmount) {
+        setApplyCoupon(false);
+        setSelectedCouponId(null);
+      }
+    }
+  }, [cart?.total_price, applyCoupon, selectedCouponId, coupons]);
+
+  // 当优惠券和购物车都加载完成时，自动选择最佳优惠券（仅首次）
+  useEffect(() => {
+    // 如果弹窗关闭，重置自动选择标志
+    if (!showCartDrawer) {
+      couponAutoSelectedRef.current = false;
+      return;
+    }
+    
+    // 如果已经自动选择过，或者没有优惠券，或者用户已经手动操作过，则不再自动选择
+    if (couponAutoSelectedRef.current || !coupons.length || applyCoupon || !cart?.total_price) return;
+    
+    const cartTotal = cart.total_price;
+    const usableCoupons = coupons.filter(c => cartTotal > (parseFloat(c.amount) || 0));
+    
+    if (usableCoupons.length > 0) {
+      usableCoupons.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+      setSelectedCouponId(usableCoupons[0].id);
+      setApplyCoupon(true);
+      couponAutoSelectedRef.current = true; // 标记已自动选择过
+    }
+  }, [showCartDrawer, coupons, cart?.total_price, applyCoupon]);
+
   // 规格选择弹窗状态
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [specModalProduct, setSpecModalProduct] = useState(null);
@@ -748,7 +797,29 @@ export default function Shop() {
     try {
       const cartData = await getCart();
       const cartResult = cartData.data;
-      setCart(cartResult);
+      
+      // 重新计算总价，排除非卖品
+      const recalculatedTotalPrice = (cartResult.items || []).reduce((sum, item) => {
+        const isActive = !(item.is_active === 0 || item.is_active === false);
+        const isNonSellable = Boolean(item.is_not_for_sale);
+        // 只计算上架且非非卖品的商品价格
+        return sum + (isActive && !isNonSellable ? parseFloat(item.subtotal || 0) : 0);
+      }, 0);
+      
+      // 重新计算配送费（排除非卖品后）
+      const deliveryFee = cartResult.delivery_fee || 0;
+      const freeThreshold = cartResult.free_delivery_threshold || freeDeliveryThreshold;
+      const isFreeShipping = (deliveryFee === 0 || freeThreshold === 0);
+      const recalculatedShippingFee = isFreeShipping ? 0 : (recalculatedTotalPrice >= freeThreshold ? 0 : deliveryFee);
+      const recalculatedPayableTotal = recalculatedTotalPrice + recalculatedShippingFee;
+      
+      // 使用重新计算的值
+      setCart({
+        ...cartResult,
+        total_price: parseFloat(recalculatedTotalPrice.toFixed(2)),
+        shipping_fee: recalculatedShippingFee,
+        payable_total: parseFloat(recalculatedPayableTotal.toFixed(2))
+      });
       
       // 创建商品ID/规格 到 数量 的映射
       const itemsMap = {};
@@ -761,6 +832,26 @@ export default function Shop() {
       console.error('加载购物车失败:', err);
       setCart({ items: [], total_quantity: 0, total_price: 0 });
       setCartItemsMap({});
+    }
+  };
+
+  // 加载用户优惠券
+  const loadCoupons = async () => {
+    if (!user) {
+      setCoupons([]);
+      return;
+    }
+    
+    try {
+      const resp = await apiRequest('/coupons/my');
+      const list = resp?.data?.coupons || [];
+      setCoupons(list);
+      
+      // 注意：不在这里自动选择优惠券，而是等cart数据加载完成后
+      // 通过useEffect来处理自动选择逻辑
+    } catch (err) {
+      console.error('加载优惠券失败:', err);
+      setCoupons([]);
     }
   };
 
@@ -1052,7 +1143,8 @@ export default function Shop() {
     // 后台调用API（静默执行，不重新加载）
     try {
       await addToCart(productId, 1, variantId);
-      // 成功：不做任何事，UI已经更新
+      // 成功后重新加载购物车，确保价格和配送费正确（排除非卖品）
+      await loadCart();
     } catch (err) {
       // 失败时回滚
       setCart(previousCart);
@@ -1079,17 +1171,61 @@ export default function Shop() {
       const newMap = { ...cartItemsMap };
       delete newMap[key];
       setCartItemsMap(newMap);
+      
+      // 从 cart.items 中移除
+      const updatedItems = cart.items.filter(item => {
+        const itemKey = item.variant_id ? `${item.product_id}@@${item.variant_id}` : `${item.product_id}`;
+        return itemKey !== key;
+      });
+      
+      setCart(prev => ({
+        ...prev,
+        items: updatedItems,
+        total_quantity: Math.max(0, (prev.total_quantity || 0) + qtyDiff)
+      }));
     } else {
       setCartItemsMap(prev => ({
         ...prev,
         [key]: newQuantity
       }));
+      
+      // 更新 cart.items 中的数量
+      const updatedItems = cart.items.map(item => {
+        const itemKey = item.variant_id ? `${item.product_id}@@${item.variant_id}` : `${item.product_id}`;
+        if (itemKey === key) {
+          // 非卖品的价格始终为0
+          const isNonSellable = Boolean(item.is_not_for_sale);
+          const newSubtotal = isNonSellable ? '0.00' : (newQuantity * item.unit_price).toFixed(2);
+          return { ...item, quantity: newQuantity, subtotal: newSubtotal };
+        }
+        return item;
+      });
+      
+      // 重新计算总价（排除非卖品和下架商品）
+      const newTotalPrice = updatedItems.reduce((sum, item) => {
+        const isActive = !(item.is_active === 0 || item.is_active === false);
+        const isNonSellable = Boolean(item.is_not_for_sale);
+        // 只计算上架且非非卖品的商品价格
+        return sum + (isActive && !isNonSellable ? parseFloat(item.subtotal) : 0);
+      }, 0);
+      
+      // 重新计算配送费
+      // 从后端获取配送费配置（这里使用缓存的配送费规则）
+      const deliveryFee = cart.delivery_fee || 0;
+      const freeThreshold = cart.free_delivery_threshold || freeDeliveryThreshold;
+      const isFreeShipping = (deliveryFee === 0 || freeThreshold === 0);
+      const newShippingFee = isFreeShipping ? 0 : (newTotalPrice >= freeThreshold ? 0 : deliveryFee);
+      const newPayableTotal = newTotalPrice + newShippingFee;
+      
+      setCart(prev => ({
+        ...prev,
+        items: updatedItems,
+        total_quantity: Math.max(0, (prev.total_quantity || 0) + qtyDiff),
+        total_price: parseFloat(newTotalPrice.toFixed(2)),
+        shipping_fee: newShippingFee,
+        payable_total: parseFloat(newPayableTotal.toFixed(2))
+      }));
     }
-    
-    setCart(prev => ({
-      ...prev,
-      total_quantity: Math.max(0, (prev.total_quantity || 0) + qtyDiff)
-    }));
     
     // 后台调用API（静默执行，不重新加载）
     try {
@@ -1436,7 +1572,262 @@ export default function Shop() {
         </main>
 
         {/* 右下角悬浮购物车 */}
-        <FloatingCart ref={cartWidgetRef} count={cart?.total_quantity ?? 0} />
+        <FloatingCart 
+          ref={cartWidgetRef} 
+          count={cart?.total_quantity ?? 0}
+          onClick={async () => {
+            // 点击时重新加载购物车数据和优惠券
+            await loadCart();
+            await loadCoupons();
+            setShowCartDrawer(true);
+          }}
+        />
+
+        {/* 购物车浮窗 */}
+        {showCartDrawer && (
+          <>
+            {/* 背景遮罩 - 无模糊效果 */}
+            <div 
+              className={`fixed inset-0 bg-black/20 z-50 ${isClosingDrawer ? 'animate-fade-out' : 'animate-apple-fade-in'}`}
+              onClick={() => {
+                setIsClosingDrawer(true);
+                setTimeout(() => {
+                  setShowCartDrawer(false);
+                  setIsClosingDrawer(false);
+                }, 200);
+              }}
+            />
+            
+            {/* 浮窗主体 - 在按钮上方右对齐显示 */}
+            <div 
+              className={`fixed bottom-24 right-6 z-50 w-full sm:w-[420px] max-w-[calc(100vw-3rem)] max-h-[70vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden ${
+                isClosingDrawer ? 'animate-scale-out' : 'animate-scale-in'
+              }`}
+              style={{ transformOrigin: 'bottom right' }}
+            >
+              {/* 商品列表区域（可滚动） */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 cart-drawer-scroll custom-scrollbar">
+                {!cart?.items || cart.items.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mb-4">
+                      <i className="fas fa-shopping-cart text-gray-400 text-2xl"></i>
+                    </div>
+                    <p className="text-gray-500 text-sm mb-2">购物车是空的</p>
+                    <p className="text-gray-400 text-xs">快去添加喜欢的商品吧</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {cart.items.map((item, index) => {
+                      const isDown = item.is_active === 0 || item.is_active === false;
+                      const isNonSellable = Boolean(item.is_not_for_sale);
+                      const rawStock = item.stock;
+                      const normalizedStock = isNonSellable
+                        ? null
+                        : (typeof rawStock === 'number'
+                            ? rawStock
+                            : (typeof rawStock === 'string' && rawStock.trim() !== ''
+                              ? parseFloat(rawStock)
+                              : 0));
+                      const isStockLimitReached = normalizedStock !== null && normalizedStock > 0 && item.quantity >= normalizedStock;
+                      
+                      return (
+                        <div
+                          key={`${item.product_id}-${item.variant_id || 'no-variant'}`}
+                          className={`bg-gradient-to-br from-gray-50 to-white rounded-xl p-3 border border-gray-200 hover:shadow-md transition-all duration-200 cart-item-enter ${isDown ? 'opacity-60' : ''}`}
+                          style={{ animationDelay: `${index * 0.05}s` }}
+                        >
+                          <div className="flex gap-3">
+                            {/* 商品图片 */}
+                            <div className="flex-shrink-0 w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg overflow-hidden">
+                              {item.img_path ? (
+                                <RetryImage
+                                  src={getProductImage(item)}
+                                  alt={item.name}
+                                  className="w-full h-full object-cover"
+                                  maxRetries={2}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <i className="fas fa-image text-gray-400 text-sm"></i>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 商品信息 */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-semibold text-gray-900 line-clamp-1 mb-1">
+                                {item.name}
+                              </h4>
+                              {item.variant_name && (
+                                <span className="inline-block text-xs px-2 py-0.5 bg-cyan-50 text-cyan-700 rounded-full border border-cyan-200 mb-1">
+                                  {item.variant_name}
+                                </span>
+                              )}
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-sm font-bold text-emerald-600">
+                                  ¥{isNonSellable ? '0.00' : item.subtotal}
+                                </span>
+                                {/* 数量调整按钮 */}
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleUpdateQuantity(item.product_id, item.quantity - 1, item.variant_id || null)}
+                                    disabled={isDown}
+                                    className="w-7 h-7 flex items-center justify-center bg-white border-2 border-gray-300 hover:border-red-400 hover:bg-red-50 text-gray-700 hover:text-red-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm"
+                                    aria-label="减少"
+                                  >
+                                    <i className="fas fa-minus text-xs"></i>
+                                  </button>
+                                  <span className="min-w-[28px] text-center text-sm font-semibold text-gray-900">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    onClick={() => handleUpdateQuantity(item.product_id, item.quantity + 1, item.variant_id || null)}
+                                    disabled={isDown || isStockLimitReached}
+                                    className="w-7 h-7 flex items-center justify-center bg-white border-2 border-gray-300 hover:border-emerald-400 hover:bg-emerald-50 text-gray-700 hover:text-emerald-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm"
+                                    aria-label="增加"
+                                    title={isStockLimitReached ? '已达库存上限' : ''}
+                                  >
+                                    <i className="fas fa-plus text-xs"></i>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 底部结算区域 */}
+              {cart?.items && cart.items.length > 0 && (
+                <div className="border-t border-gray-200 px-5 py-4 bg-gradient-to-br from-gray-50 to-white">
+                  {/* 价格明细 */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">商品金额</span>
+                      <span className="text-gray-900 font-medium">¥{cart.total_price?.toFixed(2) || '0.00'}</span>
+                    </div>
+                    {cart.shipping_fee !== undefined && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">配送费</span>
+                        <span className={`font-medium ${cart.shipping_fee > 0 ? 'text-gray-900' : 'text-emerald-600'}`}>
+                          {cart.shipping_fee > 0 ? `¥${cart.shipping_fee?.toFixed(2)}` : '免费'}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* 优惠券选择 */}
+                    {(() => {
+                      const totalCoupons = (coupons || []).length;
+                      const usableCoupons = (coupons || []).filter(c => (cart?.total_price || 0) > (parseFloat(c.amount) || 0));
+                      const hasUsableCoupons = usableCoupons.length > 0;
+                      
+                      return (
+                        <>
+                          <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-200">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={applyCoupon}
+                                disabled={!hasUsableCoupons}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setApplyCoupon(checked);
+                                  if (checked && !selectedCouponId && usableCoupons.length > 0) {
+                                    // 自动选择最佳优惠券
+                                    usableCoupons.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+                                    setSelectedCouponId(usableCoupons[0].id);
+                                  }
+                                }}
+                                className="w-4 h-4 text-pink-600 rounded focus:ring-2 focus:ring-pink-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                              />
+                              <i className={`fas fa-ticket-alt ${hasUsableCoupons ? 'text-pink-600' : 'text-gray-400'}`}></i>
+                              <span className={`font-medium ${hasUsableCoupons ? 'text-gray-900' : 'text-gray-400'}`}>
+                                使用优惠券
+                                {totalCoupons > 0 && (
+                                  <span className="ml-1 text-xs">
+                                    ({usableCoupons.length}/{totalCoupons})
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                            <span className="text-pink-600 font-bold">
+                              {applyCoupon && selectedCouponId ? (
+                                <>-¥{(parseFloat(coupons.find(c => c.id === selectedCouponId)?.amount) || 0).toFixed(2)}</>
+                              ) : hasUsableCoupons ? (
+                                '可用'
+                              ) : totalCoupons > 0 ? (
+                                <span className="text-xs text-gray-400">不满足条件</span>
+                              ) : (
+                                <span className="text-xs text-gray-400">无券</span>
+                              )}
+                            </span>
+                          </div>
+                          
+                          {/* 优惠券下拉选择 */}
+                          {applyCoupon && usableCoupons.length > 1 && (
+                            <div className="text-xs">
+                              <select
+                                value={selectedCouponId || ''}
+                                onChange={(e) => setSelectedCouponId(e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-gray-900 focus:border-pink-400 focus:ring-2 focus:ring-pink-200 transition-all duration-200"
+                              >
+                                {usableCoupons
+                                  .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
+                                  .map(c => (
+                                    <option key={c.id} value={c.id}>
+                                      {parseFloat(c.amount).toFixed(2)}元优惠券
+                                      {c.expires_at ? ` (${new Date(c.expires_at).toLocaleDateString()})` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                      <span className="text-base font-bold text-gray-900">总计</span>
+                      <span className="text-2xl font-black text-emerald-600">
+                        ¥{(() => {
+                          const baseTotal = (cart.payable_total || cart.total_price) || 0;
+                          const discount = (applyCoupon && selectedCouponId) 
+                            ? (parseFloat(coupons.find(c => c.id === selectedCouponId)?.amount) || 0) 
+                            : 0;
+                          return Math.max(0, baseTotal - discount).toFixed(2);
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 去结算按钮 */}
+                  <button
+                    onClick={() => {
+                      setIsClosingDrawer(true);
+                      setTimeout(() => {
+                        setShowCartDrawer(false);
+                        setIsClosingDrawer(false);
+                        // 如果使用了优惠券，将信息传递到结算页面
+                        if (applyCoupon && selectedCouponId) {
+                          router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+                        } else {
+                          router.push('/checkout?apply=0');
+                        }
+                      }, 200);
+                    }}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-bold text-base shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation"
+                  >
+                    <i className="fas fa-credit-card"></i>
+                    <span>去结算</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </PastelBackground>
 
       {/* 规格选择弹窗 */}
