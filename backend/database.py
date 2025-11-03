@@ -3209,13 +3209,22 @@ class OrderDB:
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
-        table_alias: str = 'o'
+        table_alias: str = 'o',
+        filter_admin_orders: bool = False
     ) -> Tuple[str, List[Any]]:
         clauses: List[str] = []
         params: List[Any] = []
 
         normalized_addresses = [aid for aid in (address_ids or []) if aid]
         normalized_buildings = [bid for bid in (building_ids or []) if bid]
+
+        # 如果是管理员查询（filter_admin_orders=True），只查询agent_id IS NULL的订单
+        if filter_admin_orders:
+            clauses.append(f"{table_alias}.agent_id IS NULL")
+            # 管理员订单不需要额外的地址/楼栋过滤
+            if clauses:
+                return ' AND '.join(clauses), params
+            return '', []
 
         if agent_id:
             clauses.append(f"{table_alias}.agent_id = ?")
@@ -3936,14 +3945,15 @@ class OrderDB:
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
         exclude_address_ids: Optional[List[str]] = None,
-        exclude_building_ids: Optional[List[str]] = None
+        exclude_building_ids: Optional[List[str]] = None,
+        filter_admin_orders: bool = False
     ) -> Dict:
         """获取订单统计信息（管理员用）"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
             def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
-                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias)
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias, filter_admin_orders=filter_admin_orders)
                 clauses: List[str] = []
                 params: List[Any] = []
                 if scope_clause:
@@ -4006,17 +4016,18 @@ class OrderDB:
         period: str = 'week',
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
-        building_ids: Optional[List[str]] = None
+        building_ids: Optional[List[str]] = None,
+        filter_admin_orders: bool = False
     ) -> Dict:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             # 基础统计
-            basic_stats = OrderDB.get_order_stats(agent_id=agent_id, address_ids=address_ids, building_ids=building_ids)
+            basic_stats = OrderDB.get_order_stats(agent_id=agent_id, address_ids=address_ids, building_ids=building_ids, filter_admin_orders=filter_admin_orders)
 
             def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
-                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias)
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias, filter_admin_orders=filter_admin_orders)
                 clauses: List[str] = []
                 params: List[Any] = []
                 if scope_clause:
@@ -4492,13 +4503,14 @@ class OrderDB:
         offset: int = 0,
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
-        building_ids: Optional[List[str]] = None
+        building_ids: Optional[List[str]] = None,
+        filter_admin_orders: bool = False
     ) -> Dict[str, Any]:
         """获取所有至少购买过一次的用户信息，按总购买金额降序排列"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias='o')
+            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias='o', filter_admin_orders=filter_admin_orders)
             where_parts = ["o.payment_status = 'succeeded'"]
             params: List[Any] = list(scope_params)
             if scope_clause:
