@@ -1126,7 +1126,16 @@ export default function Cart() {
 
                   {/* 商品列表容器 */}
                   <div className="space-y-0">
-                    {cart.items.map((item) => (
+                    {cart.items
+                      .sort((a, b) => {
+                        // 非卖品排到最后
+                        const aIsNonSellable = Boolean(a.is_not_for_sale);
+                        const bIsNonSellable = Boolean(b.is_not_for_sale);
+                        if (aIsNonSellable && !bIsNonSellable) return 1;
+                        if (!aIsNonSellable && bIsNonSellable) return -1;
+                        return 0;
+                      })
+                      .map((item) => (
                       <CartItem
                         key={item.product_id}
                         item={item}

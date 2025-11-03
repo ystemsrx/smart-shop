@@ -2665,7 +2665,6 @@ const ProductTable = ({
   onToggleActive,
   onOpenVariantStock,
   onToggleHot,
-  onToggleNotForSale,
   showOnlyOutOfStock,
   showOnlyInactive,
   onToggleOutOfStockFilter,
@@ -2859,9 +2858,6 @@ const ProductTable = ({
                 热销
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                非卖品
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <SortIndicator column="price" label="价格/折扣" />
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -2913,18 +2909,13 @@ const ProductTable = ({
                       </div>
                       <div className="ml-4">
                         <div className="flex items-center gap-2">
-                          <div className={`text-sm font-medium transition-all duration-200 ${isActive ? 'text-gray-900' : 'text-gray-500'}`} title={product.name}>
+                          <div className={`text-sm font-medium transition-all duration-200 ${isNonSellable ? 'text-purple-600' : (isActive ? 'text-gray-900' : 'text-gray-500')}`} title={product.name}>
                             {product.name && product.name.length > 10 ? product.name.slice(0, 10) + '...' : product.name}
                             {!isActive && <span className="ml-2 text-xs text-red-500">(已下架)</span>}
                           </div>
                           {isHot && (
                             <span className="px-2 py-0.5 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full transition-all duration-200 animate-pulse">
                               热销
-                            </span>
-                          )}
-                          {isNonSellable && (
-                            <span className="px-2 py-0.5 text-xs font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full transition-all duration-200">
-                              非卖品
                             </span>
                           )}
                         </div>
@@ -2954,22 +2945,6 @@ const ProductTable = ({
                       />
                       {operatingProducts?.has(product.id) && (
                         <div className="w-3 h-3 border border-orange-400 border-t-transparent rounded-full animate-spin ml-1"></div>
-                      )}
-                    </label>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={isNonSellable}
-                        onChange={(e) => onToggleNotForSale && onToggleNotForSale(product, e.target.checked)}
-                        disabled={operatingProducts?.has(product.id)}
-                        className={`h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 transition-all duration-200 ${
-                          operatingProducts?.has(product.id) ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                      />
-                      {operatingProducts?.has(product.id) && (
-                        <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin ml-1"></div>
                       )}
                     </label>
                   </td>
@@ -3470,7 +3445,7 @@ const LocalVariantManager = ({ variants, loading, onChange }) => {
 };
 
 // 统一商品表单组件（支持添加和编辑）
-const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false, onRefreshProduct }) => {
+const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix, isAdmin = false, onRefreshProduct, onStatsRefresh }) => {
   const isEditMode = !!product;
   
   const [formData, setFormData] = useState({
@@ -3626,6 +3601,15 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
         }
       }
       
+      // 刷新统计数据
+      if (onStatsRefresh) {
+        try {
+          await onStatsRefresh();
+        } catch (refreshErr) {
+          console.error('刷新统计数据失败:', refreshErr);
+        }
+      }
+      
       // 所有完成后，手动关闭弹窗
       if (onCancel) {
         onCancel();
@@ -3637,6 +3621,12 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
       if (onRefreshProduct) {
         try {
           await onRefreshProduct(product.id);
+        } catch {}
+      }
+      // 即使失败也刷新统计数据
+      if (onStatsRefresh) {
+        try {
+          await onStatsRefresh();
         } catch {}
       }
       if (onCancel) {
@@ -4101,7 +4091,7 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
 };
 
 // 规格库存编辑弹窗（仅库存增减与编辑）
-const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync }) => {
+const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync, onStatsRefresh }) => {
   const { apiRequest } = useApi();
   const [variants, setVariants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4217,6 +4207,11 @@ const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync 
       if (product?.id && typeof onProductVariantsSync === 'function') {
         const updatedTotal = updatedList.reduce((sum, item) => sum + item.stock, 0);
         onProductVariantsSync(product.id, { variants: updatedList, totalStock: updatedTotal });
+      }
+
+      // 刷新统计数据
+      if (typeof onStatsRefresh === 'function') {
+        onStatsRefresh().catch(err => console.error('刷新统计数据失败:', err));
       }
 
       return nextStock;
@@ -4449,7 +4444,16 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100 max-h-[400px] lg:max-h-none overflow-y-auto lg:flex-1 lg:min-h-0">
-                  {items.map((it, idx) => (
+                  {items
+                    .sort((a, b) => {
+                      // 非卖品排到最后
+                      const aIsNonSellable = Boolean(a.is_not_for_sale);
+                      const bIsNonSellable = Boolean(b.is_not_for_sale);
+                      if (aIsNonSellable && !bIsNonSellable) return 1;
+                      if (!aIsNonSellable && bIsNonSellable) return -1;
+                      return 0;
+                    })
+                    .map((it, idx) => (
                     <div 
                       key={`${it.product_id || 'item'}_${idx}`} 
                       className="px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
@@ -4481,6 +4485,12 @@ const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate
                                 <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex-shrink-0">
                                   <i className="fas fa-calendar-check"></i>
                                   <span>预约</span>
+                                </span>
+                              )}
+                              {it.is_not_for_sale && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-purple-100 text-purple-700 border border-purple-200 flex-shrink-0">
+                                  <i className="fas fa-infinity"></i>
+                                  <span>非卖</span>
                                 </span>
                               )}
                             </div>
@@ -6042,7 +6052,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       const agentQuery = isAdmin ? buildQueryString('agent_id', normalizedFilter || 'self') : '';
 
       const statsPromise = apiRequest(`/admin/stats${ownerQuery}`);
-      const usersCountPromise = apiRequest(`/admin/users/count${ownerQuery}`);
+      // 注册人数统计：始终使用订单范围（agent_id）来统计，因为注册人数是基于用户的地址/楼栋分配
+      const usersCountPromise = apiRequest(`/admin/users/count${agentQuery}`);
       const productsPromise = apiRequest(`${staffPrefix}/products${ownerQuery}`);
       const categoriesPromise = isAdmin
         ? apiRequest(`/admin/categories${ownerQuery}`)
@@ -6456,7 +6467,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setOrderStatusFilter('全部');
     await Promise.all([
       loadOrders(0, orderSearch, normalized),
-      loadData(normalized, false)
+      loadData(normalized, false, false)
     ]);
   };
 
@@ -6832,6 +6843,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         };
         setProducts(prevProducts => [normalizedNewProduct, ...prevProducts]); // 将新商品添加到列表开头
         setShowAddModal(false);
+        // 刷新统计数据
+        await refreshStats();
       } else {
         // 如果服务器没有返回商品数据，则重新加载
         setShowAddModal(false);
@@ -6929,6 +6942,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               return p;
             });
             setProducts(updatedProducts);
+            // 刷新统计数据（无论是否有关键变更，都可能影响统计）
+            await refreshStats();
           } catch (refreshErr) {
             // 如果重新获取失败，降级到完整刷新
             console.error('重新获取商品数据失败，执行完整刷新:', refreshErr);
@@ -6970,6 +6985,40 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       }
     } catch (err) {
       console.error('刷新商品数据失败:', err);
+    }
+  };
+
+  // 刷新统计数据（不刷新商品列表）
+  const refreshStats = async () => {
+    try {
+      const normalizedFilter = isAdmin ? (orderAgentFilter || 'self').toString() : null;
+      const buildQueryString = (key, value) => {
+        const params = new URLSearchParams();
+        params.set(key, value);
+        params.set('_t', Date.now().toString()); // 添加时间戳防止缓存
+        return `?${params.toString()}`;
+      };
+      const ownerQuery = isAdmin ? buildQueryString('owner_id', normalizedFilter || 'self') : '';
+      const agentQuery = isAdmin ? buildQueryString('agent_id', normalizedFilter || 'self') : '';
+
+      // 并行获取所有统计数据
+      const [statsData, usersCountData, orderStatsData] = await Promise.all([
+        apiRequest(`/admin/stats${ownerQuery}`),
+        apiRequest(`/admin/users/count${agentQuery}`),
+        apiRequest(`/admin/order-stats${agentQuery}`)
+      ]);
+      
+      // 更新统计数据
+      const mergedStats = { ...(statsData.data || {}), users_count: (usersCountData?.data?.count ?? 0) };
+      setStats(mergedStats);
+      setOrderStats(orderStatsData.data || {
+        total_orders: 0,
+        status_counts: {},
+        today_orders: 0,
+        total_revenue: 0
+      });
+    } catch (err) {
+      console.error('刷新统计数据失败:', err);
     }
   };
 
@@ -7110,36 +7159,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }
   };
 
-  const handleToggleNotForSale = async (product, nextFlag) => {
-    if (operatingProducts.has(product.id)) return;
-
-    setOperatingProducts(prev => new Set(prev).add(product.id));
-
-    const updatedProducts = products.map(p =>
-      p.id === product.id ? { ...p, is_not_for_sale: !!nextFlag } : p
-    );
-    setProducts(updatedProducts);
-
-    try {
-      await apiRequest(`${staffPrefix}/products/${product.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ is_not_for_sale: !!nextFlag })
-      });
-    } catch (e) {
-      const revertedProducts = products.map(p =>
-        p.id === product.id ? { ...p, is_not_for_sale: !nextFlag } : p
-      );
-      setProducts(revertedProducts);
-      alert(e.message || '更新非卖品状态失败');
-    } finally {
-      setOperatingProducts(prev => {
-        const next = new Set(prev);
-        next.delete(product.id);
-        return next;
-      });
-    }
-  };
-
   const normalizeStockValue = (value) => {
     if (value === null || value === undefined || value === '') return 0;
     const parsed = typeof value === 'number' ? value : parseInt(value, 10);
@@ -7225,6 +7244,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       setProducts(prev => prev.map(p => 
         p.id === productId ? applyLatestSnapshot(p, nextStock) : p
       ));
+
+      // 刷新统计数据
+      refreshStats().catch(err => console.error('刷新统计数据失败:', err));
 
       return nextStock;
     } catch (err) {
@@ -7783,9 +7805,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   商品管理
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setActiveTab('orders');
-                    loadOrders(0, orderSearch, orderAgentFilter);
+                    await Promise.all([
+                      loadOrders(0, orderSearch, orderAgentFilter),
+                      loadData(orderAgentFilter, false, false)
+                    ]);
                   }}
                   className={`py-2 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'orders'
@@ -7977,7 +8002,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   onToggleActive={handleToggleActive}
                   onOpenVariantStock={(p) => setVariantStockProduct(p)}
                   onToggleHot={handleToggleHot}
-                  onToggleNotForSale={handleToggleNotForSale}
                   showOnlyOutOfStock={showOnlyOutOfStock}
                   showOnlyInactive={showOnlyInactive}
                   onToggleOutOfStockFilter={setShowOnlyOutOfStock}
@@ -9260,6 +9284,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             onCancel={() => setShowAddModal(false)}
             apiPrefix={staffPrefix}
             isAdmin={isAdmin}
+            onStatsRefresh={refreshStats}
           />
         </Modal>
 
@@ -9286,6 +9311,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               onRefreshProduct={refreshSingleProduct}
               apiPrefix={staffPrefix}
               isAdmin={isAdmin}
+              onStatsRefresh={refreshStats}
             />
           )}
         </Modal>
@@ -9296,6 +9322,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             onClose={() => setVariantStockProduct(null)}
             apiPrefix={staffPrefix}
             onProductVariantsSync={handleProductVariantsSync}
+            onStatsRefresh={refreshStats}
           />
         )}
       </div>

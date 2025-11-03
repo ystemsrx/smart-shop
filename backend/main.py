@@ -3669,17 +3669,47 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
         return error_response("获取统计信息失败", 500)
 
 @app.get("/admin/users/count")
-async def get_users_count(request: Request, owner_id: Optional[str] = None):
-    """根据当前工作人员权限范围获取注册人数"""
+async def get_users_count(request: Request, owner_id: Optional[str] = None, agent_id: Optional[str] = None):
+    """根据当前工作人员权限范围获取注册人数
+    - 如果提供 agent_id 参数，使用订单范围逻辑（支持排除代理地址/楼栋）
+    - 如果只提供 owner_id 参数，使用商品范围逻辑（用于商品管理页面）
+    """
     staff = get_current_staff_required_from_cookie(request)
     try:
         scope = build_staff_scope(staff)
-        owner_ids, _, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_id)
-        count = compute_registered_user_count(owner_ids)
-        return success_response("获取注册人数成功", {
-            "count": count,
-            "owner_filter": normalized_filter
-        })
+        
+        # 如果提供了 agent_id，使用订单范围逻辑
+        if agent_id is not None:
+            (
+                selected_agent_id,
+                selected_address_ids,
+                selected_building_ids,
+                exclude_address_ids,
+                exclude_building_ids,
+                normalized_filter
+            ) = resolve_staff_order_scope(staff, scope, agent_id)
+            
+            # 根据订单范围统计用户数
+            count = UserProfileDB.count_users_by_scope(
+                agent_id=selected_agent_id,
+                address_ids=selected_address_ids,
+                building_ids=selected_building_ids,
+                exclude_address_ids=exclude_address_ids,
+                exclude_building_ids=exclude_building_ids
+            )
+            
+            return success_response("获取注册人数成功", {
+                "count": count,
+                "agent_filter": normalized_filter
+            })
+        else:
+            # 使用原来的商品范围逻辑
+            owner_ids, _, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_id)
+            count = compute_registered_user_count(owner_ids)
+            return success_response("获取注册人数成功", {
+                "count": count,
+                "owner_filter": normalized_filter
+            })
     except HTTPException:
         raise
     except Exception as e:

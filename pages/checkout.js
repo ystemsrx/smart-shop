@@ -992,7 +992,16 @@ export default function Checkout() {
                   
                   {/* 商品列表 */}
                   <div className="space-y-4 mb-6">
-                    {cart.items && cart.items.map((item, index) => {
+                    {cart.items && cart.items
+                      .sort((a, b) => {
+                        // 非卖品排到最后
+                        const aIsNonSellable = Boolean(a.is_not_for_sale);
+                        const bIsNonSellable = Boolean(b.is_not_for_sale);
+                        if (aIsNonSellable && !bIsNonSellable) return 1;
+                        if (!aIsNonSellable && bIsNonSellable) return -1;
+                        return 0;
+                      })
+                      .map((item, index) => {
                       const isDown = item.is_active === 0 || item.is_active === false;
                       const isNonSellable = Boolean(item.is_not_for_sale);
                       return (
