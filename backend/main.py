@@ -52,6 +52,16 @@ def is_truthy(value: Optional[Any]) -> bool:
     text = str(value).strip().lower()
     return text in {'1', 'true', 'yes', 'on'}
 
+
+def is_non_sellable(product: Dict[str, Any]) -> bool:
+    """统一判断商品是否标记为非卖品"""
+    if not isinstance(product, dict):
+        return False
+    try:
+        return is_truthy(product.get('is_not_for_sale'))
+    except Exception:
+        return False
+
 def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) -> int:
     """
     将SQLite的CURRENT_TIMESTAMP字符串转换为Unix时间戳（秒）
@@ -528,6 +538,7 @@ async def handle_product_creation(
     variants: Optional[str] = None,
     image: Optional[UploadFile],
     is_hot: bool = False,
+    is_not_for_sale: bool = False,
     reservation_required: bool = False,
     reservation_cutoff: Optional[str] = None,
     reservation_note: Optional[str] = None
@@ -560,6 +571,7 @@ async def handle_product_creation(
             "cost": cost,
             "owner_id": assigned_owner_id,
             "is_hot": 1 if is_hot else 0,
+            "is_not_for_sale": 1 if is_not_for_sale else 0,
             "reservation_required": 1 if reservation_required else 0,
             "reservation_cutoff": normalize_reservation_cutoff(reservation_cutoff),
             "reservation_note": (reservation_note or '').strip()[:120]
@@ -645,6 +657,8 @@ async def handle_product_update(
         update_data['is_active'] = 1 if payload.is_active else 0
     if payload.is_hot is not None:
         update_data['is_hot'] = 1 if payload.is_hot else 0
+    if payload.is_not_for_sale is not None:
+        update_data['is_not_for_sale'] = 1 if payload.is_not_for_sale else 0
     if payload.cost is not None:
         if payload.cost < 0:
             return error_response("商品成本不能为负数", 400)
@@ -798,6 +812,7 @@ def build_product_listing_for_staff(
         variants = variant_map.get(p.get('id'), [])
         p['variants'] = variants
         p['has_variants'] = len(variants) > 0  # 设置 has_variants 字段
+        p['is_not_for_sale'] = is_non_sellable(p)
 
     categories = sorted({p.get('category') for p in products if p.get('category')})
     active_count = sum(1 for p in products if is_active(p))
@@ -805,6 +820,8 @@ def build_product_listing_for_staff(
     total_stock = 0
     for p in products:
         try:
+            if is_non_sellable(p):
+                continue
             total_stock += max(int(p.get('stock', 0) or 0), 0)
         except Exception:
             continue
@@ -1265,6 +1282,7 @@ class ProductUpdateRequest(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_hot: Optional[bool] = None
+    is_not_for_sale: Optional[bool] = None
     cost: Optional[float] = None  # 商品成本
     owner_id: Optional[str] = None
     reservation_required: Optional[bool] = None
@@ -2000,8 +2018,11 @@ async def get_products(request: Request, category: Optional[str] = None, address
             vts = variants_map.get(p["id"], [])
             p["variants"] = vts
             p["has_variants"] = len(vts) > 0
+            p["is_not_for_sale"] = is_non_sellable(p)
             if p["has_variants"]:
                 p["total_variant_stock"] = sum(v.get("stock", 0) for v in vts)
+            if p["is_not_for_sale"]:
+                p["stock_display"] = "∞"
         return success_response("获取商品列表成功", {"products": products, "scope": scope})
     
     except Exception as e:
@@ -2033,8 +2054,11 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
             vts = variants_map.get(p["id"], [])
             p["variants"] = vts
             p["has_variants"] = len(vts) > 0
+            p["is_not_for_sale"] = is_non_sellable(p)
             if p["has_variants"]:
                 p["total_variant_stock"] = sum(v.get("stock", 0) for v in vts)
+            if p["is_not_for_sale"]:
+                p["stock_display"] = "∞"
         return success_response("搜索成功", {"products": products, "query": q, "scope": scope})
     
     except Exception as e:
@@ -2989,15 +3013,19 @@ async def get_cart(request: Request):
             if product_id in product_dict:
                 product = product_dict[product_id]
                 is_active = 1 if int(product.get("is_active", 1) or 1) == 1 else 0
+                non_sellable = is_non_sellable(product)
                 # 应用折扣（以折为单位，10为不打折）
                 zhe = float(product.get("discount", 10.0) or 10.0)
                 unit_price = round(float(product["price"]) * (zhe / 10.0), 2)
                 subtotal = unit_price * quantity
+                if non_sellable:
+                    subtotal = 0.0
 
                 # 仅将上架商品计入总数量与总价
                 if is_active == 1:
                     total_quantity += quantity
-                    total_price += subtotal
+                    if not non_sellable:
+                        total_price += subtotal
 
                 item = {
                     "product_id": product_id,
@@ -3005,10 +3033,11 @@ async def get_cart(request: Request):
                     "unit_price": round(unit_price, 2),
                     "quantity": quantity,
                     "subtotal": round(subtotal, 2),
-                    "stock": product["stock"],
+                    "stock": product["stock"] if not non_sellable else "∞",
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", ""),
-                    "is_active": is_active
+                    "is_active": is_active,
+                    "is_not_for_sale": non_sellable
                 }
                 try:
                     requires_reservation = int(product.get("reservation_required", 0) or 0) == 1
@@ -3031,6 +3060,8 @@ async def get_cart(request: Request):
                         item["variant_id"] = variant_id
                         item["variant_name"] = variant.get("name")
                         item["stock"] = variant.get("stock", 0)
+                if non_sellable:
+                    item["stock"] = "∞"
                 cart_items.append(item)
                 
         logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
@@ -3042,9 +3073,10 @@ async def get_cart(request: Request):
         active_cart_items = [item for item in cart_items if item.get('is_active', 1) == 1 and (item.get('quantity') or 0) > 0]
         has_reservation_items = any(item.get('reservation_required') for item in active_cart_items)
         all_items_reservation_required = bool(active_cart_items) and all(item.get('reservation_required') for item in active_cart_items)
+        non_sellable_only = bool(active_cart_items) and all(item.get('is_not_for_sale') for item in active_cart_items)
 
         # 运费计算：购物车为空不收取，基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
-        shipping_fee = 0.0 if total_quantity == 0 or delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or total_price >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
+        shipping_fee = 0.0 if total_quantity == 0 or delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or total_price >= delivery_config['free_delivery_threshold'] or non_sellable_only else delivery_config['delivery_fee']
         cart_result = {
             "items": cart_items,
             "total_quantity": total_quantity,
@@ -3124,13 +3156,14 @@ async def update_cart(
             
             # 处理规格键与库存
             key = cart_request.product_id
-            limit_stock = product["stock"]
+            non_sellable = is_non_sellable(product)
+            limit_stock = None if non_sellable else product["stock"]
             if cart_request.variant_id:
                 key = f"{key}@@{cart_request.variant_id}"
                 v = VariantDB.get_by_id(cart_request.variant_id)
                 if not v or v.get('product_id') != cart_request.product_id:
                     return error_response("规格不存在", 400)
-                limit_stock = int(v.get('stock', 0))
+                limit_stock = None if non_sellable else int(v.get('stock', 0))
 
             if cart_request.action == "add":
                 if cart_request.quantity <= 0:
@@ -3140,7 +3173,7 @@ async def update_cart(
                 # 库存验证
                 current_quantity = items.get(key, 0)
                 new_quantity = current_quantity + cart_request.quantity
-                if new_quantity > limit_stock:
+                if limit_stock is not None and new_quantity > limit_stock:
                     logger.error(f"库存不足 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 当前购物车数量: {current_quantity}, 尝试添加: {cart_request.quantity}, 库存: {limit_stock}")
                     return error_response(f"库存不足，当前库存: {limit_stock}，购物车中已有: {current_quantity}", 400)
                 items[key] = new_quantity
@@ -3148,7 +3181,7 @@ async def update_cart(
             else:  # update
                 if cart_request.quantity > 0:
                     # 更新时也需要验证库存
-                    if cart_request.quantity > limit_stock:
+                    if limit_stock is not None and cart_request.quantity > limit_stock:
                         logger.error(f"更新数量超过库存 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 尝试设置: {cart_request.quantity}, 库存: {limit_stock}")
                         return error_response(f"数量超过库存，最大可设置: {limit_stock}", 400)
                     items[key] = cart_request.quantity
@@ -3436,6 +3469,7 @@ async def create_product(
     discount: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
     is_hot: Optional[str] = Form(None),
+    is_not_for_sale: Optional[str] = Form(None),
     reservation_required: Optional[str] = Form(None),
     reservation_cutoff: Optional[str] = Form(None),
     reservation_note: Optional[str] = Form(None),
@@ -3457,6 +3491,7 @@ async def create_product(
         variants=variants,
         image=image,
         is_hot=is_truthy(is_hot),
+        is_not_for_sale=is_truthy(is_not_for_sale),
         reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
         reservation_cutoff=reservation_cutoff,
         reservation_note=reservation_note
@@ -3475,6 +3510,7 @@ async def agent_create_product(
     discount: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
     is_hot: Optional[str] = Form(None),
+    is_not_for_sale: Optional[str] = Form(None),
     reservation_required: Optional[str] = Form(None),
     reservation_cutoff: Optional[str] = Form(None),
     reservation_note: Optional[str] = Form(None),
@@ -3496,6 +3532,7 @@ async def agent_create_product(
         variants=variants,
         image=image,
         is_hot=is_truthy(is_hot),
+        is_not_for_sale=is_truthy(is_not_for_sale),
         reservation_required=is_truthy(reservation_required) if reservation_required is not None else False,
         reservation_cutoff=reservation_cutoff,
         reservation_note=reservation_note
@@ -3603,9 +3640,14 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
         )
         users_count = compute_registered_user_count(owner_ids)
 
+        for p in products:
+            p['is_not_for_sale'] = is_non_sellable(p)
+
         total_stock = 0
         for p in products:
             try:
+                if is_non_sellable(p):
+                    continue
                 total_stock += max(int(p.get('stock', 0) or 0), 0)
             except Exception:
                 continue
@@ -4078,6 +4120,7 @@ async def create_order(
                 # 忽略下架商品
                 if int(product.get("is_active", 1) or 1) != 1:
                     continue
+                non_sellable = is_non_sellable(product)
                 
                 # 折扣后单价
                 zhe = float(product.get("discount", 10.0) or 10.0)
@@ -4089,14 +4132,17 @@ async def create_order(
                     variant = VariantDB.get_by_id(variant_id)
                     if not variant or variant.get('product_id') != product_id:
                         return error_response("规格不存在", 400)
-                    if quantity > int(variant.get('stock', 0)):
+                    if not non_sellable and quantity > int(variant.get('stock', 0)):
                         return error_response(f"商品 {product['name']}（{variant.get('name')}）库存不足", 400)
                 else:
-                    if quantity > product.get("stock", 0):
+                    if not non_sellable and quantity > product.get("stock", 0):
                         return error_response(f"商品 {product['name']} 库存不足", 400)
 
                 subtotal = unit_price * quantity
-                total_amount += subtotal
+                if non_sellable:
+                    subtotal = 0.0
+                else:
+                    total_amount += subtotal
                 cart_item_count += 1
                 
                 requires_reservation = False
@@ -4114,7 +4160,8 @@ async def create_order(
                     "quantity": quantity,
                     "subtotal": round(subtotal, 2),
                     "category": product.get("category", ""),
-                    "img_path": product.get("img_path", "")
+                    "img_path": product.get("img_path", ""),
+                    "is_not_for_sale": non_sellable
                 }
                 if requires_reservation:
                     items_require_reservation = True

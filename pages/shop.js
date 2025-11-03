@@ -52,6 +52,9 @@ const isProductDown = (product = {}) => product.is_active === 0 || product.is_ac
 const isVariantProduct = (product = {}) => Boolean(product.has_variants);
 
 const isProductOutOfStock = (product = {}) => {
+  if (product.is_not_for_sale) {
+    return false;
+  }
   if (isVariantProduct(product)) {
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       return product.variants.every(v => (v?.stock || 0) <= 0);
@@ -147,6 +150,15 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const requiresReservation = Boolean(product.reservation_required);
   const reservationCutoff = product.reservation_cutoff;
   const reservationNote = (product.reservation_note || '').trim();
+  const isNonSellable = Boolean(product.is_not_for_sale);
+  const rawStockValue = typeof product.stock === 'number'
+    ? product.stock
+    : (typeof product.stock === 'string' && product.stock.trim() !== ''
+      ? parseFloat(product.stock)
+      : NaN);
+  const normalizedStock = Number.isFinite(rawStockValue) ? rawStockValue : null;
+  const effectiveStock = isNonSellable ? null : normalizedStock;
+  const limitReached = effectiveStock !== null && effectiveStock > 0 && cartQuantity >= effectiveStock;
 
   return (
     <div 
@@ -249,6 +261,11 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                 }`}>
                   <i className="fas fa-tag mr-1"></i>{product.category}
                 </span>
+                {isNonSellable && (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full">
+                    非卖品
+                  </span>
+                )}
               </div>
             </div>
             
@@ -291,7 +308,9 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             }`}>
               <i className="fas fa-box-open"></i>
               <span>
-                {isVariant ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格') : `库存 ${product.stock}`}
+                {isVariant
+                  ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
+                  : `库存 ${isNonSellable ? '∞' : (normalizedStock ?? 0)}`}
               </span>
             </div>
           )}
@@ -363,7 +382,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
                 <button
                   onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
                   disabled={
-                    isLoading || cartQuantity >= product.stock
+                    isLoading || limitReached
                   }
                   className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
                   aria-label="增加"
@@ -572,7 +591,8 @@ export default function Shop() {
     if (!products || products.length === 0) {
       return [];
     }
-    return products.map(product => {
+    const visibleProducts = products.filter(product => !product.is_not_for_sale);
+    return visibleProducts.map(product => {
       const productImage = getProductImage(product) || '/logo.png';
       const subtitle = buildSphereSubtitle(product);
       const rawDescription = product.description || product.short_description || product.tagline || '';

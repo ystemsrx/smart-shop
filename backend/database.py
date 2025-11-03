@@ -143,6 +143,7 @@ def auto_migrate_database(conn) -> None:
             'cost': 'REAL DEFAULT 0',
             'owner_id': 'TEXT',
             'is_hot': 'INTEGER DEFAULT 0',
+            'is_not_for_sale': 'INTEGER DEFAULT 0',
             'reservation_required': 'INTEGER DEFAULT 0',
             'reservation_cutoff': 'TEXT',
             'reservation_note': 'TEXT'
@@ -1586,8 +1587,8 @@ class ProductDB:
             
             cursor.execute('''
                 INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot, reservation_required, reservation_cutoff, reservation_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot, is_not_for_sale, reservation_required, reservation_cutoff, reservation_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -1600,6 +1601,7 @@ class ProductDB:
                 float(product_data.get('cost', 0.0)),
                 product_data.get('owner_id'),
                 1 if product_data.get('is_hot') else 0,
+                1 if product_data.get('is_not_for_sale') else 0,
                 1 if product_data.get('reservation_required') else 0,
                 product_data.get('reservation_cutoff'),
                 product_data.get('reservation_note', '')
@@ -1815,7 +1817,7 @@ class ProductDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id', 'is_hot', 'reservation_required', 'reservation_cutoff', 'reservation_note']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id', 'is_hot', 'is_not_for_sale', 'reservation_required', 'reservation_cutoff', 'reservation_note']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
@@ -3562,6 +3564,16 @@ class OrderDB:
             
             # 检查库存是否足够并扣减库存
             for item in items:
+                non_sellable_item = False
+                if isinstance(item, dict):
+                    flag = item.get('is_not_for_sale')
+                    try:
+                        if isinstance(flag, str):
+                            non_sellable_item = flag.strip().lower() in ('1', 'true', 'yes', 'on')
+                        else:
+                            non_sellable_item = bool(flag)
+                    except Exception:
+                        non_sellable_item = False
                 is_lottery_item = False
                 try:
                     is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
@@ -3606,6 +3618,10 @@ class OrderDB:
                         new_stock = current_stock - quantity
                         cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
                     # 抽奖赠品已处理库存，无需进入常规分支
+                    continue
+
+                if non_sellable_item:
+                    logger.info(f"订单 {order_id} 包含非卖品 {item.get('name', 'Unknown')}，跳过库存扣减")
                     continue
 
                 product_id = item['product_id']
@@ -3693,6 +3709,16 @@ class OrderDB:
             
             # 恢复库存
             for item in items:
+                non_sellable_item = False
+                if isinstance(item, dict):
+                    flag = item.get('is_not_for_sale')
+                    try:
+                        if isinstance(flag, str):
+                            non_sellable_item = flag.strip().lower() in ('1', 'true', 'yes', 'on')
+                        else:
+                            non_sellable_item = bool(flag)
+                    except Exception:
+                        non_sellable_item = False
                 is_lottery_item = False
                 try:
                     is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
@@ -3730,6 +3756,10 @@ class OrderDB:
                             # 抽奖奖品可能对应不存在的商品或虚拟商品，跳过库存恢复
                             logger.info(f"抽奖奖品商品不存在，跳过库存恢复: {actual_product_id} (item: {item.get('name', 'Unknown')})")
                     # 抽奖赠品已处理库存，无需进入常规分支
+                    continue
+
+                if non_sellable_item:
+                    logger.info(f"订单 {order_id} 包含非卖品 {item.get('name', 'Unknown')}，无需恢复库存")
                     continue
 
                 product_id = item['product_id']
@@ -4718,11 +4748,15 @@ class UserProfileDB:
     def count_users_by_scope(
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
-        agent_id: Optional[str] = None
+        agent_id: Optional[str] = None,
+        exclude_address_ids: Optional[List[str]] = None,
+        exclude_building_ids: Optional[List[str]] = None
     ) -> int:
-        """统计指定范围内的注册用户数量"""
+        """统计指定范围内的注册用户数量，支持排除特定地址/楼栋"""
         normalized_addresses = [aid for aid in (address_ids or []) if aid]
         normalized_buildings = [bid for bid in (building_ids or []) if bid]
+        normalized_exclude_addresses = [aid for aid in (exclude_address_ids or []) if aid]
+        normalized_exclude_buildings = [bid for bid in (exclude_building_ids or []) if bid]
 
         filters: List[str] = [
             "student_id IS NOT NULL",

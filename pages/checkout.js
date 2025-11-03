@@ -994,6 +994,7 @@ export default function Checkout() {
                   <div className="space-y-4 mb-6">
                     {cart.items && cart.items.map((item, index) => {
                       const isDown = item.is_active === 0 || item.is_active === false;
+                      const isNonSellable = Boolean(item.is_not_for_sale);
                       return (
                         <div 
                           key={(item.product_id + (item.variant_id || ''))} 
@@ -1017,6 +1018,11 @@ export default function Checkout() {
                                     预约
                                   </span>
                                 )}
+                                {isNonSellable && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 flex-shrink-0">
+                                    非卖品
+                                  </span>
+                                )}
                                 {isDown && (
                                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 flex-shrink-0">
                                     暂时下架
@@ -1029,12 +1035,15 @@ export default function Checkout() {
                               <span className={`text-sm font-semibold ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
                                 ¥{item.subtotal}
                               </span>
+                              {isNonSellable && (
+                                <div className="text-[11px] text-purple-200">非卖品免计价</div>
+                              )}
                             </div>
                           </div>
                           {/* 数量和预约信息行 */}
                           <div className="flex justify-between items-baseline gap-2 mt-1">
                             <p className="text-gray-600 text-xs">
-                              数量: {item.quantity} {isDown && <span className="text-gray-500">（不计入金额）</span>}
+                              数量: {item.quantity} {(isDown || isNonSellable) && <span className="text-gray-500">（不计入金额）</span>}
                             </p>
                             {item.reservation_required && (
                               <p className="text-blue-600 text-[11px] leading-snug text-right flex-shrink-0">
