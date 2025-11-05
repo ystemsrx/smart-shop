@@ -6,33 +6,76 @@ import ChatModern from '../components/ChatUI'
 import { useAuth } from '../hooks/useAuth'
 import Nav from '../components/Nav'
 import { getShopName } from '../utils/runtimeConfig'
+import LandingPage from '../components/page'
 
 export default function Home() {
   const { user, logout, isInitialized } = useAuth()
   const router = useRouter()
   const shopName = getShopName()
+  
+  // 检查是否要显示 AI 助手（通过查询参数）
+  const showChat = router.query.chat === 'true'
+  // 检查是否强制显示首页
+  const showHome = router.query.home === 'true'
 
   // 等待认证状态初始化
   if (!isInitialized) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
           <p className="text-gray-600">正在加载...</p>
         </div>
       </div>
     )
   }
 
-  // 如果是管理员访问聊天页面，重定向到仪表盘
+  // 如果是管理员访问聊天页面，重定向到仪表盘（但不包括强制显示首页的情况）
   useEffect(() => {
-    if (user && user.type === 'admin') {
+    if (user && user.type === 'admin' && !showHome) {
       router.push('/admin/dashboard');
-    } else if (user && user.type === 'agent') {
+    } else if (user && user.type === 'agent' && !showHome) {
       router.push('/agent/dashboard');
     }
-  }, [user, router]);
+  }, [user, router, showHome]);
 
+  // 强制显示首页：无论是否登录
+  if (showHome) {
+    return (
+      <>
+        <Head>
+          <title>{shopName} - Future Marketplace</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta
+            name="description"
+            content={`${shopName} - 下一代智能购物平台，AI 驱动的个性化购物体验`}
+          />
+          <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+        </Head>
+        <LandingPage user={user} logout={logout} />
+      </>
+    )
+  }
+
+  // 未登录用户：如果没有明确要求显示聊天，则显示首页
+  if (!user && !showChat) {
+    return (
+      <>
+        <Head>
+          <title>{shopName} - Future Marketplace</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta
+            name="description"
+            content={`${shopName} - 下一代智能购物平台，AI 驱动的个性化购物体验`}
+          />
+          <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+        </Head>
+        <LandingPage user={user} logout={logout} />
+      </>
+    )
+  }
+
+  // 已登录用户或明确要求显示 AI 助手的未登录用户
   return (
     <>
       <Head>

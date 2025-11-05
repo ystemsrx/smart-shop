@@ -51,7 +51,7 @@ export default function Nav({ active = 'home' }) {
                 </div>
                 
                 {/* 桌面端：品牌图标链接到首页 */}
-                <Link href="/" className="hidden md:flex items-center group">
+                <Link href="/?home=true" className="hidden md:flex items-center group">
                   <div className="relative">
                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg transform group-hover:scale-105 transition-transform duration-300">
                        <i className="fas fa-shopping-bag text-white text-lg"></i>
@@ -63,7 +63,7 @@ export default function Nav({ active = 'home' }) {
                 </Link>
                 
                 {/* Logo图片 */}
-                <Link href="/" className="flex items-center group">
+                <Link href="/?home=true" className="flex items-center group">
                   <img 
                     src="/logo.png" 
                     alt={shopName} 
@@ -93,7 +93,7 @@ export default function Nav({ active = 'home' }) {
                 ) : (
                   /* 普通用户导航 */
                   <>
-                    <Link href="/" className={linkCls('home')}>
+                    <Link href="/?chat=true" className={linkCls('home')}>
                       <i className="fas fa-comments"></i>
                       <span>商城助手</span>
                     </Link>
@@ -282,7 +282,7 @@ export default function Nav({ active = 'home' }) {
               ) : (
                 /* 普通用户菜单 */
                 <>
-                  <Link href="/" onClick={closeMenu} className={`${active === 'home' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                  <Link href="/?chat=true" onClick={closeMenu} className={`${active === 'home' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
                     <i className="fas fa-comments w-5"></i>
                     <span className="font-medium">商城助手</span>
                   </Link>
