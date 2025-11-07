@@ -3554,8 +3554,9 @@ const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, apiPrefix,
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // 验证必填字段
-    if (!formData.name || !formData.category || !formData.price) {
+    // 验证必填字段（注意：价格可以为0，所以要特别处理）
+    const isPriceEmpty = formData.price === '' || formData.price === null || formData.price === undefined;
+    if (!formData.name || !formData.category || isPriceEmpty) {
       alert('请填写必填字段');
       return;
     }
