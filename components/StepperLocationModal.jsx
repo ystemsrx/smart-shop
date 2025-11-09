@@ -227,19 +227,19 @@ export default function StepperLocationModal({
                                   <i className="fas fa-tree-city text-emerald-500 text-xs"></i>
                                   园区选择
                                 </label>
-                                <div className="space-y-2 max-h-28 overflow-y-auto pr-1">
+                                <div className="grid grid-cols-2 md:grid-cols-1 gap-2 max-h-28 overflow-y-auto pr-1">
                                   {addresses.map(addr => (
                                     <button
                                       key={addr.id}
                                       onClick={() => onSelectAddress(addr.id)}
-                                      className={`w-full p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                                      className={`w-full p-2.5 md:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                                         selectedAddressId === addr.id
                                           ? 'border-emerald-500 bg-emerald-50 shadow-sm'
                                           : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-25'
                                       }`}
                                     >
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                      <div className="flex items-center gap-1.5 md:gap-2">
+                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
                                           selectedAddressId === addr.id
                                             ? 'border-emerald-500 bg-emerald-500'
                                             : 'border-gray-300'
@@ -249,7 +249,7 @@ export default function StepperLocationModal({
                                           )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <p className="font-medium text-gray-900 text-sm truncate">{addr.name}</p>
+                                          <p className="font-medium text-gray-900 text-xs md:text-sm truncate">{addr.name}</p>
                                         </div>
                                       </div>
                                     </button>
@@ -260,7 +260,7 @@ export default function StepperLocationModal({
                               {/* 楼栋选择 */}
                               <div className="space-y-3">
                                 <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                                  <i className="fas fa-building text-indigo-500 text-xs"></i>
+                                  <i className="fas fa-building text-blue-500 text-xs"></i>
                                   楼栋选择
                                 </label>
                                 {!selectedAddressId ? (
@@ -275,21 +275,21 @@ export default function StepperLocationModal({
                                     <p className="text-xs text-amber-600">请联系管理员添加楼栋信息</p>
                                   </div>
                                 ) : (
-                                  <div className="space-y-2 max-h-28 overflow-y-auto pr-1">
+                                  <div className="grid grid-cols-2 md:grid-cols-1 gap-2 max-h-28 overflow-y-auto pr-1">
                                     {buildingOptions.map(building => (
                                       <button
                                         key={building.id}
                                         onClick={() => onSelectBuilding(building.id)}
-                                        className={`w-full p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                                        className={`w-full p-2.5 md:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                                           selectedBuildingId === building.id
-                                            ? 'border-indigo-500 bg-indigo-50 shadow-sm'
-                                            : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-25'
+                                            ? 'border-blue-500 bg-blue-50 shadow-sm'
+                                            : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-25'
                                         }`}
                                       >
-                                        <div className="flex items-center gap-2">
-                                          <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                        <div className="flex items-center gap-1.5 md:gap-2">
+                                          <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
                                             selectedBuildingId === building.id
-                                              ? 'border-indigo-500 bg-indigo-500'
+                                              ? 'border-blue-500 bg-blue-500'
                                               : 'border-gray-300'
                                           }`}>
                                             {selectedBuildingId === building.id && (
@@ -297,7 +297,7 @@ export default function StepperLocationModal({
                                             )}
                                           </div>
                                           <div className="flex-1 min-w-0">
-                                            <p className="font-medium text-gray-900 text-sm truncate">{building.name}</p>
+                                            <p className="font-medium text-gray-900 text-xs md:text-sm truncate">{building.name}</p>
                                           </div>
                                         </div>
                                       </button>
