@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
 import { ChevronDown, Check } from "lucide-react";
@@ -83,16 +83,105 @@ const BUTTON_CONTENT = {
   `,
 };
 
+const STREAM_FADE_DURATION = 600;
+
 // Markdown渲染器组件
 const MarkdownRenderer = ({ content }) => {
   const containerRef = useRef(null);
+  const lastTextLengthRef = useRef(0);
+  const chunkMetaRef = useRef([]);
+
+  const finalizeFadeSpan = useCallback((span) => {
+    if (!span?.isConnected) return;
+    const textNode = document.createTextNode(span.textContent || '');
+    span.replaceWith(textNode);
+  }, []);
+
+  const applyFadeToRange = useCallback((rangeStart, rangeEnd, insertedAt) => {
+    const container = containerRef.current;
+    if (!container || rangeStart >= rangeEnd) return;
+
+    const totalText = container.textContent || '';
+    if (!totalText) return;
+
+    const clampedStart = Math.max(0, Math.min(rangeStart, totalText.length));
+    const clampedEnd = Math.max(clampedStart, Math.min(rangeEnd, totalText.length));
+    if (clampedStart === clampedEnd) return;
+
+    const now = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now()
+      : Date.now();
+    const elapsed = Math.max(now - insertedAt, 0);
+    if (elapsed >= STREAM_FADE_DURATION) return;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+    let traversed = 0;
+    const nodesToProcess = [];
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.parentElement?.classList?.contains('stream-fade-chunk')) {
+        traversed += node.textContent?.length || 0;
+        continue;
+      }
+
+      const nodeText = node.textContent || '';
+      const nodeLength = nodeText.length;
+      const nodeStart = traversed;
+      const nodeEnd = nodeStart + nodeLength;
+
+      if (nodeEnd <= clampedStart) {
+        traversed = nodeEnd;
+        continue;
+      }
+      if (nodeStart >= clampedEnd) {
+        break;
+      }
+
+      const sliceStart = Math.max(clampedStart - nodeStart, 0);
+      const sliceEnd = Math.min(clampedEnd - nodeStart, nodeLength);
+      if (sliceStart === sliceEnd) {
+        traversed = nodeEnd;
+        continue;
+      }
+
+      nodesToProcess.push({ node, sliceStart, sliceEnd });
+      traversed = nodeEnd;
+    }
+
+    nodesToProcess.forEach(({ node, sliceStart, sliceEnd }) => {
+      const text = node.textContent || '';
+      const before = text.slice(0, sliceStart);
+      const target = text.slice(sliceStart, sliceEnd);
+      const after = text.slice(sliceEnd);
+      const frag = document.createDocumentFragment();
+      if (before) {
+        frag.appendChild(document.createTextNode(before));
+      }
+      if (target) {
+        const span = document.createElement('span');
+        span.textContent = target;
+        span.classList.add('stream-fade-chunk');
+        span.style.animationDuration = `${STREAM_FADE_DURATION}ms`;
+        span.style.animationDelay = `-${elapsed}ms`;
+        span.addEventListener('animationend', () => finalizeFadeSpan(span), { once: true });
+        frag.appendChild(span);
+      }
+      if (after) {
+        frag.appendChild(document.createTextNode(after));
+      }
+      node.replaceWith(frag);
+    });
+  }, [finalizeFadeSpan]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
-    
+
     // 处理 content 为 null 或空的情况（assistant 消息可能只有 tool_calls 而没有文本内容）
     if (!content || content === null) {
       containerRef.current.innerHTML = '';
+      lastTextLengthRef.current = 0;
+      chunkMetaRef.current = [];
       return;
     }
 
@@ -622,12 +711,32 @@ const MarkdownRenderer = ({ content }) => {
     simpleCleanup();
     
     // 设置低频清理
+    const textContent = containerRef.current.textContent || '';
+    const totalLength = textContent.length;
+    const prevLength = lastTextLengthRef.current || 0;
+    const now = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now()
+      : Date.now();
+
+    if (totalLength < prevLength) {
+      chunkMetaRef.current = [];
+    }
+
+    if (totalLength > prevLength) {
+      chunkMetaRef.current.push({ start: prevLength, end: totalLength, insertedAt: now });
+    }
+
+    lastTextLengthRef.current = totalLength;
+
+    chunkMetaRef.current = chunkMetaRef.current.filter(chunk => (now - chunk.insertedAt) < STREAM_FADE_DURATION);
+    chunkMetaRef.current.forEach(chunk => applyFadeToRange(chunk.start, chunk.end, chunk.insertedAt));
+
     const cleanupInterval = setInterval(simpleCleanup, 3000);
-    
+
     // 清理函数
     return () => {
       clearInterval(cleanupInterval);
-      
+
       // 清理Mermaid容器的事件监听器
       const mermaidContainers = containerRef.current?.querySelectorAll('.mermaid-preview') || [];
       mermaidContainers.forEach(container => {
@@ -636,7 +745,7 @@ const MarkdownRenderer = ({ content }) => {
         }
       });
     };
-  }, [content]);
+  }, [content, applyFadeToRange]);
 
   return (
     <div className="w-full">
@@ -775,13 +884,10 @@ const ErrorBubble = ({ message }) => (
 // 加载指示器组件
 const LoadingIndicator = () => {
   return (
-    <div className="flex w-full justify-start">      
-      <div className="max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm bg-gray-50 text-gray-900 border border-gray-200">
-        <div className="flex space-x-1">
-          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-        </div>
+    <div className="flex w-full justify-start">
+      <div className="pl-2 pt-1">
+        <span className="sr-only">AI 正在回复</span>
+        <div className="loading-breath-dot" aria-hidden="true"></div>
       </div>
     </div>
   );
