@@ -453,6 +453,31 @@ body {
   min-height: 100vh;
 }
 
+@keyframes stream-fade-in {
+  0% { opacity: 0; filter: blur(0.8px); }
+  60% { opacity: 0.85; filter: blur(0.2px); }
+  100% { opacity: 1; filter: blur(0); }
+}
+
+.stream-fade-chunk {
+  display: inline;
+  animation: stream-fade-in 0.4s ease-out forwards;
+}
+
+@keyframes ai-breath-dot {
+  0% { transform: scale(0.85); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(0.85); }
+}
+
+.loading-breath-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 9999px;
+  background-color: #111;
+  animation: ai-breath-dot 1.2s ease-in-out infinite;
+}
+
 /* Markdown渲染样式 */
 .markdown-content {
   font-family: system-ui, sans-serif;
