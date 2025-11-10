@@ -84,6 +84,8 @@ const BUTTON_CONTENT = {
 };
 
 const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
+const INLINE_MATH_PLACEHOLDER_CLASS = 'inline-math-placeholder';
+const STREAM_FADE_EXEMPT_CLASS = 'stream-fade-exempt';
 const QUOTE_REPLACEMENTS = {
   '“': '"',
   '”': '"',
@@ -192,6 +194,46 @@ const shouldSkipMathParsing = (element) => {
   );
 };
 
+const normalizeInlineMathDelimiters = (text = '') => {
+  if (!text || (text.indexOf('\\(') === -1 && text.indexOf('\\)') === -1)) {
+    return text;
+  }
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '\\' && i + 1 < text.length) {
+      const nextChar = text[i + 1];
+      if ((nextChar === '(' || nextChar === ')') && !isEscapedDelimiter(text, i)) {
+        result += '$';
+        i++;
+        continue;
+      }
+    }
+    result += char;
+  }
+  return result;
+};
+
+const normalizeBlockMathDelimiters = (text = '') => {
+  if (!text || (text.indexOf('\\[') === -1 && text.indexOf('\\]') === -1)) {
+    return text;
+  }
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '\\' && i + 1 < text.length) {
+      const nextChar = text[i + 1];
+      if ((nextChar === '[' || nextChar === ']') && !isEscapedDelimiter(text, i)) {
+        result += '$$';
+        i++;
+        continue;
+      }
+    }
+    result += char;
+  }
+  return result;
+};
+
 const replaceBlockMathWithPlaceholders = (root) => {
   if (!root || typeof document === 'undefined') return [];
   const segments = [];
@@ -202,8 +244,12 @@ const replaceBlockMathWithPlaceholders = (root) => {
   }
 
   textNodes.forEach((node) => {
-    const text = node?.textContent || '';
+    const originalText = node?.textContent || '';
+    const text = normalizeBlockMathDelimiters(originalText);
     if ((!text.includes('$$') && !text.includes('\\[')) || shouldSkipMathParsing(node.parentElement)) {
+      if (text !== originalText) {
+        node.textContent = text;
+      }
       return;
     }
 
@@ -233,7 +279,7 @@ const replaceBlockMathWithPlaceholders = (root) => {
       const segmentIndex = segments.length;
       const cacheKey = `block-${segmentIndex}`;
       const placeholder = document.createElement('span');
-      placeholder.className = BLOCK_MATH_PLACEHOLDER_CLASS;
+      placeholder.className = `${BLOCK_MATH_PLACEHOLDER_CLASS} ${STREAM_FADE_EXEMPT_CLASS}`;
       placeholder.dataset.blockMathId = String(segmentIndex);
       placeholder.dataset.blockMathKey = cacheKey;
       frag.appendChild(placeholder);
@@ -243,7 +289,8 @@ const replaceBlockMathWithPlaceholders = (root) => {
         key: cacheKey,
         latex,
         raw,
-        complete
+        complete,
+        closing: close
       });
 
       pointer = complete ? closeIndex + close.length : length;
@@ -256,36 +303,18 @@ const replaceBlockMathWithPlaceholders = (root) => {
         frag.appendChild(document.createTextNode(text.slice(pointer)));
       }
       node.replaceWith(frag);
+    } else if (text !== originalText) {
+      node.textContent = text;
     }
   });
 
   return segments;
 };
 
-const computeBestRenderablePrefix = (latex, katex, minLength = 0) => {
-  if (!katex || !latex) return { html: '', length: 0 };
-  const source = latex.replace(/\r/g, '');
-  const floor = Math.max(minLength, 0);
-  for (let len = source.length; len > floor; len--) {
-    const snippet = source.slice(0, len);
-    try {
-      const html = katex.renderToString(snippet, {
-        displayMode: true,
-        throwOnError: true,
-        strict: 'warn'
-      });
-      return { html, length: len };
-    } catch (err) {
-      continue;
-    }
-  }
-  return { html: '', length: 0 };
-};
-
 const shouldSkipInlineMath = (element) => {
   if (!element) return false;
   return Boolean(
-    element.closest('code, pre, kbd, samp, script, style, .katex, .block-math-placeholder, .code-block-container, .code-block-content')
+    element.closest('code, pre, kbd, samp, script, style, .katex, .block-math-placeholder, .inline-math-placeholder, .code-block-container, .code-block-content')
   );
 };
 
@@ -320,24 +349,40 @@ const findNextInlineMathToken = (text, fromIndex) => {
         i++;
         continue;
       }
-      const end = findClosingInlineDollar(text, i + 1);
-      if (end === -1) return null;
-      const latex = text.slice(i + 1, end);
-      return { start: i, end: end + 1, latex };
+      const closeIndex = findClosingInlineDollar(text, i + 1);
+      const complete = closeIndex !== -1;
+      const end = complete ? closeIndex + 1 : text.length;
+      const latex = text.slice(i + 1, complete ? closeIndex : text.length);
+      return {
+        start: i,
+        end,
+        latex,
+        raw: text.slice(i, end),
+        complete,
+        closing: '$'
+      };
     }
     if (char === '\\' && text[i + 1] === '(' && !isEscapedDelimiter(text, i)) {
-      const end = findClosingInlineParen(text, i + 2);
-      if (end === -1) return null;
-      const latex = text.slice(i + 2, end);
-      return { start: i, end: end + 2, latex };
+      const closeIndex = findClosingInlineParen(text, i + 2);
+      const complete = closeIndex !== -1;
+      const end = complete ? closeIndex + 2 : text.length;
+      const latex = text.slice(i + 2, complete ? closeIndex : text.length);
+      return {
+        start: i,
+        end,
+        latex,
+        raw: text.slice(i, end),
+        complete,
+        closing: '\\)'
+      };
     }
   }
   return null;
 };
 
-const renderInlineMathSegments = (root) => {
-  if (!root || typeof window === 'undefined' || !window.katex) return;
-  const katex = window.katex;
+const replaceInlineMathWithPlaceholders = (root) => {
+  if (!root || typeof document === 'undefined') return [];
+  const segments = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
   const nodes = [];
   while (walker.nextNode()) {
@@ -346,8 +391,13 @@ const renderInlineMathSegments = (root) => {
 
   nodes.forEach((node) => {
     if (shouldSkipInlineMath(node.parentElement)) return;
-    const text = node.textContent || '';
-    if (!text.includes('$') && !text.includes('\\(')) return;
+    let text = node.textContent || '';
+    const normalizedText = normalizeInlineMathDelimiters(text);
+    if (normalizedText !== text) {
+      text = normalizedText;
+      node.textContent = normalizedText;
+    }
+    if ((!text.includes('$') && !text.includes('\\(')) || !text.trim()) return;
 
     let cursor = 0;
     let mutated = false;
@@ -361,23 +411,26 @@ const renderInlineMathSegments = (root) => {
         frag.appendChild(document.createTextNode(text.slice(cursor, match.start)));
       }
 
-      const trimmedLatex = match.latex.trim();
+      const raw = match.raw || text.slice(match.start, match.end);
+      const trimmedLatex = match.latex?.trim() ?? '';
       if (!trimmedLatex) {
-        frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
+        frag.appendChild(document.createTextNode(raw));
       } else {
-        try {
-          const span = document.createElement('span');
-          span.className = 'katex-inline';
-          span.innerHTML = katex.renderToString(trimmedLatex, {
-            displayMode: false,
-            throwOnError: true,
-            strict: 'warn'
-          });
-          frag.appendChild(span);
-        } catch (err) {
-          frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
-        }
+        const cacheKey = `inline-${segments.length}`;
+        const placeholder = document.createElement('span');
+        placeholder.className = `${INLINE_MATH_PLACEHOLDER_CLASS} ${STREAM_FADE_EXEMPT_CLASS}`;
+        placeholder.setAttribute('data-inline-math-key', cacheKey);
+        frag.appendChild(placeholder);
+
+        segments.push({
+          key: cacheKey,
+          latex: trimmedLatex.replace(/\r/g, ''),
+          raw,
+          complete: match.complete,
+          closing: match.closing
+        });
       }
+
       cursor = match.end;
       mutated = true;
     }
@@ -387,6 +440,58 @@ const renderInlineMathSegments = (root) => {
         frag.appendChild(document.createTextNode(text.slice(cursor)));
       }
       node.replaceWith(frag);
+    }
+  });
+
+  return segments;
+};
+
+const renderInlineMathSegments = (root, segments, cacheRef) => {
+  if (!root || !segments?.length) return;
+  const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null;
+  const cache = cacheRef?.current;
+  const segmentMap = new Map();
+  segments.forEach((segment) => segmentMap.set(segment.key, segment));
+
+  const placeholders = root.querySelectorAll(`.${INLINE_MATH_PLACEHOLDER_CLASS}`);
+  placeholders.forEach((placeholder) => {
+    const key = placeholder.getAttribute('data-inline-math-key');
+    const segment = key ? segmentMap.get(key) : null;
+    if (!segment) return;
+
+    const cacheEntry = cache?.get(key);
+    let htmlToUse = cacheEntry?.html || '';
+    let rendered = false;
+
+    if (katex) {
+      try {
+        htmlToUse = katex.renderToString(segment.latex, {
+          displayMode: false,
+          throwOnError: true,
+          strict: 'warn'
+        });
+        rendered = true;
+      } catch (err) {
+        console.debug('Inline LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
+        if (cacheEntry?.html) {
+          htmlToUse = cacheEntry.html;
+        } else {
+          htmlToUse = '';
+        }
+      }
+      if (rendered && htmlToUse) {
+        cache?.set(key, { html: htmlToUse, latex: segment.latex });
+      }
+    } else if (cacheEntry?.html) {
+      htmlToUse = cacheEntry.html;
+    }
+
+    if (htmlToUse) {
+      if (placeholder.innerHTML !== htmlToUse) {
+        placeholder.innerHTML = htmlToUse;
+      }
+    } else {
+      placeholder.textContent = segment.raw || '';
     }
   });
 };
@@ -399,7 +504,7 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
   segments.forEach((segment) => segmentMap.set(segment.key, segment));
 
   const ensureBody = (placeholder) => {
-    placeholder.classList.add('block-math-placeholder');
+    placeholder.classList.add('block-math-placeholder', STREAM_FADE_EXEMPT_CLASS);
     let body = placeholder.querySelector('.block-math-body');
     if (!body) {
       body = document.createElement('div');
@@ -418,50 +523,39 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
     const normalizedLatex = segment.latex.replace(/\r/g, '');
     const cacheEntry = cache?.get(key);
     let htmlToUse = cacheEntry?.html || '';
-    let successLength = cacheEntry?.length || 0;
+    let rendered = false;
 
-    if (katex) {
-      let rendered = false;
+    if (katex && normalizedLatex.trim()) {
       try {
         htmlToUse = katex.renderToString(normalizedLatex, {
           displayMode: true,
           throwOnError: true,
           strict: 'warn'
         });
-        successLength = normalizedLatex.length;
         rendered = true;
       } catch (err) {
-        const prefix = computeBestRenderablePrefix(normalizedLatex, katex, successLength);
-        if (prefix.html) {
-          htmlToUse = prefix.html;
-          successLength = prefix.length;
-          rendered = true;
-        } else if (!htmlToUse && cacheEntry?.html) {
+        console.debug('Block LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
+        if (cacheEntry?.html) {
           htmlToUse = cacheEntry.html;
-          successLength = cacheEntry.length || 0;
+        } else {
+          htmlToUse = '';
         }
       }
       if (rendered && htmlToUse) {
-        cache?.set(key, { html: htmlToUse, latex: normalizedLatex, length: successLength });
+        cache?.set(key, { html: htmlToUse, latex: normalizedLatex });
       }
-    } else if (!katex && cacheEntry?.html) {
+    } else if (cacheEntry?.html) {
       htmlToUse = cacheEntry.html;
-      successLength = cacheEntry.length || 0;
     }
 
     const body = ensureBody(placeholder);
 
     if (htmlToUse) {
-      body.innerHTML = '';
-      body.innerHTML = htmlToUse;
-    } else if (segment.complete) {
-      body.innerHTML = '';
-      const raw = document.createElement('div');
-      raw.className = 'block-math-raw';
-      raw.textContent = segment.raw;
-      body.appendChild(raw);
-    } else if (!body.innerHTML) {
-      body.textContent = '';
+      if (body.innerHTML !== htmlToUse) {
+        body.innerHTML = htmlToUse;
+      }
+    } else {
+      body.textContent = segment.raw || '';
     }
   });
 };
@@ -474,6 +568,7 @@ const MarkdownRenderer = ({ content }) => {
   const lastTextLengthRef = useRef(0);
   const chunkMetaRef = useRef([]);
   const blockMathCacheRef = useRef(new Map());
+  const inlineMathCacheRef = useRef(new Map());
 
   const finalizeFadeSpan = useCallback((span) => {
     if (!span?.isConnected) return;
@@ -505,6 +600,10 @@ const MarkdownRenderer = ({ content }) => {
     while (walker.nextNode()) {
       const node = walker.currentNode;
       if (node.parentElement?.classList?.contains('stream-fade-chunk')) {
+        traversed += node.textContent?.length || 0;
+        continue;
+      }
+      if (node.parentElement?.closest(`.${STREAM_FADE_EXEMPT_CLASS}`)) {
         traversed += node.textContent?.length || 0;
         continue;
       }
@@ -620,6 +719,7 @@ const MarkdownRenderer = ({ content }) => {
       lastTextLengthRef.current = 0;
       chunkMetaRef.current = [];
       blockMathCacheRef.current.clear();
+      inlineMathCacheRef.current.clear();
       mermaidStatesRef.current.clear();
       previewViewModeRef.current.clear();
       mermaidSnapshotRef.current.clear();
@@ -691,7 +791,9 @@ const MarkdownRenderer = ({ content }) => {
 
     // 渲染Markdown
     const normalizedContent = normalizeQuotesInString(content);
-    const dedentedContent = dedent(normalizedContent);
+    const inlineReadyContent = normalizeInlineMathDelimiters(normalizedContent);
+    const latexReadyContent = normalizeBlockMathDelimiters(inlineReadyContent);
+    const dedentedContent = dedent(latexReadyContent);
     containerRef.current.innerHTML = md.render(dedentedContent);
 
     // 保留有序列表原始编号：
@@ -1323,15 +1425,21 @@ const MarkdownRenderer = ({ content }) => {
     // 流式块级公式渲染（先替换占位，再手动渲染，防止未闭合内容闪烁）
     const blockMathSegments = replaceBlockMathWithPlaceholders(containerRef.current);
     renderBlockMathSegments(containerRef.current, blockMathSegments, blockMathCacheRef);
-    const activeKeys = new Set(blockMathSegments.map((segment) => segment.key));
+    const activeBlockKeys = new Set(blockMathSegments.map((segment) => segment.key));
     blockMathCacheRef.current.forEach((_, key) => {
-      if (!activeKeys.has(key)) {
+      if (!activeBlockKeys.has(key)) {
         blockMathCacheRef.current.delete(key);
       }
     });
 
-    // 行内数学公式本地渲染
-    renderInlineMathSegments(containerRef.current);
+    const inlineMathSegments = replaceInlineMathWithPlaceholders(containerRef.current);
+    renderInlineMathSegments(containerRef.current, inlineMathSegments, inlineMathCacheRef);
+    const activeInlineKeys = new Set(inlineMathSegments.map((segment) => segment.key));
+    inlineMathCacheRef.current.forEach((_, key) => {
+      if (!activeInlineKeys.has(key)) {
+        inlineMathCacheRef.current.delete(key);
+      }
+    });
 
     // 引号统一为英文格式，避免中英文混排导致的符号跳变
     normalizeQuotesInElement(containerRef.current);
