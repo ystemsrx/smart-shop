@@ -557,6 +557,55 @@ const MarkdownRenderer = ({ content }) => {
     });
   }, [finalizeFadeSpan]);
 
+  // 使用ref来保存mermaid图表的transform状态（scale和translate）
+  const mermaidStatesRef = useRef(new Map()); // key: mermaid块序号, value: {scale, translate}
+  // 记录每个Mermaid代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
+  const mermaidViewModeRef = useRef(new Map()); // key: mermaid块序号, value: 'preview' | 'code'
+
+  const toggleMermaidView = useCallback((blockKey, forcedMode) => {
+    if (!blockKey || !containerRef.current) return;
+    const blockContainer = containerRef.current.querySelector(`.code-block-container[data-block-key="${blockKey}"]`);
+    if (!blockContainer) return;
+    const mermaidContainer = blockContainer.querySelector('.mermaid-preview');
+    if (!mermaidContainer) return;
+    const codeBlock = blockContainer.querySelector(`pre[data-code-block="${blockKey}"]`) ||
+      blockContainer.querySelector('pre');
+    if (!codeBlock) return;
+    const toggleButton = blockContainer.querySelector(`[data-preview-toggle="${blockKey}"]`);
+
+    const currentMode = mermaidContainer.dataset.viewMode === 'code' ? 'code'
+      : (mermaidContainer.style.display === 'none' ? 'code' : 'preview');
+    const nextMode = forcedMode || (currentMode === 'preview' ? 'code' : 'preview');
+    const showPreview = nextMode === 'preview';
+
+    mermaidContainer.style.display = showPreview ? 'block' : 'none';
+    mermaidContainer.dataset.viewMode = nextMode;
+    codeBlock.style.display = showPreview ? 'none' : 'block';
+    mermaidViewModeRef.current.set(blockKey, nextMode);
+
+    if (toggleButton) {
+      toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
+      toggleButton.setAttribute('data-mode', nextMode);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const root = containerRef.current;
+    const handlePointerDown = (event) => {
+      const button = event.target.closest('[data-preview-toggle]');
+      if (!button || !root.contains(button)) return;
+      const blockKey = button.getAttribute('data-preview-toggle');
+      if (!blockKey) return;
+      event.preventDefault();
+      toggleMermaidView(blockKey);
+    };
+    root.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      root.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [toggleMermaidView]);
+
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
 
@@ -566,8 +615,27 @@ const MarkdownRenderer = ({ content }) => {
       lastTextLengthRef.current = 0;
       chunkMetaRef.current = [];
       blockMathCacheRef.current.clear();
+      mermaidStatesRef.current.clear();
+      mermaidViewModeRef.current.clear();
       return;
     }
+    
+    // 在重新渲染前，保存所有mermaid图表的当前状态
+    const existingMermaidPreviews = containerRef.current.querySelectorAll('.mermaid-preview');
+    existingMermaidPreviews.forEach(preview => {
+      const blockKey = preview.getAttribute('data-block-key');
+      if (!blockKey) return;
+
+      if (preview._transformState) {
+        mermaidStatesRef.current.set(blockKey, {
+          scale: preview._transformState.scale || 1,
+          translate: preview._transformState.translate || { x: 0, y: 0 }
+        });
+      }
+
+      const recordedMode = preview.dataset.viewMode || (preview.style.display === 'none' ? 'code' : 'preview');
+      mermaidViewModeRef.current.set(blockKey, recordedMode);
+    });
 
     // 配置Prism自动加载器
     if (window.Prism?.plugins?.autoloader) {
@@ -721,6 +789,8 @@ const MarkdownRenderer = ({ content }) => {
 
     // 代码高亮和DOM操作
     const pres = Array.from(containerRef.current.querySelectorAll('pre'));
+    const activeMermaidKeys = new Set();
+    let mermaidBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
 
@@ -730,10 +800,26 @@ const MarkdownRenderer = ({ content }) => {
       const languageMatch = /language-(\w+)/.exec(code.className || '');
       const language = languageMatch ? languageMatch[1] : '';
       const isMermaid = language === 'mermaid';
+      let blockKey = null;
+      if (isMermaid) {
+        blockKey = `mermaid-${mermaidBlockIndex++}`;
+        activeMermaidKeys.add(blockKey);
+      }
+      
+      // 克隆 pre 元素
+      const preClone = pre.cloneNode(true);
+      const codeClone = preClone.querySelector('code');
+      const mermaidCode = codeClone.textContent;
+      if (isMermaid && blockKey) {
+        preClone.setAttribute('data-code-block', blockKey);
+      }
       
       // 创建容器结构
       const container = document.createElement('div');
       container.className = 'code-block-container';
+      if (isMermaid && blockKey) {
+        container.setAttribute('data-block-key', blockKey);
+      }
       
       const header = document.createElement('div');
       header.className = 'code-block-header';
@@ -749,21 +835,21 @@ const MarkdownRenderer = ({ content }) => {
       let showPreview = true; // 默认开启预览
       
       if (isMermaid) {
+        const savedViewMode = mermaidViewModeRef.current.get(blockKey);
+        showPreview = savedViewMode !== 'code';
+
         previewButton = document.createElement('button');
-        previewButton.className = 'code-copy-button';
-        previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
+        previewButton.className = 'code-copy-button mermaid-preview-toggle';
+        previewButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
         previewButton.setAttribute('aria-label', 'Toggle Preview');
+        previewButton.setAttribute('data-preview-toggle', blockKey);
+        previewButton.setAttribute('data-mode', showPreview ? 'preview' : 'code');
       }
       
       const copyButton = document.createElement('button');
       copyButton.className = 'code-copy-button';
       copyButton.innerHTML = BUTTON_CONTENT.COPY;
       copyButton.setAttribute('aria-label', 'Copy');
-      
-      // 克隆 pre 元素
-      const preClone = pre.cloneNode(true);
-      const codeClone = preClone.querySelector('code');
-      const mermaidCode = codeClone.textContent;
 
       // 创建Mermaid预览容器（仅对Mermaid图表）
       let mermaidContainer = null;
@@ -775,6 +861,9 @@ const MarkdownRenderer = ({ content }) => {
         // 创建Mermaid预览容器，直接作为内容显示
         mermaidContainer = document.createElement('div');
         mermaidContainer.className = 'mermaid-preview';
+        mermaidContainer.setAttribute('data-block-key', blockKey);
+        mermaidContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
+        mermaidViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
         mermaidContainer.style.cssText = `
           padding: 20px;
           background: white;
@@ -789,6 +878,7 @@ const MarkdownRenderer = ({ content }) => {
           max-height: 400px;
           overflow: hidden;
         `;
+        mermaidContainer.style.display = showPreview ? 'block' : 'none';
         
         // 创建缩放控制按钮
         const zoomControls = document.createElement('div');
@@ -823,11 +913,15 @@ const MarkdownRenderer = ({ content }) => {
         // 将缩放控制按钮添加到Mermaid容器
         mermaidContainer.appendChild(zoomControls);
         
-        // 缩放和拖拽状态
-        let scale = 1;
+        // 缩放和拖拽状态 - 尝试从之前保存的状态恢复
+        const savedState = mermaidStatesRef.current.get(blockKey);
+        let scale = savedState ? savedState.scale : 1;
+        let translate = savedState ? { ...savedState.translate } : { x: 0, y: 0 };
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
-        let translate = { x: 0, y: 0 };
+        
+        // 初始化状态对象并保存到容器上
+        mermaidContainer._transformState = { scale, translate };
         
         // 缩放功能 - 直接对mermaidContainer内的内容进行变换
         const updateTransform = () => {
@@ -835,6 +929,8 @@ const MarkdownRenderer = ({ content }) => {
           if (svgElement) {
             svgElement.style.transform = `translate(${translate.x}px, ${translate.y}px) scale(${scale})`;
           }
+          // 同步更新保存的状态
+          mermaidContainer._transformState = { scale, translate: { ...translate } };
         };
         
         zoomInBtn.addEventListener('click', () => {
@@ -959,28 +1055,30 @@ const MarkdownRenderer = ({ content }) => {
                     mermaidContainer.appendChild(controls);
                   }
                   
+                  // 标记为成功渲染
+                  mermaidContainer.setAttribute('data-render-success', 'true');
+                  
+                  // 应用保存的transform状态（如果有）
+                  updateTransform();
+                  
                   // 延迟清理，确保渲染完成
                   setTimeout(cleanupErrors, 200);
                 }
               }
             } catch (err) {
-              console.error('Mermaid渲染失败:', err);
+              // 流式显示时代码可能不完整，导致语法错误
+              // 如果已经有成功渲染的内容，保持不变，避免闪烁
+              const hasSuccessRender = mermaidContainer.getAttribute('data-render-success') === 'true';
               
-              // 错误时也清理
-              cleanupErrors();
-              
-              // 保存控制按钮
-              const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-              mermaidContainer.innerHTML = '';
-              
-              const errorDiv = document.createElement('div');
-              errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
-              errorDiv.textContent = 'Mermaid图表语法错误';
-              mermaidContainer.appendChild(errorDiv);
-              
-              if (controls) {
-                mermaidContainer.appendChild(controls);
+              if (!hasSuccessRender) {
+                // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
+                // 只在控制台输出调试信息
+                console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
               }
+              
+              // 错误时也清理DOM中的错误信息
+              cleanupErrors();
+              setTimeout(cleanupErrors, 100);
             }
           };
           
@@ -993,8 +1091,8 @@ const MarkdownRenderer = ({ content }) => {
           mermaidContainer.appendChild(errorDiv);
         }
         
-        // 初始隐藏代码
-        preClone.style.display = 'none';
+        // 根据当前模式决定是否显示代码
+        preClone.style.display = showPreview ? 'none' : 'block';
       }
 
       // 组装结构
@@ -1016,22 +1114,6 @@ const MarkdownRenderer = ({ content }) => {
       contentArea.appendChild(preClone);
       container.appendChild(header);
       container.appendChild(contentArea);
-
-      // 预览切换功能（仅Mermaid）
-      if (previewButton && mermaidContainer) {
-        previewButton.addEventListener('click', () => {
-          showPreview = !showPreview;
-          if (showPreview) {
-            mermaidContainer.style.display = 'block';
-            preClone.style.display = 'none';
-            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
-          } else {
-            mermaidContainer.style.display = 'none';
-            preClone.style.display = 'block';
-            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_OFF;
-          }
-        });
-      }
 
       // 复制功能
       copyButton.addEventListener('click', async () => {
@@ -1056,6 +1138,18 @@ const MarkdownRenderer = ({ content }) => {
       // 然后对克隆的代码元素进行高亮（非Mermaid的情况）
       if (window.Prism && codeClone && !isMermaid) {
         window.Prism.highlightElement(codeClone, false);
+      }
+    });
+
+    // 清理已经不存在的Mermaid状态，避免ref无限增长
+    mermaidStatesRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidStatesRef.current.delete(key);
+      }
+    });
+    mermaidViewModeRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidViewModeRef.current.delete(key);
       }
     });
 
