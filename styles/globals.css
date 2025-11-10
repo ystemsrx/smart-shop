@@ -739,6 +739,36 @@ body {
   font-size: 14px;
 }
 
+/* SVG预览样式 */
+.svg-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 120px;
+  max-height: 400px;
+}
+
+.svg-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.svg-preview .svg-preview-error {
+  padding: 12px 16px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 14px;
+  text-align: center;
+}
+
 /* 链接样式 */
 .markdown-content a {
   color: #3b82f6; /* Tailwind blue-500 */

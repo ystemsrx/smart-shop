@@ -84,6 +84,8 @@ const BUTTON_CONTENT = {
 };
 
 const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
+const INLINE_MATH_PLACEHOLDER_CLASS = 'inline-math-placeholder';
+const STREAM_FADE_EXEMPT_CLASS = 'stream-fade-exempt';
 const QUOTE_REPLACEMENTS = {
   '“': '"',
   '”': '"',
@@ -143,6 +145,7 @@ const normalizeQuotesInElement = (root) => {
   });
 };
 
+
 const isEscapedDelimiter = (text, index) => {
   let slashCount = 0;
   for (let i = index - 1; i >= 0; i--) {
@@ -191,6 +194,46 @@ const shouldSkipMathParsing = (element) => {
   );
 };
 
+const normalizeInlineMathDelimiters = (text = '') => {
+  if (!text || (text.indexOf('\\(') === -1 && text.indexOf('\\)') === -1)) {
+    return text;
+  }
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '\\' && i + 1 < text.length) {
+      const nextChar = text[i + 1];
+      if ((nextChar === '(' || nextChar === ')') && !isEscapedDelimiter(text, i)) {
+        result += '$';
+        i++;
+        continue;
+      }
+    }
+    result += char;
+  }
+  return result;
+};
+
+const normalizeBlockMathDelimiters = (text = '') => {
+  if (!text || (text.indexOf('\\[') === -1 && text.indexOf('\\]') === -1)) {
+    return text;
+  }
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '\\' && i + 1 < text.length) {
+      const nextChar = text[i + 1];
+      if ((nextChar === '[' || nextChar === ']') && !isEscapedDelimiter(text, i)) {
+        result += '$$';
+        i++;
+        continue;
+      }
+    }
+    result += char;
+  }
+  return result;
+};
+
 const replaceBlockMathWithPlaceholders = (root) => {
   if (!root || typeof document === 'undefined') return [];
   const segments = [];
@@ -201,8 +244,12 @@ const replaceBlockMathWithPlaceholders = (root) => {
   }
 
   textNodes.forEach((node) => {
-    const text = node?.textContent || '';
+    const originalText = node?.textContent || '';
+    const text = normalizeBlockMathDelimiters(originalText);
     if ((!text.includes('$$') && !text.includes('\\[')) || shouldSkipMathParsing(node.parentElement)) {
+      if (text !== originalText) {
+        node.textContent = text;
+      }
       return;
     }
 
@@ -232,7 +279,7 @@ const replaceBlockMathWithPlaceholders = (root) => {
       const segmentIndex = segments.length;
       const cacheKey = `block-${segmentIndex}`;
       const placeholder = document.createElement('span');
-      placeholder.className = BLOCK_MATH_PLACEHOLDER_CLASS;
+      placeholder.className = `${BLOCK_MATH_PLACEHOLDER_CLASS} ${STREAM_FADE_EXEMPT_CLASS}`;
       placeholder.dataset.blockMathId = String(segmentIndex);
       placeholder.dataset.blockMathKey = cacheKey;
       frag.appendChild(placeholder);
@@ -242,7 +289,8 @@ const replaceBlockMathWithPlaceholders = (root) => {
         key: cacheKey,
         latex,
         raw,
-        complete
+        complete,
+        closing: close
       });
 
       pointer = complete ? closeIndex + close.length : length;
@@ -255,36 +303,18 @@ const replaceBlockMathWithPlaceholders = (root) => {
         frag.appendChild(document.createTextNode(text.slice(pointer)));
       }
       node.replaceWith(frag);
+    } else if (text !== originalText) {
+      node.textContent = text;
     }
   });
 
   return segments;
 };
 
-const computeBestRenderablePrefix = (latex, katex, minLength = 0) => {
-  if (!katex || !latex) return { html: '', length: 0 };
-  const source = latex.replace(/\r/g, '');
-  const floor = Math.max(minLength, 0);
-  for (let len = source.length; len > floor; len--) {
-    const snippet = source.slice(0, len);
-    try {
-      const html = katex.renderToString(snippet, {
-        displayMode: true,
-        throwOnError: true,
-        strict: 'warn'
-      });
-      return { html, length: len };
-    } catch (err) {
-      continue;
-    }
-  }
-  return { html: '', length: 0 };
-};
-
 const shouldSkipInlineMath = (element) => {
   if (!element) return false;
   return Boolean(
-    element.closest('code, pre, kbd, samp, script, style, .katex, .block-math-placeholder, .code-block-container, .code-block-content')
+    element.closest('code, pre, kbd, samp, script, style, .katex, .block-math-placeholder, .inline-math-placeholder, .code-block-container, .code-block-content')
   );
 };
 
@@ -319,24 +349,40 @@ const findNextInlineMathToken = (text, fromIndex) => {
         i++;
         continue;
       }
-      const end = findClosingInlineDollar(text, i + 1);
-      if (end === -1) return null;
-      const latex = text.slice(i + 1, end);
-      return { start: i, end: end + 1, latex };
+      const closeIndex = findClosingInlineDollar(text, i + 1);
+      const complete = closeIndex !== -1;
+      const end = complete ? closeIndex + 1 : text.length;
+      const latex = text.slice(i + 1, complete ? closeIndex : text.length);
+      return {
+        start: i,
+        end,
+        latex,
+        raw: text.slice(i, end),
+        complete,
+        closing: '$'
+      };
     }
     if (char === '\\' && text[i + 1] === '(' && !isEscapedDelimiter(text, i)) {
-      const end = findClosingInlineParen(text, i + 2);
-      if (end === -1) return null;
-      const latex = text.slice(i + 2, end);
-      return { start: i, end: end + 2, latex };
+      const closeIndex = findClosingInlineParen(text, i + 2);
+      const complete = closeIndex !== -1;
+      const end = complete ? closeIndex + 2 : text.length;
+      const latex = text.slice(i + 2, complete ? closeIndex : text.length);
+      return {
+        start: i,
+        end,
+        latex,
+        raw: text.slice(i, end),
+        complete,
+        closing: '\\)'
+      };
     }
   }
   return null;
 };
 
-const renderInlineMathSegments = (root) => {
-  if (!root || typeof window === 'undefined' || !window.katex) return;
-  const katex = window.katex;
+const replaceInlineMathWithPlaceholders = (root) => {
+  if (!root || typeof document === 'undefined') return [];
+  const segments = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
   const nodes = [];
   while (walker.nextNode()) {
@@ -345,8 +391,13 @@ const renderInlineMathSegments = (root) => {
 
   nodes.forEach((node) => {
     if (shouldSkipInlineMath(node.parentElement)) return;
-    const text = node.textContent || '';
-    if (!text.includes('$') && !text.includes('\\(')) return;
+    let text = node.textContent || '';
+    const normalizedText = normalizeInlineMathDelimiters(text);
+    if (normalizedText !== text) {
+      text = normalizedText;
+      node.textContent = normalizedText;
+    }
+    if ((!text.includes('$') && !text.includes('\\(')) || !text.trim()) return;
 
     let cursor = 0;
     let mutated = false;
@@ -360,23 +411,26 @@ const renderInlineMathSegments = (root) => {
         frag.appendChild(document.createTextNode(text.slice(cursor, match.start)));
       }
 
-      const trimmedLatex = match.latex.trim();
+      const raw = match.raw || text.slice(match.start, match.end);
+      const trimmedLatex = match.latex?.trim() ?? '';
       if (!trimmedLatex) {
-        frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
+        frag.appendChild(document.createTextNode(raw));
       } else {
-        try {
-          const span = document.createElement('span');
-          span.className = 'katex-inline';
-          span.innerHTML = katex.renderToString(trimmedLatex, {
-            displayMode: false,
-            throwOnError: true,
-            strict: 'warn'
-          });
-          frag.appendChild(span);
-        } catch (err) {
-          frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
-        }
+        const cacheKey = `inline-${segments.length}`;
+        const placeholder = document.createElement('span');
+        placeholder.className = `${INLINE_MATH_PLACEHOLDER_CLASS} ${STREAM_FADE_EXEMPT_CLASS}`;
+        placeholder.setAttribute('data-inline-math-key', cacheKey);
+        frag.appendChild(placeholder);
+
+        segments.push({
+          key: cacheKey,
+          latex: trimmedLatex.replace(/\r/g, ''),
+          raw,
+          complete: match.complete,
+          closing: match.closing
+        });
       }
+
       cursor = match.end;
       mutated = true;
     }
@@ -386,6 +440,58 @@ const renderInlineMathSegments = (root) => {
         frag.appendChild(document.createTextNode(text.slice(cursor)));
       }
       node.replaceWith(frag);
+    }
+  });
+
+  return segments;
+};
+
+const renderInlineMathSegments = (root, segments, cacheRef) => {
+  if (!root || !segments?.length) return;
+  const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null;
+  const cache = cacheRef?.current;
+  const segmentMap = new Map();
+  segments.forEach((segment) => segmentMap.set(segment.key, segment));
+
+  const placeholders = root.querySelectorAll(`.${INLINE_MATH_PLACEHOLDER_CLASS}`);
+  placeholders.forEach((placeholder) => {
+    const key = placeholder.getAttribute('data-inline-math-key');
+    const segment = key ? segmentMap.get(key) : null;
+    if (!segment) return;
+
+    const cacheEntry = cache?.get(key);
+    let htmlToUse = cacheEntry?.html || '';
+    let rendered = false;
+
+    if (katex) {
+      try {
+        htmlToUse = katex.renderToString(segment.latex, {
+          displayMode: false,
+          throwOnError: true,
+          strict: 'warn'
+        });
+        rendered = true;
+      } catch (err) {
+        console.debug('Inline LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
+        if (cacheEntry?.html) {
+          htmlToUse = cacheEntry.html;
+        } else {
+          htmlToUse = '';
+        }
+      }
+      if (rendered && htmlToUse) {
+        cache?.set(key, { html: htmlToUse, latex: segment.latex });
+      }
+    } else if (cacheEntry?.html) {
+      htmlToUse = cacheEntry.html;
+    }
+
+    if (htmlToUse) {
+      if (placeholder.innerHTML !== htmlToUse) {
+        placeholder.innerHTML = htmlToUse;
+      }
+    } else {
+      placeholder.textContent = segment.raw || '';
     }
   });
 };
@@ -398,7 +504,7 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
   segments.forEach((segment) => segmentMap.set(segment.key, segment));
 
   const ensureBody = (placeholder) => {
-    placeholder.classList.add('block-math-placeholder');
+    placeholder.classList.add('block-math-placeholder', STREAM_FADE_EXEMPT_CLASS);
     let body = placeholder.querySelector('.block-math-body');
     if (!body) {
       body = document.createElement('div');
@@ -417,50 +523,39 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
     const normalizedLatex = segment.latex.replace(/\r/g, '');
     const cacheEntry = cache?.get(key);
     let htmlToUse = cacheEntry?.html || '';
-    let successLength = cacheEntry?.length || 0;
+    let rendered = false;
 
-    if (katex) {
-      let rendered = false;
+    if (katex && normalizedLatex.trim()) {
       try {
         htmlToUse = katex.renderToString(normalizedLatex, {
           displayMode: true,
           throwOnError: true,
           strict: 'warn'
         });
-        successLength = normalizedLatex.length;
         rendered = true;
       } catch (err) {
-        const prefix = computeBestRenderablePrefix(normalizedLatex, katex, successLength);
-        if (prefix.html) {
-          htmlToUse = prefix.html;
-          successLength = prefix.length;
-          rendered = true;
-        } else if (!htmlToUse && cacheEntry?.html) {
+        console.debug('Block LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
+        if (cacheEntry?.html) {
           htmlToUse = cacheEntry.html;
-          successLength = cacheEntry.length || 0;
+        } else {
+          htmlToUse = '';
         }
       }
       if (rendered && htmlToUse) {
-        cache?.set(key, { html: htmlToUse, latex: normalizedLatex, length: successLength });
+        cache?.set(key, { html: htmlToUse, latex: normalizedLatex });
       }
-    } else if (!katex && cacheEntry?.html) {
+    } else if (cacheEntry?.html) {
       htmlToUse = cacheEntry.html;
-      successLength = cacheEntry.length || 0;
     }
 
     const body = ensureBody(placeholder);
 
     if (htmlToUse) {
-      body.innerHTML = '';
-      body.innerHTML = htmlToUse;
-    } else if (segment.complete) {
-      body.innerHTML = '';
-      const raw = document.createElement('div');
-      raw.className = 'block-math-raw';
-      raw.textContent = segment.raw;
-      body.appendChild(raw);
-    } else if (!body.innerHTML) {
-      body.textContent = '';
+      if (body.innerHTML !== htmlToUse) {
+        body.innerHTML = htmlToUse;
+      }
+    } else {
+      body.textContent = segment.raw || '';
     }
   });
 };
@@ -473,6 +568,7 @@ const MarkdownRenderer = ({ content }) => {
   const lastTextLengthRef = useRef(0);
   const chunkMetaRef = useRef([]);
   const blockMathCacheRef = useRef(new Map());
+  const inlineMathCacheRef = useRef(new Map());
 
   const finalizeFadeSpan = useCallback((span) => {
     if (!span?.isConnected) return;
@@ -504,6 +600,10 @@ const MarkdownRenderer = ({ content }) => {
     while (walker.nextNode()) {
       const node = walker.currentNode;
       if (node.parentElement?.classList?.contains('stream-fade-chunk')) {
+        traversed += node.textContent?.length || 0;
+        continue;
+      }
+      if (node.parentElement?.closest(`.${STREAM_FADE_EXEMPT_CLASS}`)) {
         traversed += node.textContent?.length || 0;
         continue;
       }
@@ -557,6 +657,59 @@ const MarkdownRenderer = ({ content }) => {
     });
   }, [finalizeFadeSpan]);
 
+  // 使用ref来保存mermaid图表的transform状态（scale和translate）
+  const mermaidStatesRef = useRef(new Map()); // key: mermaid块序号, value: {scale, translate}
+  // 记录每个支持预览的代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
+  const previewViewModeRef = useRef(new Map()); // key: 代码块序号, value: 'preview' | 'code'
+  // 缓存每个Mermaid和SVG代码块最近一次成功渲染的快照，避免失效片段导致闪烁
+  const mermaidSnapshotRef = useRef(new Map()); // key: mermaid块序号, value: svg string
+  const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: svg string
+
+  const togglePreviewMode = useCallback((blockKey, forcedMode) => {
+    if (!blockKey || !containerRef.current) return;
+    const blockContainer = containerRef.current.querySelector(`.code-block-container[data-block-key="${blockKey}"]`);
+    if (!blockContainer) return;
+    const previewContainer = blockContainer.querySelector('.mermaid-preview, .svg-preview');
+    if (!previewContainer) return;
+    const codeBlock = blockContainer.querySelector(`pre[data-code-block="${blockKey}"]`) ||
+      blockContainer.querySelector('pre');
+    if (!codeBlock) return;
+    const toggleButton = blockContainer.querySelector(`[data-preview-toggle="${blockKey}"]`);
+
+    const currentMode = previewContainer.dataset.viewMode === 'code' ? 'code'
+      : (previewContainer.style.display === 'none' ? 'code' : 'preview');
+    const nextMode = forcedMode || (currentMode === 'preview' ? 'code' : 'preview');
+    const showPreview = nextMode === 'preview';
+    const preferredDisplay = previewContainer.dataset.previewDisplay || 'block';
+
+    previewContainer.style.display = showPreview ? preferredDisplay : 'none';
+    previewContainer.dataset.viewMode = nextMode;
+    codeBlock.style.display = showPreview ? 'none' : 'block';
+    previewViewModeRef.current.set(blockKey, nextMode);
+
+    if (toggleButton) {
+      toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
+      toggleButton.setAttribute('data-mode', nextMode);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const root = containerRef.current;
+    const handlePointerDown = (event) => {
+      const button = event.target.closest('[data-preview-toggle]');
+      if (!button || !root.contains(button)) return;
+      const blockKey = button.getAttribute('data-preview-toggle');
+      if (!blockKey) return;
+      event.preventDefault();
+      togglePreviewMode(blockKey);
+    };
+    root.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      root.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [togglePreviewMode]);
+
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
 
@@ -566,8 +719,42 @@ const MarkdownRenderer = ({ content }) => {
       lastTextLengthRef.current = 0;
       chunkMetaRef.current = [];
       blockMathCacheRef.current.clear();
+      inlineMathCacheRef.current.clear();
+      mermaidStatesRef.current.clear();
+      previewViewModeRef.current.clear();
+      mermaidSnapshotRef.current.clear();
+      svgSnapshotRef.current.clear();
       return;
     }
+    
+    // 在重新渲染前，保存所有预览容器的当前状态
+    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview');
+    existingPreviews.forEach(preview => {
+      const blockKey = preview.getAttribute('data-block-key');
+      if (!blockKey) return;
+
+      if (preview.classList.contains('mermaid-preview') && preview._transformState) {
+        mermaidStatesRef.current.set(blockKey, {
+          scale: preview._transformState.scale || 1,
+          translate: preview._transformState.translate || { x: 0, y: 0 }
+        });
+      }
+
+      const recordedMode = preview.dataset.viewMode || (preview.style.display === 'none' ? 'code' : 'preview');
+      previewViewModeRef.current.set(blockKey, recordedMode);
+
+      if (preview.classList.contains('mermaid-preview')) {
+        const snapshotSvg = preview.querySelector('svg');
+        if (snapshotSvg) {
+          mermaidSnapshotRef.current.set(blockKey, snapshotSvg.outerHTML);
+        }
+      } else if (preview.classList.contains('svg-preview')) {
+        const snapshotSvg = preview.querySelector('svg');
+        if (snapshotSvg) {
+          svgSnapshotRef.current.set(blockKey, snapshotSvg.outerHTML);
+        }
+      }
+    });
 
     // 配置Prism自动加载器
     if (window.Prism?.plugins?.autoloader) {
@@ -604,7 +791,9 @@ const MarkdownRenderer = ({ content }) => {
 
     // 渲染Markdown
     const normalizedContent = normalizeQuotesInString(content);
-    const dedentedContent = dedent(normalizedContent);
+    const inlineReadyContent = normalizeInlineMathDelimiters(normalizedContent);
+    const latexReadyContent = normalizeBlockMathDelimiters(inlineReadyContent);
+    const dedentedContent = dedent(latexReadyContent);
     containerRef.current.innerHTML = md.render(dedentedContent);
 
     // 保留有序列表原始编号：
@@ -721,6 +910,10 @@ const MarkdownRenderer = ({ content }) => {
 
     // 代码高亮和DOM操作
     const pres = Array.from(containerRef.current.querySelectorAll('pre'));
+    const activeMermaidKeys = new Set();
+    const activePreviewKeys = new Set();
+    let mermaidBlockIndex = 0;
+    let svgBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
 
@@ -730,10 +923,33 @@ const MarkdownRenderer = ({ content }) => {
       const languageMatch = /language-(\w+)/.exec(code.className || '');
       const language = languageMatch ? languageMatch[1] : '';
       const isMermaid = language === 'mermaid';
+      const isSvg = language === 'svg';
+      const supportsPreview = isMermaid || isSvg;
+      let blockKey = null;
+      if (isMermaid) {
+        blockKey = `mermaid-${mermaidBlockIndex++}`;
+        activeMermaidKeys.add(blockKey);
+      } else if (isSvg) {
+        blockKey = `svg-${svgBlockIndex++}`;
+      }
+      if (supportsPreview && blockKey) {
+        activePreviewKeys.add(blockKey);
+      }
+      
+      // 克隆 pre 元素
+      const preClone = pre.cloneNode(true);
+      const codeClone = preClone.querySelector('code');
+      const codeContent = codeClone?.textContent || '';
+      if (blockKey) {
+        preClone.setAttribute('data-code-block', blockKey);
+      }
       
       // 创建容器结构
       const container = document.createElement('div');
       container.className = 'code-block-container';
+      if (supportsPreview && blockKey) {
+        container.setAttribute('data-block-key', blockKey);
+      }
       
       const header = document.createElement('div');
       header.className = 'code-block-header';
@@ -744,26 +960,26 @@ const MarkdownRenderer = ({ content }) => {
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
       
-      // 为Mermaid添加预览按钮
+      // 为支持预览的代码块添加预览按钮
       let previewButton = null;
       let showPreview = true; // 默认开启预览
       
-      if (isMermaid) {
+      if (supportsPreview && blockKey) {
+        const savedViewMode = previewViewModeRef.current.get(blockKey);
+        showPreview = savedViewMode !== 'code';
+
         previewButton = document.createElement('button');
-        previewButton.className = 'code-copy-button';
-        previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
+        previewButton.className = 'code-copy-button mermaid-preview-toggle';
+        previewButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
         previewButton.setAttribute('aria-label', 'Toggle Preview');
+        previewButton.setAttribute('data-preview-toggle', blockKey);
+        previewButton.setAttribute('data-mode', showPreview ? 'preview' : 'code');
       }
       
       const copyButton = document.createElement('button');
       copyButton.className = 'code-copy-button';
       copyButton.innerHTML = BUTTON_CONTENT.COPY;
       copyButton.setAttribute('aria-label', 'Copy');
-      
-      // 克隆 pre 元素
-      const preClone = pre.cloneNode(true);
-      const codeClone = preClone.querySelector('code');
-      const mermaidCode = codeClone.textContent;
 
       // 创建Mermaid预览容器（仅对Mermaid图表）
       let mermaidContainer = null;
@@ -775,6 +991,10 @@ const MarkdownRenderer = ({ content }) => {
         // 创建Mermaid预览容器，直接作为内容显示
         mermaidContainer = document.createElement('div');
         mermaidContainer.className = 'mermaid-preview';
+        mermaidContainer.setAttribute('data-block-key', blockKey);
+        mermaidContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
+        mermaidContainer.dataset.previewDisplay = 'block';
+        previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
         mermaidContainer.style.cssText = `
           padding: 20px;
           background: white;
@@ -789,9 +1009,11 @@ const MarkdownRenderer = ({ content }) => {
           max-height: 400px;
           overflow: hidden;
         `;
+        mermaidContainer.style.display = showPreview ? 'block' : 'none';
         
         // 创建缩放控制按钮
         const zoomControls = document.createElement('div');
+        zoomControls.className = 'mermaid-zoom-controls';
         zoomControls.style.cssText = `
           position: absolute;
           top: 10px;
@@ -822,12 +1044,16 @@ const MarkdownRenderer = ({ content }) => {
         
         // 将缩放控制按钮添加到Mermaid容器
         mermaidContainer.appendChild(zoomControls);
-        
-        // 缩放和拖拽状态
-        let scale = 1;
+
+        // 缩放和拖拽状态 - 尝试从之前保存的状态恢复
+        const savedState = mermaidStatesRef.current.get(blockKey);
+        let scale = savedState ? savedState.scale : 1;
+        let translate = savedState ? { ...savedState.translate } : { x: 0, y: 0 };
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
-        let translate = { x: 0, y: 0 };
+        
+        // 初始化状态对象并保存到容器上
+        mermaidContainer._transformState = { scale, translate };
         
         // 缩放功能 - 直接对mermaidContainer内的内容进行变换
         const updateTransform = () => {
@@ -835,7 +1061,43 @@ const MarkdownRenderer = ({ content }) => {
           if (svgElement) {
             svgElement.style.transform = `translate(${translate.x}px, ${translate.y}px) scale(${scale})`;
           }
+          // 同步更新保存的状态
+          mermaidContainer._transformState = { scale, translate: { ...translate } };
         };
+
+        const replaceSvgContent = (svgElement) => {
+          if (!svgElement) return;
+          svgElement.style.maxWidth = '100%';
+          svgElement.style.height = 'auto';
+          svgElement.style.maxHeight = '100%';
+          svgElement.style.display = 'block';
+          svgElement.style.transformOrigin = 'center center';
+          const existingSvg = mermaidContainer.querySelector('svg');
+          const controlsNode = mermaidContainer.querySelector('.mermaid-zoom-controls');
+          if (existingSvg) {
+            existingSvg.replaceWith(svgElement);
+          } else if (controlsNode) {
+            mermaidContainer.insertBefore(svgElement, controlsNode);
+          } else {
+            mermaidContainer.appendChild(svgElement);
+          }
+          updateTransform();
+        };
+
+        const applyMermaidSnapshot = () => {
+          const snapshot = mermaidSnapshotRef.current.get(blockKey);
+          if (!snapshot) return;
+          const temp = document.createElement('div');
+          temp.innerHTML = snapshot;
+          const snapshotSvg = temp.querySelector('svg');
+          if (snapshotSvg) {
+            replaceSvgContent(snapshotSvg);
+            mermaidContainer.setAttribute('data-render-success', 'true');
+          }
+        };
+
+        // 恢复上一次成功渲染，避免在新chunk尚未合法时闪烁
+        applyMermaidSnapshot();
         
         zoomInBtn.addEventListener('click', () => {
           scale = Math.min(scale * 1.2, 3);
@@ -930,7 +1192,7 @@ const MarkdownRenderer = ({ content }) => {
               // 渲染前清理一次
               cleanupErrors();
               
-              const result = await window.mermaid.render(mermaidId + '-svg', mermaidCode);
+              const result = await window.mermaid.render(mermaidId + '-svg', codeContent);
               
               // 渲染后立即清理
               setTimeout(cleanupErrors, 50);
@@ -941,60 +1203,152 @@ const MarkdownRenderer = ({ content }) => {
                 const svg = tempDiv.querySelector('svg');
                 
                 if (svg) {
-                  svg.style.maxWidth = '100%';
-                  svg.style.height = 'auto';
-                  svg.style.maxHeight = '100%';
-                  svg.style.display = 'block';
-                  svg.style.transformOrigin = 'center center';
+                  replaceSvgContent(svg);
+                  mermaidSnapshotRef.current.set(blockKey, svg.outerHTML);
+                  mermaidContainer.setAttribute('data-render-success', 'true');
                   
-                  // 保存控制按钮
-                  const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-                  
-                  // 清空容器并重新构建
-                  mermaidContainer.innerHTML = '';
-                  
-                  // 先添加SVG，再添加控制按钮
-                  mermaidContainer.appendChild(svg);
-                  if (controls) {
-                    mermaidContainer.appendChild(controls);
-                  }
+                  // 应用保存的transform状态（如果有）
+                  updateTransform();
                   
                   // 延迟清理，确保渲染完成
                   setTimeout(cleanupErrors, 200);
                 }
               }
             } catch (err) {
-              console.error('Mermaid渲染失败:', err);
+              // 流式显示时代码可能不完整，导致语法错误
+              // 如果已经有成功渲染的内容，保持不变，避免闪烁
+              const hasSuccessRender = mermaidContainer.getAttribute('data-render-success') === 'true';
               
-              // 错误时也清理
-              cleanupErrors();
-              
-              // 保存控制按钮
-              const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-              mermaidContainer.innerHTML = '';
-              
-              const errorDiv = document.createElement('div');
-              errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
-              errorDiv.textContent = 'Mermaid图表语法错误';
-              mermaidContainer.appendChild(errorDiv);
-              
-              if (controls) {
-                mermaidContainer.appendChild(controls);
+              if (!hasSuccessRender) {
+                // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
+                // 只在控制台输出调试信息
+                console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
+              } else {
+                applyMermaidSnapshot();
               }
+              
+              // 错误时也清理DOM中的错误信息
+              cleanupErrors();
+              setTimeout(cleanupErrors, 100);
             }
           };
           
           // 执行渲染
           renderChart();
         } else {
-          const errorDiv = document.createElement('div');
-          errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
-          errorDiv.textContent = 'Mermaid库未加载';
-          mermaidContainer.appendChild(errorDiv);
+          if (!mermaidSnapshotRef.current.get(blockKey)) {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
+            errorDiv.textContent = 'Mermaid库未加载';
+            mermaidContainer.appendChild(errorDiv);
+          } else {
+            applyMermaidSnapshot();
+          }
         }
         
-        // 初始隐藏代码
-        preClone.style.display = 'none';
+      }
+
+      // SVG 预览容器
+      let svgContainer = null;
+      if (isSvg && blockKey) {
+        let codeBlockHeight = pre.offsetHeight;
+        if (!codeBlockHeight || codeBlockHeight < 40) codeBlockHeight = 200;
+        const normalizedHeight = Math.min(Math.max(codeBlockHeight, 120), 400);
+
+        svgContainer = document.createElement('div');
+        svgContainer.className = 'svg-preview';
+        svgContainer.setAttribute('data-block-key', blockKey);
+        svgContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
+        svgContainer.dataset.previewDisplay = 'flex';
+        previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
+        svgContainer.style.cssText = `
+          padding: 16px;
+          background: white;
+          border-radius: 12px;
+          border: 1px solid #f1f5f9;
+          display: ${showPreview ? 'flex' : 'none'};
+          align-items: center;
+          justify-content: center;
+          min-height: ${normalizedHeight}px;
+          max-height: 400px;
+          overflow: auto;
+        `;
+
+        const sanitizeSvgNode = (node) => {
+          if (!node) return;
+          if (node.attributes) {
+            Array.from(node.attributes).forEach((attr) => {
+              const name = (attr.name || '').toLowerCase();
+              const value = (attr.value || '').toLowerCase();
+              if (name.startsWith('on') || value.includes('javascript:')) {
+                node.removeAttribute(attr.name);
+              }
+            });
+          }
+          Array.from(node.children || []).forEach((child) => {
+            const tag = (child.tagName || '').toLowerCase();
+            if (tag === 'script' || tag === 'foreignobject') {
+              child.remove();
+            } else {
+              sanitizeSvgNode(child);
+            }
+          });
+        };
+
+        const applySnapshotToContainer = (snapshot) => {
+          if (!snapshot) return;
+          const tempWrapper = document.createElement('div');
+          tempWrapper.innerHTML = snapshot;
+          const snapshotSvg = tempWrapper.querySelector('svg');
+          if (snapshotSvg) {
+            svgContainer.replaceChildren(snapshotSvg);
+          }
+        };
+
+        // 先恢复上一次成功渲染的内容，避免空白闪烁
+        applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
+
+        const renderSvgPreview = () => {
+          if (!codeContent?.trim()) return;
+          const hasOpening = /<svg[\s\S]*?>/i.test(codeContent);
+          const hasClosing = /<\/svg>/i.test(codeContent);
+          if (!hasOpening) {
+            console.debug('SVG渲染等待中（尚未检测到<svg>起始标签）');
+            return;
+          }
+          const svgMarkup = hasClosing ? codeContent : `${codeContent}</svg>`;
+          try {
+            const parser = new DOMParser();
+            const parsed = parser.parseFromString(svgMarkup, 'image/svg+xml');
+            const parserError = parsed.querySelector('parsererror');
+            if (parserError) {
+              throw new Error(parserError.textContent || 'SVG语法错误');
+            }
+            const svgElement = parsed.documentElement;
+            if (!svgElement || svgElement.nodeName.toLowerCase() !== 'svg') {
+              throw new Error('SVG代码需要以<svg>开头');
+            }
+            sanitizeSvgNode(svgElement);
+            const sanitizedSvg = document.importNode(svgElement, true);
+            sanitizedSvg.style.maxWidth = '100%';
+            sanitizedSvg.style.height = 'auto';
+            sanitizedSvg.setAttribute('role', sanitizedSvg.getAttribute('role') || 'img');
+            sanitizedSvg.setAttribute('focusable', 'false');
+            sanitizedSvg.setAttribute('aria-hidden', 'false');
+
+            svgContainer.replaceChildren(sanitizedSvg);
+            svgSnapshotRef.current.set(blockKey, sanitizedSvg.outerHTML);
+            svgContainer.setAttribute('data-render-success', 'true');
+          } catch (err) {
+            console.debug('SVG渲染等待中（代码可能未完整接收）:', err.message);
+            applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
+          }
+        };
+
+        renderSvgPreview();
+      }
+      if (supportsPreview && blockKey) {
+        preClone.style.display = showPreview ? 'none' : 'block';
       }
 
       // 组装结构
@@ -1013,25 +1367,12 @@ const MarkdownRenderer = ({ content }) => {
       if (mermaidContainer) {
         contentArea.appendChild(mermaidContainer);
       }
+      if (svgContainer) {
+        contentArea.appendChild(svgContainer);
+      }
       contentArea.appendChild(preClone);
       container.appendChild(header);
       container.appendChild(contentArea);
-
-      // 预览切换功能（仅Mermaid）
-      if (previewButton && mermaidContainer) {
-        previewButton.addEventListener('click', () => {
-          showPreview = !showPreview;
-          if (showPreview) {
-            mermaidContainer.style.display = 'block';
-            preClone.style.display = 'none';
-            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_ON;
-          } else {
-            mermaidContainer.style.display = 'none';
-            preClone.style.display = 'block';
-            previewButton.innerHTML = BUTTON_CONTENT.PREVIEW_OFF;
-          }
-        });
-      }
 
       // 复制功能
       copyButton.addEventListener('click', async () => {
@@ -1059,18 +1400,46 @@ const MarkdownRenderer = ({ content }) => {
       }
     });
 
+    // 清理已经不存在的Mermaid状态，避免ref无限增长
+    mermaidStatesRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidStatesRef.current.delete(key);
+      }
+    });
+    mermaidSnapshotRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidSnapshotRef.current.delete(key);
+      }
+    });
+    previewViewModeRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        previewViewModeRef.current.delete(key);
+      }
+    });
+    svgSnapshotRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        svgSnapshotRef.current.delete(key);
+      }
+    });
+
     // 流式块级公式渲染（先替换占位，再手动渲染，防止未闭合内容闪烁）
     const blockMathSegments = replaceBlockMathWithPlaceholders(containerRef.current);
     renderBlockMathSegments(containerRef.current, blockMathSegments, blockMathCacheRef);
-    const activeKeys = new Set(blockMathSegments.map((segment) => segment.key));
+    const activeBlockKeys = new Set(blockMathSegments.map((segment) => segment.key));
     blockMathCacheRef.current.forEach((_, key) => {
-      if (!activeKeys.has(key)) {
+      if (!activeBlockKeys.has(key)) {
         blockMathCacheRef.current.delete(key);
       }
     });
 
-    // 行内数学公式本地渲染
-    renderInlineMathSegments(containerRef.current);
+    const inlineMathSegments = replaceInlineMathWithPlaceholders(containerRef.current);
+    renderInlineMathSegments(containerRef.current, inlineMathSegments, inlineMathCacheRef);
+    const activeInlineKeys = new Set(inlineMathSegments.map((segment) => segment.key));
+    inlineMathCacheRef.current.forEach((_, key) => {
+      if (!activeInlineKeys.has(key)) {
+        inlineMathCacheRef.current.delete(key);
+      }
+    });
 
     // 引号统一为英文格式，避免中英文混排导致的符号跳变
     normalizeQuotesInElement(containerRef.current);
