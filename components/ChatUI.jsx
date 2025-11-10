@@ -143,6 +143,7 @@ const normalizeQuotesInElement = (root) => {
   });
 };
 
+
 const isEscapedDelimiter = (text, index) => {
   let slashCount = 0;
   for (let i = index - 1; i >= 0; i--) {
@@ -559,29 +560,32 @@ const MarkdownRenderer = ({ content }) => {
 
   // 使用ref来保存mermaid图表的transform状态（scale和translate）
   const mermaidStatesRef = useRef(new Map()); // key: mermaid块序号, value: {scale, translate}
-  // 记录每个Mermaid代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
-  const mermaidViewModeRef = useRef(new Map()); // key: mermaid块序号, value: 'preview' | 'code'
+  // 记录每个支持预览的代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
+  const previewViewModeRef = useRef(new Map()); // key: 代码块序号, value: 'preview' | 'code'
+  // 缓存每个SVG代码块最近一次成功渲染的快照，避免失效片段导致闪烁
+  const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: outerHTML string
 
-  const toggleMermaidView = useCallback((blockKey, forcedMode) => {
+  const togglePreviewMode = useCallback((blockKey, forcedMode) => {
     if (!blockKey || !containerRef.current) return;
     const blockContainer = containerRef.current.querySelector(`.code-block-container[data-block-key="${blockKey}"]`);
     if (!blockContainer) return;
-    const mermaidContainer = blockContainer.querySelector('.mermaid-preview');
-    if (!mermaidContainer) return;
+    const previewContainer = blockContainer.querySelector('.mermaid-preview, .svg-preview');
+    if (!previewContainer) return;
     const codeBlock = blockContainer.querySelector(`pre[data-code-block="${blockKey}"]`) ||
       blockContainer.querySelector('pre');
     if (!codeBlock) return;
     const toggleButton = blockContainer.querySelector(`[data-preview-toggle="${blockKey}"]`);
 
-    const currentMode = mermaidContainer.dataset.viewMode === 'code' ? 'code'
-      : (mermaidContainer.style.display === 'none' ? 'code' : 'preview');
+    const currentMode = previewContainer.dataset.viewMode === 'code' ? 'code'
+      : (previewContainer.style.display === 'none' ? 'code' : 'preview');
     const nextMode = forcedMode || (currentMode === 'preview' ? 'code' : 'preview');
     const showPreview = nextMode === 'preview';
+    const preferredDisplay = previewContainer.dataset.previewDisplay || 'block';
 
-    mermaidContainer.style.display = showPreview ? 'block' : 'none';
-    mermaidContainer.dataset.viewMode = nextMode;
+    previewContainer.style.display = showPreview ? preferredDisplay : 'none';
+    previewContainer.dataset.viewMode = nextMode;
     codeBlock.style.display = showPreview ? 'none' : 'block';
-    mermaidViewModeRef.current.set(blockKey, nextMode);
+    previewViewModeRef.current.set(blockKey, nextMode);
 
     if (toggleButton) {
       toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
@@ -598,13 +602,13 @@ const MarkdownRenderer = ({ content }) => {
       const blockKey = button.getAttribute('data-preview-toggle');
       if (!blockKey) return;
       event.preventDefault();
-      toggleMermaidView(blockKey);
+      togglePreviewMode(blockKey);
     };
     root.addEventListener('pointerdown', handlePointerDown);
     return () => {
       root.removeEventListener('pointerdown', handlePointerDown);
     };
-  }, [toggleMermaidView]);
+  }, [togglePreviewMode]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
@@ -616,17 +620,18 @@ const MarkdownRenderer = ({ content }) => {
       chunkMetaRef.current = [];
       blockMathCacheRef.current.clear();
       mermaidStatesRef.current.clear();
-      mermaidViewModeRef.current.clear();
+      previewViewModeRef.current.clear();
+      svgSnapshotRef.current.clear();
       return;
     }
     
-    // 在重新渲染前，保存所有mermaid图表的当前状态
-    const existingMermaidPreviews = containerRef.current.querySelectorAll('.mermaid-preview');
-    existingMermaidPreviews.forEach(preview => {
+    // 在重新渲染前，保存所有预览容器的当前状态
+    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview');
+    existingPreviews.forEach(preview => {
       const blockKey = preview.getAttribute('data-block-key');
       if (!blockKey) return;
 
-      if (preview._transformState) {
+      if (preview.classList.contains('mermaid-preview') && preview._transformState) {
         mermaidStatesRef.current.set(blockKey, {
           scale: preview._transformState.scale || 1,
           translate: preview._transformState.translate || { x: 0, y: 0 }
@@ -634,7 +639,7 @@ const MarkdownRenderer = ({ content }) => {
       }
 
       const recordedMode = preview.dataset.viewMode || (preview.style.display === 'none' ? 'code' : 'preview');
-      mermaidViewModeRef.current.set(blockKey, recordedMode);
+      previewViewModeRef.current.set(blockKey, recordedMode);
     });
 
     // 配置Prism自动加载器
@@ -790,7 +795,9 @@ const MarkdownRenderer = ({ content }) => {
     // 代码高亮和DOM操作
     const pres = Array.from(containerRef.current.querySelectorAll('pre'));
     const activeMermaidKeys = new Set();
+    const activePreviewKeys = new Set();
     let mermaidBlockIndex = 0;
+    let svgBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
 
@@ -800,24 +807,31 @@ const MarkdownRenderer = ({ content }) => {
       const languageMatch = /language-(\w+)/.exec(code.className || '');
       const language = languageMatch ? languageMatch[1] : '';
       const isMermaid = language === 'mermaid';
+      const isSvg = language === 'svg';
+      const supportsPreview = isMermaid || isSvg;
       let blockKey = null;
       if (isMermaid) {
         blockKey = `mermaid-${mermaidBlockIndex++}`;
         activeMermaidKeys.add(blockKey);
+      } else if (isSvg) {
+        blockKey = `svg-${svgBlockIndex++}`;
+      }
+      if (supportsPreview && blockKey) {
+        activePreviewKeys.add(blockKey);
       }
       
       // 克隆 pre 元素
       const preClone = pre.cloneNode(true);
       const codeClone = preClone.querySelector('code');
-      const mermaidCode = codeClone.textContent;
-      if (isMermaid && blockKey) {
+      const codeContent = codeClone?.textContent || '';
+      if (blockKey) {
         preClone.setAttribute('data-code-block', blockKey);
       }
       
       // 创建容器结构
       const container = document.createElement('div');
       container.className = 'code-block-container';
-      if (isMermaid && blockKey) {
+      if (supportsPreview && blockKey) {
         container.setAttribute('data-block-key', blockKey);
       }
       
@@ -830,12 +844,12 @@ const MarkdownRenderer = ({ content }) => {
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
       
-      // 为Mermaid添加预览按钮
+      // 为支持预览的代码块添加预览按钮
       let previewButton = null;
       let showPreview = true; // 默认开启预览
       
-      if (isMermaid) {
-        const savedViewMode = mermaidViewModeRef.current.get(blockKey);
+      if (supportsPreview && blockKey) {
+        const savedViewMode = previewViewModeRef.current.get(blockKey);
         showPreview = savedViewMode !== 'code';
 
         previewButton = document.createElement('button');
@@ -863,7 +877,8 @@ const MarkdownRenderer = ({ content }) => {
         mermaidContainer.className = 'mermaid-preview';
         mermaidContainer.setAttribute('data-block-key', blockKey);
         mermaidContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
-        mermaidViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
+        mermaidContainer.dataset.previewDisplay = 'block';
+        previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
         mermaidContainer.style.cssText = `
           padding: 20px;
           background: white;
@@ -1026,7 +1041,7 @@ const MarkdownRenderer = ({ content }) => {
               // 渲染前清理一次
               cleanupErrors();
               
-              const result = await window.mermaid.render(mermaidId + '-svg', mermaidCode);
+              const result = await window.mermaid.render(mermaidId + '-svg', codeContent);
               
               // 渲染后立即清理
               setTimeout(cleanupErrors, 50);
@@ -1091,7 +1106,108 @@ const MarkdownRenderer = ({ content }) => {
           mermaidContainer.appendChild(errorDiv);
         }
         
-        // 根据当前模式决定是否显示代码
+      }
+
+      // SVG 预览容器
+      let svgContainer = null;
+      if (isSvg && blockKey) {
+        let codeBlockHeight = pre.offsetHeight;
+        if (!codeBlockHeight || codeBlockHeight < 40) codeBlockHeight = 200;
+        const normalizedHeight = Math.min(Math.max(codeBlockHeight, 120), 400);
+
+        svgContainer = document.createElement('div');
+        svgContainer.className = 'svg-preview';
+        svgContainer.setAttribute('data-block-key', blockKey);
+        svgContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
+        svgContainer.dataset.previewDisplay = 'flex';
+        previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
+        svgContainer.style.cssText = `
+          padding: 16px;
+          background: white;
+          border-radius: 12px;
+          border: 1px solid #f1f5f9;
+          display: ${showPreview ? 'flex' : 'none'};
+          align-items: center;
+          justify-content: center;
+          min-height: ${normalizedHeight}px;
+          max-height: 400px;
+          overflow: auto;
+        `;
+
+        const sanitizeSvgNode = (node) => {
+          if (!node) return;
+          if (node.attributes) {
+            Array.from(node.attributes).forEach((attr) => {
+              const name = (attr.name || '').toLowerCase();
+              const value = (attr.value || '').toLowerCase();
+              if (name.startsWith('on') || value.includes('javascript:')) {
+                node.removeAttribute(attr.name);
+              }
+            });
+          }
+          Array.from(node.children || []).forEach((child) => {
+            const tag = (child.tagName || '').toLowerCase();
+            if (tag === 'script' || tag === 'foreignobject') {
+              child.remove();
+            } else {
+              sanitizeSvgNode(child);
+            }
+          });
+        };
+
+        const applySnapshotToContainer = (snapshot) => {
+          if (!snapshot) return;
+          const tempWrapper = document.createElement('div');
+          tempWrapper.innerHTML = snapshot;
+          const snapshotSvg = tempWrapper.querySelector('svg');
+          if (snapshotSvg) {
+            svgContainer.replaceChildren(snapshotSvg);
+          }
+        };
+
+        // 先恢复上一次成功渲染的内容，避免空白闪烁
+        applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
+
+        const renderSvgPreview = () => {
+          if (!codeContent?.trim()) return;
+          const hasOpening = /<svg[\s\S]*?>/i.test(codeContent);
+          const hasClosing = /<\/svg>/i.test(codeContent);
+          if (!hasOpening) {
+            console.debug('SVG渲染等待中（尚未检测到<svg>起始标签）');
+            return;
+          }
+          const svgMarkup = hasClosing ? codeContent : `${codeContent}</svg>`;
+          try {
+            const parser = new DOMParser();
+            const parsed = parser.parseFromString(svgMarkup, 'image/svg+xml');
+            const parserError = parsed.querySelector('parsererror');
+            if (parserError) {
+              throw new Error(parserError.textContent || 'SVG语法错误');
+            }
+            const svgElement = parsed.documentElement;
+            if (!svgElement || svgElement.nodeName.toLowerCase() !== 'svg') {
+              throw new Error('SVG代码需要以<svg>开头');
+            }
+            sanitizeSvgNode(svgElement);
+            const sanitizedSvg = document.importNode(svgElement, true);
+            sanitizedSvg.style.maxWidth = '100%';
+            sanitizedSvg.style.height = 'auto';
+            sanitizedSvg.setAttribute('role', sanitizedSvg.getAttribute('role') || 'img');
+            sanitizedSvg.setAttribute('focusable', 'false');
+            sanitizedSvg.setAttribute('aria-hidden', 'false');
+
+            svgContainer.replaceChildren(sanitizedSvg);
+            svgSnapshotRef.current.set(blockKey, sanitizedSvg.outerHTML);
+            svgContainer.setAttribute('data-render-success', 'true');
+          } catch (err) {
+            console.debug('SVG渲染等待中（代码可能未完整接收）:', err.message);
+            applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
+          }
+        };
+
+        renderSvgPreview();
+      }
+      if (supportsPreview && blockKey) {
         preClone.style.display = showPreview ? 'none' : 'block';
       }
 
@@ -1110,6 +1226,9 @@ const MarkdownRenderer = ({ content }) => {
       
       if (mermaidContainer) {
         contentArea.appendChild(mermaidContainer);
+      }
+      if (svgContainer) {
+        contentArea.appendChild(svgContainer);
       }
       contentArea.appendChild(preClone);
       container.appendChild(header);
@@ -1147,9 +1266,14 @@ const MarkdownRenderer = ({ content }) => {
         mermaidStatesRef.current.delete(key);
       }
     });
-    mermaidViewModeRef.current.forEach((_, key) => {
-      if (!activeMermaidKeys.has(key)) {
-        mermaidViewModeRef.current.delete(key);
+    previewViewModeRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        previewViewModeRef.current.delete(key);
+      }
+    });
+    svgSnapshotRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        svgSnapshotRef.current.delete(key);
       }
     });
 
