@@ -562,8 +562,9 @@ const MarkdownRenderer = ({ content }) => {
   const mermaidStatesRef = useRef(new Map()); // key: mermaid块序号, value: {scale, translate}
   // 记录每个支持预览的代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
   const previewViewModeRef = useRef(new Map()); // key: 代码块序号, value: 'preview' | 'code'
-  // 缓存每个SVG代码块最近一次成功渲染的快照，避免失效片段导致闪烁
-  const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: outerHTML string
+  // 缓存每个Mermaid和SVG代码块最近一次成功渲染的快照，避免失效片段导致闪烁
+  const mermaidSnapshotRef = useRef(new Map()); // key: mermaid块序号, value: svg string
+  const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: svg string
 
   const togglePreviewMode = useCallback((blockKey, forcedMode) => {
     if (!blockKey || !containerRef.current) return;
@@ -621,6 +622,7 @@ const MarkdownRenderer = ({ content }) => {
       blockMathCacheRef.current.clear();
       mermaidStatesRef.current.clear();
       previewViewModeRef.current.clear();
+      mermaidSnapshotRef.current.clear();
       svgSnapshotRef.current.clear();
       return;
     }
@@ -640,6 +642,18 @@ const MarkdownRenderer = ({ content }) => {
 
       const recordedMode = preview.dataset.viewMode || (preview.style.display === 'none' ? 'code' : 'preview');
       previewViewModeRef.current.set(blockKey, recordedMode);
+
+      if (preview.classList.contains('mermaid-preview')) {
+        const snapshotSvg = preview.querySelector('svg');
+        if (snapshotSvg) {
+          mermaidSnapshotRef.current.set(blockKey, snapshotSvg.outerHTML);
+        }
+      } else if (preview.classList.contains('svg-preview')) {
+        const snapshotSvg = preview.querySelector('svg');
+        if (snapshotSvg) {
+          svgSnapshotRef.current.set(blockKey, snapshotSvg.outerHTML);
+        }
+      }
     });
 
     // 配置Prism自动加载器
@@ -897,6 +911,7 @@ const MarkdownRenderer = ({ content }) => {
         
         // 创建缩放控制按钮
         const zoomControls = document.createElement('div');
+        zoomControls.className = 'mermaid-zoom-controls';
         zoomControls.style.cssText = `
           position: absolute;
           top: 10px;
@@ -927,7 +942,7 @@ const MarkdownRenderer = ({ content }) => {
         
         // 将缩放控制按钮添加到Mermaid容器
         mermaidContainer.appendChild(zoomControls);
-        
+
         // 缩放和拖拽状态 - 尝试从之前保存的状态恢复
         const savedState = mermaidStatesRef.current.get(blockKey);
         let scale = savedState ? savedState.scale : 1;
@@ -947,6 +962,40 @@ const MarkdownRenderer = ({ content }) => {
           // 同步更新保存的状态
           mermaidContainer._transformState = { scale, translate: { ...translate } };
         };
+
+        const replaceSvgContent = (svgElement) => {
+          if (!svgElement) return;
+          svgElement.style.maxWidth = '100%';
+          svgElement.style.height = 'auto';
+          svgElement.style.maxHeight = '100%';
+          svgElement.style.display = 'block';
+          svgElement.style.transformOrigin = 'center center';
+          const existingSvg = mermaidContainer.querySelector('svg');
+          const controlsNode = mermaidContainer.querySelector('.mermaid-zoom-controls');
+          if (existingSvg) {
+            existingSvg.replaceWith(svgElement);
+          } else if (controlsNode) {
+            mermaidContainer.insertBefore(svgElement, controlsNode);
+          } else {
+            mermaidContainer.appendChild(svgElement);
+          }
+          updateTransform();
+        };
+
+        const applyMermaidSnapshot = () => {
+          const snapshot = mermaidSnapshotRef.current.get(blockKey);
+          if (!snapshot) return;
+          const temp = document.createElement('div');
+          temp.innerHTML = snapshot;
+          const snapshotSvg = temp.querySelector('svg');
+          if (snapshotSvg) {
+            replaceSvgContent(snapshotSvg);
+            mermaidContainer.setAttribute('data-render-success', 'true');
+          }
+        };
+
+        // 恢复上一次成功渲染，避免在新chunk尚未合法时闪烁
+        applyMermaidSnapshot();
         
         zoomInBtn.addEventListener('click', () => {
           scale = Math.min(scale * 1.2, 3);
@@ -1052,25 +1101,8 @@ const MarkdownRenderer = ({ content }) => {
                 const svg = tempDiv.querySelector('svg');
                 
                 if (svg) {
-                  svg.style.maxWidth = '100%';
-                  svg.style.height = 'auto';
-                  svg.style.maxHeight = '100%';
-                  svg.style.display = 'block';
-                  svg.style.transformOrigin = 'center center';
-                  
-                  // 保存控制按钮
-                  const controls = mermaidContainer.querySelector('div[style*="position: absolute"]');
-                  
-                  // 清空容器并重新构建
-                  mermaidContainer.innerHTML = '';
-                  
-                  // 先添加SVG，再添加控制按钮
-                  mermaidContainer.appendChild(svg);
-                  if (controls) {
-                    mermaidContainer.appendChild(controls);
-                  }
-                  
-                  // 标记为成功渲染
+                  replaceSvgContent(svg);
+                  mermaidSnapshotRef.current.set(blockKey, svg.outerHTML);
                   mermaidContainer.setAttribute('data-render-success', 'true');
                   
                   // 应用保存的transform状态（如果有）
@@ -1089,6 +1121,8 @@ const MarkdownRenderer = ({ content }) => {
                 // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
                 // 只在控制台输出调试信息
                 console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
+              } else {
+                applyMermaidSnapshot();
               }
               
               // 错误时也清理DOM中的错误信息
@@ -1100,10 +1134,14 @@ const MarkdownRenderer = ({ content }) => {
           // 执行渲染
           renderChart();
         } else {
-          const errorDiv = document.createElement('div');
-          errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
-          errorDiv.textContent = 'Mermaid库未加载';
-          mermaidContainer.appendChild(errorDiv);
+          if (!mermaidSnapshotRef.current.get(blockKey)) {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'color: #ef4444; padding: 10px; text-align: center;';
+            errorDiv.textContent = 'Mermaid库未加载';
+            mermaidContainer.appendChild(errorDiv);
+          } else {
+            applyMermaidSnapshot();
+          }
         }
         
       }
@@ -1264,6 +1302,11 @@ const MarkdownRenderer = ({ content }) => {
     mermaidStatesRef.current.forEach((_, key) => {
       if (!activeMermaidKeys.has(key)) {
         mermaidStatesRef.current.delete(key);
+      }
+    });
+    mermaidSnapshotRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidSnapshotRef.current.delete(key);
       }
     });
     previewViewModeRef.current.forEach((_, key) => {
