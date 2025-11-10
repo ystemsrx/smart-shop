@@ -83,6 +83,388 @@ const BUTTON_CONTENT = {
   `,
 };
 
+const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
+const QUOTE_REPLACEMENTS = {
+  '“': '"',
+  '”': '"',
+  '„': '"',
+  '‟': '"',
+  '«': '"',
+  '»': '"',
+  '﹁': '"',
+  '﹂': '"',
+  '﹃': '"',
+  '﹄': '"',
+  '「': '"',
+  '」': '"',
+  '『': '"',
+  '』': '"',
+  '〝': '"',
+  '〞': '"',
+  '＂': '"',
+  '‘': "'",
+  '’': "'",
+  '‚': "'",
+  '‛': "'",
+  '‹': "'",
+  '›': "'",
+  '﹇': "'",
+  '﹈': "'",
+  '＇': "'"
+};
+const QUOTE_TEST_REGEX = /[“”„‟«»﹁﹂﹃﹄「」『』〝〞＂‘’‚‛‹›﹇﹈＇]/;
+const QUOTE_REGEX = /[“”„‟«»﹁﹂﹃﹄「」『』〝〞＂‘’‚‛‹›﹇﹈＇]/g;
+
+const shouldSkipQuoteNormalization = (node) => {
+  if (!node?.parentElement) return false;
+  return Boolean(
+    node.parentElement.closest('code, pre, kbd, samp, script, style, .katex')
+  );
+};
+
+const normalizeQuotesInString = (text = '') => {
+  if (!text || !QUOTE_TEST_REGEX.test(text)) return text;
+  QUOTE_REGEX.lastIndex = 0;
+  return text.replace(QUOTE_REGEX, (char) => QUOTE_REPLACEMENTS[char] || char);
+};
+
+const normalizeQuotesInElement = (root) => {
+  if (!root || typeof document === 'undefined') return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  const nodes = [];
+  while (walker.nextNode()) {
+    nodes.push(walker.currentNode);
+  }
+  nodes.forEach((node) => {
+    if (shouldSkipQuoteNormalization(node)) return;
+    const text = node?.textContent || '';
+    if (!text || !QUOTE_TEST_REGEX.test(text)) return;
+    node.textContent = normalizeQuotesInString(text);
+  });
+};
+
+const isEscapedDelimiter = (text, index) => {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0; i--) {
+    if (text[i] !== '\\') break;
+    slashCount++;
+  }
+  return Boolean(slashCount % 2);
+};
+
+const findNextBlockMathStart = (text, fromIndex) => {
+  const locate = (token) => {
+    let idx = text.indexOf(token, fromIndex);
+    while (idx !== -1 && isEscapedDelimiter(text, idx)) {
+      idx = text.indexOf(token, idx + token.length);
+    }
+    return idx;
+  };
+
+  const dollarIndex = locate('$$');
+  const bracketIndex = locate('\\[');
+
+  if (dollarIndex === -1 && bracketIndex === -1) return null;
+  if (bracketIndex === -1 || (dollarIndex !== -1 && dollarIndex < bracketIndex)) {
+    return { index: dollarIndex, open: '$$', close: '$$' };
+  }
+  return { index: bracketIndex, open: '\\[', close: '\\]' };
+};
+
+const findClosingDelimiter = (text, delimiter, startIndex) => {
+  let searchIndex = startIndex;
+  while (searchIndex <= text.length - delimiter.length) {
+    const idx = text.indexOf(delimiter, searchIndex);
+    if (idx === -1) return -1;
+    if (!isEscapedDelimiter(text, idx)) {
+      return idx;
+    }
+    searchIndex = idx + delimiter.length;
+  }
+  return -1;
+};
+
+const shouldSkipMathParsing = (element) => {
+  if (!element) return false;
+  return Boolean(
+    element.closest('code, pre, kbd, samp, script, style, .code-block-container, .code-block-content')
+  );
+};
+
+const replaceBlockMathWithPlaceholders = (root) => {
+  if (!root || typeof document === 'undefined') return [];
+  const segments = [];
+  const textNodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode);
+  }
+
+  textNodes.forEach((node) => {
+    const text = node?.textContent || '';
+    if ((!text.includes('$$') && !text.includes('\\[')) || shouldSkipMathParsing(node.parentElement)) {
+      return;
+    }
+
+    const length = text.length;
+    const frag = document.createDocumentFragment();
+    let pointer = 0;
+    let mutated = false;
+
+    while (pointer < length) {
+      const next = findNextBlockMathStart(text, pointer);
+      if (!next) break;
+
+      mutated = true;
+      const { index, open, close } = next;
+
+      if (index > pointer) {
+        frag.appendChild(document.createTextNode(text.slice(pointer, index)));
+      }
+
+      const closeIndex = findClosingDelimiter(text, close, index + open.length);
+      const complete = closeIndex !== -1;
+      const contentStart = index + open.length;
+      const contentEnd = complete ? closeIndex : length;
+      const latex = text.slice(contentStart, contentEnd).replace(/\r/g, '');
+      const raw = complete ? text.slice(index, closeIndex + close.length) : text.slice(index);
+
+      const segmentIndex = segments.length;
+      const cacheKey = `block-${segmentIndex}`;
+      const placeholder = document.createElement('span');
+      placeholder.className = BLOCK_MATH_PLACEHOLDER_CLASS;
+      placeholder.dataset.blockMathId = String(segmentIndex);
+      placeholder.dataset.blockMathKey = cacheKey;
+      frag.appendChild(placeholder);
+
+      segments.push({
+        id: segmentIndex,
+        key: cacheKey,
+        latex,
+        raw,
+        complete
+      });
+
+      pointer = complete ? closeIndex + close.length : length;
+
+      if (!complete) break;
+    }
+
+    if (mutated) {
+      if (pointer < length) {
+        frag.appendChild(document.createTextNode(text.slice(pointer)));
+      }
+      node.replaceWith(frag);
+    }
+  });
+
+  return segments;
+};
+
+const computeBestRenderablePrefix = (latex, katex, minLength = 0) => {
+  if (!katex || !latex) return { html: '', length: 0 };
+  const source = latex.replace(/\r/g, '');
+  const floor = Math.max(minLength, 0);
+  for (let len = source.length; len > floor; len--) {
+    const snippet = source.slice(0, len);
+    try {
+      const html = katex.renderToString(snippet, {
+        displayMode: true,
+        throwOnError: true,
+        strict: 'warn'
+      });
+      return { html, length: len };
+    } catch (err) {
+      continue;
+    }
+  }
+  return { html: '', length: 0 };
+};
+
+const shouldSkipInlineMath = (element) => {
+  if (!element) return false;
+  return Boolean(
+    element.closest('code, pre, kbd, samp, script, style, .katex, .block-math-placeholder, .code-block-container, .code-block-content')
+  );
+};
+
+const findClosingInlineDollar = (text, startIndex) => {
+  for (let i = startIndex; i < text.length; i++) {
+    if (text[i] !== '$') continue;
+    if (text[i + 1] === '$') {
+      i++;
+      continue;
+    }
+    if (!isEscapedDelimiter(text, i)) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+const findClosingInlineParen = (text, startIndex) => {
+  for (let i = startIndex; i < text.length - 1; i++) {
+    if (text[i] === '\\' && text[i + 1] === ')' && !isEscapedDelimiter(text, i)) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+const findNextInlineMathToken = (text, fromIndex) => {
+  for (let i = fromIndex; i < text.length; i++) {
+    const char = text[i];
+    if (char === '$' && !isEscapedDelimiter(text, i)) {
+      if (text[i + 1] === '$') {
+        i++;
+        continue;
+      }
+      const end = findClosingInlineDollar(text, i + 1);
+      if (end === -1) return null;
+      const latex = text.slice(i + 1, end);
+      return { start: i, end: end + 1, latex };
+    }
+    if (char === '\\' && text[i + 1] === '(' && !isEscapedDelimiter(text, i)) {
+      const end = findClosingInlineParen(text, i + 2);
+      if (end === -1) return null;
+      const latex = text.slice(i + 2, end);
+      return { start: i, end: end + 2, latex };
+    }
+  }
+  return null;
+};
+
+const renderInlineMathSegments = (root) => {
+  if (!root || typeof window === 'undefined' || !window.katex) return;
+  const katex = window.katex;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  const nodes = [];
+  while (walker.nextNode()) {
+    nodes.push(walker.currentNode);
+  }
+
+  nodes.forEach((node) => {
+    if (shouldSkipInlineMath(node.parentElement)) return;
+    const text = node.textContent || '';
+    if (!text.includes('$') && !text.includes('\\(')) return;
+
+    let cursor = 0;
+    let mutated = false;
+    const frag = document.createDocumentFragment();
+
+    while (cursor < text.length) {
+      const match = findNextInlineMathToken(text, cursor);
+      if (!match) break;
+
+      if (match.start > cursor) {
+        frag.appendChild(document.createTextNode(text.slice(cursor, match.start)));
+      }
+
+      const trimmedLatex = match.latex.trim();
+      if (!trimmedLatex) {
+        frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
+      } else {
+        try {
+          const span = document.createElement('span');
+          span.className = 'katex-inline';
+          span.innerHTML = katex.renderToString(trimmedLatex, {
+            displayMode: false,
+            throwOnError: true,
+            strict: 'warn'
+          });
+          frag.appendChild(span);
+        } catch (err) {
+          frag.appendChild(document.createTextNode(text.slice(match.start, match.end)));
+        }
+      }
+      cursor = match.end;
+      mutated = true;
+    }
+
+    if (mutated) {
+      if (cursor < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(cursor)));
+      }
+      node.replaceWith(frag);
+    }
+  });
+};
+
+const renderBlockMathSegments = (root, segments, cacheRef) => {
+  if (!root || !segments?.length) return;
+  const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null;
+  const cache = cacheRef?.current;
+  const segmentMap = new Map();
+  segments.forEach((segment) => segmentMap.set(segment.key, segment));
+
+  const ensureBody = (placeholder) => {
+    placeholder.classList.add('block-math-placeholder');
+    let body = placeholder.querySelector('.block-math-body');
+    if (!body) {
+      body = document.createElement('div');
+      body.className = 'block-math-body';
+      placeholder.prepend(body);
+    }
+    return body;
+  };
+
+  const placeholders = root.querySelectorAll(`.${BLOCK_MATH_PLACEHOLDER_CLASS}`);
+  placeholders.forEach((placeholder) => {
+    const key = placeholder.getAttribute('data-block-math-key');
+    const segment = key ? segmentMap.get(key) : null;
+    if (!segment) return;
+
+    const normalizedLatex = segment.latex.replace(/\r/g, '');
+    const cacheEntry = cache?.get(key);
+    let htmlToUse = cacheEntry?.html || '';
+    let successLength = cacheEntry?.length || 0;
+
+    if (katex) {
+      let rendered = false;
+      try {
+        htmlToUse = katex.renderToString(normalizedLatex, {
+          displayMode: true,
+          throwOnError: true,
+          strict: 'warn'
+        });
+        successLength = normalizedLatex.length;
+        rendered = true;
+      } catch (err) {
+        const prefix = computeBestRenderablePrefix(normalizedLatex, katex, successLength);
+        if (prefix.html) {
+          htmlToUse = prefix.html;
+          successLength = prefix.length;
+          rendered = true;
+        } else if (!htmlToUse && cacheEntry?.html) {
+          htmlToUse = cacheEntry.html;
+          successLength = cacheEntry.length || 0;
+        }
+      }
+      if (rendered && htmlToUse) {
+        cache?.set(key, { html: htmlToUse, latex: normalizedLatex, length: successLength });
+      }
+    } else if (!katex && cacheEntry?.html) {
+      htmlToUse = cacheEntry.html;
+      successLength = cacheEntry.length || 0;
+    }
+
+    const body = ensureBody(placeholder);
+
+    if (htmlToUse) {
+      body.innerHTML = '';
+      body.innerHTML = htmlToUse;
+    } else if (segment.complete) {
+      body.innerHTML = '';
+      const raw = document.createElement('div');
+      raw.className = 'block-math-raw';
+      raw.textContent = segment.raw;
+      body.appendChild(raw);
+    } else if (!body.innerHTML) {
+      body.textContent = '';
+    }
+  });
+};
+
 const STREAM_FADE_DURATION = 600;
 
 // Markdown渲染器组件
@@ -90,6 +472,7 @@ const MarkdownRenderer = ({ content }) => {
   const containerRef = useRef(null);
   const lastTextLengthRef = useRef(0);
   const chunkMetaRef = useRef([]);
+  const blockMathCacheRef = useRef(new Map());
 
   const finalizeFadeSpan = useCallback((span) => {
     if (!span?.isConnected) return;
@@ -182,6 +565,7 @@ const MarkdownRenderer = ({ content }) => {
       containerRef.current.innerHTML = '';
       lastTextLengthRef.current = 0;
       chunkMetaRef.current = [];
+      blockMathCacheRef.current.clear();
       return;
     }
 
@@ -194,7 +578,7 @@ const MarkdownRenderer = ({ content }) => {
     }
 
     // 配置markdown-it
-    const md = window.markdownit({ html: true, linkify: true, typographer: true });
+    const md = window.markdownit({ html: true, linkify: true, typographer: false });
     
     if (window.markdownitFootnote) {
       md.use(window.markdownitFootnote);
@@ -202,14 +586,6 @@ const MarkdownRenderer = ({ content }) => {
     if (window.markdownitTaskLists) {
       md.use(window.markdownitTaskLists, { enabled: true, label: true });
     }
-
-    // 为支持 \[...\] 语法，在 Markdown 处理前进行转换。
-    // 通过将 \[...\] 块包裹在 <div> 中，可以确保 markdown-it 将其作为
-    // 独立的块级元素处理，从而避免被错误地渲染为行内模式。
-    const processedContent = content.replace(
-      /\\\[([\s\S]*?)\\\]/g,
-      '<div>$$$$$1$$$$</div>'
-    );
 
     // 去除公共缩进
     const dedent = (text) => {
@@ -227,7 +603,8 @@ const MarkdownRenderer = ({ content }) => {
     };
 
     // 渲染Markdown
-    const dedentedContent = dedent(processedContent);
+    const normalizedContent = normalizeQuotesInString(content);
+    const dedentedContent = dedent(normalizedContent);
     containerRef.current.innerHTML = md.render(dedentedContent);
 
     // 保留有序列表原始编号：
@@ -682,15 +1059,21 @@ const MarkdownRenderer = ({ content }) => {
       }
     });
 
-    // 数学公式渲染
-    if (window.renderMathInElement) {
-      window.renderMathInElement(containerRef.current, {
-        delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '$',  right: '$',  display: false }
-        ]
-      });
-    }
+    // 流式块级公式渲染（先替换占位，再手动渲染，防止未闭合内容闪烁）
+    const blockMathSegments = replaceBlockMathWithPlaceholders(containerRef.current);
+    renderBlockMathSegments(containerRef.current, blockMathSegments, blockMathCacheRef);
+    const activeKeys = new Set(blockMathSegments.map((segment) => segment.key));
+    blockMathCacheRef.current.forEach((_, key) => {
+      if (!activeKeys.has(key)) {
+        blockMathCacheRef.current.delete(key);
+      }
+    });
+
+    // 行内数学公式本地渲染
+    renderInlineMathSegments(containerRef.current);
+
+    // 引号统一为英文格式，避免中英文混排导致的符号跳变
+    normalizeQuotesInElement(containerRef.current);
 
     // 简化的Mermaid错误清理
     const simpleCleanup = () => {
@@ -1346,7 +1729,19 @@ export default function ChatModern({ user }) {
                 if (thinkingMsgIdRef.current == null) {
                   const newId = genId();
                   thinkingMsgIdRef.current = newId;
-                  setMsgs((s) => [...s, { id: newId, role: "assistant_thinking", content: reasoningDelta, isComplete: false }]);
+                  const thinkingMessage = { id: newId, role: "assistant_thinking", content: reasoningDelta, isComplete: false };
+                  setMsgs((s) => {
+                    if (assistantMessageAdded) {
+                      const next = [...s];
+                      for (let i = next.length - 1; i >= 0; i--) {
+                        if (next[i].role === "assistant") {
+                          next.splice(i, 0, thinkingMessage);
+                          return next;
+                        }
+                      }
+                    }
+                    return [...s, thinkingMessage];
+                  });
                 } else {
                   const currentId = thinkingMsgIdRef.current;
                   setMsgs((s) => s.map((m) => m.id === currentId
@@ -1364,12 +1759,14 @@ export default function ChatModern({ user }) {
                 }
                 
                 // 当 assistant 开始回复时，标记 thinking 完成
+                let thinkingIdForOrdering = null;
                 if (thinkingMsgIdRef.current != null) {
                   const thinkingId = thinkingMsgIdRef.current;
                   setMsgs((s) => s.map((m) => m.id === thinkingId && m.role === "assistant_thinking"
                     ? { ...m, isComplete: true }
                     : m
                   ));
+                  thinkingIdForOrdering = thinkingId;
                   thinkingMsgIdRef.current = null;
                 }
                 
@@ -1379,7 +1776,19 @@ export default function ChatModern({ user }) {
                 // 关键修复：在单个setState中完成添加或更新，避免竞争条件
                 if (!assistantMessageAdded) {
                   // 第一次delta：添加新的assistant消息（带初始内容）
-                  setMsgs((s) => [...s, { id: genId(), role: "assistant", content: assistantContent }]);
+                  const assistantId = genId();
+                  const assistantMessage = { id: assistantId, role: "assistant", content: assistantContent };
+                  setMsgs((s) => {
+                    if (thinkingIdForOrdering != null) {
+                      const next = [...s];
+                      const idx = next.findIndex((m) => m.id === thinkingIdForOrdering);
+                      if (idx !== -1) {
+                        next.splice(idx + 1, 0, assistantMessage);
+                        return next;
+                      }
+                    }
+                    return [...s, assistantMessage];
+                  });
                   assistantMessageAdded = true;
                 } else {
                   // 后续delta：更新最后一条assistant消息

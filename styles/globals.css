@@ -545,6 +545,42 @@ body {
   background: #f3f3f3;
 }
 
+.markdown-content .block-math-placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0.75em 0;
+}
+
+.block-math-body {
+  flex: 1 1 100%;
+  text-align: center;
+}
+
+.block-math-body .katex {
+  font-size: 1.05em;
+}
+
+.block-math-raw {
+  width: 100%;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  color: #dc2626;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.block-math-raw-inline {
+  display: inline-block;
+  width: auto;
+  margin-left: 6px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+}
+
 /* 代码块容器 */
 .code-block-container {
   border-radius: 16px;
