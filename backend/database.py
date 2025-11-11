@@ -127,6 +127,17 @@ def auto_migrate_database(conn) -> None:
         },
         'agent_status': {
             'allow_reservation': 'INTEGER DEFAULT 0'
+        },
+        'chat_logs': {
+            'thread_id': 'TEXT',
+            'tool_call_id': 'TEXT'
+        },
+        'chat_threads': {
+            'title': 'TEXT',
+            'first_message_preview': 'TEXT',
+            'last_message_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+            'is_archived': 'INTEGER DEFAULT 0',
+            'metadata': 'TEXT'
         }
     }
     
@@ -325,6 +336,7 @@ def ensure_user_id_schema(conn) -> None:
     _ensure_user_table()
     _ensure_reference('carts', 'student_id', allow_null=False)
     _ensure_reference('chat_logs', 'student_id', allow_null=True)
+    _ensure_reference('chat_threads', 'student_id', allow_null=True)
     _ensure_reference('orders', 'student_id', allow_null=False)
     _ensure_reference('user_profiles', 'student_id', allow_null=False, unique_index=True)
     _ensure_reference('coupons', 'student_id', allow_null=False)
@@ -446,6 +458,206 @@ def migrate_user_profile_addresses(conn):
         conn.rollback()
         raise
 
+
+def migrate_chat_threads(conn):
+    """
+    迁移旧版聊天记录，根据时间戳智能划分会话。
+    
+    优化策略：
+    - 将每个用户的旧记录按时间戳排序
+    - 如果两条消息之间的时间间隔超过30分钟，则创建新的会话
+    - 这样可以更合理地划分不同轮次的对话
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        cursor = conn.cursor()
+        
+        # 首先检查 chat_logs 表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_logs'")
+        if not cursor.fetchone():
+            logger.info("聊天记录迁移：chat_logs 表不存在，跳过迁移")
+            return
+        
+        # 确保必要的列存在
+        try:
+            ensure_table_columns(conn, 'chat_logs', {
+                'thread_id': 'TEXT',
+                'tool_call_id': 'TEXT'
+            })
+            conn.commit()
+        except Exception as e:
+            logger.error(f"聊天记录迁移：无法添加必要的列: {e}")
+            return
+        
+        # 验证列是否真的存在
+        cursor.execute("PRAGMA table_info(chat_logs)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'thread_id' not in columns:
+            logger.error("聊天记录迁移：thread_id 列不存在且无法添加")
+            return
+        
+        ChatLogDB._ensure_chat_schema(conn)
+
+        cursor.execute('SELECT COUNT(1) FROM chat_threads')
+        has_threads = cursor.fetchone()[0] > 0
+        cursor.execute('SELECT COUNT(1) FROM chat_logs WHERE thread_id IS NULL OR TRIM(COALESCE(thread_id, "")) = ""')
+        pending = cursor.fetchone()[0]
+        if pending == 0 and has_threads:
+            logger.info("聊天记录迁移：没有需要补充 thread_id 的旧数据")
+            return
+
+        # 获取所有需要迁移的用户
+        cursor.execute('''
+            SELECT DISTINCT user_id, student_id
+            FROM chat_logs
+            WHERE thread_id IS NULL OR TRIM(COALESCE(thread_id, "")) = ""
+        ''')
+        owners = cursor.fetchall()
+        migrated_threads = 0
+        migrated_logs_count = 0
+
+        def _build_conditions(row):
+            clauses = []
+            params = []
+            uid = row["user_id"] if isinstance(row, sqlite3.Row) else row[0]
+            sid = row["student_id"] if isinstance(row, sqlite3.Row) else row[1]
+            if uid:
+                clauses.append("user_id = ?")
+                params.append(uid)
+            if sid:
+                clauses.append("student_id = ?")
+                params.append(sid)
+            return clauses, params, uid, sid
+
+        # 会话间隔阈值：30分钟
+        SESSION_GAP_MINUTES = 30
+
+        for owner in owners:
+            clauses, params, user_id_val, student_id_val = _build_conditions(owner)
+            if not clauses:
+                continue
+            where_sql = " OR ".join(clauses)
+
+            # 获取该用户的所有旧记录，按时间排序
+            cursor.execute(f'''
+                SELECT id, role, content, timestamp
+                FROM chat_logs
+                WHERE ({where_sql}) AND (thread_id IS NULL OR TRIM(COALESCE(thread_id, "")) = "")
+                ORDER BY timestamp ASC
+            ''', params)
+            all_logs = cursor.fetchall()
+            
+            if not all_logs:
+                continue
+
+            # 按时间间隔分组
+            current_session_logs = []
+            sessions = []  # [(log_ids[], first_user_content, first_ts, last_ts)]
+            last_timestamp = None
+
+            for log in all_logs:
+                log_id = log[0] if not isinstance(log, sqlite3.Row) else log["id"]
+                role = log[1] if not isinstance(log, sqlite3.Row) else log["role"]
+                content = log[2] if not isinstance(log, sqlite3.Row) else log["content"]
+                timestamp_str = log[3] if not isinstance(log, sqlite3.Row) else log["timestamp"]
+                
+                # 解析时间戳
+                try:
+                    # 尝试多种时间格式
+                    try:
+                        current_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    except:
+                        current_timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                except Exception as e:
+                    logger.warning(f"无法解析时间戳 {timestamp_str}: {e}，跳过该记录")
+                    continue
+
+                # 判断是否需要开始新会话
+                should_start_new_session = False
+                if last_timestamp is None:
+                    # 第一条记录
+                    should_start_new_session = False
+                else:
+                    time_diff = current_timestamp - last_timestamp
+                    if time_diff > timedelta(minutes=SESSION_GAP_MINUTES):
+                        should_start_new_session = True
+
+                if should_start_new_session and current_session_logs:
+                    # 保存当前会话
+                    sessions.append(current_session_logs[:])
+                    current_session_logs = []
+
+                # 添加到当前会话
+                current_session_logs.append({
+                    'id': log_id,
+                    'role': role,
+                    'content': content,
+                    'timestamp': current_timestamp,
+                    'timestamp_str': timestamp_str
+                })
+                last_timestamp = current_timestamp
+
+            # 保存最后一个会话
+            if current_session_logs:
+                sessions.append(current_session_logs)
+
+            # 为每个会话创建 thread
+            for session_logs in sessions:
+                if not session_logs:
+                    continue
+
+                # 获取首条用户消息作为预览（取前8个字符）
+                preview = None
+                first_ts = None
+                for log in session_logs:
+                    if log['role'] == 'user' and log['content'] and str(log['content']).strip():
+                        content = str(log['content']).strip()
+                        preview = content.replace('\n', ' ').replace('\r', ' ')[:8]
+                        first_ts = log['timestamp_str']
+                        break
+
+                # 使用第一条记录的时间戳作为创建时间
+                if not first_ts and session_logs:
+                    first_ts = session_logs[0]['timestamp_str']
+
+                # 使用最后一条记录的时间戳作为最后活动时间
+                last_ts = session_logs[-1]['timestamp_str'] if session_logs else first_ts
+
+                # 创建新的 thread
+                thread_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO chat_threads (id, student_id, user_id, title, first_message_preview, created_at, updated_at, last_message_at)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+                ''', (
+                    thread_id,
+                    student_id_val,
+                    user_id_val,
+                    None,
+                    preview,
+                    first_ts,
+                    last_ts,
+                    last_ts
+                ))
+
+                # 更新这个会话中的所有记录
+                log_ids = [log['id'] for log in session_logs]
+                placeholders = ','.join('?' * len(log_ids))
+                cursor.execute(f'''
+                    UPDATE chat_logs
+                    SET thread_id = ?
+                    WHERE id IN ({placeholders})
+                ''', (thread_id, *log_ids))
+                
+                migrated_threads += 1
+                migrated_logs_count += len(log_ids)
+
+        conn.commit()
+        logger.info(f"聊天记录迁移完成：创建 {migrated_threads} 个会话，迁移 {migrated_logs_count} 条记录")
+    except Exception as exc:
+        conn.rollback()
+        logger.error(f"聊天记录迁移失败: {exc}")
+
 def init_database():
     """初始化数据库表结构"""
     global _DB_WAS_RESET
@@ -505,17 +717,46 @@ def init_database():
             )
         ''')
         
+        # 聊天会话表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_threads (
+                id TEXT PRIMARY KEY,                 -- 会话UUID
+                student_id TEXT,                     -- 学号外键
+                user_id INTEGER,                     -- users.user_id，便于跨表关联
+                title TEXT,                          -- 用户自定义标题
+                first_message_preview TEXT,          -- 第一条用户消息前5个字符
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_archived INTEGER DEFAULT 0,
+                metadata TEXT,
+                FOREIGN KEY (student_id) REFERENCES users (id),
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_user_id ON chat_threads(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_student_id ON chat_threads(student_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_last_active ON chat_threads(last_message_at DESC)')
+
         # 聊天记录表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id TEXT,  -- 可为空，支持匿名聊天
-                role TEXT NOT NULL,  -- user, assistant, tool
+                student_id TEXT,         -- 可为空，支持匿名聊天
+                user_id INTEGER,         -- users.user_id
+                thread_id TEXT,          -- chat_threads.id
+                tool_call_id TEXT,       -- 关联的工具调用ID
+                role TEXT NOT NULL,      -- user, assistant, tool
                 content TEXT NOT NULL,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (student_id) REFERENCES users (id)
+                FOREIGN KEY (student_id) REFERENCES users (id),
+                FOREIGN KEY (user_id) REFERENCES users (user_id),
+                FOREIGN KEY (thread_id) REFERENCES chat_threads (id)
             )
         ''')
+        # 注意：chat_logs 的索引创建移到 auto_migrate_database 之后，
+        # 因为旧数据库的表可能没有 thread_id 和 tool_call_id 列
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_user_id ON chat_logs(user_id)')
         
         # 分类表
         cursor.execute('''
@@ -1059,9 +1300,19 @@ def init_database():
         # 执行自动数据库迁移
         try:
             auto_migrate_database(conn)
+            migrate_chat_threads(conn)
             logger.info("自动数据库迁移完成")
         except Exception as e:
             logger.warning(f"自动数据库迁移失败: {e}")
+        
+        # 在列迁移完成后，创建依赖于新列的索引
+        try:
+            cursor = conn.cursor()
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_thread_id ON chat_logs(thread_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_tool_call_id ON chat_logs(tool_call_id)')
+            logger.info("chat_logs 索引创建成功")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"创建 chat_logs 索引时出错: {e}")
 
         ensure_admin_accounts(conn)
         conn.commit()
@@ -2027,56 +2278,284 @@ class CartDB:
 # 聊天记录相关操作
 class ChatLogDB:
     @staticmethod
+    def _ensure_chat_schema(conn):
+        """确保聊天相关的表结构与索引存在。"""
+        cursor = conn.cursor()
+        
+        # 首先检查 chat_logs 表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_logs'")
+        table_exists = cursor.fetchone() is not None
+        
+        if table_exists:
+            # 如果表存在，确保必要的列存在
+            try:
+                ensure_table_columns(conn, 'chat_logs', {
+                    'thread_id': 'TEXT',
+                    'tool_call_id': 'TEXT'
+                })
+            except Exception as exc:
+                logger.warning(f"确保 chat_logs schema 时出错: {exc}")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_threads (
+                id TEXT PRIMARY KEY,
+                student_id TEXT,
+                user_id INTEGER,
+                title TEXT,
+                first_message_preview TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_archived INTEGER DEFAULT 0,
+                metadata TEXT,
+                FOREIGN KEY (student_id) REFERENCES users (id),
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_user_id ON chat_threads(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_student_id ON chat_threads(student_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_threads_last_active ON chat_threads(last_message_at DESC)')
+        
+        # 只有在 chat_logs 表存在且列存在时才创建索引
+        if table_exists:
+            try:
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_thread_id ON chat_logs(thread_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_tool_call_id ON chat_logs(tool_call_id)')
+            except sqlite3.OperationalError as e:
+                logger.warning(f"创建 chat_logs 索引时出错: {e}")
+        
+        conn.commit()
+
+    PREVIEW_LIMIT = 8
+
+    @staticmethod
     def _resolve_user_identifier(user_identifier: Optional[Union[str, int]]) -> Optional[Dict[str, Any]]:
         """解析用户标识符，返回user_id和student_id"""
         if user_identifier is None:
             return None
-        if isinstance(user_identifier, int):
-            return UserDB.resolve_user_reference(user_identifier)
-        else:
-            return UserDB.resolve_user_reference(user_identifier)
+        return UserDB.resolve_user_reference(user_identifier)
 
     @staticmethod
-    def add_log(user_identifier: Optional[Union[str, int]], role: str, content: str):
-        """添加聊天记录 - 支持student_id或user_id"""
-        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if user_ref:
-                # 如果用户存在，同时保存user_id和student_id
-                cursor.execute(
-                    'INSERT INTO chat_logs (student_id, user_id, role, content) VALUES (?, ?, ?, ?)',
-                    (user_ref['student_id'], user_ref['user_id'], role, content)
-                )
-            else:
-                # 匿名聊天记录
-                cursor.execute(
-                    'INSERT INTO chat_logs (student_id, user_id, role, content) VALUES (?, ?, ?, ?)',
-                    (None, None, role, content)
-                )
-            conn.commit()
-    
+    def _owner_clause(user_ref: Optional[Dict[str, Any]]) -> Tuple[str, List[Any]]:
+        if not user_ref:
+            return "", []
+        return (
+            "((user_id IS NOT NULL AND user_id = ?) OR (student_id IS NOT NULL AND student_id = ?))",
+            [user_ref['user_id'], user_ref['student_id']]
+        )
+
     @staticmethod
-    def get_recent_logs(user_identifier: Optional[Union[str, int]], limit: int = 50) -> List[Dict]:
-        """获取最近的聊天记录 - 支持student_id或user_id"""
+    def _normalize_preview(text: Optional[str]) -> Optional[str]:
+        if not text:
+            return None
+        trimmed = str(text).strip().replace('\r', ' ').replace('\n', ' ')
+        if not trimmed:
+            return None
+        return trimmed[:ChatLogDB.PREVIEW_LIMIT]
+
+    @staticmethod
+    def _fetch_thread_for_user(cursor, thread_id: str, user_ref: Optional[Dict[str, Any]]):
+        if not thread_id or not user_ref:
+            return None
+        cursor.execute('''
+            SELECT * FROM chat_threads
+            WHERE id = ?
+              AND (
+                    (user_id IS NOT NULL AND user_id = ?)
+                 OR (student_id IS NOT NULL AND student_id = ?)
+              )
+            LIMIT 1
+        ''', (thread_id, user_ref['user_id'], user_ref['student_id']))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def create_thread(user_identifier: Union[str, int], title: Optional[str] = None) -> Dict[str, Any]:
+        """创建新的聊天会话"""
         user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
-        
+        if not user_ref:
+            raise ValueError("无法解析用户身份，不能创建会话")
+
+        thread_id = str(uuid.uuid4())
+        normalized_title = title.strip() if isinstance(title, str) and title.strip() else None
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            if user_ref:
-                # 优先使用user_id查询，向后兼容student_id
+            ChatLogDB._ensure_chat_schema(conn)
+            cursor.execute('''
+                INSERT INTO chat_threads (id, student_id, user_id, title)
+                VALUES (?, ?, ?, ?)
+            ''', (thread_id, user_ref['student_id'], user_ref['user_id'], normalized_title))
+            conn.commit()
+        return ChatLogDB.get_thread_for_user(user_identifier, thread_id)
+
+    @staticmethod
+    def rename_thread(user_identifier: Union[str, int], thread_id: str, title: str) -> bool:
+        """重命名聊天会话"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return False
+        normalized_title = title.strip() if isinstance(title, str) else None
+        if normalized_title == "":
+            normalized_title = None
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            clause, params = ChatLogDB._owner_clause(user_ref)
+            if not clause:
+                return False
+            cursor.execute(f'''
+                UPDATE chat_threads
+                SET title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND {clause}
+            ''', (normalized_title, thread_id, *params))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def list_threads(user_identifier: Union[str, int], limit: int = 50) -> List[Dict[str, Any]]:
+        """列出用户的聊天会话"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return []
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            cursor.execute('''
+                SELECT *
+                FROM chat_threads
+                WHERE (user_id = ? OR student_id = ?)
+                ORDER BY last_message_at DESC, updated_at DESC
+                LIMIT ?
+            ''', (user_ref['user_id'], user_ref['student_id'], limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_thread_for_user(user_identifier: Union[str, int], thread_id: str) -> Optional[Dict[str, Any]]:
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            thread = ChatLogDB._fetch_thread_for_user(cursor, thread_id, user_ref)
+            return thread
+
+    @staticmethod
+    def get_thread_messages(user_identifier: Union[str, int], thread_id: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """获取某个会话的消息（按时间顺序）"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return []
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            thread = ChatLogDB._fetch_thread_for_user(cursor, thread_id, user_ref)
+            if not thread:
+                return []
+            cursor.execute('''
+                SELECT *
+                FROM chat_logs
+                WHERE thread_id = ?
+                ORDER BY timestamp ASC, id ASC
+                LIMIT ?
+            ''', (thread_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def add_log(
+        user_identifier: Optional[Union[str, int]],
+        role: str,
+        content: str,
+        thread_id: Optional[str] = None,
+        tool_call_id: Optional[str] = None
+    ):
+        """添加聊天记录，支持匿名或绑定会话"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            if thread_id:
+                if not user_ref:
+                    raise ValueError("需要登录才能写入指定会话")
+                if not ChatLogDB._fetch_thread_for_user(cursor, thread_id, user_ref):
+                    raise ValueError("会话不存在或无权限访问")
+
+            cursor.execute('''
+                INSERT INTO chat_logs (student_id, user_id, thread_id, tool_call_id, role, content)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                user_ref['student_id'] if user_ref else None,
+                user_ref['user_id'] if user_ref else None,
+                thread_id,
+                tool_call_id,
+                role,
+                content
+            ))
+
+            if thread_id:
                 cursor.execute('''
-                    SELECT * FROM chat_logs 
-                    WHERE (user_id = ? OR student_id = ?) OR (student_id IS NULL AND user_id IS NULL)
-                    ORDER BY timestamp DESC LIMIT ?
+                    UPDATE chat_threads
+                    SET updated_at = CURRENT_TIMESTAMP,
+                        last_message_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (thread_id,))
+                if role == 'user':
+                    preview = ChatLogDB._normalize_preview(content)
+                    if preview:
+                        cursor.execute('''
+                            UPDATE chat_threads
+                            SET first_message_preview = CASE
+                                WHEN first_message_preview IS NULL OR TRIM(first_message_preview) = '' THEN ?
+                                ELSE first_message_preview
+                            END
+                            WHERE id = ?
+                        ''', (preview, thread_id))
+            conn.commit()
+
+    @staticmethod
+    def get_recent_logs(
+        user_identifier: Optional[Union[str, int]],
+        limit: int = 50,
+        thread_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """获取最近的聊天记录，可指定会话"""
+        user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            ChatLogDB._ensure_chat_schema(conn)
+            if thread_id:
+                if not user_ref:
+                    return []
+                if not ChatLogDB._fetch_thread_for_user(cursor, thread_id, user_ref):
+                    return []
+                cursor.execute('''
+                    SELECT *
+                    FROM chat_logs
+                    WHERE thread_id = ?
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
+                ''', (thread_id, limit))
+            elif user_ref:
+                cursor.execute('''
+                    SELECT *
+                    FROM chat_logs
+                    WHERE (user_id = ? OR student_id = ?)
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
                 ''', (user_ref['user_id'], user_ref['student_id'], limit))
             else:
-                # 只获取匿名聊天记录
                 cursor.execute('''
-                    SELECT * FROM chat_logs 
+                    SELECT *
+                    FROM chat_logs
                     WHERE student_id IS NULL AND user_id IS NULL
-                    ORDER BY timestamp DESC LIMIT ?
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
                 ''', (limit,))
             return [dict(row) for row in cursor.fetchall()]
 

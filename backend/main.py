@@ -1274,6 +1274,13 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     model: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+class ChatThreadCreateRequest(BaseModel):
+    title: Optional[str] = None
+
+class ChatThreadUpdateRequest(BaseModel):
+    title: Optional[str] = None
 
 class ProductUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -5923,6 +5930,67 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
 from ai_chat import stream_chat
 
 
+def _serialize_chat_thread(thread: Dict[str, Any]) -> Dict[str, Any]:
+    if not thread:
+        return {}
+    
+    # 返回完整的自定义标题（如果有）和预览（前8个字符）
+    # 前端负责显示逻辑：
+    # - 如果有自定义标题且超过8个字符，显示前7个字符+"..."
+    # - 否则显示完整标题或预览
+    custom_title = (thread.get("title") or "").strip()
+    preview = (thread.get("first_message_preview") or "").strip()
+    
+    return {
+        "id": thread.get("id"),
+        "title": custom_title if custom_title else None,  # 完整的自定义标题或null
+        "preview": preview[:8] if preview else None,  # 消息预览的前8个字符
+        "created_at": thread.get("created_at"),
+        "updated_at": thread.get("updated_at"),
+        "last_message_at": thread.get("last_message_at"),
+        "is_archived": bool(thread.get("is_archived")),
+    }
+
+
+def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
+    if not record:
+        return {}
+    content = record.get("content")
+    payload = {
+        "id": record.get("id"),
+        "role": record.get("role"),
+        "content": content,
+        "raw_content": content,
+        "timestamp": record.get("timestamp"),
+        "thread_id": record.get("thread_id"),
+        "tool_call_id": record.get("tool_call_id"),
+    }
+    # 对于 assistant 角色，尝试解析 JSON 格式的内容（可能包含 tool_calls）
+    if payload["role"] == "assistant" and isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                # 提取 tool_calls（如果存在）
+                if "tool_calls" in parsed:
+                    payload["tool_calls"] = parsed.get("tool_calls")
+                
+                # 提取或重置 content 字段
+                if "content" in parsed:
+                    # 新格式：JSON 中包含 content 字段
+                    payload["content"] = parsed.get("content") or ""
+                elif "tool_calls" in parsed:
+                    # 旧格式：只有 tool_calls，没有 content 字段
+                    payload["content"] = ""
+                else:
+                    # JSON 中没有 content 也没有 tool_calls，可能是其他格式
+                    # 保持原始内容不变
+                    pass
+        except Exception:
+            # 不是 JSON 格式，保持原始内容
+            pass
+    return payload
+
+
 @app.get("/ai/models")
 async def list_ai_models():
     """返回可用模型列表及其能力，用于前端渲染模型选择器。"""
@@ -5942,6 +6010,72 @@ async def list_ai_models():
     logger.info(f"/ai/models API调用 - 返回结果中的模型数量: {len(result['models'])}")
     return result
 
+
+@app.get("/ai/chats")
+async def list_chat_history(request: Request, limit: int = 100):
+    """列出当前用户的聊天会话"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        safe_limit = max(1, min(limit, 200))
+        threads = ChatLogDB.list_threads(user['id'], limit=safe_limit)
+        return {"chats": [_serialize_chat_thread(thread) for thread in threads]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"获取聊天历史失败: {exc}")
+        raise HTTPException(status_code=500, detail="无法获取聊天历史")
+
+
+@app.post("/ai/chats")
+async def create_chat_history(payload: ChatThreadCreateRequest, request: Request):
+    """创建新的聊天会话"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        thread = ChatLogDB.create_thread(user['id'], title=payload.title)
+        return {"chat": _serialize_chat_thread(thread)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"创建聊天会话失败: {exc}")
+        raise HTTPException(status_code=500, detail="创建聊天会话失败")
+
+
+@app.get("/ai/chats/{chat_id}")
+async def get_chat_history(chat_id: str, request: Request):
+    """获取指定聊天会话及其消息"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        thread = ChatLogDB.get_thread_for_user(user['id'], chat_id)
+        if not thread:
+            raise HTTPException(status_code=401, detail="无权访问该会话")
+        messages = ChatLogDB.get_thread_messages(user['id'], chat_id, limit=800)
+        return {
+            "chat": _serialize_chat_thread(thread),
+            "messages": [_serialize_chat_message(msg) for msg in messages]
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"获取聊天会话失败: {exc}")
+        raise HTTPException(status_code=500, detail="获取聊天会话失败")
+
+
+@app.patch("/ai/chats/{chat_id}")
+async def rename_chat_history(chat_id: str, payload: ChatThreadUpdateRequest, request: Request):
+    """重命名聊天会话"""
+    user = get_current_user_required_from_cookie(request)
+    try:
+        updated = ChatLogDB.rename_thread(user['id'], chat_id, payload.title or "")
+        if not updated:
+            raise HTTPException(status_code=401, detail="无权更新该会话")
+        thread = ChatLogDB.get_thread_for_user(user['id'], chat_id)
+        return {"chat": _serialize_chat_thread(thread)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"更新聊天会话失败: {exc}")
+        raise HTTPException(status_code=500, detail="更新聊天会话失败")
+
 @app.post("/ai/chat")
 async def ai_chat(
     request: ChatRequest,
@@ -5957,6 +6091,19 @@ async def ai_chat(
         except Exception as e:
             logger.info(f"AI聊天请求 - 用户未登录: {e}")
         
+        # 验证并解析会话ID
+        conversation_id = (request.conversation_id or "").strip() or None
+        if conversation_id and not user:
+            raise HTTPException(status_code=401, detail="需要登录才能访问指定对话")
+        if user:
+            if not conversation_id:
+                raise HTTPException(status_code=400, detail="缺少会话ID")
+            thread = ChatLogDB.get_thread_for_user(user['id'], conversation_id)
+            if not thread:
+                raise HTTPException(status_code=401, detail="无权访问该会话")
+        else:
+            conversation_id = None
+
         # 转换消息，保留所有必要字段（role, content, tool_calls, tool_call_id）
         messages = []
         for msg in request.messages:
@@ -5969,7 +6116,7 @@ async def ai_chat(
             messages.append(message_dict)
         
         selected_model = (request.model or "").strip()
-        return await stream_chat(user, messages, http_request, selected_model)
+        return await stream_chat(user, messages, http_request, selected_model, conversation_id)
     except Exception as e:
         logger.error(f"AI聊天失败: {e}")
         raise HTTPException(status_code=500, detail="AI聊天服务暂时不可用")
