@@ -1,22 +1,76 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import ChatModern from '../components/ChatUI'
 import { useAuth } from '../hooks/useAuth'
 import Nav from '../components/Nav'
-import { getShopName } from '../utils/runtimeConfig'
+import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig'
 import LandingPage from '../components/page'
 
 export default function Home() {
   const { user, logout, isInitialized } = useAuth()
   const router = useRouter()
   const shopName = getShopName()
-  
+  const redirectingRef = useRef(false)
+  const routerReady = router?.isReady
+
   // 检查是否要显示 AI 助手（通过查询参数）
   const showChat = router.query.chat === 'true'
   // 检查是否强制显示首页
   const showHome = router.query.home === 'true'
+
+  // 如果是管理员访问聊天页面，重定向到仪表盘（但不包括强制显示首页的情况）
+  useEffect(() => {
+    if (user && user.type === 'admin' && !showHome) {
+      router.push('/admin/dashboard');
+    } else if (user && user.type === 'agent' && !showHome) {
+      router.push('/agent/dashboard');
+    }
+  }, [user, router, showHome]);
+
+  useEffect(() => {
+    if (!routerReady) return;
+    if (!user || showHome) return;
+    // 如果用户明确要求显示聊天（/?chat=true 表示新对话），不要自动重定向
+    if (showChat) return;
+    if (router.pathname !== '/' || router.asPath.startsWith('/c/')) return;
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    const ensureChatRoute = async () => {
+      try {
+        const base = getApiBaseUrl().replace(/\/$/, '');
+        let targetId = null;
+        const resp = await fetch(`${base}/ai/chats?limit=1`, { credentials: 'include' });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (Array.isArray(data?.chats) && data.chats.length > 0) {
+            targetId = data.chats[0].id;
+          }
+        }
+        if (!targetId) {
+          const created = await fetch(`${base}/ai/chats`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ title: '' })
+          });
+          if (created.ok) {
+            const payload = await created.json();
+            targetId = payload?.chat?.id || null;
+          }
+        }
+        if (targetId) {
+          router.replace(`/c/${targetId}`);
+        }
+      } catch (err) {
+        console.error('跳转聊天页面失败:', err);
+      } finally {
+        redirectingRef.current = false;
+      }
+    };
+    ensureChatRoute();
+  }, [routerReady, user, showHome, showChat, router]);
 
   // 等待认证状态初始化
   if (!isInitialized) {
@@ -29,15 +83,6 @@ export default function Home() {
       </div>
     )
   }
-
-  // 如果是管理员访问聊天页面，重定向到仪表盘（但不包括强制显示首页的情况）
-  useEffect(() => {
-    if (user && user.type === 'admin' && !showHome) {
-      router.push('/admin/dashboard');
-    } else if (user && user.type === 'agent' && !showHome) {
-      router.push('/agent/dashboard');
-    }
-  }, [user, router, showHome]);
 
   // 强制显示首页：无论是否登录
   if (showHome) {

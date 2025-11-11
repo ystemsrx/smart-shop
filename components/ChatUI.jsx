@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -16,6 +17,55 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const cx = (...xs) => xs.filter(Boolean).join(" ");
 const SHOP_NAME = getShopName();
+const SIDEBAR_EXPANDED_WIDTH = 240;
+const SIDEBAR_COLLAPSED_WIDTH = 64;
+const buildPreview = (text = "") =>
+  text.trim().replace(/\s+/g, " ").slice(0, 8);
+
+// 格式化相对时间，使用本地时区
+const formatRelativeTime = (dateString) => {
+  if (!dateString) return "未知时间";
+  
+  try {
+    // 处理SQLite返回的时间戳格式（可能是UTC）
+    // 确保正确解析为本地时间
+    let date;
+    if (typeof dateString === 'string' && !dateString.includes('Z') && !dateString.includes('+')) {
+      // 如果没有时区标识，假定为UTC时间并转换为本地时间
+      date = new Date(dateString + 'Z');
+    } else {
+      date = new Date(dateString);
+    }
+    
+    // 检查日期是否有效
+    if (isNaN(date.getTime())) return "未知时间";
+    
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return "刚刚";
+    if (diffMins < 60) return `${diffMins}分钟前`;
+    if (diffHours < 24) return `${diffHours}小时前`;
+    if (diffDays < 7) return `${diffDays}天前`;
+    
+    // 超过7天显示具体日期（使用本地时区）
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const currentYear = now.getFullYear();
+    
+    if (year === currentYear) {
+      return `${month}-${day}`;
+    }
+    return `${year}-${month}-${day}`;
+  } catch (error) {
+    console.error('时间格式化错误:', error, dateString);
+    return "未知时间";
+  }
+};
 
 // TextType组件的props常量，避免每次渲染时创建新对象
 const WELCOME_TEXTS = ["你需要什么？", "让我帮你查询", "我可以怎么帮你？", "有什么需要帮忙的？", "需要我帮你找点什么吗？", "请告诉我你的需求", "我能为你做些什么？", "想了解点什么？", "需要帮忙吗？", "我在这里帮你"];
@@ -39,7 +89,7 @@ const useSmartAutoScroll = () => {
 
 const useId = () => {
   const r = useRef(0);
-  return () => ++r.current;
+  return useCallback(() => ++r.current, []);
 };
 
 // HTML 转义函数
@@ -237,6 +287,43 @@ const normalizeBlockMathDelimiters = (text = '') => {
 const replaceBlockMathWithPlaceholders = (root) => {
   if (!root || typeof document === 'undefined') return [];
   const segments = [];
+  
+  // 首先处理受保护的 LaTeX 块（带有 data-latex-protected 属性的）
+  const protectedBlocks = root.querySelectorAll('[data-latex-protected="true"]');
+  protectedBlocks.forEach((block) => {
+    const textContent = block.textContent || '';
+    
+    // 提取 LaTeX 内容（去掉外层的 $$ 定界符）
+    let latex = '';
+    if (textContent.startsWith('$$') && textContent.endsWith('$$')) {
+      latex = textContent.slice(2, -2).trim();
+    } else {
+      latex = textContent.trim();
+    }
+    
+    if (!latex) return;
+    
+    const segmentIndex = segments.length;
+    const cacheKey = `block-${segmentIndex}`;
+    const placeholder = document.createElement('span');
+    placeholder.className = `${BLOCK_MATH_PLACEHOLDER_CLASS} ${STREAM_FADE_EXEMPT_CLASS}`;
+    placeholder.dataset.blockMathId = String(segmentIndex);
+    placeholder.dataset.blockMathKey = cacheKey;
+    
+    // 替换原始节点
+    block.parentNode.replaceChild(placeholder, block);
+    
+    segments.push({
+      id: segmentIndex,
+      key: cacheKey,
+      latex: latex,
+      raw: `$$${latex}$$`,
+      complete: true,
+      closing: '$$'
+    });
+  });
+  
+  // 然后处理普通文本节点中的 LaTeX（用于流式渲染中的新内容）
   const textNodes = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
   while (walker.nextNode()) {
@@ -789,12 +876,57 @@ const MarkdownRenderer = ({ content }) => {
         : text;
     };
 
-    // 渲染Markdown
+    // 在 Markdown 渲染前保护 LaTeX 代码块，防止 Markdown 处理器破坏换行符
+    const protectLatexBlocks = (text) => {
+      const protectedBlocks = [];
+      let result = text;
+      let blockIndex = 0;
+      
+      // 保护 $$ ... $$ 块 - 使用 HTML 注释作为占位符，Markdown 不会处理它们
+      result = result.replace(/\$\$([\s\S]*?)\$\$/g, (match, latex) => {
+        const id = `latex-block-${blockIndex}`;
+        protectedBlocks.push({ id, latex: latex.trim(), type: 'block' });
+        blockIndex++;
+        // 使用 HTML 注释 + 特殊 div，Markdown 会原样保留
+        return `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`;
+      });
+      
+      // 保护 \[ ... \] 块
+      result = result.replace(/\\\[([\s\S]*?)\\\]/g, (match, latex) => {
+        const id = `latex-block-${blockIndex}`;
+        protectedBlocks.push({ id, latex: latex.trim(), type: 'block' });
+        blockIndex++;
+        return `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`;
+      });
+      
+      return { text: result, protectedBlocks };
+    };
+
+    // 渲染Markdown（先保护 LaTeX）
     const normalizedContent = normalizeQuotesInString(content);
     const inlineReadyContent = normalizeInlineMathDelimiters(normalizedContent);
     const latexReadyContent = normalizeBlockMathDelimiters(inlineReadyContent);
     const dedentedContent = dedent(latexReadyContent);
-    containerRef.current.innerHTML = md.render(dedentedContent);
+    
+    // 保护 LaTeX 块
+    const { text: protectedContent, protectedBlocks } = protectLatexBlocks(dedentedContent);
+    
+    // 渲染 Markdown
+    const renderedHtml = md.render(protectedContent);
+    
+    // 设置 HTML
+    containerRef.current.innerHTML = renderedHtml;
+    
+    // 在 DOM 中恢复受保护的 LaTeX 块（在后续的 replaceBlockMathWithPlaceholders 中处理）
+    // 将 LaTeX 内容存储到 DOM 元素的 dataset 中
+    protectedBlocks.forEach(({ id, latex }) => {
+      const element = containerRef.current.querySelector(`[data-latex-id="${id}"]`);
+      if (element) {
+        // 直接设置 textContent 为完整的 LaTeX 表达式，包含定界符
+        element.textContent = `$$${latex}$$`;
+        element.setAttribute('data-latex-protected', 'true');
+      }
+    });
 
     // 保留有序列表原始编号：
     // - 不对数字进行重新格式化（避免 2. 被渲染为 1.）
@@ -1515,7 +1647,7 @@ const Bubble = ({ role, children }) => {
     <div className={cx("flex w-full", me ? "justify-end" : "justify-start")}>      
       <div
         className={cx(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm",
+          "max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap",
           me ? "bg-gray-100 text-gray-900" : "bg-gray-50 text-gray-900 border border-gray-200"
         )}
       >
@@ -1705,15 +1837,22 @@ const ToolCallCard = ({
     try {
       const parsed = JSON.parse(content);
       if (typeof parsed === 'object') {
-        // 分类结果（不包含商品）
+        // 分类结果（包含商品搜索旧格式和分类查询）
         if (Array.isArray(parsed.categories)) {
           const count = typeof parsed.count === 'number' ? parsed.count : parsed.categories.length;
           const names = parsed.categories
             .map((c) => (typeof c === 'string' ? c : (c?.name || '')))
             .filter(Boolean);
+          
+          // 单个分类的情况，显示为商品搜索格式（兼容旧数据）
+          if (names.length === 1) {
+            return `${names[0]} · 找到 ${count} 个商品`;
+          }
+          
+          // 多个分类的情况，显示为分类列表格式
           const display = names.slice(0, 6).join(', ');
           const more = names.length > 6 ? ', ...' : '';
-          return `找到 ${count} 类 · [${display}${more}]`;
+          return `[${display}${more}] · 找到 ${count} 个商品`;
         }
         // 多查询搜索结果
         if (parsed.multi_query && parsed.queries && parsed.results) {
@@ -1910,7 +2049,8 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
   );
 }
 
-export default function ChatModern({ user }) {
+export default function ChatModern({ user, initialConversationId = null }) {
+  const router = useRouter();
   const [msgs, setMsgs] = useState([]);
   const [inp, setInp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -1920,16 +2060,663 @@ export default function ChatModern({ user }) {
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [modelError, setModelError] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [chats, setChats] = useState([]);
+  
+  // 从 localStorage 读取侧边栏状态，桌面端默认展开，移动端默认关闭
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ai_sidebar_open');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+      // 移动端默认关闭，桌面端默认打开
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
+  const [isLoadingChats, setIsLoadingChats] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [renamingChatId, setRenamingChatId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [originalRenameValue, setOriginalRenameValue] = useState(""); // 记录重命名前的原始标题
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
   const first = msgs.length === 0;
   const genId = useId();
   const { endRef, containerRef } = useSmartAutoScroll(msgs);
   const abortControllerRef = useRef(null);
   const thinkingMsgIdRef = useRef(null);
+  const pendingChatTitleRef = useRef(null); // 保存待创建对话的标题（用户消息）
+  const pendingChatIdRef = useRef(null); // 保存新创建但未激活的对话ID
+  const isCreatingNewChatRef = useRef(false); // 标记正在创建新对话，防止被derivedChatId覆盖
+  const skipNextLoadRef = useRef(false); // 标记跳过下一次loadConversation（当前msgs已是最新）
+  const apiBase = useMemo(() => getApiBaseUrl().replace(/\/$/, ""), []);
+  const historyEnabled = Boolean(user);
+  const routeChatId = router?.query?.chatId ? String(router.query.chatId) : null;
+  const derivedChatId = initialConversationId || routeChatId || null;
+  const [activeChatId, setActiveChatId] = useState(derivedChatId);
+  const activeChatIdRef = useRef(activeChatId);
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+  const sidebarWidth = historyEnabled
+    ? isSidebarOpen
+      ? SIDEBAR_EXPANDED_WIDTH
+      : SIDEBAR_COLLAPSED_WIDTH
+    : 0;
+  // 对话准备就绪的条件：
+  // 1. 未启用历史记录功能，或
+  // 2. 已选择对话，或  
+  // 3. 处于新对话状态（activeChatId为null但msgs为空，说明是准备开始新对话）
+  const conversationReady = !historyEnabled || Boolean(activeChatId) || (activeChatId === null && msgs.length === 0);
 
   const selectedModelMeta = useMemo(
     () => models.find((item) => item.model === selectedModel) || null,
     [models, selectedModel]
   );
+
+  // 保存侧边栏状态到 localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ai_sidebar_open', String(isSidebarOpen));
+    }
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    // 判断是否是新对话URL
+    const isNewChatUrl = router?.query?.chat === 'true' && !router?.query?.chatId;
+    
+    // 如果是新对话URL，保持标志为true，防止activeChatId被derivedChatId覆盖
+    if (isNewChatUrl) {
+      isCreatingNewChatRef.current = true;
+      return;
+    }
+    
+    // 如果正在创建新对话，不要被derivedChatId覆盖
+    if (isCreatingNewChatRef.current) {
+      return;
+    }
+    
+    if (derivedChatId !== activeChatId) {
+      setActiveChatId(derivedChatId || null);
+    }
+  }, [derivedChatId, activeChatId, router?.query?.chat, router?.query?.chatId]);
+
+  useEffect(() => {
+    if (!historyEnabled) {
+      setChats([]);
+      setActiveChatId(null);
+    }
+  }, [historyEnabled]);
+
+  useEffect(() => {
+    if (!historyEnabled || !activeChatId) {
+      setIsLoadingHistory(false);
+    }
+  }, [historyEnabled, activeChatId]);
+
+  const mapHistoryToMessages = useCallback(
+    (entries = []) => {
+      const normalized = [];
+      
+      // 第一步：构建 tool_call_id 到 tool 消息的映射
+      const toolResultsMap = new Map();
+      const processedToolIndices = new Set(); // 跟踪已处理的 tool 消息索引
+      
+      entries.forEach((entry, index) => {
+        if (entry && entry.role === "tool" && entry.tool_call_id) {
+          toolResultsMap.set(entry.tool_call_id, entry.content || "");
+        }
+      });
+      
+      // 第二步：从工具结果推断工具名称和参数（用于旧数据兼容）
+      const inferToolInfo = (resultContent) => {
+        let toolName = "unknown_tool";
+        let toolArgs = "{}";
+        
+        try {
+          const resultJson = JSON.parse(resultContent);
+          // 根据结果特征推断工具名称
+          if (resultJson.categories !== undefined) {
+            toolName = "get_category";
+          } else if (resultJson.items !== undefined || resultJson.multi_query !== undefined) {
+            // search_products: 单查询有 items 字段，多查询有 multi_query 字段
+            toolName = "search_products";
+            if (resultJson.multi_query && resultJson.queries) {
+              // 多查询：提取 queries 数组
+              toolArgs = JSON.stringify({ query: resultJson.queries });
+            } else if (resultJson.query) {
+              // 单查询：提取 query
+              toolArgs = JSON.stringify({ query: [resultJson.query] });
+            }
+          } else if (resultJson.action !== undefined || resultJson.details !== undefined) {
+            toolName = "update_cart";
+          } else if (resultJson.total_price !== undefined || resultJson.total_quantity !== undefined) {
+            toolName = "get_cart";
+          }
+        } catch {
+          // 非JSON结果，保持默认
+        }
+        
+        return { name: toolName, arguments: toolArgs };
+      };
+      
+      // 第三步：处理消息并创建工具卡片
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (!entry || !entry.role) continue;
+        
+        const baseId = entry.id || genId();
+        const role = entry.role;
+        
+        if (role === "user") {
+          normalized.push({
+            id: baseId,
+            role: "user",
+            content: entry.content || "",
+          });
+        } else if (role === "assistant") {
+          // 查找紧跟在这个 assistant 消息后面的所有 tool 消息
+          const followingToolCalls = [];
+          
+          // 如果 assistant 有 tool_calls，则收集对应数量的 tool 消息（即使 tool_call_id 为 null）
+          const expectedToolCount = entry.tool_calls?.length || 0;
+          
+          for (let j = i + 1; j < entries.length; j++) {
+            const nextEntry = entries[j];
+            if (nextEntry.role === "tool") {
+              // 如果 assistant 有 tool_calls，收集紧随的 tool 消息
+              if (expectedToolCount > 0 && followingToolCalls.length < expectedToolCount) {
+                followingToolCalls.push(nextEntry);
+                processedToolIndices.add(j); // 标记为已处理
+              } 
+              // 如果 assistant 没有 tool_calls 但有 tool_call_id，也收集
+              else if (expectedToolCount === 0 && nextEntry.tool_call_id) {
+                followingToolCalls.push(nextEntry);
+                processedToolIndices.add(j); // 标记为已处理
+              }
+            } else if (nextEntry.role === "assistant" || nextEntry.role === "user") {
+              break;
+            }
+          }
+          
+          // 构建 tool_calls 数据
+          let toolCallsForApi = entry.tool_calls || [];
+          
+          // 如果没有 tool_calls 但有后续的 tool 消息（旧数据），从 tool 消息反推
+          if (!toolCallsForApi.length && followingToolCalls.length > 0) {
+            toolCallsForApi = followingToolCalls.map(tc => {
+              const resultContent = tc.content || "";
+              const info = inferToolInfo(resultContent);
+              return {
+                id: tc.tool_call_id || genId(),
+                type: "function",
+                function: {
+                  name: info.name,
+                  arguments: info.arguments
+                }
+              };
+            });
+          }
+          
+          // 添加 assistant 消息（用于API调用的消息历史）
+          const assistantPayload = {
+            id: baseId,
+            role: "assistant",
+            content: entry.content || "",
+          };
+          if (toolCallsForApi.length > 0) {
+            assistantPayload.tool_calls = toolCallsForApi;
+          }
+          normalized.push(assistantPayload);
+          
+          // 为每个工具调用创建UI卡片
+          if (toolCallsForApi.length > 0) {
+            toolCallsForApi.forEach((tc, tcIndex) => {
+              const toolCallId = tc.id || tc.tool_call_id;
+              if (!toolCallId) return;
+              
+              const fn = tc.function || {};
+              const fnName = fn.name || "";
+              const argsText = typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments || {});
+              
+              // 获取工具执行结果
+              // 优先从 toolResultsMap 获取（新数据），如果没有则从 followingToolCalls 按顺序获取（旧数据）
+              let resultContent = toolResultsMap.get(toolCallId);
+              if (!resultContent && followingToolCalls[tcIndex]) {
+                resultContent = followingToolCalls[tcIndex].content || "";
+              }
+              
+              let resultSummary = "";
+              let errorMessage = "";
+              let status = "success";
+              
+              if (resultContent) {
+                try {
+                  const resultJson = JSON.parse(resultContent);
+                  if (resultJson.ok === false) {
+                    status = "error";
+                    errorMessage = resultJson.error || "工具执行出错";
+                    resultSummary = errorMessage;
+                  } else {
+                    // 不截断结果，传递完整内容给 ToolCallCard 让它自己格式化
+                    resultSummary = resultContent;
+                  }
+                } catch {
+                  // 非 JSON 结果，仍然截断避免显示过长
+                  resultSummary = resultContent.slice(0, 140);
+                }
+              }
+              
+              // 创建工具调用UI卡片
+              normalized.push({
+                id: genId(),
+                role: "tool_call",
+                tool_call_id: toolCallId,
+                status: status,
+                function_name: fnName,
+                arguments_text: argsText,
+                result_summary: resultSummary,
+                error_message: errorMessage,
+              });
+              
+              // 添加 tool 消息（用于API调用的消息历史）
+              if (resultContent) {
+                normalized.push({
+                  id: genId(),
+                  role: "tool",
+                  tool_call_id: toolCallId,
+                  content: resultContent,
+                });
+              }
+            });
+          }
+        } else if (role === "tool") {
+          // 处理孤立的 tool 消息（旧数据中 tool_call_id 为 null 的情况）
+          if (!processedToolIndices.has(i)) {
+            const resultContent = entry.content || "";
+            const info = inferToolInfo(resultContent);
+            
+            let resultSummary = "";
+            let errorMessage = "";
+            let status = "success";
+            
+            try {
+              const resultJson = JSON.parse(resultContent);
+              if (resultJson.ok === false) {
+                status = "error";
+                errorMessage = resultJson.error || "工具执行出错";
+                resultSummary = errorMessage;
+              } else {
+                resultSummary = resultContent;
+              }
+            } catch {
+              resultSummary = resultContent.slice(0, 140);
+            }
+            
+            // 为孤立的 tool 消息创建工具卡片
+            normalized.push({
+              id: genId(),
+              role: "tool_call",
+              tool_call_id: entry.tool_call_id || genId(),
+              status: status,
+              function_name: info.name,
+              arguments_text: info.arguments,
+              result_summary: resultSummary,
+              error_message: errorMessage,
+            });
+            
+            // 添加 tool 消息（用于API调用的消息历史）
+            normalized.push({
+              id: genId(),
+              role: "tool",
+              tool_call_id: entry.tool_call_id || genId(),
+              content: resultContent,
+            });
+          }
+        }
+      }
+      
+      return normalized;
+    },
+    [genId]
+  );
+
+  const fetchChats = useCallback(async () => {
+    if (!historyEnabled) return;
+    setIsLoadingChats(true);
+    setChatError("");
+    try {
+      const response = await fetch(`${apiBase}/ai/chats?limit=100`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("聊天历史加载失败");
+      }
+      const data = await response.json();
+      const list = Array.isArray(data?.chats) ? data.chats : [];
+      setChats(list);
+      
+      // 判断是否是新对话状态：URL是/?chat=true（没有chatId参数）
+      const isNewChatUrl = router?.query?.chat === 'true' && !router?.query?.chatId;
+      
+      // 只有在不是正在创建新对话的情况下，才自动选择第一个对话
+      if (!activeChatIdRef.current && list.length > 0 && !isCreatingNewChatRef.current && !isNewChatUrl) {
+        const fallbackId = list[0].id;
+        setActiveChatId(fallbackId);
+        if (router && router.isReady) {
+          const targetPath = `/c/${fallbackId}`;
+          if (router.asPath !== targetPath) {
+            router.replace(targetPath);
+          }
+        }
+      }
+    } catch (err) {
+      setChatError(err.message || "聊天历史加载失败");
+    } finally {
+      setIsLoadingChats(false);
+    }
+  }, [historyEnabled, apiBase]);
+
+  const loadConversation = useCallback(
+    async (chatId) => {
+      if (!historyEnabled || !chatId) {
+        setMsgs([]);
+        setIsLoadingHistory(false);
+        return;
+      }
+      setIsLoadingHistory(true);
+      setChatError("");
+      try {
+        const response = await fetch(`${apiBase}/ai/chats/${chatId}`, {
+          credentials: "include",
+        });
+        if (response.status === 401) {
+          setChatError("无权访问该对话");
+          setMsgs([]);
+          return;
+        }
+        if (!response.ok) {
+          throw new Error("加载对话失败");
+        }
+        const data = await response.json();
+        const historyMessages = Array.isArray(data?.messages) ? data.messages : [];
+        setMsgs(mapHistoryToMessages(historyMessages));
+      } catch (err) {
+        setChatError(err.message || "加载对话失败");
+        setMsgs([]);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    },
+    [historyEnabled, apiBase, mapHistoryToMessages]
+  );
+
+  useEffect(() => {
+    if (!historyEnabled) return;
+    fetchChats();
+  }, [historyEnabled, fetchChats]);
+
+  useEffect(() => {
+    if (!historyEnabled) return;
+    if (!activeChatId) return;
+    
+    // 检查是否有pending的消息需要处理
+    try {
+      const pendingKey = `chat_pending_${activeChatId}`;
+      const pendingData = sessionStorage.getItem(pendingKey);
+      if (pendingData) {
+        const { text, model } = JSON.parse(pendingData);
+        sessionStorage.removeItem(pendingKey);
+        
+        // 跳过加载历史，直接发送消息
+        skipNextLoadRef.current = true;
+        
+        // 设置模型
+        if (model) {
+          setSelectedModel(model);
+        }
+        
+        // 立即添加用户消息并发送
+        setTimeout(() => {
+          handleStop();
+          setIsLoading(true);
+          setShowThinking(true);
+          setChatError("");
+          thinkingMsgIdRef.current = null;
+          push("user", text);
+          
+          // 更新对话列表预览
+          setChats((prev) => {
+            const target = prev.find((chat) => chat.id === activeChatId);
+            if (!target) return prev;
+            const updatedChat = {
+              ...target,
+              preview: text.slice(0, 8) || target.preview,
+            };
+            const others = prev.filter((chat) => chat.id !== activeChatId);
+            return [updatedChat, ...others];
+          });
+          
+          // 构建消息并发送
+          const apiMessages = [{ role: "user", content: text }];
+          sendMessage(apiMessages, model, activeChatId).finally(() => {
+            setIsLoading(false);
+            setShowThinking(false);
+            abortControllerRef.current = null;
+          });
+        }, 100);
+        return;
+      }
+    } catch (err) {
+      console.error('恢复pending消息失败:', err);
+    }
+    
+    // 如果标记为跳过，则不加载对话历史（因为当前msgs已经是最新的）
+    if (skipNextLoadRef.current) {
+      skipNextLoadRef.current = false;
+      return;
+    }
+    
+    loadConversation(activeChatId);
+  }, [historyEnabled, activeChatId, loadConversation]);
+
+  const handleChatSelect = useCallback(
+    (chatId) => {
+      if (!historyEnabled || !chatId || chatId === activeChatId) return;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setShowThinking(false);
+      
+      // 重置新对话标志
+      isCreatingNewChatRef.current = false;
+      pendingChatIdRef.current = null;
+      pendingChatTitleRef.current = null;
+      
+      setActiveChatId(chatId);
+      
+      // 移动端关闭侧边栏
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      }
+      
+      if (router) {
+        router.push(`/c/${chatId}`);
+      }
+    },
+    [historyEnabled, activeChatId, router]
+  );
+
+  const handleCreateChat = useCallback(() => {
+    if (!historyEnabled) return;
+    
+    // 检查当前是否已经在空白新对话中
+    if (!activeChatId && msgs.length === 0 && isCreatingNewChatRef.current) {
+      // 当前已经是准备新对话的状态，不需要重复操作
+      return;
+    }
+    
+    // 设置标志，防止被derivedChatId覆盖和fetchChats自动跳转
+    isCreatingNewChatRef.current = true;
+    
+    // 清空状态，准备新对话
+    setActiveChatId(null);
+    setMsgs([]);
+    setChatError("");
+    pendingChatIdRef.current = null;
+    pendingChatTitleRef.current = null;
+    
+    // 移动端关闭侧边栏
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+    
+    // 跳转到聊天根目录
+    if (router) {
+      router.push('/?chat=true');
+    }
+  }, [historyEnabled, activeChatId, msgs, router]);
+
+  // 实际创建对话的内部函数（不激活）
+  const createNewChatSilent = useCallback(async (title = "") => {
+    try {
+      const response = await fetch(`${apiBase}/ai/chats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title: title.trim() }),
+      });
+      if (!response.ok) {
+        throw new Error("创建对话失败");
+      }
+      const data = await response.json();
+      const chat = data?.chat;
+      if (chat?.id) {
+        // 添加到列表但不激活
+        setChats((prev) => [chat, ...prev.filter((item) => item.id !== chat.id)]);
+        return chat.id;
+      }
+      return null;
+    } catch (err) {
+      console.error("创建对话失败:", err);
+      setChatError(err.message || "创建对话失败");
+      return null;
+    }
+  }, [apiBase]);
+
+  // 激活pending的对话
+  const activatePendingChat = useCallback(() => {
+    if (!historyEnabled || !pendingChatIdRef.current) {
+      return;
+    }
+    
+    const chatId = pendingChatIdRef.current;
+    pendingChatIdRef.current = null;
+    pendingChatTitleRef.current = null;
+    
+    // 重置新对话标志
+    isCreatingNewChatRef.current = false;
+    
+    // 不跳转路由，避免页面组件切换导致状态丢失
+    // 只更新activeChatId，让侧边栏显示当前对话为激活状态
+    setActiveChatId(chatId);
+    
+    // 注意：不调用 router.replace，保持在当前URL
+    // 用户可以从侧边栏看到新创建的对话，体验更流畅
+  }, [historyEnabled]);
+
+  // 计算聊天标题的显示文本
+  const getDisplayTitle = useCallback((chat) => {
+    if (!chat) return "新对话";
+    
+    const customTitle = (chat.title || "").trim();
+    const preview = (chat.preview || "").trim();
+    
+    // 如果有自定义标题
+    if (customTitle) {
+      // 如果标题超过8个字符，显示前7个字符 + "..."
+      if (customTitle.length > 8) {
+        return customTitle.slice(0, 7) + "...";
+      }
+      return customTitle;
+    }
+    
+    // 否则使用预览（已经是前8个字符）
+    return preview || "新对话";
+  }, []);
+
+  const applyRenameLocally = useCallback((chatId, title) => {
+    if (!chatId) return;
+    const normalized = (title || "").trim();
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (chat.id !== chatId) return chat;
+        return {
+          ...chat,
+          title: normalized || null,  // 存储完整标题或null
+        };
+      })
+    );
+  }, [setChats]);
+
+  const startRenaming = useCallback((chat) => {
+    if (!chat) return;
+    setRenamingChatId(chat.id);
+    // 编辑时显示完整的自定义标题（不截断），如果没有自定义标题则显示预览
+    const currentTitle = (chat.title || "").trim() || (chat.preview || "").trim() || "";
+    setRenameValue(currentTitle);
+    setOriginalRenameValue(currentTitle); // 记录原始值用于后续比较
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenamingChatId(null);
+    setRenameValue("");
+    setOriginalRenameValue("");
+  }, []);
+
+  const submitRename = useCallback(async () => {
+    if (!renamingChatId) {
+      cancelRename();
+      return;
+    }
+    const chatId = renamingChatId;
+    const payload = (renameValue || "").trim();
+    
+    // 检查标题是否真的有变化，如果没有变化就不发送请求
+    if (payload === originalRenameValue) {
+      // 没有变化，直接取消重命名状态，不做任何更新
+      cancelRename();
+      return;
+    }
+    
+    applyRenameLocally(chatId, payload);
+    cancelRename();
+    if (!historyEnabled) {
+      return;
+    }
+    setChatError("");
+    try {
+      const response = await fetch(`${apiBase}/ai/chats/${chatId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title: payload }),
+      });
+      if (!response.ok) {
+        throw new Error("更新聊天名称失败");
+      }
+      const data = await response.json();
+      if (data?.chat) {
+        setChats((prev) =>
+          prev.map((item) => (item.id === data.chat.id ? { ...item, ...data.chat } : item))
+        );
+      }
+    } catch (err) {
+      setChatError(err.message || "更新聊天名称失败");
+    }
+  }, [renamingChatId, renameValue, originalRenameValue, applyRenameLocally, cancelRename, historyEnabled, apiBase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1981,15 +2768,20 @@ export default function ChatModern({ user }) {
 
   // 点击外部关闭模型选择器
   useEffect(() => {
+    if (!modelSelectorOpen) return;
+    
     const handleClickOutside = (event) => {
-      if (modelSelectorOpen && !event.target.closest('.relative.inline-block')) {
+      // 检查点击是否在模型选择器容器内
+      const modelSelector = event.target.closest('.model-selector-container');
+      if (!modelSelector) {
         setModelSelectorOpen(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    // 使用 click 而不是 mousedown，避免干扰按钮的 onClick 事件
+    document.addEventListener('click', handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside);
     };
   }, [modelSelectorOpen]);
 
@@ -2037,9 +2829,8 @@ export default function ChatModern({ user }) {
   };
 
   // SSE客户端实现
-  const sendMessage = async (messages, modelValue) => {
-    const baseUrl = getApiBaseUrl();
-    const API_URL = `${baseUrl.replace(/\/$/, '')}/ai/chat`;
+  const sendMessage = async (messages, modelValue, chatId = null) => {
+    const API_URL = `${apiBase}/ai/chat`;
     if (!modelValue) {
       throw new Error("缺少有效模型配置");
     }
@@ -2055,7 +2846,11 @@ export default function ChatModern({ user }) {
           "Accept": "text/event-stream",
         },
         credentials: 'include', // 包含Cookie认证
-        body: JSON.stringify({ messages, model: modelValue }),
+        body: JSON.stringify({
+          messages,
+          model: modelValue,
+          conversation_id: historyEnabled && (chatId || activeChatId) ? (chatId || activeChatId) : undefined,
+        }),
         signal: controller.signal,
       });
 
@@ -2371,33 +3166,81 @@ export default function ChatModern({ user }) {
       push("error", modelError || "模型未就绪，请稍后重试。");
       return;
     }
-    
+
+    let chatIdToUse = activeChatId;
+
+    // 如果启用了历史记录且当前没有activeChatId，立刻创建对话并跳转
+    if (historyEnabled && !activeChatId) {
+      setIsCreatingChat(true);
+      const title = txt.slice(0, 8);
+      const newChatId = await createNewChatSilent(title);
+      setIsCreatingChat(false);
+      
+      if (!newChatId) {
+        setChatError("创建对话失败，请重试");
+        return;
+      }
+      
+      // 将待发送的消息存储到sessionStorage
+      try {
+        sessionStorage.setItem(`chat_pending_${newChatId}`, JSON.stringify({
+          text: txt,
+          model: selectedModel,
+          skipLoad: true
+        }));
+      } catch (err) {
+        console.error('存储pending消息失败:', err);
+      }
+      
+      // 立即跳转到新对话URL
+      if (router) {
+        router.push(`/c/${newChatId}`);
+      }
+      return;
+    }
+
+    handleStop();
     setIsLoading(true);
     setShowThinking(true);
+    setChatError("");
     thinkingMsgIdRef.current = null;
     push("user", txt);
     setInp("");
     
+    // 更新对话列表中的预览
+    if (historyEnabled && chatIdToUse) {
+      setChats((prev) => {
+        const target = prev.find((chat) => chat.id === chatIdToUse);
+        if (!target) return prev;
+        const updatedChat = {
+          ...target,
+          preview: buildPreview(txt) || target.preview,
+        };
+        const others = prev.filter((chat) => chat.id !== chatIdToUse);
+        return [updatedChat, ...others];
+      });
+    }
+
     try {
       // 构建消息历史
       const newMessages = [...msgs, { role: "user", content: txt }];
       // 过滤 UI 专用消息，仅传 user/assistant/tool，并保留必要的字段
       const apiMessages = newMessages
-        .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-        .map(msg => {
+        .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
+        .map((msg) => {
           const apiMsg = { role: msg.role, content: msg.content };
           // tool 消息必须包含 tool_call_id（严格模型要求）
-          if (msg.role === 'tool' && msg.tool_call_id) {
+          if (msg.role === "tool" && msg.tool_call_id) {
             apiMsg.tool_call_id = msg.tool_call_id;
           }
           // assistant 消息如果有 tool_calls，需要包含
-          if (msg.role === 'assistant' && msg.tool_calls) {
+          if (msg.role === "assistant" && msg.tool_calls) {
             apiMsg.tool_calls = msg.tool_calls;
           }
           return apiMsg;
         });
-      
-      await sendMessage(apiMessages, selectedModel);
+
+      await sendMessage(apiMessages, selectedModel, chatIdToUse);
     } finally {
       setIsLoading(false);
       setShowThinking(false);
@@ -2418,28 +3261,47 @@ export default function ChatModern({ user }) {
 
   // Header组件 - 提取为共享组件
   const Header = useMemo(() => {
-    // 获取当前选中模型的显示名称
     const getSelectedModelLabel = () => {
       if (isLoadingModels) return "加载中...";
       if (models.length === 0) return "无可用模型";
       if (!selectedModel) return "选择模型";
       const model = models.find((m) => m.model === selectedModel);
-      return model ? `${model.name}${model.supports_thinking ? ' · Reasoning' : ''}` : "选择模型";
+      return model ? `${model.name}${model.supports_thinking ? " · Reasoning" : ""}` : "选择模型";
     };
 
+    const actionHandler = historyEnabled ? handleCreateChat : clear;
+    const actionDisabled = historyEnabled ? isCreatingChat : isLoading;
+    const actionLabel = historyEnabled
+      ? isCreatingChat
+        ? "创建中..."
+        : "新对话"
+      : "清空";
+
     return (
-      <header className="fixed top-14 left-0 right-0 z-30 bg-white">
+      <header className="fixed top-16 z-50 bg-white left-0 right-0 lg:left-[var(--sidebar-width)]" style={{ '--sidebar-width': historyEnabled ? `${sidebarWidth}px` : '0px' }}>
         <div className="flex h-14 items-center justify-between px-4">
+          {/* 移动端侧边栏切换按钮 */}
+          {historyEnabled && (
+            <button
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className="lg:hidden flex items-center justify-center rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-gray-50 mr-2"
+              title={isSidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+            >
+              {isSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            </button>
+          )}
           <div className="flex items-center">
-            <div className="relative inline-block text-left">
+            <div className="relative inline-block text-left model-selector-container">
               <button
                 onClick={() => setModelSelectorOpen(!modelSelectorOpen)}
                 disabled={isLoading || isLoadingModels || models.length === 0}
                 className="flex items-center justify-start gap-2 bg-transparent text-gray-900 rounded-xl px-3 py-1.5 hover:bg-gray-100 transition disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
               >
                 <span className="font-semibold text-sm text-gray-900">{getSelectedModelLabel()}</span>
-                <ChevronDown 
-                  className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${modelSelectorOpen ? "rotate-180" : "rotate-0"}`} 
+                <ChevronDown
+                  className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${
+                    modelSelectorOpen ? "rotate-180" : "rotate-0"
+                  }`}
                 />
               </button>
 
@@ -2450,12 +3312,12 @@ export default function ChatModern({ user }) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute z-[35] mt-2 min-w-full rounded-xl bg-white border border-gray-200 shadow-lg backdrop-blur-md overflow-hidden whitespace-nowrap"
+                    className="absolute z-10 mt-2 min-w-full rounded-xl bg-white border border-gray-200 shadow-lg backdrop-blur-md overflow-hidden whitespace-nowrap"
                   >
                     {models.map((m) => {
-                      const modelLabel = `${m.name}${m.supports_thinking ? ' · Reasoning' : ''}`;
+                      const modelLabel = `${m.name}${m.supports_thinking ? " · Reasoning" : ""}`;
                       const isSelected = selectedModel === m.model;
-                      
+
                       return (
                         <button
                           key={m.model}
@@ -2480,8 +3342,15 @@ export default function ChatModern({ user }) {
               </AnimatePresence>
             </div>
           </div>
-          <button onClick={clear} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50" disabled={isLoading}>
-            清空
+          <button
+            onClick={actionHandler}
+            className="rounded-xl border border-gray-200 bg-white p-2 text-gray-700 hover:bg-gray-50 disabled:opacity-60 flex items-center justify-center flex-shrink-0"
+            disabled={actionDisabled}
+            title={actionLabel}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0" aria-hidden="true">
+              <path d="M2.6687 11.333V8.66699C2.6687 7.74455 2.66841 7.01205 2.71655 6.42285C2.76533 5.82612 2.86699 5.31731 3.10425 4.85156L3.25854 4.57617C3.64272 3.94975 4.19392 3.43995 4.85229 3.10449L5.02905 3.02149C5.44666 2.84233 5.90133 2.75849 6.42358 2.71582C7.01272 2.66769 7.74445 2.66797 8.66675 2.66797H9.16675C9.53393 2.66797 9.83165 2.96586 9.83179 3.33301C9.83179 3.70028 9.53402 3.99805 9.16675 3.99805H8.66675C7.7226 3.99805 7.05438 3.99834 6.53198 4.04102C6.14611 4.07254 5.87277 4.12568 5.65601 4.20313L5.45581 4.28906C5.01645 4.51293 4.64872 4.85345 4.39233 5.27149L4.28979 5.45508C4.16388 5.7022 4.08381 6.01663 4.04175 6.53125C3.99906 7.05373 3.99878 7.7226 3.99878 8.66699V11.333C3.99878 12.2774 3.99906 12.9463 4.04175 13.4688C4.08381 13.9833 4.16389 14.2978 4.28979 14.5449L4.39233 14.7285C4.64871 15.1465 5.01648 15.4871 5.45581 15.7109L5.65601 15.7969C5.87276 15.8743 6.14614 15.9265 6.53198 15.958C7.05439 16.0007 7.72256 16.002 8.66675 16.002H11.3337C12.2779 16.002 12.9461 16.0007 13.4685 15.958C13.9829 15.916 14.2976 15.8367 14.5447 15.7109L14.7292 15.6074C15.147 15.3511 15.4879 14.9841 15.7117 14.5449L15.7976 14.3447C15.8751 14.128 15.9272 13.8546 15.9587 13.4688C16.0014 12.9463 16.0017 12.2774 16.0017 11.333V10.833C16.0018 10.466 16.2997 10.1681 16.6667 10.168C17.0339 10.168 17.3316 10.4659 17.3318 10.833V11.333C17.3318 12.2555 17.3331 12.9879 17.2849 13.5771C17.2422 14.0993 17.1584 14.5541 16.9792 14.9717L16.8962 15.1484C16.5609 15.8066 16.0507 16.3571 15.4246 16.7412L15.1492 16.8955C14.6833 17.1329 14.1739 17.2354 13.5769 17.2842C12.9878 17.3323 12.256 17.332 11.3337 17.332H8.66675C7.74446 17.332 7.01271 17.3323 6.42358 17.2842C5.90135 17.2415 5.44665 17.1577 5.02905 16.9785L4.85229 16.8955C4.19396 16.5601 3.64271 16.0502 3.25854 15.4238L3.10425 15.1484C2.86697 14.6827 2.76534 14.1739 2.71655 13.5771C2.66841 12.9879 2.6687 12.2555 2.6687 11.333ZM13.4646 3.11328C14.4201 2.334 15.8288 2.38969 16.7195 3.28027L16.8865 3.46485C17.6141 4.35685 17.6143 5.64423 16.8865 6.53613L16.7195 6.7207L11.6726 11.7686C11.1373 12.3039 10.4624 12.6746 9.72827 12.8408L9.41089 12.8994L7.59351 13.1582C7.38637 13.1877 7.17701 13.1187 7.02905 12.9707C6.88112 12.8227 6.81199 12.6134 6.84155 12.4063L7.10132 10.5898L7.15991 10.2715C7.3262 9.53749 7.69692 8.86241 8.23218 8.32715L13.2791 3.28027L13.4646 3.11328ZM15.7791 4.2207C15.3753 3.81702 14.7366 3.79124 14.3035 4.14453L14.2195 4.2207L9.17261 9.26856C8.81541 9.62578 8.56774 10.0756 8.45679 10.5654L8.41772 10.7773L8.28296 11.7158L9.22241 11.582L9.43433 11.543C9.92426 11.432 10.3749 11.1844 10.7322 10.8271L15.7791 5.78027L15.8552 5.69629C16.185 5.29194 16.1852 4.708 15.8552 4.30371L15.7791 4.2207Z"></path>
+            </svg>
           </button>
         </div>
         {modelError && (
@@ -2491,46 +3360,256 @@ export default function ChatModern({ user }) {
         )}
       </header>
     );
-  }, [selectedModel, isLoading, isLoadingModels, models, selectedModelMeta, modelError, modelSelectorOpen]);
+  }, [
+    selectedModel,
+    isLoading,
+    isLoadingModels,
+    models,
+    selectedModelMeta,
+    modelError,
+    modelSelectorOpen,
+    historyEnabled,
+    sidebarWidth,
+    handleCreateChat,
+    isCreatingChat,
+    clear,
+  ]);
+
+  const inputPlaceholder = "继续提问…";
+  const shouldShowPlaceholder = !conversationReady;
+  const shouldShowHero = conversationReady && first;
+  const shouldShowChat = conversationReady && !first;
+  
+  // 根据是否显示输入框动态调整底部padding，让滚动条延伸到底部但内容不被遮挡
+  const mainPaddingBottom = shouldShowChat ? "pb-[120px]" : "pb-4";
 
   return (
-    <div className="relative flex h-screen flex-col bg-white text-gray-900 overflow-hidden">
-      {first ? (
+    <div className="relative flex h-screen bg-white text-gray-900 overflow-hidden">
+      {historyEnabled && (
         <>
-          {Header}
-          <main className="flex flex-1 items-center justify-center px-6 pt-28">
-            <section className="w-full max-w-3xl space-y-8">
-              <div className="text-center">
-                {welcomeTextComponent}
-              </div>
-              <InputBar
-                value={inp}
-                onChange={setInp}
-                onSend={handleSend}
-                onStop={handleStop}
-                placeholder="问我任何问题…"
-                autoFocus
-                isLoading={isLoading}
+          {/* 移动端遮罩层 */}
+          <AnimatePresence>
+            {isSidebarOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={() => setIsSidebarOpen(false)}
+                className="fixed top-[120px] left-0 right-0 bottom-0 z-[60] bg-black/20 backdrop-blur-sm lg:hidden"
               />
-            </section>
-          </main>
-        </>
-      ) : (
-        <>
-          {Header}
+            )}
+          </AnimatePresence>
 
-          <main ref={containerRef} className={cx("flex-1 overflow-y-auto pt-28", PAD)}>
-            <div className="mx-auto w-full max-w-4xl px-4 pt-6">
+          {/* 侧边栏 */}
+          <motion.aside
+            animate={{ 
+              width: isSidebarOpen ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH
+            }}
+            initial={false}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            className={cx(
+              "flex h-full flex-col border-r border-gray-100",
+              "bg-gray-50 lg:bg-gray-50/70 lg:backdrop-blur",
+              "lg:relative",
+              "fixed left-0 top-[120px] lg:top-0 transition-transform duration-300",
+              "h-[calc(100vh-120px)] lg:h-full",
+              isSidebarOpen ? "translate-x-0 z-[70] lg:z-20" : "-translate-x-full lg:translate-x-0 z-20"
+            )}
+          >
+          <div className={cx(
+            "flex items-center gap-2",
+            "pt-6 lg:pt-20",
+            isSidebarOpen ? "justify-between px-4" : "justify-center px-2"
+          )}>
+            {isSidebarOpen ? (
+              <>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <img 
+                    src="/logo.png" 
+                    alt={SHOP_NAME} 
+                    className="h-10 w-10 rounded-full object-cover flex-shrink-0 border-2 border-gray-200 shadow-sm"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-900 truncate">{SHOP_NAME}</div>
+                    <div className="text-xs text-gray-500">AI Assistant</div>
+                  </div>
+                </div>
+                {/* 桌面端折叠按钮 */}
+                <button
+                  onClick={() => setIsSidebarOpen((prev) => !prev)}
+                  className="hidden lg:flex items-center justify-center rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-white flex-shrink-0 w-9 h-9"
+                  title="收起侧边栏"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsSidebarOpen((prev) => !prev)}
+                className="hidden lg:flex items-center justify-center rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-white w-9 h-9"
+                title="展开侧边栏"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="mt-4 flex items-center justify-between px-4 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {isSidebarOpen && <span>Chats</span>}
+          </div>
+          <div className={cx(
+            "mt-2 flex-1 overflow-y-auto px-2 pb-4",
+            !isSidebarOpen && "[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          )}>
+            {isSidebarOpen && (
+              <>
+                {isLoadingChats ? (
+                  <div className="flex h-full items-center justify-center text-xs text-gray-500">
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    正在加载
+                  </div>
+                ) : chats.length === 0 ? (
+                  <div className="mt-8 px-2 text-center text-xs text-gray-500">
+                    还没有聊天，点击上方按钮开始
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {chats.map((chat) => {
+                      const isActive = chat.id === activeChatId;
+                      const displayName = getDisplayTitle(chat);
+                      return (
+                        <button
+                          key={chat.id}
+                          onClick={() => handleChatSelect(chat.id)}
+                          className={cx(
+                            "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition",
+                            isActive ? "bg-white shadow-sm" : "hover:bg-white/70"
+                          )}
+                        >
+                          <div className="flex-1 min-w-0">
+                            {renamingChatId === chat.id ? (
+                              <input
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onBlur={submitRename}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") submitRename();
+                                  if (e.key === "Escape") cancelRename();
+                                }}
+                                autoFocus
+                                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 outline-none focus:border-gray-400"
+                              />
+                            ) : (
+                              <>
+                                <p className="text-sm font-medium text-gray-900">
+                                  {displayName}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                  {formatRelativeTime(chat.updated_at)}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                          {renamingChatId !== chat.id && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRenaming(chat);
+                              }}
+                              className="text-gray-400 hover:text-gray-700"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="border-t border-gray-100 p-4 mb-[120px] lg:mb-0">
+            <div className={cx(
+              "flex items-center gap-2",
+              !isSidebarOpen && "justify-center"
+            )}>
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600">
+                <User2 className="h-4 w-4" />
+              </div>
+              {isSidebarOpen && (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-gray-900">{user?.name || "未登录"}</p>
+                  {user?.id && <p className="truncate text-xs text-gray-500">{user.id}</p>}
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.aside>
+        </>
+      )}
+      <div className="relative flex flex-1 flex-col">
+        {Header}
+        <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-40", mainPaddingBottom)}>
+          <div className="mx-auto w-full max-w-4xl px-4 pt-4">
+            {chatError && (
+              <div className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                {chatError}
+              </div>
+            )}
+            {historyEnabled && isLoadingHistory && conversationReady && first && (
+              <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在同步历史...
+              </div>
+            )}
+            {shouldShowPlaceholder && (
+              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+                <p className="text-base font-semibold text-gray-900">请选择一个聊天</p>
+                <p className="text-sm text-gray-500">点击侧边栏的历史记录或创建一个新的对话即可开始。</p>
+                <button
+                  onClick={handleCreateChat}
+                  disabled={isCreatingChat}
+                  className="rounded-full border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {isCreatingChat ? "创建中..." : "创建新对话"}
+                </button>
+              </div>
+            )}
+            {shouldShowHero && (
+              <section className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center gap-8 text-center">
+                <div className="text-3xl font-semibold text-gray-900 h-12 flex items-center justify-center">{welcomeTextComponent}</div>
+                <div className="w-full max-w-2xl px-4">
+                  <InputBar
+                    value={inp}
+                    onChange={setInp}
+                    onSend={handleSend}
+                    onStop={handleStop}
+                    placeholder="问我任何问题…"
+                    autoFocus
+                    isLoading={isLoading}
+                  />
+                </div>
+              </section>
+            )}
+            {shouldShowChat && (
               <div className="mx-auto flex max-w-3xl flex-col gap-4">
                 {msgs.map((m) => {
                   if (m.role === "assistant") {
-                    // 跳过只有 tool_calls 而没有文本内容的 assistant 消息（它们只用于历史记录）
                     if ((!m.content || m.content === null) && m.tool_calls) {
                       return null;
                     }
                     return <MarkdownRenderer key={m.id} content={m.content} />;
                   } else if (m.role === "assistant_thinking") {
-                    return <ThinkingBubble key={m.id} content={m.content} isComplete={m.isComplete} isStopped={m.isStopped} />;
+                    return (
+                      <ThinkingBubble
+                        key={m.id}
+                        content={m.content}
+                        isComplete={m.isComplete}
+                        isStopped={m.isStopped}
+                      />
+                    );
                   } else if (m.role === "tool_call") {
                     return (
                       <ToolCallCard
@@ -2544,33 +3623,44 @@ export default function ChatModern({ user }) {
                       />
                     );
                   } else if (m.role === "user") {
-                    return <Bubble key={m.id} role={m.role}>{m.content}</Bubble>;
+                    return (
+                      <Bubble key={m.id} role={m.role}>
+                        {m.content}
+                      </Bubble>
+                    );
                   } else if (m.role === "error") {
                     return <ErrorBubble key={m.id} message={m.content} />;
                   }
-                  // 跳过其他角色的消息（如 tool 角色，已经在卡片中显示）
                   return null;
                 })}
                 {showThinking && <LoadingIndicator />}
                 <div ref={endRef} />
               </div>
-            </div>
-          </main>
-
-          <div className="fixed inset-x-0 bottom-0 z-30 bg-white">
-            <div className="mx-auto max-w-4xl px-4 pb-4">
+            )}
+          </div>
+        </main>
+        {shouldShowChat && (
+          <div
+            className="fixed bottom-0 z-50"
+            style={
+              historyEnabled
+                ? { left: sidebarWidth, right: 0 }
+                : { left: 0, right: 0 }
+            }
+          >
+            <div className="mx-auto max-w-4xl px-4 pb-4 bg-white/95 backdrop-blur-sm">
               <InputBar
                 value={inp}
                 onChange={setInp}
                 onSend={handleSend}
                 onStop={handleStop}
-                placeholder="继续提问…"
+                placeholder={inputPlaceholder}
                 isLoading={isLoading}
               />
             </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
