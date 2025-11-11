@@ -2397,20 +2397,22 @@ export default function ChatModern({ user, initialConversationId = null }) {
       const list = Array.isArray(data?.chats) ? data.chats : [];
       setChats(list);
       
-      // 判断是否是新对话状态：URL是/?chat=true（没有chatId参数）
-      const isNewChatUrl = router?.query?.chat === 'true' && !router?.query?.chatId;
+      // 判断是否是新对话状态：URL是/?chat=true（没有chatId参数）或者是根路径/
+      const isNewChatUrl = (router?.query?.chat === 'true' && !router?.query?.chatId) || 
+                           (router?.pathname === '/' && !router?.asPath?.startsWith('/c/'));
       
+      // 移除自动跳转到最近聊天的逻辑，让用户停留在新对话界面
       // 只有在不是正在创建新对话的情况下，才自动选择第一个对话
-      if (!activeChatIdRef.current && list.length > 0 && !isCreatingNewChatRef.current && !isNewChatUrl) {
-        const fallbackId = list[0].id;
-        setActiveChatId(fallbackId);
-        if (router && router.isReady) {
-          const targetPath = `/c/${fallbackId}`;
-          if (router.asPath !== targetPath) {
-            router.replace(targetPath);
-          }
-        }
-      }
+      // if (!activeChatIdRef.current && list.length > 0 && !isCreatingNewChatRef.current && !isNewChatUrl) {
+      //   const fallbackId = list[0].id;
+      //   setActiveChatId(fallbackId);
+      //   if (router && router.isReady) {
+      //     const targetPath = `/c/${fallbackId}`;
+      //     if (router.asPath !== targetPath) {
+      //       router.replace(targetPath);
+      //     }
+      //   }
+      // }
     } catch (err) {
       setChatError(err.message || "聊天历史加载失败");
     } finally {
@@ -3278,7 +3280,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
       : "清空";
 
     return (
-      <header className="fixed top-16 z-50 bg-white left-0 right-0 lg:left-[var(--sidebar-width)]" style={{ '--sidebar-width': historyEnabled ? `${sidebarWidth}px` : '0px' }}>
+      <header className="fixed top-16 z-30 bg-white left-0 right-0 lg:left-[var(--sidebar-width)]" style={{ '--sidebar-width': historyEnabled ? `${sidebarWidth}px` : '0px' }}>
         <div className="flex h-14 items-center justify-between px-4">
           {/* 移动端侧边栏切换按钮 */}
           {historyEnabled && (
@@ -3396,7 +3398,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
                 onClick={() => setIsSidebarOpen(false)}
-                className="fixed top-[120px] left-0 right-0 bottom-0 z-[60] bg-black/20 backdrop-blur-sm lg:hidden"
+                className="fixed top-[120px] left-0 right-0 bottom-0 z-30 bg-black/20 backdrop-blur-sm lg:hidden"
               />
             )}
           </AnimatePresence>
@@ -3414,7 +3416,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
               "lg:relative",
               "fixed left-0 top-[120px] lg:top-0 transition-transform duration-300",
               "h-[calc(100vh-120px)] lg:h-full",
-              isSidebarOpen ? "translate-x-0 z-[70] lg:z-20" : "-translate-x-full lg:translate-x-0 z-20"
+              isSidebarOpen ? "translate-x-0 z-[35] lg:z-20" : "-translate-x-full lg:translate-x-0 z-20"
             )}
           >
           <div className={cx(
@@ -3551,7 +3553,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
       )}
       <div className="relative flex flex-1 flex-col">
         {Header}
-        <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-40", mainPaddingBottom)}>
+        <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-20", mainPaddingBottom)}>
           <div className="mx-auto w-full max-w-4xl px-4 pt-4">
             {chatError && (
               <div className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
@@ -3641,7 +3643,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         </main>
         {shouldShowChat && (
           <div
-            className="fixed bottom-0 z-50"
+            className="fixed bottom-0 z-30"
             style={
               historyEnabled
                 ? { left: sidebarWidth, right: 0 }
