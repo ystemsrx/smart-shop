@@ -1,19 +1,17 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import ChatModern from '../components/ChatUI'
 import { useAuth } from '../hooks/useAuth'
 import Nav from '../components/Nav'
-import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig'
+import { getShopName } from '../utils/runtimeConfig'
 import LandingPage from '../components/page'
 
 export default function Home() {
   const { user, logout, isInitialized } = useAuth()
   const router = useRouter()
   const shopName = getShopName()
-  const redirectingRef = useRef(false)
-  const routerReady = router?.isReady
 
   // 检查是否要显示 AI 助手（通过查询参数）
   const showChat = router.query.chat === 'true'
@@ -29,48 +27,7 @@ export default function Home() {
     }
   }, [user, router, showHome]);
 
-  useEffect(() => {
-    if (!routerReady) return;
-    if (!user || showHome) return;
-    // 如果用户明确要求显示聊天（/?chat=true 表示新对话），不要自动重定向
-    if (showChat) return;
-    if (router.pathname !== '/' || router.asPath.startsWith('/c/')) return;
-    if (redirectingRef.current) return;
-    redirectingRef.current = true;
-    const ensureChatRoute = async () => {
-      try {
-        const base = getApiBaseUrl().replace(/\/$/, '');
-        let targetId = null;
-        const resp = await fetch(`${base}/ai/chats?limit=1`, { credentials: 'include' });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (Array.isArray(data?.chats) && data.chats.length > 0) {
-            targetId = data.chats[0].id;
-          }
-        }
-        if (!targetId) {
-          const created = await fetch(`${base}/ai/chats`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ title: '' })
-          });
-          if (created.ok) {
-            const payload = await created.json();
-            targetId = payload?.chat?.id || null;
-          }
-        }
-        if (targetId) {
-          router.replace(`/c/${targetId}`);
-        }
-      } catch (err) {
-        console.error('跳转聊天页面失败:', err);
-      } finally {
-        redirectingRef.current = false;
-      }
-    };
-    ensureChatRoute();
-  }, [routerReady, user, showHome, showChat, router]);
+  // 移除自动跳转到最近聊天的逻辑，让用户停留在新对话界面
 
   // 等待认证状态初始化
   if (!isInitialized) {
