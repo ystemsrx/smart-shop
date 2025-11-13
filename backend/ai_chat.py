@@ -40,19 +40,25 @@ class StreamResponseError(RuntimeError):
         message: str,
         *,
         partial_text: str = "",
+        partial_reasoning: str = "",
         tool_calls: Optional[Dict[int, Dict[str, Any]]] = None,
         finish_reason: Optional[str] = None,
         retryable: bool = True,
     ):
         super().__init__(message)
         self.partial_text = partial_text or ""
+        self.partial_reasoning = partial_reasoning or ""
         self.tool_calls = tool_calls or {}
         self.finish_reason = finish_reason
         self.retryable = retryable
 
     @property
     def has_partial(self) -> bool:
-        return bool(self.partial_text.strip()) or bool(self.tool_calls)
+        return (
+            bool(self.partial_text.strip())
+            or bool(self.partial_reasoning.strip())
+            or bool(self.tool_calls)
+        )
 
 
 def resolve_model_config(model_name: Optional[str]) -> ModelConfig:
@@ -123,6 +129,21 @@ def _extract_text(content: Any) -> str:
         if isinstance(text_val, str):
             return text_val
     return ""
+
+
+def _build_assistant_log_content(
+    content_text: Optional[str],
+    thinking_text: Optional[str] = None,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """构建统一的assistant消息存储格式，包含思维链内容。"""
+    payload: Dict[str, Any] = {
+        "content": (content_text or "").strip() or "",
+        "thinking_content": (thinking_text or "") or "",
+    }
+    if tool_calls:
+        payload["tool_calls"] = tool_calls
+    return json.dumps(payload, ensure_ascii=False)
 
 # ===== 辅助函数 =====
 
@@ -368,11 +389,17 @@ async def stream_model_response(
     model_config: ModelConfig,
     messages: List[Dict[str, Any]],
     tools: List[Dict[str, Any]],
-    send
-) -> Tuple[str, Dict[int, Dict[str, Any]], Optional[str]]:
+    send,
+    client_disconnected: Optional[asyncio.Event] = None,
+    partial_state: Optional[Dict[str, str]] = None
+) -> Tuple[str, Dict[int, Dict[str, Any]], Optional[str], str]:
     """
     使用指定模型执行流式对话，边读取OpenAI SDK的流式结果边透传给前端。
-    返回助手的完整文本、工具调用缓冲以及结束原因。
+    返回助手的完整文本、工具调用缓冲、结束原因以及思维链内容。
+    
+    Args:
+        client_disconnected: 用于检测客户端断开连接的事件，如果设置则立即停止生成
+        partial_state: 用于实时更新已生成的部分内容，以便在中断时保存
     """
     payload: Dict[str, Any] = {
         "model": model_config.name,
@@ -395,6 +422,7 @@ async def stream_model_response(
 
     tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
     assistant_text_parts: List[str] = []
+    reasoning_text_parts: List[str] = []
     finish_reason: Optional[str] = None
 
     THINK_START = "<think>"
@@ -406,6 +434,15 @@ async def stream_model_response(
     should_skip_leading_newlines = False
     is_first_content_piece = True
 
+    async def emit_reasoning_chunk(text: str) -> None:
+        if not text:
+            return
+        reasoning_text_parts.append(text)
+        # 实时更新部分状态
+        if partial_state is not None:
+            partial_state["reasoning_output"] = "".join(reasoning_text_parts)
+        await send(_sse("message", {"type": "reasoning", "delta": text, "role": "assistant"}))
+
     async def handle_content_delta(text: str) -> None:
         nonlocal content_buffer, think_mode_enabled, in_think_tag
         nonlocal should_skip_leading_newlines, is_first_content_piece, think_mode_possible
@@ -415,6 +452,9 @@ async def stream_model_response(
 
         if not think_mode_possible and THINK_START not in text:
             assistant_text_parts.append(text)
+            # 实时更新部分状态
+            if partial_state is not None:
+                partial_state["assistant_text"] = "".join(assistant_text_parts)
             await send(_sse("message", {"type": "delta", "delta": text, "role": "assistant"}))
             return
         if not think_mode_possible and THINK_START in text:
@@ -442,7 +482,7 @@ async def stream_model_response(
                 if close_idx != -1:
                     reasoning_chunk = content_buffer[:close_idx]
                     if reasoning_chunk:
-                        await send(_sse("message", {"type": "reasoning", "delta": reasoning_chunk, "role": "assistant"}))
+                        await emit_reasoning_chunk(reasoning_chunk)
                     content_buffer = content_buffer[close_idx + len(THINK_END):]
                     in_think_tag = False
                     if content_buffer:
@@ -467,7 +507,7 @@ async def stream_model_response(
                 if safe_len > 0:
                     reasoning_chunk = content_buffer[:safe_len]
                     if reasoning_chunk:
-                        await send(_sse("message", {"type": "reasoning", "delta": reasoning_chunk, "role": "assistant"}))
+                        await emit_reasoning_chunk(reasoning_chunk)
                     content_buffer = content_buffer[safe_len:]
                 break
 
@@ -498,6 +538,9 @@ async def stream_model_response(
                         segment = content_buffer[:next_think]
                         if segment:
                             assistant_text_parts.append(segment)
+                            # 实时更新部分状态
+                            if partial_state is not None:
+                                partial_state["assistant_text"] = "".join(assistant_text_parts)
                             await send(_sse("message", {"type": "delta", "delta": segment, "role": "assistant"}))
                         content_buffer = content_buffer[next_think + len(THINK_START):]
                         in_think_tag = True
@@ -506,6 +549,9 @@ async def stream_model_response(
                 segment = content_buffer
                 if segment:
                     assistant_text_parts.append(segment)
+                    # 实时更新部分状态
+                    if partial_state is not None:
+                        partial_state["assistant_text"] = "".join(assistant_text_parts)
                     await send(_sse("message", {"type": "delta", "delta": segment, "role": "assistant"}))
                 content_buffer = ""
                 break
@@ -523,6 +569,18 @@ async def stream_model_response(
 
     try:
         async for chunk in stream:
+            # 检查客户端是否断开连接
+            if client_disconnected and client_disconnected.is_set():
+                logger.info("检测到客户端断开，立即停止生成")
+                await _aclose_stream()
+                # 返回已生成的内容
+                return (
+                    "".join(assistant_text_parts),
+                    tool_calls_buffer,
+                    "interrupted",
+                    "".join(reasoning_text_parts)
+                )
+            
             chunk_dict = chunk if isinstance(chunk, dict) else _coerce_to_dict(chunk)
             if not chunk_dict:
                 continue
@@ -536,6 +594,7 @@ async def stream_model_response(
                 raise StreamResponseError(
                     message,
                     partial_text="".join(assistant_text_parts),
+                    partial_reasoning="".join(reasoning_text_parts),
                     tool_calls=tool_calls_buffer,
                     finish_reason=finish_reason,
                     retryable=True
@@ -549,7 +608,7 @@ async def stream_model_response(
                 reasoning_piece = delta_dict.get("reasoning")
                 reasoning_text = _extract_text(reasoning_piece)
                 if reasoning_text:
-                    await send(_sse("message", {"type": "reasoning", "delta": reasoning_text, "role": "assistant"}))
+                    await emit_reasoning_chunk(reasoning_text)
 
                 content_piece = delta_dict.get("content")
                 content_text = _extract_text(content_piece)
@@ -608,6 +667,7 @@ async def stream_model_response(
         raise StreamResponseError(
             "模型响应被取消",
             partial_text="".join(assistant_text_parts),
+            partial_reasoning="".join(reasoning_text_parts),
             tool_calls=tool_calls_buffer,
             finish_reason=finish_reason or "cancelled",
             retryable=False
@@ -620,13 +680,14 @@ async def stream_model_response(
         raise StreamResponseError(
             f"响应失败: {exc}",
             partial_text="".join(assistant_text_parts),
+            partial_reasoning="".join(reasoning_text_parts),
             tool_calls=tool_calls_buffer,
             finish_reason=finish_reason,
             retryable=True
         ) from exc
 
     await _aclose_stream()
-    return "".join(assistant_text_parts), tool_calls_buffer, finish_reason
+    return "".join(assistant_text_parts), tool_calls_buffer, finish_reason, "".join(reasoning_text_parts)
 
 
 def get_fallback_system_prompt(user_id: Optional[str] = None) -> str:
@@ -1738,7 +1799,8 @@ async def handle_tool_calls_and_continue(
     send,
     request: Request,
     model_config: ModelConfig,
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[str] = None,
+    client_disconnected: Optional[asyncio.Event] = None
 ):
     """处理工具调用并继续对话"""
     for i, tc in enumerate(tool_calls, 1):
@@ -1804,11 +1866,13 @@ async def handle_tool_calls_and_continue(
     retries = 2
     for attempt in range(retries + 1):
         try:
-            assistant_content, tool_calls_buffer, finish_reason = await stream_model_response(
+            assistant_content, tool_calls_buffer, finish_reason, reasoning_output = await stream_model_response(
                 model_config,
                 messages_with_system,
                 tools,
-                send
+                send,
+                client_disconnected,
+                None  # partial_state 在工具调用继续时不需要
             )
 
             if tool_calls_buffer:
@@ -1830,35 +1894,56 @@ async def handle_tool_calls_and_continue(
                     tool_calls_info = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
                     # 当有 tool_calls 时，无论是否有文本内容，都记录完整的 JSON 格式
                     # 这样前端可以同时获取文本和工具调用信息
-                    content_to_log = json.dumps({
-                        "content": assistant_content if assistant_content and assistant_content.strip() else "",
-                        "tool_calls": tool_calls_info
-                    }, ensure_ascii=False)
+                    content_to_log = _build_assistant_log_content(
+                        assistant_content if assistant_content and assistant_content.strip() else "",
+                        reasoning_output,
+                        tool_calls_info
+                    )
                     ChatLogDB.add_log(user_id, "assistant", content_to_log, thread_id=conversation_id)
 
                 ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
-                await handle_tool_calls_and_continue(user_id, base_messages, ordered, send, request, model_config, conversation_id)
+                await handle_tool_calls_and_continue(user_id, base_messages, ordered, send, request, model_config, conversation_id, client_disconnected)
             else:
                 if user_id and assistant_content and assistant_content.strip():
-                    ChatLogDB.add_log(user_id, "assistant", assistant_content, thread_id=conversation_id)
+                    ChatLogDB.add_log(
+                        user_id,
+                        "assistant",
+                        _build_assistant_log_content(assistant_content, reasoning_output),
+                        thread_id=conversation_id
+                    )
 
                 await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
             break
         except StreamResponseError as e:
-            logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
-            if e.has_partial:
-                if user_id:
-                    if e.partial_text.strip():
-                        ChatLogDB.add_log(user_id, "assistant", e.partial_text, thread_id=conversation_id)
-                    elif e.tool_calls:
-                        ChatLogDB.add_log(user_id, "assistant", json.dumps({
-                            "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
-                        }, ensure_ascii=False), thread_id=conversation_id)
-                if e.partial_text.strip():
-                    await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
-                else:
-                    await send(_sse("error", {"type": "error", "error": str(e)}))
+            logger.warning(f"工具调用后继续对话异常 (尝试 {attempt+1}/{retries+1}): {e}")
+            # 始终保存助手消息（即使内容为空）
+            if user_id:
+                if e.partial_text or e.partial_reasoning or not e.tool_calls:
+                    content_to_save = _build_assistant_log_content(
+                        e.partial_text or "", 
+                        e.partial_reasoning or ""
+                    )
+                    # 如果完全为空，至少保存一个标记
+                    if not e.partial_text.strip() and not e.partial_reasoning.strip():
+                        content_to_save = "[生成已中断]"
+                    ChatLogDB.add_log(
+                        user_id,
+                        "assistant",
+                        content_to_save,
+                        thread_id=conversation_id
+                    )
+                    logger.info(f"已保存工具调用后的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}")
+                elif e.tool_calls:
+                    ChatLogDB.add_log(user_id, "assistant", json.dumps({
+                        "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
+                    }, ensure_ascii=False), thread_id=conversation_id)
+                    logger.info(f"已保存工具调用")
+            
+            # 发送完成或错误消息到前端
+            if e.has_partial or e.finish_reason == "cancelled":
+                await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
                 break
+            
             if e.retryable and attempt < retries:
                 continue
             await send(_sse("error", {"type": "error", "error": str(e)}))
@@ -1881,24 +1966,48 @@ async def stream_chat(
     init_messages = _sanitize_initial_messages(init_messages, user_id, conversation_id)
     init_messages = _prune_unsent_user_messages(user_id, init_messages, conversation_id)
     model_config = resolve_model_config(selected_model_name)
+    
+    # 用于跟踪客户端连接状态
+    client_disconnected = asyncio.Event()
+    producer_task = None
 
     async def send(chunk: bytes):
         try:
             await queue.put(chunk)
         except asyncio.CancelledError:
-            return
+            client_disconnected.set()
+            raise
 
     async def event_generator():
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            yield item
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+        except (asyncio.CancelledError, GeneratorExit):
+            # 客户端断开连接
+            logger.info("客户端断开连接，取消生成任务")
+            client_disconnected.set()
+            if producer_task:
+                producer_task.cancel()
+            raise
+        finally:
+            # 确保标记客户端已断开
+            client_disconnected.set()
+            if producer_task and not producer_task.done():
+                producer_task.cancel()
 
     async def producer():
+        # 用于在被取消时保存已生成的内容（使用列表使其可在嵌套函数中修改）
+        partial_state = {
+            "assistant_text": "",
+            "reasoning_output": "",
+            "user_messages_logged": False
+        }
+        user_messages_to_log: List[str] = []
+        
         try:
-            user_messages_to_log: List[str] = []
-            user_messages_logged = False
             if user_id and init_messages:
                 for msg in init_messages:
                     if msg.get("role") == "user":
@@ -1914,17 +2023,23 @@ async def stream_chat(
             retries = 2
             for attempt in range(retries + 1):
                 try:
-                    assistant_text, tool_calls_buffer, finish_reason = await stream_model_response(
+                    assistant_text, tool_calls_buffer, finish_reason, reasoning_output = await stream_model_response(
                         model_config,
                         messages_with_system,
                         tools,
-                        send
+                        send,
+                        client_disconnected,
+                        partial_state
                     )
+                    
+                    # 更新部分内容
+                    partial_state["assistant_text"] = assistant_text
+                    partial_state["reasoning_output"] = reasoning_output
 
-                    if user_id and user_messages_to_log and not user_messages_logged:
+                    if user_id and user_messages_to_log and not partial_state["user_messages_logged"]:
                         for content in user_messages_to_log:
                             ChatLogDB.add_log(user_id, "user", content, thread_id=conversation_id)
-                        user_messages_logged = True
+                        partial_state["user_messages_logged"] = True
 
                     if tool_calls_buffer:
                         # 构建 assistant 消息：根据不同模型的要求处理 content 字段
@@ -1945,42 +2060,63 @@ async def stream_chat(
                             tool_calls_info = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
                             # 当有 tool_calls 时，无论是否有文本内容，都记录完整的 JSON 格式
                             # 这样前端可以同时获取文本和工具调用信息
-                            content_to_log = json.dumps({
-                                "content": assistant_text if assistant_text and assistant_text.strip() else "",
-                                "tool_calls": tool_calls_info
-                            }, ensure_ascii=False)
+                            content_to_log = _build_assistant_log_content(
+                                assistant_text if assistant_text and assistant_text.strip() else "",
+                                reasoning_output,
+                                tool_calls_info
+                            )
                             ChatLogDB.add_log(user_id, "assistant", content_to_log, thread_id=conversation_id)
 
                         ordered = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
-                        await handle_tool_calls_and_continue(user_id, messages, ordered, send, request, model_config, conversation_id)
+                        await handle_tool_calls_and_continue(user_id, messages, ordered, send, request, model_config, conversation_id, client_disconnected)
                     else:
                         if user_id and assistant_text and assistant_text.strip():
-                            ChatLogDB.add_log(user_id, "assistant", assistant_text, thread_id=conversation_id)
+                            ChatLogDB.add_log(
+                                user_id,
+                                "assistant",
+                                _build_assistant_log_content(assistant_text, reasoning_output),
+                                thread_id=conversation_id
+                            )
 
                         await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
                     break
                 except StreamResponseError as e:
                     logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
-                    if e.has_partial:
-                        if user_id and user_messages_to_log and not user_messages_logged:
-                            for content in user_messages_to_log:
-                                ChatLogDB.add_log(user_id, "user", content, thread_id=conversation_id)
-                            user_messages_logged = True
+                    # 始终保存用户消息（即使没有部分内容）
+                    if user_id and user_messages_to_log and not partial_state["user_messages_logged"]:
+                        for content in user_messages_to_log:
+                            ChatLogDB.add_log(user_id, "user", content, thread_id=conversation_id)
+                        partial_state["user_messages_logged"] = True
 
-                        if user_id:
-                            if e.partial_text.strip():
-                                ChatLogDB.add_log(user_id, "assistant", e.partial_text, thread_id=conversation_id)
-                            elif e.tool_calls:
-                                ChatLogDB.add_log(user_id, "assistant", json.dumps({
-                                    "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
-                                }, ensure_ascii=False), thread_id=conversation_id)
+                    if user_id:
+                        # 始终保存助手消息，即使内容为空（标记中断）
+                        if e.partial_text or e.partial_reasoning or not e.tool_calls:
+                            content_to_save = _build_assistant_log_content(
+                                e.partial_text or "", 
+                                e.partial_reasoning or ""
+                            )
+                            # 如果完全为空，至少保存一个标记
+                            if not e.partial_text.strip() and not e.partial_reasoning.strip():
+                                content_to_save = "[生成已中断]"
+                            ChatLogDB.add_log(
+                                user_id,
+                                "assistant",
+                                content_to_save,
+                                thread_id=conversation_id
+                            )
+                            logger.info(f"已保存StreamResponseError中的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}")
+                        elif e.tool_calls:
+                            ChatLogDB.add_log(user_id, "assistant", json.dumps({
+                                "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
+                            }, ensure_ascii=False), thread_id=conversation_id)
+                            logger.info(f"已保存StreamResponseError中的工具调用")
 
-                        if e.partial_text.strip():
-                            await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
-                        else:
-                            await send(_sse("error", {"type": "error", "error": str(e)}))
+                    # 发送完成或错误消息到前端
+                    if e.has_partial or e.finish_reason == "cancelled":
+                        await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
                         break
-
+                    
+                    # 如果可以重试，继续
                     if e.retryable and attempt < retries:
                         continue
 
@@ -1990,13 +2126,41 @@ async def stream_chat(
                     logger.warning(f"模型响应失败 (尝试 {attempt+1}/{retries+1}): {e}")
                     if attempt >= retries:
                         await send(_sse("error", {"type": "error", "error": f"{e}"}))
+        except asyncio.CancelledError:
+            # 客户端断开连接，保存已生成的部分内容
+            logger.info("检测到客户端断开，保存部分生成内容")
+            if user_id:
+                # 先记录用户消息（如果还没记录）
+                if user_messages_to_log and not partial_state["user_messages_logged"]:
+                    for content in user_messages_to_log:
+                        try:
+                            ChatLogDB.add_log(user_id, "user", content, thread_id=conversation_id)
+                        except Exception as e:
+                            logger.error(f"记录用户消息失败: {e}")
+                
+                # 始终保存助手消息，即使内容为空（标记中断）
+                try:
+                    assistant_text = partial_state.get("assistant_text", "")
+                    reasoning_output = partial_state.get("reasoning_output", "")
+                    
+                    if assistant_text or reasoning_output:
+                        content_to_log = _build_assistant_log_content(assistant_text, reasoning_output)
+                    else:
+                        # 如果完全没有生成内容，至少保存一个标记
+                        content_to_log = "[生成已中断]"
+                    
+                    ChatLogDB.add_log(user_id, "assistant", content_to_log, thread_id=conversation_id)
+                    logger.info(f"已保存部分生成内容，文本长度: {len(assistant_text)}, 思考长度: {len(reasoning_output)}")
+                except Exception as e:
+                    logger.error(f"保存部分内容失败: {e}")
+            raise
         finally:
             try:
                 await queue.put(None)
             except Exception:
                 pass
 
-    asyncio.create_task(producer())
+    producer_task = asyncio.create_task(producer())
 
     headers = {
         "Cache-Control": "no-cache, no-transform",

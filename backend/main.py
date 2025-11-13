@@ -5966,28 +5966,34 @@ def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
         "tool_call_id": record.get("tool_call_id"),
     }
     # 对于 assistant 角色，尝试解析 JSON 格式的内容（可能包含 tool_calls）
-    if payload["role"] == "assistant" and isinstance(content, str):
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, dict):
-                # 提取 tool_calls（如果存在）
-                if "tool_calls" in parsed:
-                    payload["tool_calls"] = parsed.get("tool_calls")
-                
-                # 提取或重置 content 字段
-                if "content" in parsed:
-                    # 新格式：JSON 中包含 content 字段
-                    payload["content"] = parsed.get("content") or ""
-                elif "tool_calls" in parsed:
-                    # 旧格式：只有 tool_calls，没有 content 字段
-                    payload["content"] = ""
-                else:
-                    # JSON 中没有 content 也没有 tool_calls，可能是其他格式
-                    # 保持原始内容不变
-                    pass
-        except Exception:
-            # 不是 JSON 格式，保持原始内容
-            pass
+    if payload["role"] == "assistant":
+        payload["thinking_content"] = ""
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    # 提取 tool_calls（如果存在）
+                    if "tool_calls" in parsed:
+                        payload["tool_calls"] = parsed.get("tool_calls")
+
+                    # 提取或重置 content 字段
+                    if "content" in parsed:
+                        # 新格式：JSON 中包含 content 字段
+                        payload["content"] = parsed.get("content") or ""
+                    elif "tool_calls" in parsed:
+                        # 旧格式：只有 tool_calls，没有 content 字段
+                        payload["content"] = ""
+                    # 解析思维链内容
+                    thinking_value = parsed.get("thinking_content")
+                    if thinking_value is None:
+                        thinking_value = ""
+                    if isinstance(thinking_value, str):
+                        payload["thinking_content"] = thinking_value
+                    else:
+                        payload["thinking_content"] = str(thinking_value)
+            except Exception:
+                # 不是 JSON 格式，保持原始内容
+                pass
     return payload
 
 
