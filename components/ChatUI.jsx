@@ -21,6 +21,27 @@ const SIDEBAR_EXPANDED_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const buildPreview = (text = "") =>
   text.trim().replace(/\s+/g, " ").slice(0, 8);
+const MODEL_STORAGE_KEY = "ai_selected_model";
+const getStoredModelSelection = () => {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(MODEL_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+const persistModelSelection = (value) => {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      localStorage.setItem(MODEL_STORAGE_KEY, value);
+    } else {
+      localStorage.removeItem(MODEL_STORAGE_KEY);
+    }
+  } catch {
+    // 忽略持久化失败
+  }
+};
 
 // 格式化相对时间，使用本地时区
 const formatRelativeTime = (dateString) => {
@@ -1448,7 +1469,30 @@ const MarkdownRenderer = ({ content }) => {
             console.debug('SVG渲染等待中（尚未检测到<svg>起始标签）');
             return;
           }
-          const svgMarkup = hasClosing ? codeContent : `${codeContent}</svg>`;
+          
+          // 新的SVG渲染逻辑：找到最后一个 /> 并在其后添加 </svg>
+          let svgMarkup;
+          if (hasClosing) {
+            // 如果已经有完整的 </svg>，直接使用
+            svgMarkup = codeContent;
+          } else {
+            // 找到最后一个 /> 的位置
+            const lastSelfClosingMatch = codeContent.match(/\/>/g);
+            if (lastSelfClosingMatch) {
+              const lastIndex = codeContent.lastIndexOf('/>');
+              if (lastIndex !== -1) {
+                // 在最后一个 /> 之后截取内容并添加 </svg>
+                svgMarkup = codeContent.substring(0, lastIndex + 2) + '</svg>';
+              } else {
+                // 找不到有效的 />，直接在末尾添加 </svg>（降级处理）
+                svgMarkup = `${codeContent}</svg>`;
+              }
+            } else {
+              // 没有任何 />，直接在末尾添加 </svg>（降级处理）
+              svgMarkup = `${codeContent}</svg>`;
+            }
+          }
+          
           try {
             const parser = new DOMParser();
             const parsed = parser.parseFromString(svgMarkup, 'image/svg+xml');
@@ -1469,10 +1513,12 @@ const MarkdownRenderer = ({ content }) => {
             sanitizedSvg.setAttribute('aria-hidden', 'false');
 
             svgContainer.replaceChildren(sanitizedSvg);
+            // 只有渲染成功时才更新快照，这样失败时会保持上一个成功的状态
             svgSnapshotRef.current.set(blockKey, sanitizedSvg.outerHTML);
             svgContainer.setAttribute('data-render-success', 'true');
           } catch (err) {
             console.debug('SVG渲染等待中（代码可能未完整接收）:', err.message);
+            // 渲染失败时，恢复上一次成功的快照，保持界面稳定
             applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
           }
         };
@@ -2056,7 +2102,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
   const [isLoading, setIsLoading] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
   const [models, setModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedModel, setSelectedModel] = useState(() => getStoredModelSelection());
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [modelError, setModelError] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -2090,6 +2136,10 @@ export default function ChatModern({ user, initialConversationId = null }) {
   const pendingChatIdRef = useRef(null); // 保存新创建但未激活的对话ID
   const isCreatingNewChatRef = useRef(false); // 标记正在创建新对话，防止被derivedChatId覆盖
   const skipNextLoadRef = useRef(false); // 标记跳过下一次loadConversation（当前msgs已是最新）
+  
+  // 【性能优化】用于节流流式更新的refs
+  const streamUpdateTimerRef = useRef(null);
+  const pendingContentRef = useRef(null);
   const apiBase = useMemo(() => getApiBaseUrl().replace(/\/$/, ""), []);
   const historyEnabled = Boolean(user);
   const routeChatId = router?.query?.chatId ? String(router.query.chatId) : null;
@@ -2099,6 +2149,9 @@ export default function ChatModern({ user, initialConversationId = null }) {
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
   }, [activeChatId]);
+  useEffect(() => {
+    persistModelSelection(selectedModel);
+  }, [selectedModel]);
   const sidebarWidth = historyEnabled
     ? isSidebarOpen
       ? SIDEBAR_EXPANDED_WIDTH
@@ -2259,6 +2312,16 @@ export default function ChatModern({ user, initialConversationId = null }) {
             });
           }
           
+          const thinkingText = typeof entry.thinking_content === "string" ? entry.thinking_content : "";
+          if (thinkingText && thinkingText.trim()) {
+            normalized.push({
+              id: genId(),
+              role: "assistant_thinking",
+              content: thinkingText,
+              isComplete: true,
+            });
+          }
+
           // 添加 assistant 消息（用于API调用的消息历史）
           const assistantPayload = {
             id: baseId,
@@ -2466,48 +2529,76 @@ export default function ChatModern({ user, initialConversationId = null }) {
     // 检查是否有pending的消息需要处理
     try {
       const pendingKey = `chat_pending_${activeChatId}`;
+      const processingKey = `chat_processing_${activeChatId}`;
+      
+      // 检查是否正在处理中（使用sessionStorage持久化状态，防止组件重新挂载时重复处理）
+      const isProcessing = sessionStorage.getItem(processingKey);
+      if (isProcessing === 'true') {
+        console.log('该消息正在处理中，跳过');
+        // 跳过加载历史
+        skipNextLoadRef.current = true;
+        return;
+      }
+      
       const pendingData = sessionStorage.getItem(pendingKey);
       if (pendingData) {
         const { text, model } = JSON.parse(pendingData);
+        
+        // 立即标记为处理中并移除pending数据，防止重复触发
+        sessionStorage.setItem(processingKey, 'true');
         sessionStorage.removeItem(pendingKey);
         
         // 跳过加载历史，直接发送消息
         skipNextLoadRef.current = true;
         
-        // 设置模型
-        if (model) {
+        // 保存chatId和model到闭包中，避免异步执行时值已变化
+        const currentChatId = activeChatId;
+        const modelToUse = model || selectedModel;
+        
+        // 在setTimeout外设置模型，避免触发useEffect重新执行
+        if (model && model !== selectedModel) {
           setSelectedModel(model);
         }
         
-        // 立即添加用户消息并发送
-        setTimeout(() => {
-          handleStop();
-          setIsLoading(true);
-          setShowThinking(true);
-          setChatError("");
-          thinkingMsgIdRef.current = null;
-          push("user", text);
-          
-          // 更新对话列表预览
-          setChats((prev) => {
-            const target = prev.find((chat) => chat.id === activeChatId);
-            if (!target) return prev;
-            const updatedChat = {
-              ...target,
-              preview: text.slice(0, 8) || target.preview,
-            };
-            const others = prev.filter((chat) => chat.id !== activeChatId);
-            return [updatedChat, ...others];
-          });
-          
-          // 构建消息并发送
-          const apiMessages = [{ role: "user", content: text }];
-          sendMessage(apiMessages, model, activeChatId).finally(() => {
+        // 使用setTimeout确保状态更新在组件完全挂载后执行
+        setTimeout(async () => {
+          try {
+            handleStop();
+            setIsLoading(true);
+            setShowThinking(true);
+            setChatError("");
+            thinkingMsgIdRef.current = null;
+            
+            // 添加用户消息到界面
+            push("user", text);
+            
+            // 更新对话列表预览
+            setChats((prev) => {
+              const target = prev.find((chat) => chat.id === currentChatId);
+              if (!target) return prev;
+              const updatedChat = {
+                ...target,
+                preview: text.slice(0, 8) || target.preview,
+              };
+              const others = prev.filter((chat) => chat.id !== currentChatId);
+              return [updatedChat, ...others];
+            });
+            
+            // 构建消息并发送
+            const apiMessages = [{ role: "user", content: text }];
+            await sendMessage(apiMessages, modelToUse, currentChatId);
+          } catch (error) {
+            console.error('发送pending消息失败:', error);
+            push("error", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
+          } finally {
+            // 清理处理标记
+            sessionStorage.removeItem(processingKey);
             setIsLoading(false);
             setShowThinking(false);
             abortControllerRef.current = null;
-          });
+          }
         }, 100);
+        
         return;
       }
     } catch (err) {
@@ -2530,12 +2621,31 @@ export default function ChatModern({ user, initialConversationId = null }) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+      
+      // 【性能优化】清理pending更新
+      if (streamUpdateTimerRef.current !== null) {
+        cancelAnimationFrame(streamUpdateTimerRef.current);
+        streamUpdateTimerRef.current = null;
+      }
+      pendingContentRef.current = null;
+      
       setShowThinking(false);
+      setIsLoading(false); // 【补充修复】重置加载状态
+      thinkingMsgIdRef.current = null; // 【补充修复】重置thinking引用
       
       // 重置新对话标志
       isCreatingNewChatRef.current = false;
       pendingChatIdRef.current = null;
       pendingChatTitleRef.current = null;
+      
+      // 清理当前对话的pending处理标记
+      if (activeChatId) {
+        try {
+          sessionStorage.removeItem(`chat_processing_${activeChatId}`);
+        } catch (e) {
+          console.error('清理处理标记失败:', e);
+        }
+      }
       
       setActiveChatId(chatId);
       
@@ -2558,6 +2668,34 @@ export default function ChatModern({ user, initialConversationId = null }) {
     if (!activeChatId && msgs.length === 0 && isCreatingNewChatRef.current) {
       // 当前已经是准备新对话的状态，不需要重复操作
       return;
+    }
+    
+    // 【关键修复】先中止当前正在进行的流式请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    // 【性能优化】清理pending更新
+    if (streamUpdateTimerRef.current !== null) {
+      cancelAnimationFrame(streamUpdateTimerRef.current);
+      streamUpdateTimerRef.current = null;
+    }
+    pendingContentRef.current = null;
+    
+    // 重置所有流相关的状态
+    setIsLoading(false);
+    setShowThinking(false);
+    thinkingMsgIdRef.current = null;
+    
+    // 清理当前对话的pending处理标记
+    if (activeChatId) {
+      try {
+        sessionStorage.removeItem(`chat_pending_${activeChatId}`);
+        sessionStorage.removeItem(`chat_processing_${activeChatId}`);
+      } catch (e) {
+        console.error('清理pending标记失败:', e);
+      }
     }
     
     // 设置标志，防止被derivedChatId覆盖和fetchChats自动跳转
@@ -2737,9 +2875,13 @@ export default function ChatModern({ user, initialConversationId = null }) {
         setModels(list);
         setModelError("");
         if (list.length > 0) {
+          const storedSelection = getStoredModelSelection();
           setSelectedModel((prev) => {
-            if (prev && list.some((item) => item.model === prev)) {
-              return prev;
+            const candidates = [prev, storedSelection];
+            for (const candidate of candidates) {
+              if (candidate && list.some((item) => item.model === candidate)) {
+                return candidate;
+              }
             }
             return list[0].model;
           });
@@ -2792,6 +2934,10 @@ export default function ChatModern({ user, initialConversationId = null }) {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    
+    // 【性能优化】刷新所有pending的更新
+    flushPendingUpdate();
+    
     // 如果有正在进行的thinking消息,将其标记为stopped
     if (thinkingMsgIdRef.current != null) {
       const thinkingId = thinkingMsgIdRef.current;
@@ -2816,6 +2962,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     }));
   };
   
+  // 【性能优化】立即更新，无节流（用于非流式场景）
   const updateLastMessage = (newContent) => {
     setMsgs((s) => {
       const newMsgs = [...s];
@@ -2829,6 +2976,58 @@ export default function ChatModern({ user, initialConversationId = null }) {
       return newMsgs;
     });
   };
+  
+  // 【性能优化】节流更新，用于流式输出（使用RAF批量更新）
+  const updateLastMessageThrottled = useCallback((newContent) => {
+    // 保存最新内容到ref
+    pendingContentRef.current = newContent;
+    
+    // 如果已经有待处理的更新，直接返回（RAF会使用最新的内容）
+    if (streamUpdateTimerRef.current !== null) {
+      return;
+    }
+    
+    // 使用RAF确保每帧最多更新一次
+    streamUpdateTimerRef.current = requestAnimationFrame(() => {
+      const contentToUpdate = pendingContentRef.current;
+      if (contentToUpdate !== null) {
+        setMsgs((s) => {
+          const newMsgs = [...s];
+          for (let i = newMsgs.length - 1; i >= 0; i--) {
+            if (newMsgs[i].role === "assistant") {
+              newMsgs[i] = { ...newMsgs[i], content: contentToUpdate };
+              break;
+            }
+          }
+          return newMsgs;
+        });
+        pendingContentRef.current = null;
+      }
+      streamUpdateTimerRef.current = null;
+    });
+  }, []);
+  
+  // 【性能优化】刷新pending的更新（流结束时调用）
+  const flushPendingUpdate = useCallback(() => {
+    if (streamUpdateTimerRef.current !== null) {
+      cancelAnimationFrame(streamUpdateTimerRef.current);
+      streamUpdateTimerRef.current = null;
+    }
+    if (pendingContentRef.current !== null) {
+      const contentToUpdate = pendingContentRef.current;
+      setMsgs((s) => {
+        const newMsgs = [...s];
+        for (let i = newMsgs.length - 1; i >= 0; i--) {
+          if (newMsgs[i].role === "assistant") {
+            newMsgs[i] = { ...newMsgs[i], content: contentToUpdate };
+            break;
+          }
+        }
+        return newMsgs;
+      });
+      pendingContentRef.current = null;
+    }
+  }, []);
 
   // SSE客户端实现
   const sendMessage = async (messages, modelValue, chatId = null) => {
@@ -2839,6 +3038,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
     
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    
+    let reader = null; // 【关键修复】用于在finally中释放reader
 
     try {
       const response = await fetch(API_URL, {
@@ -2860,7 +3061,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const reader = response.body.getReader();
+      reader = response.body.getReader(); // 【关键修复】赋值给外部变量
       const decoder = new TextDecoder();
       let assistantContent = "";
       let assistantMessageAdded = false;
@@ -2957,8 +3158,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
                   });
                   assistantMessageAdded = true;
                 } else {
-                  // 后续delta：更新最后一条assistant消息
-                  updateLastMessage(assistantContent);
+                  // 后续delta：更新最后一条assistant消息【使用节流更新】
+                  updateLastMessageThrottled(assistantContent);
                 }
 
               } else if (data.type === "tool_status" && data.status === "started") {
@@ -3121,6 +3322,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 }
                 thinkingMsgIdRef.current = null;
                 setShowThinking(false);
+                // 【性能优化】刷新所有pending的更新
+                flushPendingUpdate();
                 break;
               } else if (data.type === "error") {
                 // 处理后端错误 - 标记任何未完成的 thinking 为完成
@@ -3135,6 +3338,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 thinkingMsgIdRef.current = null;
                 assistantMessageAdded = false;
                 assistantContent = "";
+                // 【性能优化】刷新所有pending的更新
+                flushPendingUpdate();
                 const errorText = data.error || "生成失败，请稍后重试。";
                 setMsgs((s) => ([
                   ...s,
@@ -3152,12 +3357,28 @@ export default function ChatModern({ user, initialConversationId = null }) {
     } catch (error) {
       if (error.name === 'AbortError') {
         console.log('Stream generation stopped by user.');
+        // 【性能优化】刷新所有pending的更新
+        flushPendingUpdate();
         return; 
       }
       setShowThinking(false);
       thinkingMsgIdRef.current = null;
+      // 【性能优化】刷新所有pending的更新
+      flushPendingUpdate();
       // 添加错误消息
       push("error", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
+    } finally {
+      // 【关键修复】确保 reader 被正确释放
+      if (reader) {
+        try {
+          reader.releaseLock();
+        } catch (e) {
+          // 如果 reader 已经被释放或关闭，忽略错误
+          console.log('Reader already released:', e.message);
+        }
+      }
+      // 【性能优化】最终确保所有pending更新都被刷新
+      flushPendingUpdate();
     }
   };
 
@@ -3650,7 +3871,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 : { left: 0, right: 0 }
             }
           >
-            <div className="mx-auto max-w-4xl px-4 pb-4 bg-white/95 backdrop-blur-sm">
+            <div className="mx-auto max-w-4xl px-4 pb-2 bg-white/95 backdrop-blur-sm">
               <InputBar
                 value={inp}
                 onChange={setInp}
