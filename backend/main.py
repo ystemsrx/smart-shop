@@ -1695,7 +1695,7 @@ async def register_user(request: RegisterRequest, response: Response):
         
         # 创建用户 - 如果有昵称则使用昵称，否则使用用户名作为姓名
         display_name = request.nickname.strip() if request.nickname and request.nickname.strip() else username
-        success = UserDB.create_user(username, password, display_name)
+        success = UserDB.create_user(username, password, display_name, id_status=2)
         if not success:
             return error_response("注册失败，请稍后重试", 500)
         

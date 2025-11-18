@@ -195,7 +195,7 @@ class AuthManager:
                                 "verified": True,
                                 "account_id": user_data.get("accountId", ""),
                                 "avatar_url": user_data.get("avatarUrl", ""),
-                                "bio": user_data.get("bio", "")
+                                "id_number": user_data.get("idNumber")
                             }
                         else:
                             # 登录失败（账号密码错误等）
@@ -236,66 +236,81 @@ class AuthManager:
     @staticmethod
     async def login_user(student_id: str, password: str) -> Optional[Dict[str, Any]]:
         """用户登录流程"""
+        def _clean_id_number(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
         # 1. 首先检查本地数据库中是否存在用户
         local_user = UserDB.get_user(student_id)
+        id_status = UserDB.normalize_id_status(local_user.get('id_status') if local_user else None)
+        api_result: Optional[Dict[str, Any]] = None
+        is_local_password_valid = bool(local_user and local_user.get('password') == password)
+
+        async def _ensure_identity(current_user: Optional[Dict[str, Any]], payload: Optional[Dict[str, Any]]) -> int:
+            """仅在状态为0时尝试获取身份证号"""
+            status_now = UserDB.normalize_id_status(current_user.get('id_status') if current_user else None)
+            if status_now != 0:
+                return status_now
+
+            nonlocal api_result
+            active_payload = payload or api_result
+            if active_payload is None:
+                active_payload = await AuthManager.verify_login(student_id, password)
+                api_result = active_payload
+
+            id_number_value = _clean_id_number(active_payload.get('id_number') if active_payload else None) if active_payload else None
+            new_status = 1 if id_number_value else 2
+            UserDB.update_user_identity(student_id, id_number_value, new_status)
+            return new_status
         
-        if local_user:
-            # 用户存在，验证本地密码
-            if local_user['password'] == password:
-                # 密码正确，直接登录
-                logger.info(f"用户 {student_id} 使用本地凭据登录成功")
-                
-                # 生成JWT令牌
-                token_data = {
-                    "sub": student_id,
-                    "type": "user",
-                    "name": local_user['name']
-                }
-                access_token = AuthManager.create_access_token(token_data)
-                
-                return {
-                    "access_token": access_token,
-                    "token_type": "bearer",
-                    "user": {
-                        "id": local_user['id'],
-                        "name": local_user['name'],
-                        "created_at": local_user['created_at']
-                    }
-                }
-            else:
-                # 密码不正确，尝试第三方API验证
-                logger.info(f"用户 {student_id} 本地密码验证失败，尝试第三方API验证")
+        if local_user and is_local_password_valid:
+            logger.info(f"用户 {student_id} 使用本地凭据登录成功")
+            if id_status == 0:
+                # 老数据：本地密码正确，但需要获取身份证号
+                id_status = await _ensure_identity(local_user, None)
+                local_user = UserDB.get_user(student_id)
         else:
-            # 用户不存在，直接尝试第三方API验证
-            logger.info(f"用户 {student_id} 不存在于本地数据库，尝试第三方API验证")
-        
-        # 2. 使用第三方API验证
-        result = await AuthManager.verify_login(student_id, password)
-        if not result:
-            logger.warning(f"用户 {student_id} 第三方API验证也失败")
-            return None
-        
-        logger.info(f"用户 {student_id} 第三方API验证成功")
+            # 本地密码不匹配或用户不存在，尝试第三方API验证
+            logger.info(f"用户 {student_id} 需要第三方API验证")
+            api_result = await AuthManager.verify_login(student_id, password)
+            if not api_result:
+                logger.warning(f"用户 {student_id} 第三方API验证失败")
+                return None
+            logger.info(f"用户 {student_id} 第三方API验证成功")
+            # 远端成功后，首次登录/凭据失效：无论原状态为何都重新写入身份证状态
+            id_number_value = _clean_id_number(api_result.get('id_number'))
+            new_status = 1 if id_number_value else 2
+            UserDB.update_user_identity(student_id, id_number_value, new_status)
+            id_status = new_status
         
         # 3. 第三方验证成功，更新或创建本地用户记录
         if local_user:
-            # 用户存在但密码不同，更新本地密码
-            logger.info(f"更新用户 {student_id} 的本地密码")
-            # 这里需要添加一个更新密码的方法，或者先删除再创建
-            # 为了简单起见，我们可以直接更新
-            UserDB.update_user_password(student_id, password)
-            # 更新用户名（如果第三方返回的不同）
-            if local_user['name'] != result['name']:
-                UserDB.update_user_name(student_id, result['name'])
-            # 重新获取更新后的用户信息
+            if not is_local_password_valid and api_result:
+                logger.info(f"更新用户 {student_id} 的本地密码")
+                UserDB.update_user_password(student_id, password)
+                if local_user['name'] != api_result['name']:
+                    UserDB.update_user_name(student_id, api_result['name'])
+
+                # 凭据失效后走远端，按远端结果更新身份证状态（不论原状态为何）
+                id_number_value = _clean_id_number(api_result.get('id_number')) if api_result else None
+                new_status = 1 if id_number_value else 2
+                UserDB.update_user_identity(student_id, id_number_value, new_status)
+                id_status = new_status
+
             local_user = UserDB.get_user(student_id)
         else:
             # 用户不存在，创建新用户
             logger.info(f"创建新用户 {student_id}")
+            id_number_value = _clean_id_number(api_result.get('id_number') if api_result else None)
+            create_status = 1 if id_number_value else 2
             success = UserDB.create_user(
                 student_id=student_id,
                 password=password,
-                name=result['name']
+                name=api_result['name'] if api_result else student_id,
+                id_number=id_number_value,
+                id_status=create_status
             )
             if not success:
                 logger.error(f"创建用户失败: {student_id}")
@@ -303,21 +318,42 @@ class AuthManager:
             local_user = UserDB.get_user(student_id)
         
         # 4. 生成JWT令牌
+        def _format_created_at(value: Any) -> Any:
+            """格式化时间为UTC+8字符串"""
+            try:
+                if value is None:
+                    return None
+                if isinstance(value, datetime):
+                    dt = value
+                else:
+                    txt = str(value).replace('T', ' ')
+                    dt = datetime.fromisoformat(txt)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt_cn = dt.astimezone(timezone(timedelta(hours=8)))
+                return dt_cn.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return value
+
         token_data = {
             "sub": student_id,
             "type": "user",
             "name": local_user['name']
         }
         access_token = AuthManager.create_access_token(token_data)
+
+        user_payload = {
+            "id": local_user['id'],
+            "name": local_user['name'],
+            "created_at": _format_created_at(local_user.get('created_at')),
+            "id_number": local_user.get('id_number'),
+            "id_status": UserDB.normalize_id_status(local_user.get('id_status'))
+        }
         
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "user": {
-                "id": local_user['id'],
-                "name": local_user['name'],
-                "created_at": local_user['created_at']
-            }
+            "user": user_payload
         }
     
     @staticmethod

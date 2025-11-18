@@ -244,6 +244,11 @@ def ensure_user_id_schema(conn) -> None:
         return cursor.fetchall()
 
     def _ensure_user_table():
+        ensure_table_columns(conn, 'users', {
+            'id_number': 'CHAR(18)',
+            'id_status': 'INTEGER NOT NULL DEFAULT 0'
+        })
+
         columns = _table_columns('users')
         column_names = {row[1] for row in columns}
         has_user_id_primary = False
@@ -262,21 +267,53 @@ def ensure_user_id_schema(conn) -> None:
                         id TEXT UNIQUE NOT NULL,
                         password TEXT NOT NULL,
                         name TEXT NOT NULL,
+                        id_number CHAR(18),
+                        id_status INTEGER NOT NULL DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
 
                 has_created_at = any(row[1] == 'created_at' for row in columns)
+                has_id_number = 'id_number' in column_names
+                has_id_status = 'id_status' in column_names
+
+                select_fields = ['rowid as __rowid', 'id', 'password', 'name']
                 if has_created_at:
-                    cursor.execute('''
-                        INSERT INTO __users_new (user_id, id, password, name, created_at)
-                        SELECT rowid, id, password, name, created_at FROM users
-                    ''')
-                else:
-                    cursor.execute('''
-                        INSERT INTO __users_new (user_id, id, password, name)
-                        SELECT rowid, id, password, name FROM users
-                    ''')
+                    select_fields.append('created_at')
+                if has_id_number:
+                    select_fields.append('id_number')
+                if has_id_status:
+                    select_fields.append('id_status')
+
+                cursor.execute(f"SELECT {', '.join(select_fields)} FROM users")
+                rows = cursor.fetchall()
+                for row in rows:
+                    row_dict = dict(row)
+                    insert_cols = ['user_id', 'id', 'password', 'name', 'id_number', 'id_status']
+                    params = [
+                        row_dict.get('__rowid'),
+                        row_dict.get('id'),
+                        row_dict.get('password'),
+                        row_dict.get('name'),
+                        row_dict.get('id_number') if has_id_number else None,
+                        0
+                    ]
+
+                    if has_id_status:
+                        try:
+                            params[-1] = int(row_dict.get('id_status') or 0)
+                        except Exception:
+                            params[-1] = 0
+
+                    if has_created_at:
+                        insert_cols.append('created_at')
+                        params.append(row_dict.get('created_at'))
+
+                    placeholders = ','.join('?' * len(params))
+                    cursor.execute(
+                        f"INSERT INTO __users_new ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                        params
+                    )
 
                 cursor.execute('ALTER TABLE users RENAME TO __users_old')
                 cursor.execute('ALTER TABLE __users_new RENAME TO users')
@@ -285,6 +322,12 @@ def ensure_user_id_schema(conn) -> None:
             else:
                 # 为缺失 user_id 的旧记录补齐
                 cursor.execute('UPDATE users SET user_id = rowid WHERE user_id IS NULL OR user_id = 0')
+
+            # 确保身份证状态列有默认值
+            try:
+                cursor.execute("UPDATE users SET id_status = 0 WHERE id_status IS NULL")
+            except sqlite3.OperationalError:
+                pass
 
             cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_student_id ON users(id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)')
@@ -682,6 +725,8 @@ def init_database():
                 id TEXT PRIMARY KEY,  -- 学号
                 password TEXT NOT NULL,  -- 明文密码
                 name TEXT NOT NULL,  -- 姓名
+                id_number CHAR(18),  -- 身份证号
+                id_status INTEGER NOT NULL DEFAULT 0,  -- 0未填 1已填 2未知
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -1477,7 +1522,14 @@ def cleanup_old_chat_logs():
 # 用户相关操作
 class UserDB:
     @staticmethod
-    def create_user(student_id: str, password: str, name: str) -> bool:
+    def create_user(
+        student_id: str,
+        password: str,
+        name: str,
+        *,
+        id_number: Optional[str] = None,
+        id_status: int = 0
+    ) -> bool:
         """创建新用户"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -1486,18 +1538,21 @@ class UserDB:
                 cursor.execute("PRAGMA table_info(users)")
                 columns = [row[1] for row in cursor.fetchall()]
                 
-                if 'user_id' in columns:
-                    # 新表结构：包含 user_id 自增主键
-                    cursor.execute(
-                        'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
-                        (student_id, password, name)
-                    )
-                else:
-                    # 旧表结构：只有 id 主键
-                    cursor.execute(
-                        'INSERT INTO users (id, password, name) VALUES (?, ?, ?)',
-                        (student_id, password, name)
-                    )
+                insert_columns = ['id', 'password', 'name']
+                params: List[Any] = [student_id, password, name]
+
+                if 'id_number' in columns:
+                    insert_columns.append('id_number')
+                    params.append(id_number)
+                if 'id_status' in columns:
+                    insert_columns.append('id_status')
+                    params.append(id_status)
+
+                placeholders = ', '.join(['?'] * len(insert_columns))
+                cursor.execute(
+                    f"INSERT INTO users ({', '.join(insert_columns)}) VALUES ({placeholders})",
+                    params
+                )
                 
                 conn.commit()
                 
@@ -1634,6 +1689,39 @@ class UserDB:
                 return success
             except Exception as e:
                 logger.error(f"更新用户姓名失败: {e}")
+                return False
+
+    @staticmethod
+    def normalize_id_status(value: Any) -> int:
+        """将任意值转换为合法的身份证状态"""
+        try:
+            status = int(value)
+            if status in (0, 1, 2):
+                return status
+        except Exception:
+            pass
+        return 0
+
+    @staticmethod
+    def update_user_identity(student_id: str, id_number: Optional[str], status: int) -> bool:
+        """更新用户身份证信息及状态"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # 确保所需列存在，避免旧库缺少列导致写入失败
+                ensure_table_columns(conn, 'users', {
+                    'id_number': 'CHAR(18)',
+                    'id_status': 'INTEGER NOT NULL DEFAULT 0'
+                })
+
+                cursor.execute(
+                    'UPDATE users SET id_number = ?, id_status = ? WHERE id = ?',
+                    (id_number, status, student_id)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception as e:
+                logger.error(f"更新用户身份证信息失败: {e}")
                 return False
 
     @staticmethod
