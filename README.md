@@ -276,6 +276,9 @@ DEV_NEXT_PUBLIC_IMAGE_BASE_URL=http://localhost:9099
 DEV_NEXT_PUBLIC_FILE_BASE_URL=http://localhost:9099
 DEV_BACKEND_HOST=localhost
 DEV_LOG_LEVEL=DEBUG
+
+# 密码加密配置（默认启用，使用 bcrypt 加密存储密码）
+ENABLE_PASSWORD_HASH=1
 ```
 
 其中“第三方登录”部分需要填写你自己的登录服务 API 地址，该系统会向目标 API 地址发送如下格式的请求以验证用户身份，请自行调整以符合你的登录服务要求。

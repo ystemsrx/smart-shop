@@ -7,6 +7,9 @@ from typing import Optional, Dict, Any, List, Tuple, Union, Set
 from contextlib import contextmanager
 import os
 import uuid
+import hashlib
+
+from passlib.hash import bcrypt
 
 from config import get_settings
 
@@ -16,6 +19,155 @@ settings = get_settings()
 # 数据库配置
 DB_PATH = str(settings.db_path)
 _DB_WAS_RESET = False
+
+# ==================== 密码加密相关函数 ====================
+
+def hash_password(password: str) -> str:
+    """
+    使用 SHA-256 + bcrypt 加密密码
+    
+    流程：
+    1. 任意长度密码 -> SHA-256 -> 固定 32 字节（64 字符十六进制）
+    2. SHA-256 哈希值 -> bcrypt -> 最终存储的哈希值
+    
+    这样做的好处：
+    - 绕过 bcrypt 的 72 字节长度限制
+    - 保持 bcrypt 的安全性（防止彩虹表攻击）
+    
+    Args:
+        password: 明文密码
+    
+    Returns:
+        加密后的密码哈希值
+    """
+    # 步骤1：使用 SHA-256 将任意长度密码转换为固定 32 字节
+    sha256_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+    
+    # 步骤2：使用 bcrypt 加密 SHA-256 哈希值
+    return bcrypt.hash(sha256_hash)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    验证密码是否匹配
+    
+    流程：
+    1. 明文密码 -> SHA-256 -> 固定 32 字节
+    2. SHA-256 哈希值 -> bcrypt.verify -> 比对结果
+    
+    Args:
+        plain_password: 明文密码
+        hashed_password: 加密后的密码哈希值
+    
+    Returns:
+        密码是否匹配
+    """
+    try:
+        # 步骤1：先将明文密码转换为 SHA-256 哈希
+        sha256_hash = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
+        
+        # 步骤2：使用 bcrypt 验证 SHA-256 哈希值
+        return bcrypt.verify(sha256_hash, hashed_password)
+    except Exception as e:
+        logger.error(f"密码验证失败: {e}")
+        return False
+
+
+def is_password_hashed(password: str) -> bool:
+    """
+    检测密码是否已经是 bcrypt 哈希格式
+    
+    bcrypt 哈希值的特征：
+    - 以 $2a$, $2b$, $2x$, $2y$ 开头
+    - 总长度通常为 60 个字符
+    
+    Args:
+        password: 待检测的密码字符串
+    
+    Returns:
+        是否为 bcrypt 哈希格式
+    """
+    if not password or len(password) != 60:
+        return False
+    
+    # bcrypt 哈希值以 $2a$, $2b$, $2x$, $2y$ 开头
+    return password.startswith(('$2a$', '$2b$', '$2x$', '$2y$'))
+
+
+def migrate_passwords_to_hash():
+    """
+    自动迁移明文密码到哈希格式
+    在数据库启动时执行，检查所有用户和管理员的密码
+    如果是明文密码，自动转换为 bcrypt 哈希格式
+    """
+    if not settings.enable_password_hash:
+        logger.info("密码加密功能未启用，跳过密码迁移")
+        return
+    
+    logger.info("开始检查并迁移密码...")
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 迁移用户密码
+        try:
+            cursor.execute('SELECT id, password FROM users')
+            users = cursor.fetchall()
+            
+            user_migrated_count = 0
+            for row in users:
+                user_id, password = row
+                if password and not is_password_hashed(password):
+                    # 明文密码，需要迁移
+                    try:
+                        hashed = hash_password(password)
+                        cursor.execute('UPDATE users SET password = ? WHERE id = ?', (hashed, user_id))
+                        user_migrated_count += 1
+                        logger.info(f"用户 {user_id} 的密码已迁移为哈希格式")
+                    except Exception as e:
+                        logger.error(f"迁移用户 {user_id} 密码失败: {e}")
+            
+            if user_migrated_count > 0:
+                conn.commit()
+                logger.info(f"成功迁移 {user_migrated_count} 个用户密码")
+            else:
+                logger.info("所有用户密码已经是哈希格式，无需迁移")
+                
+        except Exception as e:
+            logger.error(f"迁移用户密码时出错: {e}")
+            conn.rollback()
+        
+        # 迁移管理员/代理密码
+        try:
+            cursor.execute('SELECT id, password FROM admins')
+            admins = cursor.fetchall()
+            
+            admin_migrated_count = 0
+            for row in admins:
+                admin_id, password = row
+                if password and not is_password_hashed(password):
+                    # 明文密码，需要迁移
+                    try:
+                        hashed = hash_password(password)
+                        cursor.execute('UPDATE admins SET password = ? WHERE id = ?', (hashed, admin_id))
+                        admin_migrated_count += 1
+                        logger.info(f"管理员/代理 {admin_id} 的密码已迁移为哈希格式")
+                    except Exception as e:
+                        logger.error(f"迁移管理员 {admin_id} 密码失败: {e}")
+            
+            if admin_migrated_count > 0:
+                conn.commit()
+                logger.info(f"成功迁移 {admin_migrated_count} 个管理员/代理密码")
+            else:
+                logger.info("所有管理员/代理密码已经是哈希格式，无需迁移")
+                
+        except Exception as e:
+            logger.error(f"迁移管理员密码时出错: {e}")
+            conn.rollback()
+    
+    logger.info("密码迁移检查完成")
+
+# ==================== 数据库表结构管理 ====================
 
 def ensure_table_columns(conn, table_name: str, required_columns: Dict[str, str]) -> None:
     """
@@ -390,6 +542,11 @@ def ensure_admin_accounts(conn) -> None:
     """Ensure administrator accounts defined in configuration exist and stay active."""
     cursor = conn.cursor()
     for account in settings.admin_accounts:
+        # 处理密码加密
+        password = account.password
+        if settings.enable_password_hash and not is_password_hashed(password):
+            password = hash_password(password)
+        
         cursor.execute(
             '''
             INSERT INTO admins (id, password, name, role, is_active)
@@ -401,7 +558,7 @@ def ensure_admin_accounts(conn) -> None:
                 is_active = excluded.is_active,
                 updated_at = CURRENT_TIMESTAMP
             ''',
-            (account.id, account.password, account.name, account.role)
+            (account.id, password, account.name, account.role)
         )
 def migrate_user_profile_addresses(conn):
     """
@@ -1456,6 +1613,13 @@ def init_database():
         conn.rollback()
     finally:
         conn.close()
+    
+    # 密码迁移需要在数据库连接关闭后单独处理
+    # 因为它使用了 get_db_connection() 上下文管理器
+    try:
+        migrate_passwords_to_hash()
+    except Exception as e:
+        logger.warning(f"密码迁移失败: {e}")
 
 @contextmanager
 def get_db_connection():
@@ -1531,6 +1695,10 @@ class UserDB:
         id_status: int = 0
     ) -> bool:
         """创建新用户"""
+        # 如果启用了密码加密，先加密密码
+        if settings.enable_password_hash and not is_password_hashed(password):
+            password = hash_password(password)
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
@@ -1653,13 +1821,42 @@ class UserDB:
     def verify_user(student_id: str, password: str) -> Optional[Dict]:
         """验证用户凭据"""
         user = UserDB.get_user(student_id)
-        if user and user['password'] == password:
-            return user
+        if not user:
+            return None
+        
+        stored_password = user['password']
+        
+        # 根据配置选择验证方式
+        if settings.enable_password_hash:
+            # 如果密码已加密，使用 bcrypt 验证
+            if is_password_hashed(stored_password):
+                if verify_password(password, stored_password):
+                    return user
+            else:
+                # 数据库中仍是明文，但配置已启用加密
+                # 先比较明文，如果匹配则自动升级为加密密码
+                if stored_password == password:
+                    try:
+                        hashed = hash_password(password)
+                        UserDB.update_user_password(student_id, hashed)
+                        logger.info(f"用户 {student_id} 的密码已自动升级为哈希格式")
+                    except Exception as e:
+                        logger.error(f"自动升级用户 {student_id} 密码失败: {e}")
+                    return user
+        else:
+            # 未启用加密，使用明文比较
+            if stored_password == password:
+                return user
+        
         return None
     
     @staticmethod
     def update_user_password(student_id: str, new_password: str) -> bool:
         """更新用户密码"""
+        # 如果启用了密码加密且密码不是哈希值，先加密密码
+        if settings.enable_password_hash and not is_password_hashed(new_password):
+            new_password = hash_password(new_password)
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
@@ -3071,9 +3268,34 @@ class AdminDB:
         admin = AdminDB.get_admin(admin_id)
         if not admin:
             return None
-        if admin.get('password') != password:
+        
+        stored_password = admin.get('password')
+        if not stored_password:
             return None
-        return admin
+        
+        # 根据配置选择验证方式
+        if settings.enable_password_hash:
+            # 如果密码已加密，使用 bcrypt 验证
+            if is_password_hashed(stored_password):
+                if verify_password(password, stored_password):
+                    return admin
+            else:
+                # 数据库中仍是明文，但配置已启用加密
+                # 先比较明文，如果匹配则自动升级为加密密码
+                if stored_password == password:
+                    try:
+                        hashed = hash_password(password)
+                        AdminDB.update_admin_password(admin_id, hashed)
+                        logger.info(f"管理员 {admin_id} 的密码已自动升级为哈希格式")
+                    except Exception as e:
+                        logger.error(f"自动升级管理员 {admin_id} 密码失败: {e}")
+                    return admin
+        else:
+            # 未启用加密，使用明文比较
+            if stored_password == password:
+                return admin
+        
+        return None
 
     @staticmethod
     def get_admin(
@@ -3137,6 +3359,10 @@ class AdminDB:
 
     @staticmethod
     def create_admin(admin_id: str, password: str, name: str, role: str = 'agent', payment_qr_path: Optional[str] = None) -> bool:
+        # 如果启用了密码加密，先加密密码
+        if settings.enable_password_hash and not is_password_hashed(password):
+            password = hash_password(password)
+        
         with get_db_connection() as conn:
             try:
                 safe_execute_with_migration(conn, '''
@@ -3173,6 +3399,23 @@ class AdminDB:
                 return cursor.rowcount > 0
             except Exception as e:
                 logger.error(f"更新管理员信息失败: {e}")
+                return False
+    
+    @staticmethod
+    def update_admin_password(admin_id: str, new_password: str) -> bool:
+        """更新管理员密码"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    'UPDATE admins SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (new_password, admin_id)
+                )
+                success = cursor.rowcount > 0
+                conn.commit()
+                return success
+            except Exception as e:
+                logger.error(f"更新管理员密码失败: {e}")
                 return False
 
     @staticmethod

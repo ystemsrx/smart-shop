@@ -246,7 +246,8 @@ class AuthManager:
         local_user = UserDB.get_user(student_id)
         id_status = UserDB.normalize_id_status(local_user.get('id_status') if local_user else None)
         api_result: Optional[Dict[str, Any]] = None
-        is_local_password_valid = bool(local_user and local_user.get('password') == password)
+        # 使用 verify_user 验证密码（支持加密密码）
+        is_local_password_valid = bool(UserDB.verify_user(student_id, password))
 
         async def _ensure_identity(current_user: Optional[Dict[str, Any]], payload: Optional[Dict[str, Any]]) -> int:
             """仅在状态为0时尝试获取身份证号"""

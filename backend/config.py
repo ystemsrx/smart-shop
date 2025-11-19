@@ -173,6 +173,7 @@ class Settings:
     api_key: str
     api_url: str
     model_order: List[ModelConfig]
+    enable_password_hash: bool
 
 
 @lru_cache()
@@ -266,6 +267,9 @@ def get_settings() -> Settings:
         supports_thinking = model.strip().lower() in supports_thinking_raw
         model_order.append(ModelConfig(name=model, label=label, supports_thinking=supports_thinking))
 
+    # 密码加密开关（默认启用）
+    enable_password_hash = _as_bool(_strip_quotes(os.getenv("ENABLE_PASSWORD_HASH")), True)
+
     return Settings(
         env=env_value,
         is_development=is_development,
@@ -285,6 +289,7 @@ def get_settings() -> Settings:
         api_key=api_key,
         api_url=api_url,
         model_order=model_order,
+        enable_password_hash=enable_password_hash,
     )
 
 
