@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Stepper, { Step } from './Stepper';
 import { getShopName } from '../utils/runtimeConfig';
 
 export default function StepperLocationModal({
@@ -96,9 +95,9 @@ export default function StepperLocationModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-4xl">
+      <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col">
         <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/20 via-violet-500/20 to-pink-500/20 blur-2xl"></div>
-        <div className="relative bg-white/95 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="relative bg-white/95 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -155,7 +154,7 @@ export default function StepperLocationModal({
             </div>
 
             {/* Step Content with Animation */}
-            <div className="relative">
+            <div className="relative h-[320px]">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={currentStep}
@@ -163,7 +162,7 @@ export default function StepperLocationModal({
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ duration: 0.3, ease: "easeInOut" }}
-                  className="min-h-[240px] flex items-center"
+                  className="h-full flex items-center"
                 >
                   {currentStep === 1 && (
                     <div className="w-full text-center space-y-4">

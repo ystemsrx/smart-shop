@@ -284,21 +284,8 @@ function DataVisualization() {
   const ref = useRef(null)
   const isInView = useInView(ref, { once: true, margin: "-100px" })
   
-  // 定义折线图路径 - 带有明显拐点的增长曲线
-  // M: 移动到起点，L: 直线连接各个拐点
-  const pathData = "M 50 320 L 200 280 L 350 260 L 500 180 L 650 200 L 800 120 L 950 80 L 1050 50"
-  
-  // 拐点坐标
-  const points = [
-    { x: 50, y: 320 },
-    { x: 200, y: 280 },
-    { x: 350, y: 260 },
-    { x: 500, y: 180 },
-    { x: 650, y: 200 },
-    { x: 800, y: 120 },
-    { x: 950, y: 80 },
-    { x: 1050, y: 50 }
-  ]
+  // 更平滑的贝塞尔曲线路径
+  const pathData = "M 0 300 C 150 300, 150 200, 300 200 C 450 200, 450 100, 600 150 C 750 200, 800 50, 1100 20"
   
   return (
     <section ref={ref} className="py-32 bg-white relative overflow-hidden">
@@ -318,83 +305,65 @@ function DataVisualization() {
         </motion.div>
         
         <div className="max-w-6xl mx-auto">
-          <div className="relative h-[400px] flex items-center justify-center">
-            <svg
-              viewBox="0 0 1100 400"
-              className="w-full h-full"
-              style={{ overflow: 'visible' }}
+          {/* 图表区域 - 玻璃拟态卡片 */}
+          <div className="flex-1 w-full">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={isInView ? { opacity: 1, scale: 1 } : {}}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="relative bg-white/60 backdrop-blur-xl border border-white/50 rounded-3xl shadow-2xl p-8 aspect-[16/10]"
             >
-              {/* 渐变定义 */}
-              <defs>
-                <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#6366f1" stopOpacity="0.8" />
-                  <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.9" />
-                  <stop offset="100%" stopColor="#a855f7" stopOpacity="1" />
-                </linearGradient>
-              </defs>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-3xl pointer-events-none" />
               
-              {/* 折线路径 - 背景 */}
-              <motion.path
-                d={pathData}
-                fill="none"
-                stroke="#e5e7eb"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={isInView ? { pathLength: 1 } : { pathLength: 0 }}
-                transition={{ duration: 2, ease: "easeInOut" }}
-              />
-              
-              {/* 折线路径 - 主线条 */}
-              <motion.path
-                d={pathData}
-                fill="none"
-                stroke="url(#lineGradient)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={isInView ? { pathLength: 1 } : { pathLength: 0 }}
-                transition={{ duration: 2, ease: "easeInOut" }}
-              />
-              
-              {/* 拐点 */}
-              {points.map((point, index) => (
-                <motion.circle
-                  key={index}
-                  cx={point.x}
-                  cy={point.y}
-                  r="6"
-                  className="fill-purple-500"
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={isInView ? { scale: 1, opacity: 1 } : { scale: 0, opacity: 0 }}
-                  transition={{ 
-                    duration: 0.3, 
-                    delay: (index / (points.length - 1)) * 2,
-                    ease: "easeOut"
-                  }}
+              {/* 简单的图表UI元素 */}
+              <div className="flex justify-between mb-8 opacity-50">
+                 <div className="space-y-2">
+                    <div className="w-20 h-2 bg-gray-300 rounded-full" />
+                    <div className="w-12 h-2 bg-gray-200 rounded-full" />
+                 </div>
+                 <div className="w-8 h-8 bg-gray-200 rounded-full" />
+              </div>
+
+              <svg viewBox="0 0 1100 350" className="w-full h-[70%] overflow-visible">
+                <defs>
+                  <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.2" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {/* 填充区域 - 跟随线条运动 */}
+                <motion.path
+                  d={`${pathData} L 1100 350 L 0 350 Z`}
+                  fill="url(#chartGradient)"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  animate={isInView ? { pathLength: 1, opacity: 1 } : {}}
+                  transition={{ duration: 2, ease: "easeInOut" }}
+                  style={{ pathLength: 1 }}
                 />
-              ))}
-              
-              {/* 拐点外圈光晕 */}
-              {points.map((point, index) => (
-                <motion.circle
-                  key={`glow-${index}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r="12"
-                  className="fill-purple-400"
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={isInView ? { scale: 1, opacity: 0.3 } : { scale: 0, opacity: 0 }}
-                  transition={{ 
-                    duration: 0.3, 
-                    delay: (index / (points.length - 1)) * 2,
-                    ease: "easeOut"
-                  }}
+                {/* 线条 */}
+                <motion.path
+                  d={pathData}
+                  fill="none"
+                  stroke="#6366f1"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  initial={{ pathLength: 0 }}
+                  animate={isInView ? { pathLength: 1 } : {}}
+                  transition={{ duration: 2, ease: "easeInOut" }}
                 />
-              ))}
-            </svg>
+              </svg>
+              
+              {/* 悬浮的数据点示意 */}
+              <motion.div 
+                className="absolute top-[30%] right-[20%] bg-white p-3 rounded-xl shadow-lg border border-gray-100"
+                initial={{ opacity: 0, y: 10 }}
+                animate={isInView ? { opacity: 1, y: 0 } : {}}
+                transition={{ delay: 2, duration: 0.5 }}
+              >
+                <span className="text-indigo-600 font-bold text-lg">+128%</span>
+                <span className="text-xs text-gray-400 block">本月增长</span>
+              </motion.div>
+            </motion.div>
           </div>
         </div>
       </div>
