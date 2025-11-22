@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/router";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
-import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package } from "lucide-react";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -651,9 +651,12 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
       }
       if (rendered && htmlToUse) {
         cache?.set(key, { html: htmlToUse, latex: normalizedLatex });
+        // 【标记渲染成功,CSS会移除最小高度限制】
+        placeholder.setAttribute('data-render-success', 'true');
       }
     } else if (cacheEntry?.html) {
       htmlToUse = cacheEntry.html;
+      placeholder.setAttribute('data-render-success', 'true');
     }
 
     const body = ensureBody(placeholder);
@@ -670,7 +673,59 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
 
 const STREAM_FADE_DURATION = 600;
 
-// Markdown渲染器组件
+// Markdown渲染器组件 - 带高度缓冲的包裹层
+const MarkdownRendererWrapper = ({ content }) => {
+  const wrapperRef = useRef(null);
+  const maxHeightRef = useRef(0);
+  
+  // 为整个 Markdown 渲染器添加外层高度缓冲
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+    
+    const timeoutId = setTimeout(() => {
+      if (!wrapperRef.current) return;
+      
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const currentHeight = entry.contentRect.height;
+          
+          if (currentHeight > 10 && currentHeight > maxHeightRef.current) {
+            maxHeightRef.current = currentHeight;
+            const bufferHeight = Math.floor(currentHeight * 0.97); // 3%缓冲区
+            wrapperRef.current.style.minHeight = `${bufferHeight}px`;
+          }
+        }
+      });
+      
+      if (wrapperRef.current) {
+        resizeObserver.observe(wrapperRef.current);
+      }
+      
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, 80);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [content]);
+  
+  return (
+    <div 
+      ref={wrapperRef}
+      style={{
+        transition: 'min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        willChange: 'min-height',
+        contain: 'layout'
+      }}
+    >
+      <MarkdownRenderer content={content} />
+    </div>
+  );
+};
+
+// Markdown渲染器组件（内部实现）
 const MarkdownRenderer = ({ content }) => {
   const containerRef = useRef(null);
   const lastTextLengthRef = useRef(0);
@@ -817,6 +872,8 @@ const MarkdownRenderer = ({ content }) => {
       root.removeEventListener('pointerdown', handlePointerDown);
     };
   }, [togglePreviewMode]);
+
+
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.markdownit) return;
@@ -1689,13 +1746,61 @@ const MarkdownRenderer = ({ content }) => {
 
 const Bubble = ({ role, children }) => {
   const me = role === "user";
+  const containerRef = useRef(null);
+  const maxHeightRef = useRef(0);
+  
+  // 为气泡添加高度缓冲机制
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const timeoutId = setTimeout(() => {
+      if (!containerRef.current) return;
+      
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const currentHeight = entry.contentRect.height;
+          
+          if (currentHeight > 10 && currentHeight > maxHeightRef.current) {
+            maxHeightRef.current = currentHeight;
+            const bufferHeight = Math.floor(currentHeight * 0.98);
+            containerRef.current.style.minHeight = `${bufferHeight}px`;
+          }
+        }
+      });
+      
+      if (containerRef.current) {
+        resizeObserver.observe(containerRef.current);
+      }
+      
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, 50);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, []);
+  
   return (
-    <div className={cx("flex w-full", me ? "justify-end" : "justify-start")}>      
+    <div
+      ref={containerRef}
+      className={cx("flex w-full", me ? "justify-end" : "justify-start")}
+      style={{
+        transition: 'min-height 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        willChange: 'min-height'
+      }}
+    >
       <div
         className={cx(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap",
-          me ? "bg-gray-100 text-gray-900" : "bg-gray-50 text-gray-900 border border-gray-200"
+          "max-w-[85%] rounded-[2rem] px-5 py-3.5 text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap transition-all duration-200",
+          me
+            ? "bg-black text-white"
+            : "bg-white text-gray-900 border border-gray-100"
         )}
+        style={{
+          contain: 'layout style'
+        }}
       >
         {children}
       </div>
@@ -1793,7 +1898,7 @@ const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="overflow-hidden"
             >
-              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-500">{content || "…"}</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-500">{(content || "").replace(/^\n+/, '') || "…"}</div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1823,7 +1928,7 @@ const LoadingIndicator = () => {
   );
 };
 
-// 工具调用卡片组件 - 简约版
+// 工具调用卡片组件 - 精致版
 const ToolCallCard = ({ 
   tool_call_id, 
   status = "running", 
@@ -1833,149 +1938,390 @@ const ToolCallCard = ({
   error_message = "",
   result_details = ""
 }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const isRunning = status === "running";
   const isSuccess = status === "success";
   const isError = status === "error";
 
-  // 简化的状态指示器
-  const getStatusIndicator = () => {
-    if (isRunning) {
-      return <div className="simple-spinner"></div>;
-    }
-    if (isSuccess) {
-      return <span className="text-green-600">✓</span>;
-    }
-    if (isError) {
-      return <span className="text-red-600">✗</span>;
-    }
-    return null;
-  };
-
-  const getStatusText = () => {
-    if (isRunning) return "执行中";
-    if (isSuccess) return "完成";
-    if (isError) return "失败";
-    return "";
-  };
-
-  const cardClass = cx(
-    "tool-card",
-    isRunning && "tool-card-running",
-    isSuccess && "tool-card-success", 
-    isError && "tool-card-error"
-  );
-
-  // 处理敏感数据 - 对外展示时隐藏具体参数
   const getDisplayName = (name) => {
     const nameMap = {
-      'search_products': '商品搜索',
-      'update_cart': '购物车操作', 
+      'search_products': '搜索商品',
+      'update_cart': '更新购物车', 
       'get_cart': '查看购物车',
-      'get_category': '分类列表'
+      'get_category': '浏览分类'
     };
     return nameMap[name] || name;
   };
 
-  // 简化结果显示 - 只显示关键信息
-  const formatSimpleResult = (content) => {
-    if (!content) return "";
-    
+  const displayName = getDisplayName(function_name);
+
+  // Helper to parse JSON safely
+  const safeParse = (text) => {
     try {
-      const parsed = JSON.parse(content);
-      if (typeof parsed === 'object') {
-        // 分类结果（包含商品搜索旧格式和分类查询）
-        if (Array.isArray(parsed.categories)) {
-          const count = typeof parsed.count === 'number' ? parsed.count : parsed.categories.length;
-          const names = parsed.categories
-            .map((c) => (typeof c === 'string' ? c : (c?.name || '')))
-            .filter(Boolean);
-          
-          // 单个分类的情况，显示为商品搜索格式（兼容旧数据）
-          if (names.length === 1) {
-            return `${names[0]} · 找到 ${count} 个商品`;
-          }
-          
-          // 多个分类的情况，显示为分类列表格式
-          const display = names.slice(0, 6).join(', ');
-          const more = names.length > 6 ? ', ...' : '';
-          return `[${display}${more}] · 找到 ${count} 个商品`;
-        }
-        // 多查询搜索结果
-        if (parsed.multi_query && parsed.queries && parsed.results) {
-          const totalCount = parsed.count || 0;
-          const qs = Array.isArray(parsed.queries) ? parsed.queries.filter(Boolean).join(', ') : '';
-          return `[${qs}] · 找到 ${totalCount} 个商品`;
-        }
-        // 单个商品搜索结果
-        if (parsed.count !== undefined && Array.isArray(parsed.items)) {
-          const q = typeof parsed.query === 'string' ? parsed.query : '';
-          return q ? `${q} · 找到 ${parsed.count} 个商品` : `找到 ${parsed.count} 个商品`;
-        }
-        // 购物车信息
-        if (parsed.total_quantity !== undefined || parsed.total_price !== undefined) {
-          const qty = parsed.total_quantity ?? 0;
-          const price = parsed.total_price ?? 0;
-          return `共 ${qty} 件商品 · ¥${price}`;
-        }
-        // 购物车操作结果
-        if (parsed.action && parsed.message) {
-          return parsed.message;
-        }
-        // 批量操作结果
-        if (parsed.action && parsed.processed !== undefined) {
-          return `处理 ${parsed.processed} 项，成功 ${parsed.successful} 项`;
-        }
-        // 通用操作结果
-        if (parsed.ok !== undefined) {
-          return parsed.ok ? "操作成功" : (parsed.error || "操作失败");
-        }
-      }
+      return JSON.parse(text);
     } catch {
-      // 文本结果，简化显示
-      if (content.includes('成功')) return "操作成功";
-      if (content.includes('失败') || content.includes('错误')) return "操作失败";
+      return null;
     }
-    
-    // 解析失败则直接返回（避免关键信息被截断）
-    return content;
   };
 
-  return (
-    <div className="flex w-full justify-start">
-      <div className={cx("max-w-[80%] w-full", cardClass)}>
-        <div className="tool-card-body">
-          <div className="tool-card-header">
-            <div className="tool-card-title">
-              {getStatusIndicator()}
-              <span className="tool-name">{getDisplayName(function_name)}</span>
-              <span className="tool-status">{getStatusText()}</span>
+  const args = safeParse(arguments_text);
+  const result = safeParse(result_summary);
+
+  // Determine styling based on function name
+  const getToolStyle = (name) => {
+    if (name === 'search_products') return { icon: Search, color: 'blue', bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-600' };
+    if (name === 'update_cart' || name === 'get_cart') return { icon: ShoppingCart, color: 'orange', bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-600' };
+    if (name === 'get_category') return { icon: List, color: 'purple', bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-600' };
+    return { icon: Terminal, color: 'gray', bg: 'bg-gray-50', border: 'border-gray-100', text: 'text-gray-600' };
+  };
+
+  const style = getToolStyle(function_name);
+  const Icon = style.icon;
+
+  // Render Input Arguments
+  const renderArguments = () => {
+    // For tools that typically have no meaningful input for display, skip if empty
+    if ((function_name === 'get_cart' || function_name === 'get_category') && (!args || Object.keys(args).length === 0)) {
+        return null;
+    }
+
+    if (!args) return <div className="font-mono text-xs text-gray-500 break-all">{arguments_text}</div>;
+
+    if (function_name === 'search_products') {
+      const q = args.query;
+      const queryStr = Array.isArray(q) ? q.join(', ') : q;
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+           <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">关键词</span> <span className="font-medium text-gray-900">{queryStr}</span></div>
+           {args.price_range && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">价格区间</span> <span className="text-gray-900">{args.price_range}</span></div>}
+           {args.sort && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">排序</span> <span className="text-gray-900">{args.sort}</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'update_cart') {
+       const actionMap = { add: '添加商品', remove: '移除商品', update: '更新数量' };
+       return (
+        <div className="flex flex-col gap-1 text-sm">
+           <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">动作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+           {args.product_id && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品ID</span> <span className="font-mono text-gray-600">{args.product_id}</span></div>}
+           {args.quantity !== undefined && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.quantity}</span></div>}
+        </div>
+       );
+    }
+    
+    // Generic
+    if (Object.keys(args).length === 0) return null;
+
+    return (
+      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        {Object.entries(args).map(([k, v]) => (
+          <React.Fragment key={k}>
+            <span className="text-gray-500">{k}</span>
+            <span className="text-gray-900 font-medium break-all">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
+  // Render Result
+  const renderResult = () => {
+    if (error_message) return <div className="text-red-600 text-sm">{error_message}</div>;
+    if (!result) return <div className="font-mono text-xs text-gray-600 whitespace-pre-wrap break-all">{result_summary}</div>;
+
+    if (function_name === 'search_products') {
+      // 处理多查询结果
+      if (result.multi_query && result.results) {
+        const allItems = [];
+        Object.values(result.results).forEach(queryResult => {
+          if (queryResult.items) {
+            allItems.push(...queryResult.items);
+          }
+        });
+        
+        if (allItems.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-4 text-gray-500">
+              <Search className="h-8 w-8 mb-2 opacity-20" />
+              <span className="text-xs">未找到相关商品</span>
             </div>
+          );
+        }
+        
+        const displayItems = allItems.slice(0, 15); // 最多显示15个（5行x3列）
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>共找到 {result.count || allItems.length} 个商品</span>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+              {displayItems.map((item, i) => (
+                <div key={i} className="flex flex-col gap-2 bg-white p-2 rounded-lg border border-gray-100 shadow-sm">
+                  {item.image && <img src={item.image} className="w-full aspect-square rounded-md object-cover bg-gray-100" alt="" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm text-gray-900 line-clamp-2" title={item.name}>
+                      {item.name}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-semibold text-gray-900">¥{item.price}</span>
+                      {item.original_price && parseFloat(item.original_price) > parseFloat(item.price) && <span className="text-xs text-gray-400 line-through">¥{item.original_price}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {allItems.length > 15 && (
+              <div className="text-center text-xs text-gray-400 py-1">还有 {allItems.length - 15} 个商品...</div>
+            )}
           </div>
-
-          {/* 运行中展示关键信息：例如搜索关键词 */}
-          {isRunning && function_name === 'search_products' && (() => {
-            try {
-              const args = JSON.parse(arguments_text || '{}');
-              const q = args?.query;
-              const qs = Array.isArray(q) ? q.filter(Boolean).join(', ') : (typeof q === 'string' ? q : '');
-              return qs ? <div className="tool-meta">关键词：{qs}</div> : null;
-            } catch { return null; }
-          })()}
-
-          {/* 执行进度 */}
-          {isRunning && (
-            <div className="tool-progress">
-              <span>正在处理请求...</span>
-            </div>
-          )}
-
-          {/* 简化的结果显示 */}
-          {(isSuccess || isError) && (result_summary || error_message) && (
-            <div className="tool-result-simple">
-              {isError ? error_message : formatSimpleResult(result_summary)}
-            </div>
+        );
+      }
+      
+      // 处理单查询结果
+      if (!result.items || result.items.length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center py-4 text-gray-500">
+            <Search className="h-8 w-8 mb-2 opacity-20" />
+            <span className="text-xs">未找到相关商品</span>
+          </div>
+        );
+      }
+      
+      const displayItems = result.items.slice(0, 15); // 最多显示15个（5行x3列）
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>共找到 {result.count} 个商品</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            {displayItems.map((item, i) => (
+              <div key={i} className="flex flex-col gap-2 bg-white p-2 rounded-lg border border-gray-100 shadow-sm">
+                {item.image && <img src={item.image} className="w-full aspect-square rounded-md object-cover bg-gray-100" alt="" />}
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-sm text-gray-900 line-clamp-2" title={item.name}>
+                    {item.name}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-semibold text-gray-900">¥{item.price}</span>
+                    {item.original_price && parseFloat(item.original_price) > parseFloat(item.price) && <span className="text-xs text-gray-400 line-through">¥{item.original_price}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {result.items.length > 15 && (
+            <div className="text-center text-xs text-gray-400 py-1">还有 {result.items.length - 15} 个商品...</div>
           )}
         </div>
+      );
+    }
+
+    if (function_name === 'get_cart') {
+        if (!result.total_quantity && !result.total_price) {
+             return (
+              <div className="flex flex-col items-center justify-center py-4 text-gray-500">
+                <ShoppingCart className="h-8 w-8 mb-2 opacity-20" />
+                <span className="text-xs">购物车是空的</span>
+              </div>
+            );
+        }
+        return (
+            <div className="flex items-center gap-6 p-2 bg-white rounded-lg border border-gray-100">
+                <div>
+                    <div className="text-xs text-gray-500">总数量</div>
+                    <div className="text-lg font-semibold text-gray-900">{result.total_quantity}</div>
+                </div>
+                <div>
+                    <div className="text-xs text-gray-500">总金额</div>
+                    <div className="text-lg font-semibold text-gray-900">¥{result.total_price}</div>
+                </div>
+            </div>
+        )
+    }
+
+    if (function_name === 'get_category') {
+        if (!result.categories || result.categories.length === 0) {
+             return (
+              <div className="flex flex-col items-center justify-center py-4 text-gray-500">
+                <List className="h-8 w-8 mb-2 opacity-20" />
+                <span className="text-xs">暂无分类信息</span>
+              </div>
+            );
+        }
+        return (
+            <div className="flex flex-wrap gap-2">
+                {result.categories.map((c, i) => (
+                    <span key={i} className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md text-xs font-medium">
+                        {typeof c === 'string' ? c : c.name}
+                    </span>
+                ))}
+            </div>
+        )
+    }
+
+    // Generic JSON
+    return <pre className="font-mono text-xs text-gray-600 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(result, null, 2)}</pre>;
+  };
+
+  // Render Collapsed Summary
+  const renderCollapsed = () => {
+      if (isRunning) return <span className="text-blue-600 text-xs">正在执行...</span>;
+      if (isError) return <span className="text-red-600 text-xs">{error_message || "执行失败"}</span>;
+      
+      if (function_name === 'search_products') {
+          // 处理多查询情况
+          if (result?.multi_query && result?.queries) {
+              const queryCount = result.queries.length;
+              const totalCount = result.count ?? 0;
+              const queryStr = result.queries.join(', ');
+              
+              return (
+                  <div className="flex items-center gap-2 overflow-hidden text-xs">
+                      <span className="font-medium text-gray-900 shrink-0">搜索 "{queryStr}"</span>
+                      <span className="text-gray-300">|</span>
+                      <span className="text-gray-600 shrink-0">找到 {totalCount} 个</span>
+                  </div>
+              );
+          }
+          
+          // 处理单查询情况
+          const q = args?.query;
+          const queryStr = Array.isArray(q) ? q.join(', ') : q;
+          const count = result?.count ?? 0;
+          const items = result?.items || [];
+          const names = items.slice(0, 2).map(i => i.name).join(', ');
+          
+          return (
+              <div className="flex items-center gap-2 overflow-hidden text-xs">
+                  {queryStr && <span className="font-medium text-gray-900 shrink-0">搜索 "{queryStr}"</span>}
+                  <span className="text-gray-300">|</span>
+                  <span className="text-gray-600 shrink-0">找到 {count} 个</span>
+                  {names && <span className="text-gray-400 truncate max-w-[120px]">({names}...)</span>}
+              </div>
+          );
+      }
+
+      if (function_name === 'get_cart') {
+          const count = result?.total_quantity ?? 0;
+          return (
+              <div className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-600">找到 {count} 件商品</span>
+              </div>
+          );
+      }
+
+      if (function_name === 'get_category') {
+          const count = result?.categories?.length ?? 0;
+          return (
+              <div className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-600">找到 {count} 个分类</span>
+              </div>
+          );
+      }
+
+      if (function_name === 'update_cart') {
+          const action = args?.action;
+          const msg = result?.message || (result?.ok ? "成功" : "");
+          return (
+              <div className="flex items-center gap-2 text-xs">
+                  <span className="font-medium text-gray-900">{action === 'add' ? '添加购物车' : '更新购物车'}</span>
+                  {msg && <span className="text-gray-500">- {msg}</span>}
+              </div>
+          )
+      }
+
+      // Fallback
+      if (result?.message) return <span className="text-xs text-gray-600">{result.message}</span>;
+      
+      return <span className="text-xs text-gray-500">执行完成</span>;
+  }
+
+  const hasArguments = renderArguments() !== null;
+
+  return (
+    <div 
+      className="flex w-full justify-start -mt-2"
+    >
+      <div className="w-full max-w-[90%] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md">
+        {/* Header */}
+        <div 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex cursor-pointer items-center justify-between bg-gray-50/50 px-4 py-3 transition-colors hover:bg-gray-50"
+        >
+            {/* Left Side: Icon + Title + Summary */}
+            <div className="flex items-center gap-3 overflow-hidden">
+                <div className={cx(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm",
+                  isRunning ? "bg-blue-50 border-blue-100 text-blue-600" :
+                  isSuccess ? style.bg + " " + style.border + " " + style.text :
+                  "bg-red-50 border-red-100 text-red-600"
+                )}>
+                  {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                   isSuccess ? <Icon className="h-4 w-4" /> :
+                   <XCircle className="h-4 w-4" />}
+                </div>
+                
+                <div className="flex flex-col overflow-hidden">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">{displayName}</span>
+                        {!isExpanded && (
+                            <div className="truncate ml-2">
+                                {renderCollapsed()}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Right Side: Chevron */}
+            <ChevronDown 
+              className={cx("h-4 w-4 text-gray-400 transition-transform duration-200 shrink-0", isExpanded ? "rotate-180" : "")} 
+            />
+        </div>
+
+        {/* Expanded Content */}
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="border-t border-gray-100 bg-gray-50/30"
+            >
+              <div className="p-4 space-y-4">
+                {/* Input Arguments */}
+                {hasArguments && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div>
+                      Input
+                    </div>
+                    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                      {renderArguments()}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Output Result */}
+                {(result_summary || error_message) && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <div className={cx("h-1.5 w-1.5 rounded-full", isError ? "bg-red-400" : "bg-green-400")}></div>
+                      Output
+                    </div>
+                    <div className={cx(
+                      "rounded-xl border p-3 shadow-sm overflow-hidden",
+                      isError ? "border-red-100 bg-red-50/30" : "border-gray-200 bg-white"
+                    )}>
+                      {renderResult()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -3598,6 +3944,24 @@ export default function ChatModern({ user, initialConversationId = null }) {
     clear,
   ]);
 
+  const ALL_SUGGESTIONS = [
+    "有些什么零食",
+    "哪些东西销量最好",
+    "有些什么分类",
+    "找找泡面",
+    "有哪些饮料",
+    "查看购物车",
+    "添加一碗泡面到购物车",
+    "清空购物车",
+    "你有什么推荐"
+  ];
+
+  const SUGGESTIONS = useMemo(() => {
+    return [...ALL_SUGGESTIONS]
+      .sort(() => 0.5 - Math.random())
+      .slice(0, 4);
+  }, []);
+
   const inputPlaceholder = "继续提问…";
   const shouldShowPlaceholder = !conversationReady;
   const shouldShowHero = conversationReady && first;
@@ -3774,7 +4138,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
       )}
       <div className="relative flex flex-1 flex-col">
         {Header}
-        <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-20", mainPaddingBottom)}>
+        <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-20", mainPaddingBottom)} style={{ scrollbarGutter: 'stable' }}>
           <div className="mx-auto w-full max-w-4xl px-4 pt-4">
             {chatError && (
               <div className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
@@ -3804,61 +4168,135 @@ export default function ChatModern({ user, initialConversationId = null }) {
               <section className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center gap-8 text-center">
                 <div className="text-3xl font-semibold text-gray-900 h-12 flex items-center justify-center">{welcomeTextComponent}</div>
                 <div className="w-full max-w-2xl px-4">
-                  <InputBar
-                    value={inp}
-                    onChange={setInp}
-                    onSend={handleSend}
-                    onStop={handleStop}
-                    placeholder="问我任何问题…"
-                    autoFocus
-                    isLoading={isLoading}
-                  />
+                  <motion.div layoutId="input-container" className="w-full">
+                    <InputBar
+                      value={inp}
+                      onChange={setInp}
+                      onSend={handleSend}
+                      onStop={handleStop}
+                      placeholder="问我任何问题…"
+                      autoFocus
+                      isLoading={isLoading}
+                    />
+                  </motion.div>
+                  
+                  {/* 提示词建议 */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5, duration: 0.5 }}
+                    className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4"
+                  >
+                    {SUGGESTIONS.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setInp(s)}
+                        className="flex items-center justify-center rounded-full border border-gray-100 bg-gray-50/50 px-4 py-3 text-sm text-gray-600 transition-all hover:bg-white hover:shadow-md hover:border-gray-200 hover:-translate-y-0.5"
+                      >
+                        <span className="truncate">{s}</span>
+                      </button>
+                    ))}
+                  </motion.div>
                 </div>
               </section>
             )}
             {shouldShowChat && (
-              <div className="mx-auto flex max-w-3xl flex-col gap-4">
-                {msgs.map((m) => {
-                  if (m.role === "assistant") {
-                    if ((!m.content || m.content === null) && m.tool_calls) {
-                      return null;
-                    }
-                    return <MarkdownRenderer key={m.id} content={m.content} />;
-                  } else if (m.role === "assistant_thinking") {
-                    return (
-                      <ThinkingBubble
-                        key={m.id}
-                        content={m.content}
-                        isComplete={m.isComplete}
-                        isStopped={m.isStopped}
-                      />
-                    );
-                  } else if (m.role === "tool_call") {
-                    return (
-                      <ToolCallCard
-                        key={m.id}
-                        tool_call_id={m.tool_call_id}
-                        status={m.status}
-                        function_name={m.function_name}
-                        arguments_text={m.arguments_text}
-                        result_summary={m.result_summary}
-                        error_message={m.error_message}
-                      />
-                    );
-                  } else if (m.role === "user") {
-                    return (
-                      <Bubble key={m.id} role={m.role}>
-                        {m.content}
-                      </Bubble>
-                    );
-                  } else if (m.role === "error") {
-                    return <ErrorBubble key={m.id} message={m.content} />;
-                  }
-                  return null;
-                })}
-                {showThinking && <LoadingIndicator />}
-                <div ref={endRef} />
-              </div>
+              <LayoutGroup>
+                <div className="mx-auto flex max-w-3xl flex-col gap-4">
+                  <AnimatePresence initial={true} mode="popLayout">
+                    {msgs.map((m, index) => {
+                      let content = null;
+                      if (m.role === "assistant") {
+                        const isEmpty = !m.content || !m.content.trim();
+                        if (isEmpty && m.tool_calls) {
+                          return null;
+                        }
+                        content = <MarkdownRendererWrapper content={m.content} />;
+                      } else if (m.role === "assistant_thinking") {
+                        content = (
+                          <ThinkingBubble
+                            content={m.content}
+                            isComplete={m.isComplete}
+                            isStopped={m.isStopped}
+                          />
+                        );
+                      } else if (m.role === "tool_call") {
+                        content = (
+                          <ToolCallCard
+                            tool_call_id={m.tool_call_id}
+                            status={m.status}
+                            function_name={m.function_name}
+                            arguments_text={m.arguments_text}
+                            result_summary={m.result_summary}
+                            error_message={m.error_message}
+                          />
+                        );
+                      } else if (m.role === "user") {
+                        content = (
+                          <Bubble role={m.role}>
+                            {m.content}
+                          </Bubble>
+                        );
+                      } else if (m.role === "error") {
+                        content = <ErrorBubble message={m.content} />;
+                      }
+
+                      if (!content) return null;
+
+                      // 优化 stagger delay，让它更平滑自然
+                      const staggerDelay = Math.log(index + 1) * 0.05;
+
+                      return (
+                        <motion.div 
+                          key={m.id}
+                          layout="position" // 只对position进行布局动画,不影响size
+                          initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, transition: { duration: 0 } }}
+                          transition={{ 
+                            opacity: { duration: 0.3, delay: staggerDelay, ease: "easeOut" },
+                            y: { type: "spring", stiffness: 600, damping: 30, mass: 0.8, delay: staggerDelay },
+                            scale: { type: "spring", stiffness: 600, damping: 30, mass: 0.8, delay: staggerDelay },
+                            layout: { 
+                              duration: 0.35, 
+                              ease: [0.25, 0.1, 0.25, 1], // 使用更平滑的贝塞尔曲线
+                              delay: 0.05 // 轻微延迟布局动画,让内容先渲染完成
+                            }
+                          }}
+                          style={{
+                            // 为每个消息块添加最小高度缓冲，避免内容变化时的布局抖动
+                            minHeight: 'fit-content',
+                            willChange: 'transform, opacity',
+                            // 确保布局计算稳定
+                            contain: 'layout'
+                          }}
+                        >
+                          {content}
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                  <AnimatePresence>
+                    {showThinking && (
+                      <motion.div
+                        layout="position"
+                        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, transition: { duration: 0 } }}
+                        transition={{ 
+                          opacity: { duration: 0.3, ease: "easeOut" },
+                          y: { type: "spring", stiffness: 600, damping: 30, mass: 0.8 },
+                          scale: { type: "spring", stiffness: 600, damping: 30, mass: 0.8 },
+                          layout: { duration: 0.2, ease: "easeInOut" }
+                        }}
+                      >
+                        <LoadingIndicator />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <div ref={endRef} />
+                </div>
+              </LayoutGroup>
             )}
           </div>
         </main>
@@ -3872,14 +4310,16 @@ export default function ChatModern({ user, initialConversationId = null }) {
             }
           >
             <div className="mx-auto max-w-4xl px-4 pb-2 bg-white/95 backdrop-blur-sm">
-              <InputBar
-                value={inp}
-                onChange={setInp}
-                onSend={handleSend}
-                onStop={handleStop}
-                placeholder={inputPlaceholder}
-                isLoading={isLoading}
-              />
+              <motion.div layoutId="input-container" className="w-full">
+                <InputBar
+                  value={inp}
+                  onChange={setInp}
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  placeholder={inputPlaceholder}
+                  isLoading={isLoading}
+                />
+              </motion.div>
             </div>
           </div>
         )}

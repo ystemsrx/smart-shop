@@ -486,6 +486,12 @@ body {
   /* 确保代码块能够横向滚动 */
   overflow-x: visible;
   word-wrap: break-word;
+  /* 防止字体加载导致的布局闪动 */
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 确保最小高度过渡平滑 */
+  contain: layout style;
 }
 
 /* 列表基础样式 */
@@ -552,6 +558,13 @@ body {
   justify-content: center;
   gap: 10px;
   margin: 0.75em 0;
+  /* 为未渲染的块级公式预留最小高度,避免渲染时的高度跳变 */
+  min-height: 3em;
+  transition: min-height 0.2s ease-out;
+}
+
+.block-math-placeholder[data-render-success="true"] {
+  min-height: auto; /* 渲染成功后移除最小高度限制 */
 }
 
 .block-math-body {
@@ -589,6 +602,11 @@ body {
   margin: 1em 0;
   overflow: visible; /* 允许内容溢出，由内部元素控制滚动 */
   position: relative;
+  /* 为代码块预留最小高度,避免渲染时的高度突变 */
+  min-height: 5em;
+  transition: min-height 0.2s ease-out;
+  /* 确保布局稳定 */
+  contain: layout style;
 }
 
 /* 代码块头部 - 语言标签 */
@@ -915,6 +933,10 @@ body {
   background: #ffffff;
   transition: border-color 0.2s ease;
   overflow: hidden;
+  /* 为工具卡片预留最小高度,避免展开/收起时的布局跳变 */
+  min-height: 4em;
+  /* 确保布局稳定 */
+  contain: layout style;
 }
 
 .tool-card:hover {
