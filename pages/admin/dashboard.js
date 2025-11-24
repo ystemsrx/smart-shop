@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Head from 'next/head';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
@@ -57,6 +57,12 @@ const formatNumber = (value, decimals = 2) => {
   return parseFloat(num.toFixed(decimals));
 };
 
+const formatDateTimeLocal = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
 // --- Components ---
 
 const StatCard = ({ title, value, change, changeType, icon: Icon, subtitle, colorClass }) => {
@@ -110,7 +116,9 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
     );
   }
 
-  const maxValue = Math.max(...data.map(d => d.value || d.sold || 0));
+  const maxValue = Math.max(...data.map(d => d.sold || d.value || 0));
+  
+  // SimpleBarChart 用于显示热销商品，不需要日期处理
   
   return (
     <motion.div 
@@ -126,7 +134,7 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
         
       <div className="space-y-6 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0" style={{ maxHeight: '300px' }}>
           {data.map((item, index) => {
-            const value = item.value || item.sold || 0;
+            const value = item.sold || item.value || 0;
             const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
             
             return (
@@ -171,7 +179,7 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
   );
 };
 
-const SalesTrendChart = ({ data, title, period, settings }) => {
+const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
   const dataset = useMemo(() => {
     if (!Array.isArray(data)) return [];
     const safeData = data.filter(Boolean).map(item => ({ ...item }));
@@ -215,14 +223,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
   const endIndex = Math.min(startIndex + windowSize, dataset.length);
   const chartData = dataset.slice(startIndex, endIndex);
 
-  if (dataset.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 h-80 flex flex-col justify-center items-center text-slate-400">
-        <Activity size={48} className="mb-4 opacity-20" />
-        <p>暂无数据</p>
-      </div>
-    );
-  }
+  const isEmptyDataset = dataset.length === 0;
 
   const sliceRevenue = chartData.map(d => d.revenue || 0);
   const sliceProfit = chartData.map(d => d.profit || 0);
@@ -336,6 +337,7 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
   const revenuePath = createSmoothPath(revenuePoints);
   const profitPath = createSmoothPath(profitPoints);
   const ordersPath = createSmoothPath(ordersPoints);
+  const rangeRef = useRef({ start: null, end: null });
   
   const hasPrev = startIndex > 0;
   const hasNext = endIndex < dataset.length;
@@ -399,6 +401,33 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
     
     return point.y;
   };
+
+  useEffect(() => {
+    if (!onRangeChange) return;
+    const startPeriod = plottedData[0]?.period || null;
+    const endPeriod = plottedData[plottedData.length - 1]?.period || null;
+    if (rangeRef.current.start === startPeriod && rangeRef.current.end === endPeriod) return;
+    rangeRef.current = { start: startPeriod, end: endPeriod };
+    onRangeChange({ start: startPeriod, end: endPeriod });
+  }, [plottedData, onRangeChange]);
+  
+  const windowTotals = useMemo(() => {
+    const totals = chartData.reduce(
+      (acc, item) => {
+        acc.revenue += Number(item?.revenue) || 0;
+        acc.profit += Number(item?.profit) || 0;
+        acc.orders += Number(item?.orders) || 0;
+        return acc;
+      },
+      { revenue: 0, profit: 0, orders: 0 }
+    );
+
+    return {
+      revenue: formatNumber(totals.revenue),
+      profit: formatNumber(totals.profit),
+      orders: formatNumber(totals.orders, 0)
+    };
+  }, [chartData]);
   
   return (
     <motion.div 
@@ -414,18 +443,21 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
           </h3>
           
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-4 text-sm text-slate-500 mr-4">
+          <div className="flex items-center gap-4 text-sm text-slate-500 mr-4 flex-wrap">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-              销售额
+              <span>销售额：</span>
+              <span className="text-slate-800 font-semibold">¥{windowTotals.revenue}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-              净利润
+              <span>净利润：</span>
+              <span className="text-slate-800 font-semibold">¥{windowTotals.profit}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              订单数
+              <span>订单数：</span>
+              <span className="text-slate-800 font-semibold">{windowTotals.orders}</span>
             </div>
           </div>
           
@@ -449,7 +481,12 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             </div>
             
       <div className="relative w-full min-h-[320px] md:min-h-0 flex-1">
-              {showEmptyDayState ? (
+              {isEmptyDataset ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+            <Activity size={32} className="mb-2 opacity-50" />
+            <p className="text-sm">暂无数据</p>
+                </div>
+              ) : showEmptyDayState ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
             <Activity size={32} className="mb-2 opacity-50" />
             <p className="text-sm">该日暂无数据</p>
@@ -655,7 +692,13 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             {/* X Axis Labels */}
             {plottedData.map((item, index) => {
               if (index % Math.ceil(plottedData.length / 8) !== 0) return null;
-              const x = leftPadding + (index / (plottedData.length - 1)) * chartWidth;
+              const x = plottedData.length === 1
+                ? leftPadding + chartWidth / 2
+                : leftPadding + (index / (plottedData.length - 1)) * chartWidth;
+              
+              // 防止 NaN
+              if (!Number.isFinite(x)) return null;
+              
               return (
                 <text
                   key={index}
@@ -681,8 +724,8 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 
                 let groupKey;
                 if (period === 'day') {
-                  // 日报：按分钟分组
-                  groupKey = `${parsedDate.getMinutes()}`;
+                  // 日报：按日期分组，避免分钟始终为00的无用标签
+                  groupKey = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}-${parsedDate.getDate()}`;
                 } else if (period === 'week') {
                   // 周报：按月份分组
                   groupKey = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
@@ -710,9 +753,12 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 });
                 const avgX = positions.reduce((sum, x) => sum + x, 0) / positions.length;
                 
+                // 防止 NaN 值
+                if (!Number.isFinite(avgX)) return null;
+                
                 let label;
                 if (period === 'day') {
-                  label = date.getMinutes().toString().padStart(2, '0');
+                  label = `${date.getMonth() + 1}/${date.getDate()}`;
                 } else if (period === 'week') {
                   label = date.getFullYear();
                 } else {
@@ -737,7 +783,9 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             {period !== 'month' && revenuePoints.map((point, index) => {
                   const source = plottedData[index];
               if (!source || (Number(source.revenue) || 0) === 0) return null;
+              if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
               const labelY = getSmartLabelPosition(point, index, 'revenue');
+              if (!Number.isFinite(labelY)) return null;
                   
                   return (
                 <motion.text
@@ -761,7 +809,9 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             {period !== 'month' && profitPoints.map((point, index) => {
                   const source = plottedData[index];
               if (!source || (Number(source.profit) || 0) === 0) return null;
+              if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
               const labelY = getSmartLabelPosition(point, index, 'profit');
+              if (!Number.isFinite(labelY)) return null;
                   
                   return (
                 <motion.text
@@ -786,9 +836,11 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
             {ordersPoints.map((point, index) => {
               const source = plottedData[index];
               if (!source || (Number(source.orders) || 0) === 0) return null;
+              if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
               const labelY = period === 'month' 
                 ? point.y - 18  // 月报时订单数标签固定在上方
                 : getSmartLabelPosition(point, index, 'orders');
+              if (!Number.isFinite(labelY)) return null;
 
                   return (
                 <motion.text
@@ -810,42 +862,51 @@ const SalesTrendChart = ({ data, title, period, settings }) => {
                 })}
 
             {/* Interactive Dots */}
-            {period !== 'month' && revenuePoints.map((p, i) => (
-              <circle 
-                key={`dot-revenue-${i}`} 
-                cx={p.x} 
-                cy={p.y} 
-                r="3" 
-                fill="white" 
-                stroke="#6366f1" 
-                strokeWidth="2" 
-                className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
-              />
-            ))}
-            {period !== 'month' && profitPoints.map((p, i) => (
-              <circle 
-                key={`dot-profit-${i}`} 
-                cx={p.x} 
-                cy={p.y} 
-                r="3" 
-                fill="white" 
-                stroke="#fbbf24" 
-                strokeWidth="2" 
-                className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
-              />
-            ))}
-            {ordersPoints.map((p, i) => (
-              <circle 
-                key={`dot-orders-${i}`} 
-                cx={p.x} 
-                cy={p.y} 
-                r="3" 
-                fill="white" 
-                stroke="#34d399" 
-                strokeWidth="2" 
-                className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
-              />
-            ))}
+            {period !== 'month' && revenuePoints.map((p, i) => {
+              if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+              return (
+                <circle 
+                  key={`dot-revenue-${i}`} 
+                  cx={p.x} 
+                  cy={p.y} 
+                  r="3" 
+                  fill="white" 
+                  stroke="#6366f1" 
+                  strokeWidth="2" 
+                  className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
+                />
+              );
+            })}
+            {period !== 'month' && profitPoints.map((p, i) => {
+              if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+              return (
+                <circle 
+                  key={`dot-profit-${i}`} 
+                  cx={p.x} 
+                  cy={p.y} 
+                  r="3" 
+                  fill="white" 
+                  stroke="#fbbf24" 
+                  strokeWidth="2" 
+                  className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
+                />
+              );
+            })}
+            {ordersPoints.map((p, i) => {
+              if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+              return (
+                <circle 
+                  key={`dot-orders-${i}`} 
+                  cx={p.x} 
+                  cy={p.y} 
+                  r="3" 
+                  fill="white" 
+                  stroke="#34d399" 
+                  strokeWidth="2" 
+                  className="opacity-0 hover:opacity-100 transition-opacity cursor-pointer" 
+                />
+              );
+            })}
                 </svg>
               )}
             </div>
@@ -881,6 +942,11 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     dashboardStats: { current_period: { data: [] } },
     basicStats: {}
   });
+  const dashboardRequestIdRef = useRef(0);
+  const [topProducts, setTopProducts] = useState([]);
+  const [topProductsLoading, setTopProductsLoading] = useState(false);
+  const topProductsRequestIdRef = useRef(0);
+  const [trendRange, setTrendRange] = useState(null);
   const [timePeriod, setTimePeriod] = useState('week');
   const [customersData, setCustomersData] = useState({ customers: [], total: 0, currentPage: 0, hasMore: false });
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -910,6 +976,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   }, [timePeriod, user, expectedRole]);
 
   const loadDashboardData = async () => {
+    const requestId = dashboardRequestIdRef.current + 1;
+    dashboardRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const [dashboardRes, statsRes] = await Promise.all([
@@ -917,14 +985,19 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
         fetch(`${API_BASE}/admin/stats`, { credentials: 'include' })
       ]);
       const [dashboardJson, statsJson] = await Promise.all([dashboardRes.json(), statsRes.json()]);
+      if (dashboardRequestIdRef.current !== requestId) return;
+      
       setDashboardData({
         dashboardStats: dashboardJson.data || {},
         basicStats: statsJson.data || {}
       });
+      setTopProducts(dashboardJson.data?.top_products || []);
     } catch (error) {
       console.error('Dashboard data error:', error);
     } finally {
-      setLoading(false);
+      if (dashboardRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -942,12 +1015,94 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           hasMore: json.data?.has_more || false
         });
       }
+  } catch (error) {
+    console.error('Customer data error:', error);
+  } finally {
+    setCustomersLoading(false);
+  }
+  };
+
+  const { dashboardStats, basicStats } = dashboardData;
+  const pageTitle = isAdmin ? `管理仪表盘 - ${SHOP_NAME}` : `代理仪表盘 - ${SHOP_NAME}`;
+
+  // Helper for growth
+  const getChangeType = (value) => {
+    if (!value) return 'same';
+    return value > 0 ? 'up' : value < 0 ? 'down' : 'same';
+  };
+  
+  const formatChange = (val) => val != null ? Math.round(val * 100) / 100 : null;
+  const periodLabel = timePeriod === 'day' ? '今日' : timePeriod === 'week' ? '本周' : '本月';
+  
+  const buildTopRangeForPeriod = useCallback((range) => {
+    if (!range?.start || !range?.end) return null;
+    const startDate = parsePeriodValueToDate(range.start);
+    const endDate = parsePeriodValueToDate(range.end);
+    if (!startDate || !endDate) return null;
+
+    const dayStart = new Date(startDate);
+    dayStart.setHours(0, 0, 0, 0);
+
+    const dayEnd = new Date(timePeriod === 'day' ? startDate : endDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const startStr = formatDateTimeLocal(dayStart);
+    const endStr = formatDateTimeLocal(dayEnd);
+    if (!startStr || !endStr) return null;
+
+    return { start: startStr, end: endStr };
+  }, [timePeriod]);
+
+  const handleTrendRangeChange = useCallback((range) => {
+    const normalizedRange = buildTopRangeForPeriod(range);
+    if (!normalizedRange) return;
+    setTrendRange(normalizedRange);
+  }, [buildTopRangeForPeriod]);
+
+  const loadTopProductsForRange = async (range) => {
+    const requestId = topProductsRequestIdRef.current + 1;
+    topProductsRequestIdRef.current = requestId;
+    if (!range?.start || !range?.end) {
+      setTopProducts(dashboardData.dashboardStats?.top_products || []);
+      return;
+    }
+    setTopProductsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        period: timePeriod,
+        range_start: range.start,
+        range_end: range.end
+      });
+      const res = await fetch(`${API_BASE}${staffPrefix}/dashboard-stats?${params.toString()}`, { credentials: 'include' });
+      const json = await res.json();
+      if (topProductsRequestIdRef.current !== requestId) return;
+      setTopProducts(json.data?.top_products || []);
     } catch (error) {
-      console.error('Customer data error:', error);
+      console.error('Top products load error:', error);
     } finally {
-      setCustomersLoading(false);
+      if (topProductsRequestIdRef.current === requestId) {
+        setTopProductsLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    // 切换时间段时重置趋势范围
+    setTrendRange(null);
+    setTopProductsLoading(false);
+  }, [timePeriod]);
+
+  useEffect(() => {
+    // 只在有效范围时加载窗口数据
+    if (trendRange?.start && trendRange?.end) {
+      loadTopProductsForRange(trendRange);
+    }
+  }, [trendRange]);
+
+  const trendData = useMemo(() => {
+    if (dashboardStats?.period && dashboardStats.period !== timePeriod) return [];
+    return dashboardStats.chart_data || dashboardStats.current_period?.data || [];
+  }, [dashboardStats, timePeriod]);
 
   if (!user || user.type !== expectedRole) return null;
 
@@ -961,17 +1116,6 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       </div>
     );
   }
-
-  const { dashboardStats, basicStats } = dashboardData;
-  const pageTitle = isAdmin ? `管理仪表盘 - ${SHOP_NAME}` : `代理仪表盘 - ${SHOP_NAME}`;
-
-  // Helper for growth
-  const getChangeType = (value) => {
-    if (!value) return 'same';
-    return value > 0 ? 'up' : value < 0 ? 'down' : 'same';
-  };
-  
-  const formatChange = (val) => val != null ? Math.round(val * 100) / 100 : null;
 
   return (
     <>
@@ -1039,7 +1183,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
             <StatCard
               title="消费用户"
               value={dashboardStats.users?.total || 0}
-              subtitle={`本周新增: ${dashboardStats.users?.new_this_week || 0}`}
+              change={formatChange(dashboardStats.users?.growth)}
+              changeType={getChangeType(dashboardStats.users?.growth)}
+              subtitle={`${periodLabel}用户: ${dashboardStats.users?.current_period_new ?? dashboardStats.users?.new_this_week ?? 0}`}
               icon={Users}
               colorClass={{ bg: 'bg-emerald-500', text: 'text-emerald-500' }}
             />
@@ -1049,17 +1195,22 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10 items-start">
             <div className="lg:col-span-2">
             <SalesTrendChart 
-              data={dashboardStats.chart_data || dashboardStats.current_period?.data || []}
-                title="销售趋势分析"
+              data={trendData}
+                title="销售趋势"
               period={timePeriod}
               settings={dashboardStats.chart_settings}
+              onRangeChange={handleTrendRangeChange}
             />
             </div>
             <div>
               <SimpleBarChart 
-                data={dashboardStats.top_products} 
+                data={topProducts} 
                 title="热销商品排行" 
+                key={`top-${timePeriod}`}
               />
+              {topProductsLoading && (
+                <div className="mt-3 text-xs text-slate-400 text-right pr-1">正在同步当前窗口排行榜...</div>
+              )}
             </div>
           </div>
 

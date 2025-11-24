@@ -4839,7 +4839,9 @@ class OrderDB:
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
-        filter_admin_orders: bool = False
+        filter_admin_orders: bool = False,
+        top_range_start: Optional[str] = None,
+        top_range_end: Optional[str] = None
     ) -> Dict:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
@@ -5173,9 +5175,49 @@ class OrderDB:
             if prev_profit > 0:
                 profit_growth = round(((current_profit - prev_profit) / prev_profit) * 100, 1)
             
-            # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围
+            # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围，支持自定义范围
+            def parse_datetime_str(value: Optional[str]) -> Optional[datetime]:
+                if not value:
+                    return None
+                for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d']:
+                    try:
+                        return datetime.strptime(value, fmt)
+                    except ValueError:
+                        continue
+                try:
+                    return datetime.fromisoformat(value)
+                except Exception:
+                    return None
+
+            custom_top_start = parse_datetime_str(top_range_start)
+            custom_top_end = parse_datetime_str(top_range_end)
+            custom_top_params: List[Any] = []
+            custom_prev_params: List[Any] = []
+
+            if custom_top_start and custom_top_end and custom_top_start > custom_top_end:
+                custom_top_start, custom_top_end = custom_top_end, custom_top_start
+
+            # 允许自定义范围过滤热销榜单
+            top_time_clause = f'({time_filter})'
+            prev_top_time_clause = f'({prev_time_filter})'
+            if custom_top_start and custom_top_end:
+                start_str = custom_top_start.strftime('%Y-%m-%d %H:%M:%S')
+                end_str = custom_top_end.strftime('%Y-%m-%d %H:%M:%S')
+                # 直接使用本地时间字符串进行比较，避免重复 localtime 偏移导致跨日
+                top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
+                custom_top_params = [start_str, end_str]
+
+                range_delta = custom_top_end - custom_top_start
+                prev_end = custom_top_start - timedelta(seconds=1)
+                prev_start = prev_end - range_delta
+                prev_top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
+                custom_prev_params = [
+                    prev_start.strftime('%Y-%m-%d %H:%M:%S'),
+                    prev_end.strftime('%Y-%m-%d %H:%M:%S')
+                ]
+
             # 当前期商品销量统计
-            where_clause_orders, params_orders = build_where(f'({time_filter})', alias='o')
+            where_clause_orders, params_orders = build_where(top_time_clause, custom_top_params, alias='o')
             if where_clause_orders:
                 where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
             else:
@@ -5214,7 +5256,7 @@ class OrderDB:
                     continue
             
             # 上一期商品销量统计
-            prev_where_clause_orders, prev_params_orders = build_where(f'({prev_time_filter})', alias='o')
+            prev_where_clause_orders, prev_params_orders = build_where(prev_top_time_clause, custom_prev_params, alias='o')
             if prev_where_clause_orders:
                 prev_where_clause_orders = prev_where_clause_orders + " AND o.payment_status = 'succeeded'"
             else:
@@ -5282,6 +5324,27 @@ class OrderDB:
                 {recent_where}
             ''', recent_params)
             new_users_week = cursor.fetchone()[0] or 0
+
+            # 计算当前统计周期与对比周期的消费用户变化
+            current_users_where, current_users_params = build_where(f'({time_filter})', alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {current_users_where}
+            ''', current_users_params)
+            current_period_users = cursor.fetchone()[0] or 0
+
+            prev_users_where, prev_users_params = build_where(f'({prev_time_filter})', alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {prev_users_where}
+            ''', prev_users_params)
+            prev_period_users = cursor.fetchone()[0] or 0
+
+            users_growth = 0
+            if prev_period_users > 0:
+                users_growth = round(((current_period_users - prev_period_users) / prev_period_users) * 100, 1)
             
             # 计算总净利润和今日净利润
             total_profit, _ = calculate_profit_for_period("o.payment_status = 'succeeded'")
@@ -5315,7 +5378,10 @@ class OrderDB:
                 'top_products': top_products,
                 'users': {
                     'total': total_users,
-                    'new_this_week': new_users_week
+                    'new_this_week': new_users_week,
+                    'current_period_new': current_period_users,
+                    'prev_period_new': prev_period_users,
+                    'growth': users_growth
                 }
             }
 

@@ -5839,7 +5839,12 @@ async def get_order_statistics(request: Request, agent_id: Optional[str] = None)
         return error_response("获取订单统计失败", 500)
 
 @app.get("/admin/dashboard-stats")
-async def get_dashboard_statistics(request: Request, period: str = 'week'):
+async def get_dashboard_statistics(
+    request: Request, 
+    period: str = 'week',
+    range_start: Optional[str] = None,
+    range_end: Optional[str] = None
+):
     """获取仪表盘详细统计信息（管理员）"""
     staff = get_current_staff_required_from_cookie(request)
 
@@ -5853,7 +5858,9 @@ async def get_dashboard_statistics(request: Request, period: str = 'week'):
             agent_id=scope.get('agent_id'),
             address_ids=scope.get('address_ids'),
             building_ids=scope.get('building_ids'),
-            filter_admin_orders=scope.get('filter_admin_orders', False)
+            filter_admin_orders=scope.get('filter_admin_orders', False),
+            top_range_start=range_start,
+            top_range_end=range_end
         )
         stats["scope"] = scope
         return success_response("获取仪表盘统计成功", stats)
@@ -5864,7 +5871,12 @@ async def get_dashboard_statistics(request: Request, period: str = 'week'):
 
 
 @app.get("/agent/dashboard-stats")
-async def get_agent_dashboard_statistics(request: Request, period: str = 'week'):
+async def get_agent_dashboard_statistics(
+    request: Request, 
+    period: str = 'week',
+    range_start: Optional[str] = None,
+    range_end: Optional[str] = None
+):
     """获取仪表盘详细统计信息（代理）"""
     _agent, scope = require_agent_with_scope(request)
 
@@ -5876,7 +5888,9 @@ async def get_agent_dashboard_statistics(request: Request, period: str = 'week')
             period,
             agent_id=scope.get('agent_id'),
             address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids')
+            building_ids=scope.get('building_ids'),
+            top_range_start=range_start,
+            top_range_end=range_end
         )
         stats["scope"] = scope
         return success_response("获取仪表盘统计成功", stats)
