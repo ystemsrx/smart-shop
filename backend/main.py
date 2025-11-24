@@ -6357,9 +6357,14 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
 
         # 成功付款：扣减库存、更新状态、清空购物车
         if new_status == "succeeded":
-            ok = OrderDB.complete_payment_and_update_stock(order_id)
+            ok, missing_items = OrderDB.complete_payment_and_update_stock(order_id)
             if not ok:
-                return error_response("处理支付成功失败，可能库存不足或状态异常", 400)
+                message = "处理支付成功失败，可能库存不足或状态异常"
+                details = {}
+                if missing_items:
+                    message = f"以下商品库存不足：{'、'.join(missing_items)}"
+                    details["out_of_stock_items"] = missing_items
+                return error_response(message, 400, details)
             order_owner_id = LotteryConfigDB.normalize_owner(order.get('agent_id'))
             try:
                 # 清空该用户购物车

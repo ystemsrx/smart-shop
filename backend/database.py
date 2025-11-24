@@ -4169,7 +4169,7 @@ class OrderDB:
             return cursor.rowcount > 0
     
     @staticmethod
-    def complete_payment_and_update_stock(order_id: str) -> bool:
+    def complete_payment_and_update_stock(order_id: str) -> Tuple[bool, List[str]]:
         """支付成功后，扣减库存并更新订单状态"""
         logger.info(f"开始处理支付成功订单: {order_id}")
         
@@ -4181,7 +4181,7 @@ class OrderDB:
             row = cursor.fetchone()
             if not row:
                 logger.error(f"订单不存在: {order_id}")
-                return False
+                return False, ["订单不存在"]
                 
             order_data = dict(row)
             current_status = order_data['payment_status']
@@ -4189,11 +4189,16 @@ class OrderDB:
             
             if order_data['payment_status'] not in ['pending', 'processing']:
                 logger.warning(f"订单 {order_id} 状态异常，无法处理支付: {current_status}")
-                return False  # 已经处理过了或状态异常
+                return False, ["订单状态异常"]
                 
             items = json.loads(order_data['items'])
-            
-            # 检查库存是否足够并扣减库存
+            missing_items: List[str] = []
+            deductions: List[Tuple[str, str, int]] = []  # (type, id, new_stock)
+
+            def format_item_label(base_name: str, variant_name: str = None) -> str:
+                return f"{base_name or '未知商品'}（{variant_name}）" if variant_name else (base_name or "未知商品")
+
+            # 检查库存是否足够并收集扣减操作
             for item in items:
                 non_sellable_item = False
                 if isinstance(item, dict):
@@ -4221,34 +4226,29 @@ class OrderDB:
                         logger.warning(f"抽奖奖品缺少产品ID，跳过库存扣减: {item}")
                         continue
                     if actual_variant_id:
-                        cursor.execute('SELECT product_id, stock FROM product_variants WHERE id = ?', (actual_variant_id,))
+                        cursor.execute('SELECT product_id, stock, name FROM product_variants WHERE id = ?', (actual_variant_id,))
                         var_row = cursor.fetchone()
                         if not var_row:
                             logger.info(f"抽奖奖品规格不存在，跳过库存扣减: {actual_variant_id} (item: {item.get('name', 'Unknown')})")
                             continue
-                        var_product_id = var_row[0]
-                        current_stock = int(var_row[1])
+                        current_stock = int(var_row['stock'])
                         if current_stock < quantity:
-                            # 抽奖奖品规格库存不足，跳过扣减但不阻止订单支付成功
                             logger.warning(f"抽奖奖品规格库存不足，跳过扣减: {actual_variant_id} (需要: {quantity}, 可用: {current_stock})")
                             continue
                         new_stock = current_stock - quantity
-                        cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
+                        deductions.append(('variant', actual_variant_id, new_stock))
                     else:
                         cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
                         product_row = cursor.fetchone()
                         if not product_row:
-                            # 兼容处理：旧版抽奖奖品可能对应不存在的商品或虚拟商品，跳过库存扣减
                             logger.info(f"抽奖奖品商品不存在，跳过库存扣减: {actual_product_id} (item: {item.get('name', 'Unknown')})")
                             continue
-                        current_stock = int(product_row[0])
+                        current_stock = int(product_row['stock'])
                         if current_stock < quantity:
-                            # 抽奖奖品库存不足，跳过扣减但不阻止订单支付成功
                             logger.warning(f"抽奖奖品库存不足，跳过扣减: {actual_product_id} (需要: {quantity}, 可用: {current_stock})")
                             continue
                         new_stock = current_stock - quantity
-                        cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
-                    # 抽奖赠品已处理库存，无需进入常规分支
+                        deductions.append(('product', actual_product_id, new_stock))
                     continue
 
                 if non_sellable_item:
@@ -4259,47 +4259,59 @@ class OrderDB:
                 quantity = int(item['quantity'])
                 variant_id = item.get('variant_id')
                 if variant_id:
-                    # 扣减规格库存
-                    cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (variant_id,))
+                    cursor.execute('SELECT stock, name, product_id FROM product_variants WHERE id = ?', (variant_id,))
                     var_row = cursor.fetchone()
                     if not var_row:
-                        conn.rollback()
-                        return False
-                    current_stock = int(var_row[0])
+                        label = format_item_label(item.get('name'), item.get('variant_name'))
+                        missing_items.append(f"{label} 库存数据缺失")
+                        continue
+                    current_stock = int(var_row['stock'])
+                    variant_name = item.get('variant_name') or var_row['name']
+                    product_name = item.get('name')
                     if current_stock < quantity:
-                        conn.rollback()
-                        return False
+                        label = format_item_label(product_name, variant_name)
+                        missing_items.append(f"{label} 库存不足(剩余 {current_stock}, 需要 {quantity})")
+                        continue
                     new_stock = current_stock - quantity
-                    cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, variant_id))
+                    deductions.append(('variant', variant_id, new_stock))
                 else:
-                    # 扣减商品库存
-                    cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
+                    cursor.execute('SELECT stock, name FROM products WHERE id = ?', (product_id,))
                     product_row = cursor.fetchone()
                     if not product_row:
-                        # 兼容处理：若为各种类型赠品且无对应商品，跳过扣减
                         if isinstance(item, dict):
-                            # 检查是否为各种类型的赠品
                             is_gift_item = (
-                                item.get('is_lottery') or          # 抽奖赠品
-                                item.get('is_auto_gift') or        # 满额赠品
-                                item.get('category') == '满额赠品' or # 分类为赠品
-                                '赠品' in str(item.get('name', '')) or  # 名称包含赠品
-                                '赠品' in str(item.get('category', ''))  # 分类包含赠品
+                                item.get('is_lottery') or
+                                item.get('is_auto_gift') or
+                                item.get('category') == '满额赠品' or
+                                '赠品' in str(item.get('name', '')) or
+                                '赠品' in str(item.get('category', ''))
                             )
                             if is_gift_item:
                                 logger.info(f"跳过赠品库存扣减: {item.get('name', 'Unknown')} (product_id: {product_id})")
                                 continue
-                        conn.rollback()
                         logger.error(f"商品不存在无法扣减库存: product_id={product_id}, item={item}")
-                        return False
-                    current_stock = int(product_row[0])
+                        missing_items.append(f"{item.get('name') or product_id} 库存数据缺失")
+                        continue
+                    current_stock = int(product_row['stock'])
+                    product_name = item.get('name') or product_row['name'] or product_id
                     if current_stock < quantity:
-                        conn.rollback()
-                        return False  # 库存不足
+                        missing_items.append(f"{product_name} 库存不足(剩余 {current_stock}, 需要 {quantity})")
+                        continue
                     new_stock = current_stock - quantity
-                    cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
+                    deductions.append(('product', product_id, new_stock))
+
+            if missing_items:
+                # 去重保持顺序，避免同一商品重复提示
+                missing_items = list(dict.fromkeys(missing_items))
+                conn.rollback()
+                return False, missing_items
+
+            for target_type, target_id, new_stock in deductions:
+                if target_type == 'variant':
+                    cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, target_id))
+                else:
+                    cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, target_id))
             
-            # 更新支付状态为成功
             cursor.execute('''
                 UPDATE orders 
                 SET payment_status = 'succeeded', updated_at = CURRENT_TIMESTAMP 
@@ -4310,7 +4322,7 @@ class OrderDB:
             conn.commit()
             
             logger.info(f"订单 {order_id} 支付处理完成，库存已扣减，支付状态已更新为 succeeded，影响行数: {updated_rows}")
-            return True
+            return True, []
 
     @staticmethod
     def restore_stock_from_order(order_id: str) -> bool:

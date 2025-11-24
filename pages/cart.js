@@ -5,6 +5,8 @@ import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
@@ -58,7 +60,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
         : (typeof rawStock === 'string' && rawStock.trim() !== ''
           ? parseFloat(rawStock)
           : 0));
-  const isStockLimitReached = normalizedStock !== null && normalizedStock > 0 && item.quantity >= normalizedStock;
+  const isStockLimitReached = normalizedStock !== null && (normalizedStock <= 0 || item.quantity >= normalizedStock);
 
   const handleQuantityChange = (newQuantity) => {
     if (newQuantity < 1) {
@@ -66,7 +68,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
       return;
     }
     // 检查库存限制
-    if (!isNonSellable && normalizedStock !== null && newQuantity > normalizedStock) {
+    if (!isNonSellable && normalizedStock !== null && (normalizedStock <= 0 || newQuantity > normalizedStock)) {
       return;
     }
     onUpdateQuantity(item.product_id, newQuantity, item.variant_id || null);
@@ -218,7 +220,8 @@ const OrderSummary = ({
   locationReady = true,
   lotteryThreshold = 10,
   lotteryEnabled = true,
-  deliveryConfig = { free_delivery_threshold: 10 }
+  deliveryConfig = { free_delivery_threshold: 10 },
+  isProcessingCheckout = false
 }) => {
   const selected = coupons.find(c => c.id === selectedCouponId);
   const discount = (applyCoupon && selected) ? (parseFloat(selected.amount) || 0) : 0;
@@ -240,7 +243,7 @@ const OrderSummary = ({
   const closedReservationOnly = isClosed && allReservationItems && ((cart?.total_quantity || 0) > 0);
   // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
   const closedBlocked = isClosed && !reservationAllowed && !allReservationItems;
-  const checkoutDisabled = cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid;
+  const checkoutDisabled = cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid || isProcessingCheckout;
   const buttonLabel = (() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
@@ -435,9 +438,10 @@ const OrderSummary = ({
       <button
         onClick={onCheckout}
         disabled={checkoutDisabled}
+        aria-busy={isProcessingCheckout}
         className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-4 px-6 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
       >
-        {buttonLabel}
+        {isProcessingCheckout ? '正在检查库存...' : buttonLabel}
       </button>
     </div>
   );
@@ -451,9 +455,11 @@ export default function Cart() {
   const { apiRequest } = useApi();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection, forceReselectAddress } = useLocation();
+  const { toast, showToast, hideToast } = useToast();
 
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [isLoading, setIsLoading] = useState(true);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [error, setError] = useState('');
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
@@ -538,6 +544,32 @@ export default function Cart() {
     () => !shopOpen && !reservationAllowed && !allReservationItems,
     [shopOpen, reservationAllowed, allReservationItems]
   );
+
+  const normalizeStockValue = useCallback((item) => {
+    if (!item || item.is_not_for_sale) {
+      return Number.POSITIVE_INFINITY;
+    }
+    const rawStock = item.stock;
+    if (rawStock === '∞') {
+      return Number.POSITIVE_INFINITY;
+    }
+    const numeric = Number(rawStock);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+    const parsed = typeof rawStock === 'string' ? Number.parseFloat(rawStock) : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
+
+  const findOutOfStockItems = useCallback((items = []) => {
+    return (items || [])
+      .filter((it) => {
+        const stockVal = normalizeStockValue(it);
+        if (!Number.isFinite(stockVal)) return false;
+        return stockVal <= 0 || (stockVal > 0 && Number(it.quantity || 0) > stockVal);
+      })
+      .map((it) => (it.variant_name ? `${it.name}（${it.variant_name}）` : it.name));
+  }, [normalizeStockValue]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
@@ -853,27 +885,47 @@ export default function Cart() {
   };
 
   // 去结算
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
+    if (isCheckingOut) return;
     if (closedBlocked) {
-      // closedBlocked 为 true 意味着：打烊且未开启预约且不是全预约商品
-      alert('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
+      showToast('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
       return;
     }
     if (addressInvalid) {
-      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      showToast(addressAlertMessage || '配送地址不可用，请重新选择');
       openLocationModal();
       return;
     }
     if (!locationReady) {
-      alert('请先选择配送地址以完成结算');
+      showToast('请先选择配送地址以完成结算');
       openLocationModal();
       return;
     }
-    const reservationFlag = shouldReserve ? '1' : '0';
-    if (applyCoupon && selectedCouponId) {
-      router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}&reservation=${reservationFlag}`);
-    } else {
-      router.push(`/checkout?apply=0&reservation=${reservationFlag}`);
+
+    setIsCheckingOut(true);
+    try {
+      const latestCart = await getCart();
+      if (latestCart?.data) {
+        setCart(latestCart.data);
+        setAddressValidation(normalizeValidation(latestCart?.data?.address_validation));
+      }
+      const latestItems = latestCart?.data?.items || cart.items || [];
+      const outOfStockNames = findOutOfStockItems(latestItems);
+      if (outOfStockNames.length > 0) {
+        showToast(`以下商品缺货：${outOfStockNames.join('、')}`);
+        return;
+      }
+
+      const reservationFlag = shouldReserve ? '1' : '0';
+      if (applyCoupon && selectedCouponId) {
+        router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}&reservation=${reservationFlag}`);
+      } else {
+        router.push(`/checkout?apply=0&reservation=${reservationFlag}`);
+      }
+    } catch (err) {
+      showToast(err.message || '检查库存失败，请稍后重试');
+    } finally {
+      setIsCheckingOut(false);
     }
   };
 
@@ -1280,6 +1332,7 @@ export default function Cart() {
                       lotteryThreshold={lotteryThreshold}
                       lotteryEnabled={cart?.lottery_enabled !== false}
                       deliveryConfig={deliveryConfig}
+                      isProcessingCheckout={isCheckingOut}
                     />
                   </div>
                 </div>
@@ -1333,6 +1386,8 @@ export default function Cart() {
           </div>
         </div>
       )}
+
+      <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
@@ -12,6 +12,8 @@ import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
 import ProductDetailModal from '../components/ProductDetailModal';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -544,7 +546,7 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
             {/* 搜索按钮 */}
              <button
                type="submit"
-               className="absolute right-2 top-1/2 transform -translate-y-1/2 px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-all duration-300 transform hover:scale-105 shadow-lg"
+               className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-all duration-300 hover:scale-105 shadow-lg"
              >
               <div className="flex items-center gap-2">
                 <i className="fas fa-search"></i>
@@ -579,6 +581,7 @@ export default function Shop() {
   const [cartLoading, setCartLoading] = useState(false);
   const [error, setError] = useState('');
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
+  const [checkingOut, setCheckingOut] = useState(false);
   const [cartItemsMap, setCartItemsMap] = useState({}); // 商品ID到数量的映射
   const [prevQty, setPrevQty] = useState(0);
   const [shopOpen, setShopOpen] = useState(true);
@@ -593,11 +596,31 @@ export default function Shop() {
   const [applyCoupon, setApplyCoupon] = useState(false); // 是否使用优惠券
   const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
   const couponAutoSelectedRef = useRef(false); // 追踪是否已自动选择过优惠券
+  const { toast, showToast, hideToast } = useToast();
   
   const displayLocation = location
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
     : '请选择配送地址';
   const isSphereView = viewMode === 'sphere';
+  const normalizeStockValue = useCallback((item) => {
+    if (!item || item.is_not_for_sale) return Number.POSITIVE_INFINITY;
+    const rawStock = item.stock;
+    if (rawStock === '∞') return Number.POSITIVE_INFINITY;
+    const numeric = Number(rawStock);
+    if (Number.isFinite(numeric)) return numeric;
+    const parsed = typeof rawStock === 'string' ? Number.parseFloat(rawStock) : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
+
+  const findOutOfStockItems = useCallback((items = []) => {
+    return (items || [])
+      .filter((it) => {
+        const stockVal = normalizeStockValue(it);
+        if (!Number.isFinite(stockVal)) return false;
+        return stockVal <= 0 || (stockVal > 0 && Number(it.quantity || 0) > stockVal);
+      })
+      .map((it) => (it.variant_name ? `${it.name}（${it.variant_name}）` : it.name));
+  }, [normalizeStockValue]);
 
   const sphereItems = useMemo(() => {
     if (!products || products.length === 0) {
@@ -1245,6 +1268,62 @@ export default function Shop() {
     }
   };
 
+  const handleDrawerCheckout = async () => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (checkingOut) return;
+    setCheckingOut(true);
+    try {
+      const resp = await getCart();
+      const data = resp?.data;
+      if (data) {
+        const recalculatedTotalPrice = (data.items || []).reduce((sum, item) => {
+          const isActive = !(item.is_active === 0 || item.is_active === false);
+          const isNonSellable = Boolean(item.is_not_for_sale);
+          return sum + (isActive && !isNonSellable ? parseFloat(item.subtotal || 0) : 0);
+        }, 0);
+        const deliveryFee = data.delivery_fee || 0;
+        const freeThreshold = data.free_delivery_threshold || freeDeliveryThreshold;
+        const isFreeShipping = (deliveryFee === 0 || freeThreshold === 0);
+        const recalculatedShippingFee = isFreeShipping ? 0 : (recalculatedTotalPrice >= freeThreshold ? 0 : deliveryFee);
+        const recalculatedPayableTotal = recalculatedTotalPrice + recalculatedShippingFee;
+        setCart({
+          ...data,
+          total_price: parseFloat(recalculatedTotalPrice.toFixed(2)),
+          shipping_fee: recalculatedShippingFee,
+          payable_total: parseFloat(recalculatedPayableTotal.toFixed(2))
+        });
+        const itemsMap = {};
+        (data.items || []).forEach(item => {
+          const key = item.variant_id ? `${item.product_id}@@${item.variant_id}` : `${item.product_id}`;
+          itemsMap[key] = item.quantity;
+        });
+        setCartItemsMap(itemsMap);
+      }
+      const outOfStockNames = findOutOfStockItems(data?.items || cart.items || []);
+      if (outOfStockNames.length > 0) {
+        showToast(`以下商品缺货：${outOfStockNames.join('、')}`);
+        return;
+      }
+      setIsClosingDrawer(true);
+      setTimeout(() => {
+        setShowCartDrawer(false);
+        setIsClosingDrawer(false);
+        if (applyCoupon && selectedCouponId) {
+          router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
+        } else {
+          router.push('/checkout?apply=0');
+        }
+      }, 200);
+    } catch (err) {
+      showToast(err.message || '检查库存失败，请稍后重试');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
   // 预加载支付成功动画,避免结算时卡顿
   useEffect(() => {
     if (typeof window !== 'undefined' && window.customElements) {
@@ -1628,7 +1707,7 @@ export default function Shop() {
                             : (typeof rawStock === 'string' && rawStock.trim() !== ''
                               ? parseFloat(rawStock)
                               : 0));
-                      const isStockLimitReached = normalizedStock !== null && normalizedStock > 0 && item.quantity >= normalizedStock;
+                      const isStockLimitReached = normalizedStock !== null && (normalizedStock <= 0 || item.quantity >= normalizedStock);
                       
                       return (
                         <div
@@ -1805,23 +1884,13 @@ export default function Shop() {
 
                   {/* 去结算按钮 */}
                   <button
-                    onClick={() => {
-                      setIsClosingDrawer(true);
-                      setTimeout(() => {
-                        setShowCartDrawer(false);
-                        setIsClosingDrawer(false);
-                        // 如果使用了优惠券，将信息传递到结算页面
-                        if (applyCoupon && selectedCouponId) {
-                          router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
-                        } else {
-                          router.push('/checkout?apply=0');
-                        }
-                      }, 200);
-                    }}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-bold text-base shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation"
+                    onClick={handleDrawerCheckout}
+                    disabled={checkingOut}
+                    aria-busy={checkingOut}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-bold text-base shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
                   >
                     <i className="fas fa-credit-card"></i>
-                    <span>去结算</span>
+                    <span>{checkingOut ? '正在检查库存...' : '去结算'}</span>
                   </button>
                 </div>
               )}
@@ -2014,6 +2083,8 @@ export default function Shop() {
         isLoading={cartLoading}
         user={user}
       />
+
+      <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
     </>
   );
 }

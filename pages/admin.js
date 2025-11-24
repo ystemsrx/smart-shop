@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useAuth, useApi, useAdminShop, useAgentStatus } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import RetryImage from '../components/RetryImage';
+import Toast from '../components/Toast';
 import { getProductImage } from '../utils/urls';
 import Nav from '../components/Nav';
 import { getShopName } from '../utils/runtimeConfig';
+import { useToast } from '../hooks/useToast';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -2909,7 +2911,13 @@ const ProductTable = ({
                       </div>
                       <div className="ml-4">
                         <div className="flex items-center gap-2">
-                          <div className={`text-sm font-medium transition-all duration-200 ${isNonSellable ? 'text-purple-600' : (isActive ? 'text-gray-900' : 'text-gray-500')}`} title={product.name}>
+                          <div className={`text-sm font-medium transition-all duration-200 ${
+                            isNonSellable 
+                              ? 'text-purple-600' 
+                              : (!product.has_variants && (product.stock === 0 || product.stock < 0))
+                                ? 'text-red-600'
+                                : (isActive ? 'text-gray-900' : 'text-gray-500')
+                          }`} title={product.name}>
                             {product.name && product.name.length > 10 ? product.name.slice(0, 10) + '...' : product.name}
                             {!isActive && <span className="ml-2 text-xs text-red-500">(已下架)</span>}
                           </div>
@@ -5793,6 +5801,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const allowedTabs = isAdmin
     ? ['products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs']
     : ['products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+  const { toast, showToast, hideToast } = useToast();
   
   const [stats, setStats] = useState({
     total_products: 0,
@@ -7424,29 +7433,32 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
   // 更新订单状态
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    try {
-      await apiRequest(`/admin/orders/${orderId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus })
-      });
-      // 重新加载当前页订单数据
-      await loadOrders(orderPage, orderSearch, orderAgentFilter);
-    } catch (err) {
-      alert(err.message || '更新订单状态失败');
+    const resp = await apiRequest(`/admin/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: newStatus })
+    });
+    if (!resp?.success) {
+      throw new Error(resp?.message || '更新订单状态失败');
     }
+    await loadOrders(orderPage, orderSearch, orderAgentFilter);
+    return resp;
   };
 
   // 更新订单支付状态（管理员）
   const handleUpdatePaymentStatus = async (orderId, newPaymentStatus) => {
-    try {
-      await apiRequest(`/admin/orders/${orderId}/payment-status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ payment_status: newPaymentStatus })
-      });
-      await loadOrders(orderPage, orderSearch, orderAgentFilter);
-    } catch (err) {
-      alert(err.message || '更新支付状态失败');
+    const resp = await apiRequest(`/admin/orders/${orderId}/payment-status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ payment_status: newPaymentStatus })
+    });
+    if (!resp?.success) {
+      const outOfStock = resp?.details?.out_of_stock_items;
+      const detailMessage = outOfStock?.length
+        ? `以下商品缺货：${outOfStock.join('、')}`
+        : null;
+      throw new Error(detailMessage || resp?.message || '更新支付状态失败');
     }
+    await loadOrders(orderPage, orderSearch, orderAgentFilter);
+    return resp;
   };
 
   // 选择订单
@@ -7503,20 +7515,20 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       } else if (newUnified === '配送中') {
         // 需已支付
         if (order.payment_status !== 'succeeded') {
-          alert('请先确认付款后再设为配送中');
+          showToast('请先确认付款后再设为配送中');
           return;
         }
         await handleUpdateOrderStatus(order.id, 'shipped');
       } else if (newUnified === '已完成') {
         // 需已支付
         if (order.payment_status !== 'succeeded') {
-          alert('请先确认付款后再设为已完成');
+          showToast('请先确认付款后再设为已完成');
           return;
         }
         await handleUpdateOrderStatus(order.id, 'delivered');
       }
     } catch (err) {
-      alert(err.message || '更新状态失败');
+      showToast(err.message || '更新状态失败');
     }
   };
 
@@ -8439,7 +8451,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                            <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                               <i className="fas fa-user text-gray-400 text-xs"></i>
                               账号
                               {!editingAgent && <span className="text-red-500">*</span>}
@@ -8457,7 +8469,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                             )}
                           </div>
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                            <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                               <i className="fas fa-lock text-gray-400 text-xs"></i>
                               {editingAgent ? '重设密码（可选）' : '初始密码'}
                               {!editingAgent && <span className="text-red-500">*</span>}
@@ -8485,7 +8497,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                             )}
                           </div>
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                            <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                               <i className="fas fa-id-badge text-gray-400 text-xs"></i>
                               显示名称
                             </label>
@@ -8905,7 +8917,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 </div>
                 <div className="flex items-start gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                       <i className="fas fa-map-marked-alt text-gray-400 text-xs"></i>
                       地址名称
                       <span className="text-red-500">*</span>
@@ -9326,6 +9338,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             onStatsRefresh={refreshStats}
           />
         )}
+
+        <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
       </div>
     </>
   );
