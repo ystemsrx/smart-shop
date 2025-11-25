@@ -182,6 +182,7 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
     variant_name: item.variant_name || null,
     stock: item.stock,
     retail_price: item.retail_price,
+    is_active: item.is_active !== false && item.is_active !== 0,
     available: normalizeBooleanFlag(item.available, false),
     label: item.variant_name ? `${item.product_name || ''} - ${item.variant_name}` : (item.product_name || item.label || ''),
   });
@@ -366,6 +367,11 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                         {alreadySelected && <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-500">已选</span>}
                       </div>
                       <div className="text-xs text-gray-400 mt-1 flex gap-3">
+                        {item.is_active === false && (
+                          <span className="text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+                            <i className="fas fa-pause-circle mr-1"></i>已下架
+                          </span>
+                        )}
                         <span>库存: {item.stock}</span>
                         <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
                       </div>
@@ -416,9 +422,13 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                           <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
                             <i className="fas fa-check-circle"></i> 正常
                           </span>
-                        ) : (
+                        ) : item.is_active === false || item.is_active === 0 ? (
                           <span className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-                            <i className="fas fa-exclamation-circle"></i> 不可用
+                            <i className="fas fa-pause-circle"></i> 已下架
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                            <i className="fas fa-exclamation-circle"></i> 缺货
                           </span>
                         )}
                       </div>

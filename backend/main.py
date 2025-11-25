@@ -4791,8 +4791,9 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
     # 现在所有商品都有owner_id，不再需要include_unassigned
     include_unassigned = False
     try:
+        # 修改：搜索时包含下架商品，以便在选择器中显示下架状态
         if term:
-            products = ProductDB.search_products(term, active_only=True, owner_ids=owner_ids, include_unassigned=include_unassigned)
+            products = ProductDB.search_products(term, active_only=False, owner_ids=owner_ids, include_unassigned=include_unassigned)
         else:
             products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
     except Exception as e:
@@ -4814,12 +4815,15 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
             variant_map = {}
 
     for product in products:
-        try:
-            is_active = int(product.get('is_active', 1) or 1) == 1
-        except Exception:
+        # 修改：正确处理 is_active 字段，不再跳过下架商品
+        raw_is_active = product.get('is_active')
+        if raw_is_active is None:
             is_active = True
-        if not is_active:
-            continue
+        else:
+            try:
+                is_active = int(raw_is_active) == 1
+            except Exception:
+                is_active = True
 
         try:
             base_price = float(product.get('price') or 0)
@@ -4838,8 +4842,8 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
                     stock = int(variant.get('stock') or 0)
                 except Exception:
                     stock = 0
-                # 修改：允许缺货商品也被搜索到，但标记为不可用
-                available = stock > 0
+                # 修改：available 需要同时考虑库存和上架状态
+                available = is_active and stock > 0
                 filtered.append({
                     'product_id': product.get('id'),
                     'product_name': product.get('name'),
@@ -4849,6 +4853,7 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
                     'retail_price': retail_price,
                     'img_path': product.get('img_path'),
                     'category': product.get('category'),
+                    'is_active': is_active,
                     'available': available
                 })
         else:
@@ -4856,8 +4861,8 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
                 stock = int(product.get('stock') or 0)
             except Exception:
                 stock = 0
-            # 修改：允许缺货商品也被搜索到，但标记为不可用
-            available = stock > 0
+            # 修改：available 需要同时考虑库存和上架状态
+            available = is_active and stock > 0
             filtered.append({
                 'product_id': product.get('id'),
                 'product_name': product.get('name'),
@@ -4867,10 +4872,12 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
                 'retail_price': retail_price,
                 'img_path': product.get('img_path'),
                 'category': product.get('category'),
+                'is_active': is_active,
                 'available': available
             })
 
-    filtered.sort(key=lambda x: (x.get('product_name') or '', x.get('variant_name') or ''))
+    # 修改：排序时上架商品优先，然后按名称排序
+    filtered.sort(key=lambda x: (0 if x.get('is_active') else 1, x.get('product_name') or '', x.get('variant_name') or ''))
     return filtered[:100]
 
 

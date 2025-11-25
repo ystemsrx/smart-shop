@@ -145,7 +145,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange }) => {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleToggleActive(threshold)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -324,6 +324,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
         product_name: item.product_name,
         variant_name: item.variant_name,
         stock: item.stock,
+        is_active: item.is_active !== false && item.is_active !== 0,
         available: item.available
       })) || []);
     }
@@ -561,18 +562,42 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
                   {selectedItems.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
-                      {selectedItems.map((item, idx) => (
-                        <span key={idx} className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-gray-900 rounded-lg text-sm font-medium shadow-sm">
-                          <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleItemToggle(item)}
-                            className="w-5 h-5 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors"
+                      {selectedItems.map((item, idx) => {
+                        const isInactive = item.is_active === false || item.is_active === 0;
+                        const isOutOfStock = !item.stock || item.stock <= 0;
+                        const hasIssue = isInactive || isOutOfStock;
+                        
+                        return (
+                          <span 
+                            key={idx} 
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm font-medium shadow-sm ${
+                              hasIssue 
+                                ? 'bg-red-50 border-red-200 text-red-800' 
+                                : 'bg-white border-gray-200 text-gray-900'
+                            }`}
                           >
-                            <i className="fas fa-times text-xs"></i>
-                          </button>
-                        </span>
-                      ))}
+                            {isInactive && (
+                              <span className="text-red-500 text-xs">
+                                <i className="fas fa-pause-circle"></i>
+                              </span>
+                            )}
+                            <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
+                            {isInactive && <span className="text-xs text-red-500">已下架</span>}
+                            {!isInactive && isOutOfStock && <span className="text-xs text-red-500">缺货</span>}
+                            <button
+                              type="button"
+                              onClick={() => handleItemToggle(item)}
+                              className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                                hasIssue 
+                                  ? 'bg-red-100 hover:bg-red-200 text-red-600' 
+                                  : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
+                              }`}
+                            >
+                              <i className="fas fa-times text-xs"></i>
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                   
@@ -623,13 +648,20 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                                   )}
                                 </div>
                               </div>
-                              <span className={`text-xs px-2 py-1 rounded-md ${
-                                item.stock > 0 
-                                  ? 'bg-green-50 text-green-700' 
-                                  : 'bg-red-50 text-red-700'
-                              }`}>
-                                库存 {item.stock}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                {item.is_active === false && (
+                                  <span className="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-600">
+                                    <i className="fas fa-pause-circle mr-1"></i>已下架
+                                  </span>
+                                )}
+                                <span className={`text-xs px-2 py-1 rounded-md ${
+                                  item.stock > 0 
+                                    ? 'bg-green-50 text-green-700' 
+                                    : 'bg-red-50 text-red-700'
+                                }`}>
+                                  库存 {item.stock}
+                                </span>
+                              </div>
                             </div>
                           );
                         })}

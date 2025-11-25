@@ -6915,7 +6915,14 @@ class GiftThresholdDB:
                     else:
                         stock = int(item_dict.get('stock') or 0)
                     
-                    is_active = int(item_dict.get('is_active', 1) or 1) == 1
+                    # 修复：正确处理 is_active 字段，当值为 0 时不应被 or 1 覆盖
+                    raw_is_active = item_dict.get('is_active')
+                    if raw_is_active is None:
+                        is_active = True  # 默认为上架状态
+                    else:
+                        is_active = int(raw_is_active) == 1
+                    
+                    item_dict['is_active'] = is_active
                     item_dict['available'] = is_active and stock > 0
                     item_dict['stock'] = stock
                     items.append(item_dict)
