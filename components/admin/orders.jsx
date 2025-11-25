@@ -427,7 +427,6 @@ export const OrderTable = ({
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
                     <span>订单号: {order.id}</span>
-                    {getStatusBadge(getUnifiedStatus(order))}
                   </div>
                   <div className="text-sm text-gray-500">
                     {order.payment_method === 'wechat' ? '微信支付' : order.payment_method}

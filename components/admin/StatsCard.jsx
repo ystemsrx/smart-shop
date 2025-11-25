@@ -1,27 +1,31 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 
 export const StatsCard = ({ title, value, icon, color = "indigo" }) => {
   const colorClasses = {
-    indigo: "bg-indigo-500",
-    green: "bg-green-500",
-    yellow: "bg-yellow-500",
-    purple: "bg-purple-500"
+    indigo: "bg-indigo-50 text-indigo-600",
+    green: "bg-green-50 text-green-600",
+    yellow: "bg-yellow-50 text-yellow-600",
+    purple: "bg-purple-50 text-purple-600",
+    blue: "bg-blue-50 text-blue-600",
+    red: "bg-red-50 text-red-600",
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center">
-        <div className={`flex-shrink-0 ${colorClasses[color]} rounded-md p-3`}>
-          <div className="text-white text-xl">{icon}</div>
+    <motion.div 
+      whileHover={{ y: -2, shadow: "0 10px 30px -10px rgba(0,0,0,0.1)" }}
+      className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 p-6 transition-all duration-300"
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
+          <h3 className="text-2xl font-bold text-gray-900 tracking-tight">{value}</h3>
         </div>
-        <div className="ml-5 w-0 flex-1">
-          <dl>
-            <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-            <dd className="text-lg font-medium text-gray-900">{value}</dd>
-          </dl>
+        <div className={`flex-shrink-0 ${colorClasses[color] || colorClasses.indigo} rounded-xl p-3`}>
+          <div className="text-xl">{icon}</div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

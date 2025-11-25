@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAdminShop } from '../../hooks/useAuth';
+import { motion } from 'framer-motion';
 
 export const ShopStatusCard = () => {
   const { getStatus, updateStatus } = useAdminShop();
@@ -35,51 +36,57 @@ export const ShopStatusCard = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
-          <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-full">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 bg-gray-100 rounded w-1/4"></div>
+          <div className="h-10 bg-gray-100 rounded w-1/3"></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <div className="flex gap-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 p-6 h-full flex flex-col justify-between"
+    >
+      <div className="flex flex-col sm:flex-row gap-6 h-full">
         {/* 左侧：状态和按钮 */}
-        <div className="flex-shrink-0">
-          <div className="text-sm text-gray-600 mb-2">店铺状态</div>
-          <div className={`text-lg font-semibold mb-3 ${isOpen ? 'text-green-700' : 'text-red-700'}`}>
-            {isOpen ? '营业中' : '打烊中'}
+        <div className="flex-shrink-0 flex flex-col justify-between min-w-[140px]">
+          <div>
+            <div className="text-sm font-medium text-gray-500 mb-1">店铺状态</div>
+            <div className={`text-2xl font-bold tracking-tight mb-4 ${isOpen ? 'text-green-600' : 'text-red-600'}`}>
+              {isOpen ? '营业中' : '打烊中'}
+            </div>
           </div>
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={toggle}
-            className={`px-4 py-2 rounded-md text-white font-semibold ${
+            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
               isOpen 
-                ? 'bg-red-600 hover:bg-red-700' 
-                : 'bg-green-600 hover:bg-green-700'
+                ? 'bg-red-500 hover:bg-red-600 shadow-red-200' 
+                : 'bg-green-500 hover:bg-green-600 shadow-green-200'
             }`}
           >
             {isOpen ? '设为打烊' : '设为营业'}
-          </button>
+          </motion.button>
         </div>
         
         {/* 右侧：打烊提示语输入框 */}
-        <div className="flex-1">
-          <div className="text-sm text-gray-600 mb-2">打烊提示语</div>
+        <div className="flex-1 flex flex-col">
+          <div className="text-sm font-medium text-gray-500 mb-2">打烊提示语</div>
           <textarea
             placeholder="可输入打烊时显示给顾客的提示信息..."
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onBlur={saveNote}
-            rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            style={{ height: '82px' }}
+            className="w-full flex-1 min-h-[80px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all resize-none"
           />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

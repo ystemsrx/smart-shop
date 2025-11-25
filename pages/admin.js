@@ -25,7 +25,11 @@ import { useOrderManagement } from '../components/admin/hooks/useOrderManagement
 import { useAddressManagement } from '../components/admin/hooks/useAddressManagement';
 import { useAgentManagement } from '../components/admin/hooks/useAgentManagement';
 import { useProductManagement } from '../components/admin/hooks/useProductManagement';
-
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Package, Tags, BarChart3, ClipboardList, Banknote, Users, 
+  AlertCircle, Gift, Ticket, QrCode, MapPin, UserCog, Settings
+} from 'lucide-react';
 
 function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'products' }) {
   const router = useRouter();
@@ -36,9 +40,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const isAgent = expectedRole === 'agent';
   const staffPrefix = isAgent ? '/agent' : '/admin';
   const shopName = getShopName();
+  
   const allowedTabs = isAdmin
     ? ['products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs']
     : ['products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+    
   const { toast, showToast, hideToast } = useToast();
   const [activeTab, setActiveTab] = useState(
     allowedTabs.includes(initialTab) ? initialTab : allowedTabs[0]
@@ -189,7 +195,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setAddresses,
   });
 
-  // 检查管理员权限
   useEffect(() => {
     if (!isInitialized) return;
     if (!user) {
@@ -206,6 +211,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       router.replace(fallback);
     }
   }, [isInitialized, user, expectedRole, router]);
+
   useEffect(() => {
     setOnAgentFilterChange((nextFilter) => loadData(nextFilter, false, false));
   }, [setOnAgentFilterChange, loadData]);
@@ -217,13 +223,40 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       loadAddresses();
       loadAgents();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, expectedRole, isAdmin]);
 
-  // 非授权账号不渲染
   if (!user || user.type !== expectedRole) {
     return null;
   }
+
+  const tabItems = [
+    { id: 'products', label: '商品管理', icon: <Package size={18} /> },
+    { 
+      id: 'orders', 
+      label: '订单管理', 
+      icon: <ClipboardList size={18} />,
+      badge: orderStats.status_counts?.pending > 0 ? orderStats.status_counts.pending : null,
+      badgeColor: 'bg-red-500'
+    },
+    ...(isAdmin ? [
+      { id: 'addresses', label: '地址管理', icon: <MapPin size={18} /> },
+      { id: 'agents', label: '代理管理', icon: <UserCog size={18} /> }
+    ] : []),
+    ...(allowedTabs.includes('lottery') ? [{ 
+      id: 'lottery', 
+      label: '抽奖配置', 
+      icon: <Gift size={18} />,
+      warning: lotteryHasStockWarning
+    }] : []),
+    ...(allowedTabs.includes('autoGifts') ? [{ 
+      id: 'autoGifts', 
+      label: '满额门槛', 
+      icon: <Settings size={18} />,
+      warning: giftThresholdHasStockWarning
+    }] : []),
+    ...(allowedTabs.includes('coupons') ? [{ id: 'coupons', label: '优惠券', icon: <Ticket size={18} /> }] : []),
+    ...(allowedTabs.includes('paymentQrs') ? [{ id: 'paymentQrs', label: '收款码', icon: <QrCode size={18} /> }] : []),
+  ];
 
   return (
     <>
@@ -232,379 +265,263 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen bg-gray-50">
-        {/* 统一导航栏 */}
+      <div className="min-h-screen bg-[#F5F7FA]">
         <Nav active={navActive} />
         
-        {/* 主要内容 */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">{isAdmin ? '管理后台' : '代理后台'}</h1>
-            <p className="text-gray-600 mt-1">{isAdmin ? '管理商品、订单与系统配置。' : '管理您负责区域的商品与订单。'}</p>
-          </div>
+        <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-28">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-10"
+          >
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">{isAdmin ? '管理后台' : '代理后台'}</h1>
+            <p className="text-gray-500 mt-2 text-lg">{isAdmin ? '全权掌控您的商品、订单与系统配置。' : '高效管理您负责区域的业务。'}</p>
+          </motion.div>
 
-          {/* 状态开关 */}
           {isAdmin && (
-            <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ShopStatusCard />
               <RegistrationSettingsCard />
             </div>
           )}
           {isAgent && <AgentStatusCard />}
 
-
-
-          {/* 错误提示 */}
           {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mb-8 bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl flex items-center gap-2"
+            >
+              <AlertCircle size={20} />
               {error}
-            </div>
+            </motion.div>
           )}
 
-          {/* 统计卡片 */}
           {!isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
-              <StatsCard
-                title="商品总数"
-                value={stats.total_products}
-                icon="📦"
-                color="indigo"
-              />
-              <StatsCard
-                title="商品分类"
-                value={stats.categories}
-                icon="🏷️"
-                color="green"
-              />
-              <StatsCard
-                title="总库存"
-                value={stats.total_stock}
-                icon="📊"
-                color="yellow"
-              />
-              <StatsCard
-                title="订单总数"
-                value={orderStats.total_orders}
-                icon="📋"
-                color="purple"
-              />
-              <StatsCard
-                title="总销售额"
-                value={`¥${orderStats.total_revenue}`}
-                icon="💰"
-                color="indigo"
-              />
-              <StatsCard
-                title="注册人数"
-                value={stats.users_count}
-                icon="🧑‍💻"
-                color="green"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6 mb-10">
+              <StatsCard title="商品总数" value={stats.total_products} icon={<Package />} color="indigo" />
+              <StatsCard title="商品分类" value={stats.categories} icon={<Tags />} color="green" />
+              <StatsCard title="总库存" value={stats.total_stock} icon={<BarChart3 />} color="yellow" />
+              <StatsCard title="订单总数" value={orderStats.total_orders} icon={<ClipboardList />} color="purple" />
+              <StatsCard title="总销售额" value={`¥${orderStats.total_revenue}`} icon={<Banknote />} color="blue" />
+              <StatsCard title="注册人数" value={stats.users_count} icon={<Users />} color="red" />
             </div>
           )}
 
-          {/* 选项卡导航 */}
-          <div className="mb-8">
-            <div className="border-b border-gray-200">
-              <nav className="-mb-px flex space-x-8">
+          {/* Modern Tabs */}
+          <div className="mb-8 overflow-x-auto pb-2 scrollbar-hide">
+            <div className="flex space-x-2 min-w-max bg-white/50 p-1.5 rounded-2xl backdrop-blur-sm border border-gray-200/50">
+              {tabItems.map((tab) => (
                 <button
-                  onClick={() => {
-                    setActiveTab('products');
-                    loadData(orderAgentFilter, false, false);
-                  }}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'products'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  商品管理
-                </button>
-                <button
+                  key={tab.id}
                   onClick={async () => {
-                    setActiveTab('orders');
-                    await Promise.all([
-                      loadOrders(0, orderSearch, orderAgentFilter),
-                      loadData(orderAgentFilter, false, false)
-                    ]);
+                    setActiveTab(tab.id);
+                    if (tab.id === 'addresses') loadAddresses();
+                    if (tab.id === 'agents') loadAgents();
                   }}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'orders'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  className={`relative px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 outline-none ${
+                    activeTab === tab.id ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  订单管理
-                  {orderStats.status_counts?.pending > 0 && (
-                    <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                      {orderStats.status_counts.pending}
-                    </span>
+                  {activeTab === tab.id && (
+                    <motion.div
+                      layoutId="activeTab"
+                      className="absolute inset-0 bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] rounded-xl border border-gray-100"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
                   )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    {tab.icon}
+                    {tab.label}
+                    {tab.badge && (
+                      <span className={`ml-1 min-w-[18px] h-[18px] flex items-center justify-center px-1.5 rounded-full text-[10px] font-semibold text-white ${tab.badgeColor}`}>
+                        {tab.badge}
+                      </span>
+                    )}
+                    {tab.warning && (
+                      <span className="ml-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    )}
+                  </span>
                 </button>
-                {isAdmin && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setActiveTab('addresses');
-                        loadAddresses();
-                      }}
-                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                        activeTab === 'addresses'
-                          ? 'border-indigo-500 text-indigo-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      地址管理
-                    </button>
-                    <button
-                      onClick={() => {
-                        setActiveTab('agents');
-                        loadAgents();
-                      }}
-                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                        activeTab === 'agents'
-                          ? 'border-indigo-500 text-indigo-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      代理管理
-                    </button>
-                  </>
-                )}
-                {allowedTabs.includes('lottery') && (
-                  <button
-                    onClick={() => setActiveTab('lottery')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === 'lottery'
-                        ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    抽奖配置
-                    {lotteryHasStockWarning && (
-                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                        <i className="fas fa-exclamation text-red-600"></i>
-                      </span>
-                    )}
-                  </button>
-                )}
-                {allowedTabs.includes('autoGifts') && (
-                  <button
-                    onClick={() => setActiveTab('autoGifts')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === 'autoGifts'
-                        ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    满额门槛
-                    {giftThresholdHasStockWarning && (
-                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                        <i className="fas fa-exclamation text-red-600"></i>
-                      </span>
-                    )}
-                  </button>
-                )}
-                {allowedTabs.includes('coupons') && (
-                  <button
-                    onClick={() => setActiveTab('coupons')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === 'coupons'
-                        ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    优惠券管理
-                  </button>
-                )}
-                {allowedTabs.includes('paymentQrs') && (
-                  <button
-                    onClick={() => setActiveTab('paymentQrs')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === 'paymentQrs'
-                        ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    收款码管理
-                  </button>
-                )}
-              </nav>
+              ))}
             </div>
           </div>
 
-          {/* 商品管理 */}
-          {activeTab === 'products' && (
-            <ProductsPanel
-              isAdmin={isAdmin}
-              showInactiveInShop={showInactiveInShop}
-              updateShopInactiveSetting={updateShopInactiveSetting}
-              isLoadingShopSetting={isLoadingShopSetting}
-              onAddClick={() => setShowAddModal(true)}
-              categories={categories}
-              productCategoryFilter={productCategoryFilter}
-              onProductCategoryFilterChange={setProductCategoryFilter}
-              isLoading={isLoading}
-              visibleProducts={visibleProducts}
-              onRefreshProducts={() => loadData(orderAgentFilter, true, true)}
-              onEditProduct={(product) => {
-                setEditingProduct(product);
-                setShowEditModal(true);
-              }}
-              onDeleteProduct={handleDeleteProduct}
-              onUpdateStock={handleUpdateStock}
-              onBatchDelete={handleBatchDelete}
-              onBatchUpdateDiscount={handleBatchUpdateDiscount}
-              onBatchToggleActive={handleBatchToggleActive}
-              selectedProducts={selectedProducts}
-              onSelectProduct={handleSelectProduct}
-              onSelectAllProducts={handleSelectAllProducts}
-              onUpdateDiscount={handleUpdateDiscount}
-              onToggleActive={handleToggleActive}
-              onOpenVariantStock={(p) => setVariantStockProduct(p)}
-              onToggleHot={handleToggleHot}
-              showOnlyOutOfStock={showOnlyOutOfStock}
-              showOnlyInactive={showOnlyInactive}
-              onToggleOutOfStockFilter={setShowOnlyOutOfStock}
-              onToggleInactiveFilter={setShowOnlyInactive}
-              operatingProducts={operatingProducts}
-              sortBy={sortBy}
-              sortOrder={sortOrder}
-              onSortClick={handleSortClick}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+            >
+              {activeTab === 'products' && (
+                <ProductsPanel
+                  isAdmin={isAdmin}
+                  showInactiveInShop={showInactiveInShop}
+                  updateShopInactiveSetting={updateShopInactiveSetting}
+                  isLoadingShopSetting={isLoadingShopSetting}
+                  onAddClick={() => setShowAddModal(true)}
+                  categories={categories}
+                  productCategoryFilter={productCategoryFilter}
+                  onProductCategoryFilterChange={setProductCategoryFilter}
+                  isLoading={isLoading}
+                  visibleProducts={visibleProducts}
+                  onRefreshProducts={() => loadData(orderAgentFilter, true, true)}
+                  onEditProduct={(product) => {
+                    setEditingProduct(product);
+                    setShowEditModal(true);
+                  }}
+                  onDeleteProduct={handleDeleteProduct}
+                  onUpdateStock={handleUpdateStock}
+                  onBatchDelete={handleBatchDelete}
+                  onBatchUpdateDiscount={handleBatchUpdateDiscount}
+                  onBatchToggleActive={handleBatchToggleActive}
+                  selectedProducts={selectedProducts}
+                  onSelectProduct={handleSelectProduct}
+                  onSelectAllProducts={handleSelectAllProducts}
+                  onUpdateDiscount={handleUpdateDiscount}
+                  onToggleActive={handleToggleActive}
+                  onOpenVariantStock={(p) => setVariantStockProduct(p)}
+                  onToggleHot={handleToggleHot}
+                  showOnlyOutOfStock={showOnlyOutOfStock}
+                  showOnlyInactive={showOnlyInactive}
+                  onToggleOutOfStockFilter={setShowOnlyOutOfStock}
+                  onToggleInactiveFilter={setShowOnlyInactive}
+                  operatingProducts={operatingProducts}
+                  sortBy={sortBy}
+                  sortOrder={sortOrder}
+                  onSortClick={handleSortClick}
+                />
+              )}
 
-          {/* 订单管理 */}
-          {activeTab === 'orders' && (
-            <OrdersPanel
-              isAdmin={isAdmin}
-              orderAgentFilter={orderAgentFilter}
-              orderAgentOptions={orderAgentOptions}
-              orderAgentFilterLabel={orderAgentFilterLabel}
-              orderLoading={orderLoading}
-              orders={orders}
-              orderStatusFilter={orderStatusFilter}
-              onOrderStatusFilterChange={setOrderStatusFilter}
-              orderExporting={orderExporting}
-              onExportOrders={handleExportOrders}
-              orderStats={orderStats}
-              onOrderAgentFilterChange={handleOrderAgentFilterChange}
-              selectedOrders={selectedOrders}
-              onSelectOrder={handleSelectOrder}
-              onSelectAllOrders={handleSelectAllOrders}
-              onBatchDeleteOrders={handleBatchDeleteOrders}
-              onRefreshOrders={() => handleOrderRefresh()}
-              orderSearch={orderSearch}
-              onOrderSearchChange={setOrderSearch}
-              orderPage={orderPage}
-              orderHasMore={orderHasMore}
-              onPrevPage={handlePrevPage}
-              onNextPage={handleNextPage}
-              agentNameMap={orderAgentNameMap}
-              isSubmitting={isSubmitting}
-              currentUserLabel={user?.name || user?.id || '当前账号'}
-              onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
-            />
-          )}
+              {activeTab === 'orders' && (
+                <OrdersPanel
+                  isAdmin={isAdmin}
+                  orderAgentFilter={orderAgentFilter}
+                  orderAgentOptions={orderAgentOptions}
+                  orderAgentFilterLabel={orderAgentFilterLabel}
+                  orderLoading={orderLoading}
+                  orders={orders}
+                  orderStatusFilter={orderStatusFilter}
+                  onOrderStatusFilterChange={setOrderStatusFilter}
+                  orderExporting={orderExporting}
+                  onExportOrders={handleExportOrders}
+                  orderStats={orderStats}
+                  onOrderAgentFilterChange={handleOrderAgentFilterChange}
+                  selectedOrders={selectedOrders}
+                  onSelectOrder={handleSelectOrder}
+                  onSelectAllOrders={handleSelectAllOrders}
+                  onBatchDeleteOrders={handleBatchDeleteOrders}
+                  onRefreshOrders={() => handleOrderRefresh()}
+                  orderSearch={orderSearch}
+                  onOrderSearchChange={setOrderSearch}
+                  orderPage={orderPage}
+                  orderHasMore={orderHasMore}
+                  onPrevPage={handlePrevPage}
+                  onNextPage={handleNextPage}
+                  agentNameMap={orderAgentNameMap}
+                  isSubmitting={isSubmitting}
+                  currentUserLabel={user?.name || user?.id || '当前账号'}
+                  onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
+                />
+              )}
 
-          {activeTab === 'agents' && (
-            <AgentManagement
-              agents={agents}
-              deletedAgents={deletedAgents}
-              agentError={agentError}
-              agentLoading={agentLoading}
-              agentModalOpen={agentModalOpen}
-              showDeletedAgentsModal={showDeletedAgentsModal}
-              editingAgent={editingAgent}
-              agentForm={agentForm}
-              agentSaving={agentSaving}
-              addresses={addresses}
-              buildingsByAddress={buildingsByAddress}
-              buildingLabelMap={buildingLabelMap}
-              loadAgents={loadAgents}
-              openAgentModal={openAgentModal}
-              closeAgentModal={closeAgentModal}
-              toggleAgentBuilding={toggleAgentBuilding}
-              setAgentForm={setAgentForm}
-              handleAgentSave={handleAgentSave}
-              handleAgentStatusToggle={handleAgentStatusToggle}
-              handleAgentDelete={handleAgentDelete}
-              setShowDeletedAgentsModal={setShowDeletedAgentsModal}
-            />
-          )}
+              {activeTab === 'agents' && (
+                <AgentManagement
+                  agents={agents}
+                  deletedAgents={deletedAgents}
+                  agentError={agentError}
+                  agentLoading={agentLoading}
+                  agentModalOpen={agentModalOpen}
+                  showDeletedAgentsModal={showDeletedAgentsModal}
+                  editingAgent={editingAgent}
+                  agentForm={agentForm}
+                  agentSaving={agentSaving}
+                  addresses={addresses}
+                  buildingsByAddress={buildingsByAddress}
+                  buildingLabelMap={buildingLabelMap}
+                  loadAgents={loadAgents}
+                  openAgentModal={openAgentModal}
+                  closeAgentModal={closeAgentModal}
+                  toggleAgentBuilding={toggleAgentBuilding}
+                  setAgentForm={setAgentForm}
+                  handleAgentSave={handleAgentSave}
+                  handleAgentStatusToggle={handleAgentStatusToggle}
+                  handleAgentDelete={handleAgentDelete}
+                  setShowDeletedAgentsModal={setShowDeletedAgentsModal}
+                />
+              )}
 
-          {/* 优惠券管理 */}
-          {activeTab === 'coupons' && (
-            <CouponsPanel apiPrefix={staffPrefix} />
-          )}
+              {activeTab === 'coupons' && <CouponsPanel apiPrefix={staffPrefix} />}
 
-          {/* 收款码管理 */}
-          {activeTab === 'paymentQrs' && (
-            <PaymentQrPanel staffPrefix={staffPrefix} />
-          )}
+              {activeTab === 'paymentQrs' && <PaymentQrPanel staffPrefix={staffPrefix} />}
 
-          {/* 地址管理 */}
-          {activeTab === 'addresses' && (
-            <AddressManagement
-              addresses={addresses}
-              agents={agents}
-              buildingsByAddress={buildingsByAddress}
-              addrLoading={addrLoading}
-              addrSubmitting={addrSubmitting}
-              newAddrName={newAddrName}
-              setNewAddrName={setNewAddrName}
-              newBldNameMap={newBldNameMap}
-              setNewBldNameMap={setNewBldNameMap}
-              bldDragState={bldDragState}
-              setBldDragState={setBldDragState}
-              loadAddresses={loadAddresses}
-              handleAddAddress={handleAddAddress}
-              handleUpdateAddress={handleUpdateAddress}
-              handleDeleteAddress={handleDeleteAddress}
-              handleAddBuilding={handleAddBuilding}
-              onAddressDragStart={onAddressDragStart}
-              onAddressDragOver={onAddressDragOver}
-              onAddressDragEnd={onAddressDragEnd}
-              setBuildingsByAddress={setBuildingsByAddress}
-              apiRequest={apiRequest}
-            />
-          )}
+              {activeTab === 'addresses' && (
+                <AddressManagement
+                  addresses={addresses}
+                  agents={agents}
+                  buildingsByAddress={buildingsByAddress}
+                  addrLoading={addrLoading}
+                  addrSubmitting={addrSubmitting}
+                  newAddrName={newAddrName}
+                  setNewAddrName={setNewAddrName}
+                  newBldNameMap={newBldNameMap}
+                  setNewBldNameMap={setNewBldNameMap}
+                  bldDragState={bldDragState}
+                  setBldDragState={setBldDragState}
+                  loadAddresses={loadAddresses}
+                  handleAddAddress={handleAddAddress}
+                  handleUpdateAddress={handleUpdateAddress}
+                  handleDeleteAddress={handleDeleteAddress}
+                  handleAddBuilding={handleAddBuilding}
+                  onAddressDragStart={onAddressDragStart}
+                  onAddressDragOver={onAddressDragOver}
+                  onAddressDragEnd={onAddressDragEnd}
+                  setBuildingsByAddress={setBuildingsByAddress}
+                  apiRequest={apiRequest}
+                />
+              )}
 
-          {/* 抽奖配置 */}
-          {activeTab === 'lottery' && (
-            <>
-              <div className="mb-6">
-                <h2 className="text-lg font-medium text-gray-900">抽奖配置</h2>
-                <p className="text-sm text-gray-600 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
-              </div>
-              <LotteryConfigPanel 
-                apiPrefix={staffPrefix} 
-                onWarningChange={setLotteryHasStockWarning}
-              />
-            </>
-          )}
+              {activeTab === 'lottery' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">抽奖配置</h2>
+                    <p className="text-sm text-gray-500 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
+                  </div>
+                  <LotteryConfigPanel 
+                    apiPrefix={staffPrefix} 
+                    onWarningChange={setLotteryHasStockWarning}
+                  />
+                </div>
+              )}
 
-          {activeTab === 'autoGifts' && (
-            <>
-              <div className="mb-6">
-                <h2 className="text-lg font-medium text-gray-900">配送费设置</h2>
-                <p className="text-sm text-gray-600 mt-1">设置基础配送费和免配送费门槛。</p>                                                      
-              </div>
-              <DeliverySettingsPanel apiPrefix={staffPrefix} />
-              
-              <div className="mb-6 mt-8">
-                <h2 className="text-lg font-medium text-gray-900">满额门槛</h2>
-                <p className="text-sm text-gray-600 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>                                                      
-              </div>
-              <GiftThresholdPanel 
-                apiPrefix={staffPrefix} 
-                onWarningChange={setGiftThresholdHasStockWarning}
-              />
-            </>
-          )}
+              {activeTab === 'autoGifts' && (
+                <div className="space-y-10">
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">配送费设置</h2>
+                      <p className="text-sm text-gray-500 mt-1">设置基础配送费和免配送费门槛。</p>                                                      
+                    </div>
+                    <DeliverySettingsPanel apiPrefix={staffPrefix} />
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">满额门槛</h2>
+                      <p className="text-sm text-gray-500 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>                                                      
+                    </div>
+                    <GiftThresholdPanel 
+                      apiPrefix={staffPrefix} 
+                      onWarningChange={setGiftThresholdHasStockWarning}
+                    />
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </main>
 
-        {/* 商品表单弹窗（添加或编辑） */}
         <Modal
           isOpen={showAddModal}
           onClose={() => setShowAddModal(false)}
@@ -624,7 +541,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         <Modal
           isOpen={showEditModal}
           onClose={() => {
-            // 点击关闭不应用变更，直接关闭
             setShowEditModal(false);
             setEditingProduct(null);
           }}
@@ -637,7 +553,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               onSubmit={handleEditProduct}
               isLoading={isSubmitting}
               onCancel={() => {
-                // 点击取消不应用变更，直接关闭
                 setShowEditModal(false);
                 setEditingProduct(null);
               }}
