@@ -525,6 +525,20 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
 
   const totalWeightRaw = prizes.reduce((acc, p) => {
     if (!p.is_active) return acc;
+    
+    // 检查该奖项是否有可用的商品
+    const itemList = p.items || [];
+    if (itemList.length === 0) {
+      // 没有任何商品的奖项不计入中奖率
+      return acc;
+    }
+    
+    const availableItems = itemList.filter(it => it.available);
+    if (availableItems.length === 0) {
+      // 没有可用商品的奖项不计入中奖率
+      return acc;
+    }
+    
     return acc + (Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0);
   }, 0);
   const isFraction = totalWeightRaw <= 1.000001;
