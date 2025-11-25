@@ -118,6 +118,45 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
 
   const maxValue = Math.max(...data.map(d => d.sold || d.value || 0));
   
+  // 渲染销量变化指示器（徽章样式）
+  const renderChangeIndicator = (change) => {
+    if (change === undefined || change === null) return null;
+    
+    const absChange = Math.abs(change);
+    
+    if (change > 0) {
+      return (
+        <div 
+          className="inline-flex items-center justify-center gap-0.5 min-w-[42px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200" 
+          title={`比上期增加 ${absChange}`}
+        >
+          <ArrowUp size={10} strokeWidth={3} />
+          <span className="text-xs font-semibold">{absChange}</span>
+        </div>
+      );
+    } else if (change < 0) {
+      return (
+        <div 
+          className="inline-flex items-center justify-center gap-0.5 min-w-[42px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 border border-red-200" 
+          title={`比上期减少 ${absChange}`}
+        >
+          <ArrowDown size={10} strokeWidth={3} />
+          <span className="text-xs font-semibold">{absChange}</span>
+        </div>
+      );
+    } else {
+      return (
+        <div 
+          className="inline-flex items-center justify-center gap-0.5 min-w-[42px] px-1.5 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-200" 
+          title="与上期持平"
+        >
+          <Minus size={10} strokeWidth={3} />
+          <span className="text-xs font-semibold">0</span>
+        </div>
+      );
+    }
+  };
+  
   // SimpleBarChart 用于显示热销商品，不需要日期处理
   
   return (
@@ -136,6 +175,7 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
           {data.map((item, index) => {
             const value = item.sold || item.value || 0;
             const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
+            const change = item.change;
             
             return (
               <div key={index} className="group">
@@ -153,9 +193,12 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
                       {item.name}
                     </div>
                   </div>
-                <div className="text-sm font-bold text-slate-800 shrink-0 pl-2">
+                <div className="flex items-center gap-2 shrink-0 pl-2">
+                  {renderChangeIndicator(change)}
+                  <div className="text-sm font-bold text-slate-800">
                       {type === 'quantity' ? value : `¥${formatNumber(value)}`}
                   </div>
+                </div>
                 </div>
                 
               <div className="h-2 bg-slate-50 rounded-full overflow-hidden">
