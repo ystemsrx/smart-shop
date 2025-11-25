@@ -22,34 +22,33 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
   
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
-      isVisible ? 'bg-black/50 backdrop-blur-sm' : 'bg-black/0'
+      isVisible ? 'bg-black/40 backdrop-blur-md' : 'bg-black/0'
     }`}>
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all duration-300 ${
+      <div className={`relative bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all duration-300 ring-1 ring-black/5 ${
         isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
       }`}>
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-purple-50">
+        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
           <div>
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <i className="fas fa-gift text-indigo-600"></i>
               {prize.display_name}
             </h3>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm text-gray-500 mt-1">
               共 {itemList.length} 件商品 · 权重 {Number.isFinite(prize.weight) ? prize.weight : 0}%
             </p>
           </div>
           <button 
             onClick={onClose} 
-            className="w-10 h-10 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600 shadow-sm transition-all hover:scale-110"
+            className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200"
           >
             <i className="fas fa-times"></i>
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-8 bg-white">
           {itemList.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 py-12">
-              <i className="fas fa-box-open text-6xl mb-4 opacity-30"></i>
+              <i className="fas fa-box-open text-6xl mb-4 opacity-20"></i>
               <p className="text-lg">未关联任何商品</p>
             </div>
           ) : (
@@ -78,46 +77,43 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
                 return (
                   <div 
                     key={`${item.product_id}_${item.variant_id || 'base'}_${index}`} 
-                    className={`rounded-xl border-2 p-4 transition-all hover:shadow-lg ${
+                    className={`rounded-2xl border p-5 transition-all duration-200 hover:shadow-md ${
                       available 
-                        ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white hover:border-emerald-300' 
-                        : 'border-red-200 bg-gradient-to-br from-red-50/50 to-white hover:border-red-300'
+                        ? 'border-gray-200 bg-white hover:border-emerald-200' 
+                        : 'border-gray-200 bg-gray-50 opacity-80'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-start justify-between gap-2 mb-4">
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-gray-900 text-sm truncate" title={label}>
+                        <h4 className="font-bold text-gray-900 text-sm truncate" title={label}>
                           {label}
                         </h4>
                         {item.variant_name && (
-                          <p className="text-xs text-gray-600 mt-0.5 truncate" title={item.variant_name}>
+                          <p className="text-xs text-gray-500 mt-0.5 truncate" title={item.variant_name}>
                             规格：{item.variant_name}
                           </p>
                         )}
                       </div>
-                      {available ? (
-                        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                          <i className={`fas ${statusIcon}`}></i>
-                          {statusText}
-                        </span>
-                      ) : (
-                        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                          <i className={`fas ${statusIcon}`}></i>
-                          {statusText}
-                        </span>
-                      )}
+                      <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        available 
+                          ? 'bg-emerald-50 text-emerald-700' 
+                          : 'bg-red-50 text-red-700'
+                      }`}>
+                        <i className={`fas ${statusIcon} text-[10px]`}></i>
+                        {statusText}
+                      </span>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white/60 rounded-lg px-3 py-2">
+                      <div className="bg-gray-50 rounded-xl px-3 py-2.5">
                         <div className="text-xs text-gray-500 mb-1">库存</div>
-                        <div className={`font-bold ${available ? 'text-gray-900' : 'text-red-600'}`}>
+                        <div className={`font-bold text-sm ${available ? 'text-gray-900' : 'text-red-600'}`}>
                           {Number.isNaN(stock) ? '未知' : stock}
                         </div>
                       </div>
-                      <div className="bg-white/60 rounded-lg px-3 py-2">
+                      <div className="bg-gray-50 rounded-xl px-3 py-2.5">
                         <div className="text-xs text-gray-500 mb-1">参考价值</div>
-                        <div className="font-bold text-indigo-600">
+                        <div className="font-bold text-sm text-gray-900">
                           ¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}
                         </div>
                       </div>
@@ -129,23 +125,23 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
           )}
         </div>
         
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+        <div className="px-8 py-5 bg-gray-50 border-t border-gray-100">
           <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-4">
-              <span className="text-gray-600">
-                <i className="fas fa-box text-indigo-600 mr-2"></i>
-                总商品数：<span className="font-semibold text-gray-900">{itemList.length}</span>
+            <div className="flex items-center gap-6">
+              <span className="text-gray-600 flex items-center gap-2">
+                <i className="fas fa-box text-gray-400"></i>
+                总商品数 <span className="font-bold text-gray-900">{itemList.length}</span>
               </span>
-              <span className="text-gray-600">
-                <i className="fas fa-check-circle text-emerald-600 mr-2"></i>
-                可用商品：<span className="font-semibold text-emerald-700">
+              <span className="text-gray-600 flex items-center gap-2">
+                <i className="fas fa-check-circle text-emerald-500"></i>
+                可用商品 <span className="font-bold text-emerald-600">
                   {itemList.filter(it => it.available).length}
                 </span>
               </span>
             </div>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+              className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
             >
               关闭
             </button>
@@ -271,69 +267,83 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
-      isVisible ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/0'
+      isVisible ? 'bg-black/40 backdrop-blur-md' : 'bg-black/0'
     } ${!isVisible && 'pointer-events-none'}`}>
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all duration-300 ${
+      <div className={`relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all duration-300 ring-1 ring-black/5 ${
         isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
       }`}>
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
-            <p className="text-sm text-gray-500">搜索并选择商品，支持多选组合。</p>
+            <h3 className="text-xl font-bold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
+            <p className="text-sm text-gray-500 mt-1">搜索并选择商品，支持多选组合</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600">
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200">
             <i className="fas fa-times"></i>
           </button>
         </div>
-        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="px-8 py-6 space-y-6 max-h-[70vh] overflow-y-auto bg-white">
+          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-center gap-2"><i className="fas fa-exclamation-circle"></i>{error}</div>}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="text-sm font-medium text-gray-700">奖项名称</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">奖项名称</label>
               <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="输入奖项名称，如：火腿肠、小零食等"
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="例如：特等奖、安慰奖"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">概率权重</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">概率权重</label>
               <input
                 type="number"
                 step="0.01"
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
               />
-              <p className="mt-1 text-xs text-gray-500">支持填写百分比（如 5 表示 5%）或小数（如 0.05 表示 5%）。</p>
+              <p className="mt-1.5 text-xs text-gray-400">支持百分比或小数（如 5 或 0.05）</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-700">状态</label>
             <button
               onClick={() => setIsActive(prev => !prev)}
-              className={`px-3 py-1.5 rounded-full text-xs border ${isActive ? 'bg-green-100 border-green-200 text-green-700' : 'bg-gray-100 border-gray-200 text-gray-600'}`}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+                isActive 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                  : 'bg-gray-50 border-gray-200 text-gray-500'
+              }`}
             >
-              {isActive ? '已启用' : '未启用'}
+              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+              {isActive ? '已启用' : '已停用'}
             </button>
           </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">搜索商品并添加到奖池</label>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="输入商品名称、类别关键字"
-              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            <div className="mt-2 border border-gray-200 rounded-md max-h-40 overflow-y-auto">
+
+          <div className="border-t border-gray-100 pt-6">
+            <label className="block text-sm font-bold text-gray-900 mb-3">添加奖品商品</label>
+            <div className="relative">
+              <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="搜索商品名称..."
+                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
+              />
+            </div>
+            
+            <div className="mt-2 border border-gray-100 rounded-xl max-h-48 overflow-y-auto bg-white shadow-sm">
               {searchLoading ? (
-                <div className="px-3 py-2 text-xs text-gray-500">搜索中...</div>
+                <div className="px-4 py-3 text-xs text-gray-500 flex items-center gap-2">
+                  <i className="fas fa-spinner fa-spin"></i> 搜索中...
+                </div>
               ) : (searchResults || []).length === 0 ? (
-                <div className="px-3 py-2 text-xs text-gray-500">未找到匹配的商品</div>
+                searchTerm && <div className="px-4 py-3 text-xs text-gray-400">未找到匹配商品</div>
               ) : (
                 searchResults.map(item => {
                   const key = `${item.product_id}__${item.variant_id || 'base'}`;
@@ -347,15 +357,17 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                       type="button"
                       onClick={() => handleAddItem(item)}
                       disabled={alreadySelected}
-                      className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 ${alreadySelected ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'hover:bg-indigo-50'}`}
+                      className={`w-full text-left px-4 py-3 text-sm border-b border-gray-50 last:border-b-0 transition-colors ${
+                        alreadySelected ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'hover:bg-gray-50 text-gray-700'
+                      }`}
                     >
-                      <div className="font-medium text-gray-800 flex items-center gap-2">
-                        <span>{fullName}</span>
-                        {alreadySelected && <span className="text-xs text-gray-500">已添加</span>}
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium truncate mr-2">{fullName}</span>
+                        {alreadySelected && <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-500">已选</span>}
                       </div>
-                      <div className="text-[11px] text-gray-500 flex items-center gap-3 mt-1">
-                        <span>库存：{item.stock}</span>
-                        <span>价值：¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                      <div className="text-xs text-gray-400 mt-1 flex gap-3">
+                        <span>库存: {item.stock}</span>
+                        <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
                       </div>
                     </button>
                   );
@@ -363,75 +375,52 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
               )}
             </div>
           </div>
+
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-medium text-gray-700">
-                已选择的奖品商品
-                {selectedItems.length > 0 && (
-                  <span className="ml-2 text-xs text-gray-500">({selectedItems.length} 件)</span>
-                )}
+              <label className="text-sm font-bold text-gray-900">
+                已选商品 <span className="text-gray-400 font-normal text-xs ml-1">({selectedItems.length})</span>
               </label>
             </div>
             {selectedItems.length === 0 ? (
-              <div className="text-xs text-gray-500 border border-dashed border-gray-300 rounded-lg px-4 py-8 text-center bg-gray-50/50">
-                <i className="fas fa-inbox text-2xl text-gray-400 mb-2"></i>
-                <p>尚未选择任何商品</p>
-                <p className="text-gray-400 mt-1">请使用上方搜索框添加商品</p>
+              <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <i className="fas fa-inbox text-gray-300 text-2xl mb-2"></i>
+                <p className="text-xs text-gray-500">暂未选择任何商品</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto overflow-x-hidden pt-3 pb-1 px-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
                 {selectedItems.map(item => (
                   <div 
                     key={`${item.product_id}_${item.variant_id || 'base'}`} 
-                    className={`relative group rounded-xl border-2 p-3 transition-all hover:shadow-md ${
-                      item.available 
-                        ? 'border-emerald-200 bg-emerald-50/30 hover:bg-emerald-50' 
-                        : 'border-red-200 bg-red-50/30 hover:bg-red-50'
-                    }`}
+                    className="relative group rounded-xl border border-gray-200 p-3 bg-white hover:shadow-sm transition-all duration-200"
                   >
                     <button
                       onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
-                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110 z-10"
-                      title="移除商品"
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center shadow-sm transition-all z-10"
                     >
                       <i className="fas fa-times text-xs"></i>
                     </button>
                     
                     <div className="pr-2">
-                      <div className="font-medium text-sm text-gray-900 mb-2 line-clamp-2 min-h-[2.5rem]" title={item.label}>
+                      <div className="font-medium text-sm text-gray-900 mb-1 truncate" title={item.label}>
                         {item.label}
                       </div>
                       
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1">
-                          <i className={`fas fa-cube ${item.available ? 'text-emerald-600' : 'text-red-600'}`}></i>
-                          <span className={item.available ? 'text-emerald-700 font-medium' : 'text-red-700 font-medium'}>
-                            {item.stock ?? '未知'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 text-indigo-600 font-semibold">
-                          <i className="fas fa-tag text-xs"></i>
-                          <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
-                        </div>
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>库存: {item.stock ?? '未知'}</span>
+                        <span className="font-medium text-gray-900">¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
                       </div>
                       
                       <div className="mt-2">
-                        {item.available && item.is_active !== false && item.is_active !== 0 ? (
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                            <i className="fas fa-check-circle text-[10px]"></i>
-                            <span>正常</span>
-                          </div>
-                        ) : !item.available && (item.is_active === false || item.is_active === 0) ? (
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
-                            <i className="fas fa-pause-circle text-[10px]"></i>
-                            <span>下架</span>
-                          </div>
-                        ) : !item.available ? (
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                          <i className="fas fa-exclamation-circle text-[10px]"></i>
-                          <span>缺货</span>
-                        </div>
-                        ) : null}
+                         {item.available && item.is_active !== false && item.is_active !== 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                            <i className="fas fa-check-circle"></i> 正常
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                            <i className="fas fa-exclamation-circle"></i> 不可用
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -440,9 +429,20 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
             )}
           </div>
         </div>
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100">取消</button>
-          <button onClick={handleSubmit} className="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">保存</button>
+        
+        <div className="px-8 py-5 bg-white border-t border-gray-100 flex justify-end gap-3 sticky bottom-0 z-10">
+          <button 
+            onClick={onClose} 
+            className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-full hover:bg-gray-50 transition-all duration-200"
+          >
+            取消
+          </button>
+          <button 
+            onClick={handleSubmit} 
+            className="px-8 py-2.5 text-sm font-medium bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
+            保存配置
+          </button>
         </div>
       </div>
     </div>
@@ -678,39 +678,34 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-      <div className="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 px-6 py-4 border-b border-gray-200">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <i className="fas fa-trophy text-amber-500"></i>
-              抽奖奖项配置
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">根据库存权重自动抽取，可组合多种商品</p>
+    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden font-sans">
+      <div className="px-8 py-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h3 className="text-2xl font-bold text-gray-900 tracking-tight">
+            抽奖配置
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">设置抽奖奖池、概率及参与门槛</p>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3 bg-gray-50 px-4 py-2.5 rounded-full border border-gray-100">
+            <span className="text-sm font-medium text-gray-600">功能开关</span>
+            <button
+              onClick={handleToggleEnabled}
+              disabled={enabledSaving}
+              className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-300 focus:outline-none ${
+                isEnabled ? 'bg-black' : 'bg-gray-300'
+              } disabled:opacity-50`}
+            >
+              <span className={`inline-block w-4 h-4 transform transition-transform duration-300 bg-white rounded-full shadow-sm ${
+                isEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}></span>
+            </button>
           </div>
           
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-              <span className="text-sm font-medium text-gray-700">抽奖功能</span>
-              <button
-                onClick={handleToggleEnabled}
-                disabled={enabledSaving}
-                className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors ${
-                  isEnabled ? 'bg-emerald-500' : 'bg-gray-300'
-                } disabled:opacity-50`}
-                title="点击切换抽奖功能启用状态"
-              >
-                <span className={`inline-block w-4 h-4 transform transition-transform bg-white rounded-full shadow-sm ${
-                  isEnabled ? 'translate-x-6' : 'translate-x-1'
-                }`}></span>
-              </button>
-              <span className={`text-xs font-medium ${isEnabled ? 'text-emerald-600' : 'text-gray-500'}`}>
-                {enabledSaving ? '保存中...' : (isEnabled ? '已启用' : '已禁用')}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-              <span className="text-sm font-medium text-gray-700">抽奖门槛</span>
+          <div className="flex items-center gap-3 bg-gray-50 px-4 py-2.5 rounded-full border border-gray-100">
+            <span className="text-sm font-medium text-gray-600">抽奖门槛</span>
+            <div className="flex items-center gap-1">
               <input
                 type="number"
                 min={MIN_THRESHOLD}
@@ -719,92 +714,87 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
                 disabled={thresholdSaving || !isEnabled}
                 onChange={(e) => setThresholdAmount(e.target.value)}
                 onBlur={handleSaveThreshold}
-                className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100"
-                title="失焦时自动保存"
+                className="w-16 bg-transparent text-center font-bold text-gray-900 border-b border-gray-300 focus:border-black focus:outline-none disabled:text-gray-400 transition-colors"
               />
-              <span className="text-sm text-gray-600">元</span>
-              {thresholdSaving && (
-                <i className="fas fa-spinner fa-spin text-indigo-600"></i>
-              )}
+              <span className="text-sm text-gray-500">元</span>
             </div>
-            
-            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-500">中奖率</span>
-                <span className="text-sm font-bold text-indigo-600">
-                  {Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%
-                </span>
-              </div>
-              <div className="h-4 w-px bg-gray-300"></div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-500">谢谢参与</span>
-                <span className={`text-sm font-bold ${totalPercent > 100 ? 'text-red-600' : 'text-gray-600'}`}>
-                  {thanksPercent.toFixed(2)}%
-                </span>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => openModal(null)}
-              disabled={!isEnabled}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-all ${
-                isEnabled 
-                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:shadow-md' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-              title={!isEnabled ? '请先启用抽奖功能' : ''}
-            >
-              <i className="fas fa-plus"></i>
-              新增奖项
-            </button>
           </div>
+          
+          <div className="flex items-center gap-4 bg-gray-50 px-5 py-2.5 rounded-full border border-gray-100">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">中奖率</span>
+              <span className="text-sm font-bold text-gray-900">
+                {Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%
+              </span>
+            </div>
+            <div className="h-4 w-px bg-gray-300"></div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">谢谢参与</span>
+              <span className={`text-sm font-bold ${totalPercent > 100 ? 'text-red-500' : 'text-gray-900'}`}>
+                {thanksPercent.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+          
+          <button
+            onClick={() => openModal(null)}
+            disabled={!isEnabled}
+            className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 ${
+              isEnabled 
+                ? 'bg-black text-white hover:bg-gray-800' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+            }`}
+          >
+            <i className="fas fa-plus"></i>
+            新增奖项
+          </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="px-6 py-12 text-center">
-          <i className="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i>
-          <p className="text-gray-600">加载中...</p>
+        <div className="px-6 py-24 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-200 border-t-black mx-auto mb-4"></div>
+          <p className="text-gray-500 font-medium">加载配置中...</p>
         </div>
       ) : prizes.length === 0 ? (
-        <div className="px-6 py-16 text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full mb-4">
-            <i className="fas fa-gift text-4xl text-indigo-600"></i>
+        <div className="px-6 py-24 text-center">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-50 rounded-full mb-6 border border-gray-100">
+            <i className="fas fa-gift text-3xl text-gray-300"></i>
           </div>
-          <p className="text-lg font-medium text-gray-900 mb-2">尚未配置任何奖项</p>
-          <p className="text-sm text-gray-500">点击上方"新增奖项"开始配置抽奖系统</p>
+          <p className="text-lg font-bold text-gray-900 mb-2">尚未配置奖项</p>
+          <p className="text-sm text-gray-500">点击右上角按钮添加第一个奖项</p>
         </div>
       ) : (
         <>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-gray-50/50 border-b border-gray-100">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">奖项名称</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">权重</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">商品数</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">可用商品</th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+                  <th className="px-8 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">奖项名称</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">状态</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">权重</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">商品数</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">可用库存</th>
+                  <th className="px-8 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-50">
                 {prizes.map((prize, index) => {
                   const itemList = prize.items || [];
                   const availableItems = itemList.filter(it => it.available);
                   const hasWarning = availableItems.length === 0 && itemList.length > 0;
                   
                   return (
-                    <tr key={prize.id} className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center text-gray-600 font-semibold text-sm bg-white">
+                    <tr key={prize.id} className="hover:bg-gray-50/50 transition-colors group">
+                      <td className="px-8 py-5">
+                        <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs">
                             {index + 1}
                           </div>
-                          <div className="min-w-0">
-                            <div className="font-semibold text-gray-900 truncate">{prize.display_name}</div>
+                          <div>
+                            <div className="font-bold text-gray-900">{prize.display_name}</div>
                             {hasWarning && (
-                              <div className="flex items-center gap-1 text-xs text-red-600 mt-1">
+                              <div className="flex items-center gap-1.5 text-xs text-red-500 mt-1 font-medium">
                                 <i className="fas fa-exclamation-triangle"></i>
                                 <span>无可用库存</span>
                               </div>
@@ -813,76 +803,68 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
                         </div>
                       </td>
                       
-                      <td className="px-4 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+                      <td className="px-4 py-5 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
                           prize.is_active 
-                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
-                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                            : 'bg-gray-50 text-gray-500 border-gray-200'
                         }`}>
-                          <i className={`fas fa-circle text-[6px] ${prize.is_active ? 'text-emerald-500' : 'text-gray-400'}`}></i>
-                          {prize.is_active ? '启用中' : '已停用'}
+                          <span className={`w-1.5 h-1.5 rounded-full ${prize.is_active ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+                          {prize.is_active ? '启用' : '停用'}
                         </span>
                       </td>
                       
-                      <td className="px-4 py-4 text-center">
-                        <span className="inline-flex items-center gap-1 text-sm font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">
-                          <i className="fas fa-percentage text-xs"></i>
+                      <td className="px-4 py-5 text-center">
+                        <span className="font-mono text-sm font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded">
                           {Number.isFinite(prize.weight) ? prize.weight : 0}
                         </span>
                       </td>
                       
-                      <td className="px-4 py-4 text-center">
-                        <span className="text-sm font-medium text-gray-900">{itemList.length}</span>
+                      <td className="px-4 py-5 text-center">
+                        <span className="text-sm text-gray-600">{itemList.length}</span>
                       </td>
                       
-                      <td className="px-4 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${
-                          availableItems.length > 0 ? 'text-emerald-600' : 'text-red-600'
-                        }`}>
-                          <i className={`fas ${availableItems.length > 0 ? 'fa-check-circle' : 'fa-times-circle'}`}></i>
+                      <td className="px-4 py-5 text-center">
+                        <span className={`text-sm font-bold ${availableItems.length > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {availableItems.length}
                         </span>
                       </td>
                       
-                      <td className="px-6 py-4">
+                      <td className="px-8 py-5 text-center">
                         <div className="flex items-center justify-center gap-2">
                           {itemList.length > 0 && (
                             <button
                               onClick={() => openItemsModal(prize)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
-                              title="查看商品详情"
+                              className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all"
+                              title="查看商品"
                             >
                               <i className="fas fa-eye"></i>
-                              查看
                             </button>
                           )}
                           <button
                             onClick={() => handleToggleActive(prize, !prize.is_active)}
-                            className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                            className={`p-2 rounded-lg transition-all ${
                               prize.is_active 
-                                ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
-                                : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' 
+                                : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'
                             }`}
-                            title={prize.is_active ? '停用奖项' : '启用奖项'}
+                            title={prize.is_active ? '停用' : '启用'}
                           >
                             <i className={`fas ${prize.is_active ? 'fa-pause' : 'fa-play'}`}></i>
-                            {prize.is_active ? '停用' : '启用'}
                           </button>
                           <button
                             onClick={() => openModal(prize)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-                            title="编辑奖项"
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="编辑"
                           >
                             <i className="fas fa-edit"></i>
-                            编辑
                           </button>
                           <button
                             onClick={() => handleDelete(prize)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
-                            title="删除奖项"
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="删除"
                           >
                             <i className="fas fa-trash"></i>
-                            删除
                           </button>
                         </div>
                       </td>
@@ -896,9 +878,9 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
       )}
       
       {(saving || thresholdSaving) && (
-        <div className="px-6 py-3 bg-indigo-50 border-t border-indigo-100 flex items-center gap-2 text-sm">
-          <i className="fas fa-spinner fa-spin text-indigo-600"></i>
-          <span className="text-indigo-700 font-medium">正在保存更改...</span>
+        <div className="px-8 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-3 text-sm text-gray-600 animate-pulse">
+          <i className="fas fa-spinner fa-spin"></i>
+          <span>正在保存更改...</span>
         </div>
       )}
       
@@ -919,4 +901,3 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     </div>
   );
 };
-
