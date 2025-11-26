@@ -392,6 +392,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             selectedAgentId={viewingAgentId}
             onAgentSelect={handleAgentSwitch}
             switchDisabled={isSwitchingAgent}
+            userName={user?.name || ''}
           />
 
           {/* Main Content Area */}

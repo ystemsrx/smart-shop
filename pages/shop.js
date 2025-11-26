@@ -101,33 +101,12 @@ const buildSphereSubtitle = (product = {}) => {
   return parts.join(' · ');
 };
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.05,
-      delayChildren: 0.1
-    }
-  }
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.95 },
-  visible: { 
-    opacity: 1, 
-    y: 0, 
-    scale: 1,
-    transition: { type: "spring", stiffness: 300, damping: 24 }
-  }
-};
-
+// 简洁的头部动画变体
 const headerVariants = {
-  hidden: { opacity: 0, y: -20 },
+  hidden: { opacity: 0 },
   visible: { 
-    opacity: 1, 
-    y: 0,
-    transition: { type: "spring", stiffness: 200, damping: 20 }
+    opacity: 1,
+    transition: { duration: 0.2 }
   }
 };
 
@@ -194,15 +173,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const limitReached = effectiveStock !== null && effectiveStock > 0 && cartQuantity >= effectiveStock;
 
   return (
-    <motion.div 
-      layout
-      initial="hidden"
-      whileInView="visible"
-      viewport={{ once: true, margin: "-50px" }}
-      variants={itemVariants}
-      whileHover={{ transition: { type: "spring", stiffness: 400, damping: 25 } }}
-      whileTap={{ scale: 0.98 }}
-      className={`card-modern group overflow-hidden h-[420px] flex flex-col ${
+    <div 
+      className={`card-modern group overflow-hidden h-[420px] flex flex-col animate-card-fade-in ${
         (isOutOfStock || isDown)
           ? 'opacity-60 grayscale cursor-not-allowed'
           : 'cursor-pointer'
@@ -449,7 +421,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };
 
@@ -470,12 +442,7 @@ const CategoryFilter = ({
   const toggleButtonLabel = isSphere ? '网格视图' : '球形视图';
 
   return (
-    <motion.div 
-      variants={headerVariants}
-      initial="hidden"
-      animate="visible"
-      className="mb-8"
-    >
+    <div className="mb-8 animate-fade-in-fast">
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
           <i className="fas fa-layer-group text-white text-sm"></i>
@@ -483,15 +450,13 @@ const CategoryFilter = ({
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
         {onToggleView && (
           <div className="ml-auto mt-3 sm:mt-0">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               type="button"
               onClick={onToggleView}
               disabled={disableSphereToggle}
               aria-pressed={isSphere}
               aria-label={toggleAriaLabel}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors duration-300 text-sm font-medium ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-200 text-sm font-medium hover:scale-105 active:scale-95 ${
                 isSphere
                   ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -500,23 +465,15 @@ const CategoryFilter = ({
             >
               <i className={`fas ${toggleButtonIcon}`}></i>
               <span className="hidden sm:inline">{toggleButtonLabel}</span>
-            </motion.button>
+            </button>
           </div>
         )}
       </div>
-      <motion.div 
-        className="flex flex-wrap gap-3"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
+      <div className="flex flex-wrap gap-3">
         {hasHotProducts && (
-          <motion.button
-            variants={itemVariants}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={() => onCategoryChange('hot')}
-            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
+            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
               isActive('hot')
                 ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
                 : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -526,14 +483,11 @@ const CategoryFilter = ({
               <i className="fas fa-fire"></i>
               <span>热销</span>
             </div>
-          </motion.button>
+          </button>
         )}
-        <motion.button
-          variants={itemVariants}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+        <button
           onClick={() => onCategoryChange('all')}
-          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
+          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
             isActive('all')
               ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
               : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -543,17 +497,14 @@ const CategoryFilter = ({
             <i className="fas fa-th-large"></i>
             <span>全部</span>
           </div>
-        </motion.button>
+        </button>
         {categories.map((category, index) => {
           const value = `category:${category.name}`;
           return (
-            <motion.button
+            <button
               key={category.id}
-              variants={itemVariants}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
               onClick={() => onCategoryChange(value)}
-              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
+              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
                 isActive(value)
                   ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -563,11 +514,11 @@ const CategoryFilter = ({
                 <i className="fas fa-tag"></i>
                 <span>{category.name}</span>
               </div>
-            </motion.button>
+            </button>
           );
         })}
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 };
 
@@ -637,6 +588,7 @@ export default function Shop() {
   const shopName = getShopName();
   
   const cartWidgetRef = useRef(null);
+  const [allProducts, setAllProducts] = useState([]); // 所有商品（用于前端过滤）
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('hot');
@@ -969,9 +921,10 @@ export default function Shop() {
     return [...sortByPriority(available), ...sortByPriority(deferred)];
   };
 
-  // 加载商品和分类
+  // 加载商品和分类（只在首次加载或位置变化时调用）
   const loadData = async () => {
     if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+      setAllProducts([]);
       setProducts([]);
       setCategories([]);
       setIsLoading(false);
@@ -982,38 +935,29 @@ export default function Shop() {
     setError('');
 
     try {
-      // 首先检查全局是否有热销商品（用于控制热销分类按钮的显示）
-      const allProductsData = await getProducts({ hotOnly: false });
-      const allProducts = allProductsData.data.products || [];
-      const hasHotProducts = allProducts.some(p => Boolean(p.is_hot));
+      // 加载所有商品和分类
+      const [allProductsData, categoriesData] = await Promise.all([
+        getProducts({ hotOnly: false }),
+        getCategories()
+      ]);
+      
+      const fetchedProducts = allProductsData.data.products || [];
+      const hasHotProducts = fetchedProducts.some(p => Boolean(p.is_hot));
       setHasGlobalHotProducts(hasHotProducts);
 
       // 首次加载时，如果选择了热销但没有热销商品，切换到全部
       if (!initialCategorySet && selectedCategory === 'hot') {
         if (!hasHotProducts) {
           setSelectedCategory('all');
-          setInitialCategorySet(true);
-          return; // 返回，让useEffect重新触发loadData
         }
         setInitialCategorySet(true);
       }
 
-      const productFilters = {
-        category: selectedCategory && selectedCategory.startsWith('category:')
-          ? selectedCategory.slice('category:'.length)
-          : null,
-        hotOnly: selectedCategory === 'hot'
-      };
+      // 排序所有商品
+      const sortedAllProducts = sortProductsByPrice([...fetchedProducts]);
+      setAllProducts(sortedAllProducts);
 
-      const [productsData, categoriesData] = await Promise.all([
-        getProducts(productFilters),
-        getCategories()
-      ]);
-      
-      const products = productsData.data.products || [];
-      const sortedProducts = sortProductsByPrice([...products]);
-      // 分类按拼音/英文排序：基于首个有效字母（忽略数字与符号）决定分桶。
-      // 规则：按 a..z 桶整体排序；同桶时，英文字母优先于中文拼音；仅有数字或无字母中文的放最后。
+      // 分类按拼音/英文排序
       const cats = categoriesData.data.categories || [];
       const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
       const firstSigChar = (s) => {
@@ -1026,14 +970,12 @@ export default function Shop() {
       };
       const typeRank = (s) => {
         const ch = firstSigChar(s);
-        if (!ch) return 2; // others/digits-only
-        return /[A-Za-z]/.test(ch) ? 0 : 1; // 0: english, 1: chinese
+        if (!ch) return 2;
+        return /[A-Za-z]/.test(ch) ? 0 : 1;
       };
       const bucket = (s, collator) => {
         const name = String(s || '');
-        // if no letter/chinese at all -> last bucket 26
         if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
-        // Find bucket i where name in [letters[i], letters[i+1]) under collator
         let b = 25;
         for (let i = 0; i < 26; i++) {
           const cur = letters[i];
@@ -1053,17 +995,16 @@ export default function Shop() {
           const bName = String(b.name || '');
           const ab = bucket(aName, collator);
           const bb = bucket(bName, collator);
-          if (ab !== bb) return ab - bb; // a..z 分桶优先
+          if (ab !== bb) return ab - bb;
           const ar = typeRank(aName);
           const br = typeRank(bName);
-          if (ar !== br) return ar - br; // 同字母桶时：英文优先于中文
+          if (ar !== br) return ar - br;
           return collator.compare(aName, bName);
         });
       } catch (e) {
         cats.sort((a, b) => {
           const aName = String(a.name || '');
           const bName = String(b.name || '');
-          // 简化回退：英文桶按首字母，其它放最后
           const aCh = firstSigChar(aName).toLowerCase();
           const bCh = firstSigChar(bName).toLowerCase();
           const aIsEn = /^[a-z]$/.test(aCh);
@@ -1077,7 +1018,6 @@ export default function Shop() {
           return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
         });
       }
-      setProducts(sortedProducts);
       setCategories(cats);
     } catch (err) {
       setError(err.message || '加载数据失败');
@@ -1086,32 +1026,44 @@ export default function Shop() {
     }
   };
 
-  // 搜索商品
-  const handleSearch = async () => {
-    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
-      setError('请先选择配送地址');
+  // 前端过滤商品（根据分类/搜索）- 不触发loading状态
+  useEffect(() => {
+    if (allProducts.length === 0) {
+      setProducts([]);
       return;
     }
 
-    if (!searchQuery.trim()) {
-      loadData();
-      return;
+    let filtered = [...allProducts];
+
+    // 搜索过滤
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(p => 
+        (p.name && p.name.toLowerCase().includes(query)) ||
+        (p.description && p.description.toLowerCase().includes(query)) ||
+        (p.category && p.category.toLowerCase().includes(query))
+      );
+    } else {
+      // 分类过滤
+      if (selectedCategory === 'hot') {
+        filtered = filtered.filter(p => Boolean(p.is_hot));
+      } else if (selectedCategory && selectedCategory.startsWith('category:')) {
+        const categoryName = selectedCategory.slice('category:'.length);
+        filtered = filtered.filter(p => p.category === categoryName);
+      }
+      // 'all' 不过滤
     }
 
-    setIsLoading(true);
-    setError('');
-    
-    try {
-      const data = await searchProducts(searchQuery);
-      const products = data.data.products || [];
-      const sortedProducts = sortProductsByPrice([...products]);
-      
-      setProducts(sortedProducts);
-      setSelectedCategory('all'); // 清除分类过滤
-    } catch (err) {
-      setError(err.message || '搜索失败');
-    } finally {
-      setIsLoading(false);
+    // 重新排序过滤后的结果
+    const sortedFiltered = sortProductsByPrice(filtered);
+    setProducts(sortedFiltered);
+  }, [allProducts, selectedCategory, searchQuery]);
+
+  // 搜索商品（现在只需要触发前端过滤，不需要请求后端）
+  const handleSearch = () => {
+    // 搜索由 useEffect 自动处理，这里只需确保分类被清除
+    if (searchQuery.trim()) {
+      setSelectedCategory('all');
     }
   };
 
@@ -1420,17 +1372,15 @@ export default function Shop() {
     }
   }, []);
 
-  // 初始化和分类变化时加载数据
+  // 初始化时加载数据（位置或用户变化时重新加载）
   useEffect(() => {
     loadData();
   }, [
-    selectedCategory,
     locationRevision,
     user,
     forceSelection,
     location?.address_id,
     location?.building_id,
-    initialCategorySet,
   ]);
 
   // 用户登录状态变化时加载购物车
@@ -1626,27 +1576,8 @@ export default function Shop() {
             </div>
           )}
 
-          {/* 加载状态 */}
-          {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {[...Array(8)].map((_, i) => (
-                <div key={i} className="card-modern overflow-hidden animate-pulse">
-                  <div className="aspect-square bg-gradient-to-br from-gray-200 to-gray-300"></div>
-                  <div className="p-4 bg-gradient-to-t from-gray-50/50 to-transparent">
-                    <div className="space-y-3">
-                      <div className="h-4 bg-gray-200 rounded-lg w-3/4"></div>
-                      <div className="h-3 bg-gray-200 rounded-lg w-1/2"></div>
-                      <div className="h-3 bg-gray-200 rounded-lg w-full"></div>
-                      <div className="flex justify-between items-center mt-4">
-                        <div className="h-6 bg-gray-200 rounded-lg w-1/3"></div>
-                        <div className="h-10 bg-gray-200 rounded-xl w-24"></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
+          {/* 商品列表 - 加载时显示空白背景，加载完成后卡片淡入 */}
+          {!isLoading && (
             <>
               {/* 商品列表 */}
               {products.length > 0 ? (
@@ -1665,35 +1596,38 @@ export default function Shop() {
                     </div>
                   </>
                 ) : (
-                  <>
-                    <motion.div 
-                      variants={containerVariants}
-                      initial="hidden"
-                      animate="visible"
-                      className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`grid-${selectedCategory}-${searchQuery}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15, ease: "easeInOut" }}
                     >
-                      {products.map((product, index) => (
-                        <ProductCard
-                            key={product.id}
-                            product={product}
-                            onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
-                            onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
-                            onStartFly={(el) => flyToCart(el)}
-                            onOpenSpecModal={openSpecModal}
-                            onOpenDetailModal={openDetailModal}
-                            itemsMap={cartItemsMap}
-                            isLoading={cartLoading}
-                          />
-                      ))}
-                    </motion.div>
+                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 product-grid-stagger">
+                        {products.map((product, index) => (
+                          <ProductCard
+                              key={product.id}
+                              product={product}
+                              onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
+                              onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
+                              onStartFly={(el) => flyToCart(el)}
+                              onOpenSpecModal={openSpecModal}
+                              onOpenDetailModal={openDetailModal}
+                              itemsMap={cartItemsMap}
+                              isLoading={cartLoading}
+                            />
+                        ))}
+                      </div>
                     
-                    {/* 底部提示线 */}
-                    <div className="flex items-center justify-center gap-4 mt-12 mb-20">
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-400 to-gray-400"></div>
-                      <span className="text-sm text-gray-500 font-medium">到底了</span>
-                      <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-400 to-gray-400"></div>
-                    </div>
-                  </>
+                      {/* 底部提示线 */}
+                      <div className="flex items-center justify-center gap-4 mt-12 mb-20">
+                        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-400 to-gray-400"></div>
+                        <span className="text-sm text-gray-500 font-medium">到底了</span>
+                        <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gray-400 to-gray-400"></div>
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
                 )
               ) : (
                 <div className="text-center py-20 opacity-0 animate-apple-fade-in">

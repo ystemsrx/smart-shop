@@ -1458,3 +1458,64 @@ body {
   animation: apple-slide-up 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
+/* 商品网格快速淡入动画 - 清爽流畅 */
+@keyframes grid-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-grid-fade-in {
+  animation: grid-fade-in 0.2s ease-out forwards;
+}
+
+/* 延迟淡入动画 - 用于底部提示线 */
+@keyframes fade-in-delayed {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in-delayed {
+  opacity: 0;
+  animation: fade-in-delayed 0.3s ease-out 0.15s forwards;
+}
+
+/* 快速淡入动画 - 用于分类过滤器等 */
+.animate-fade-in-fast {
+  animation: grid-fade-in 0.15s ease-out forwards;
+}
+
+/* 商品卡片淡入动画 - 平滑流畅，无闪烁 */
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-fade-in {
+  animation: card-fade-in 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+/* 商品网格 stagger 效果 - 更平滑的递进显示 */
+.product-grid-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.product-grid-stagger > *:nth-child(2) { animation-delay: 30ms; }
+.product-grid-stagger > *:nth-child(3) { animation-delay: 60ms; }
+.product-grid-stagger > *:nth-child(4) { animation-delay: 90ms; }
+.product-grid-stagger > *:nth-child(5) { animation-delay: 100ms; }
+.product-grid-stagger > *:nth-child(6) { animation-delay: 110ms; }
+.product-grid-stagger > *:nth-child(7) { animation-delay: 120ms; }
+.product-grid-stagger > *:nth-child(8) { animation-delay: 130ms; }
+.product-grid-stagger > *:nth-child(n+9) { animation-delay: 140ms; }
+

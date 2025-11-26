@@ -123,7 +123,8 @@ export function AdminSidebar({
   agentOptions = [],
   selectedAgentId = null,
   onAgentSelect,
-  switchDisabled = false
+  switchDisabled = false,
+  userName = ''
 }) {
   const mouseY = useMotionValue(Infinity);
   const [isMobile, setIsMobile] = useState(false);
@@ -202,7 +203,7 @@ export function AdminSidebar({
   const currentSelection = selectedAgentId || 'self';
   const resolvedAgent = agentOptions.find((a) => a.id === currentSelection) || agentOptions[0];
   const roleLabel = role === 'admin' && currentSelection !== 'self' ? 'Agent' : (role === 'admin' ? 'Admin' : 'Agent');
-  const resolvedAgentName = resolvedAgent?.name || (role === 'admin' ? 'Admin' : 'Agent');
+  const resolvedAgentName = resolvedAgent?.name || userName || (role === 'admin' ? 'Admin' : '');
   const headerDisplayName = formatHeaderName(resolvedAgentName);
 
   const handleAgentClick = (agentId) => {
@@ -250,8 +251,8 @@ export function AdminSidebar({
             </div>
             
             <div className="ml-2.5 flex-1 min-w-0 overflow-hidden">
-              <div className="text-sm font-semibold text-gray-900 truncate" title={resolvedAgentName}>
-                {headerDisplayName}
+              <div className="text-sm font-semibold text-gray-900 truncate" title={resolvedAgentName || roleLabel}>
+                {headerDisplayName || roleLabel}
               </div>
               <div className="text-xs text-gray-500 truncate">
                 {roleLabel}

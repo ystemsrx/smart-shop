@@ -5,7 +5,7 @@ export default function AgentPortalHome() {
     <StaffPortal
       role="agent"
       navActive="staff-backend"
-      initialTab="products"
+      initialTab="overview"
     />
   );
 }
