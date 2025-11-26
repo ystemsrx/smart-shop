@@ -800,35 +800,41 @@ export const CategoryInput = ({ value, onChange, required = false, disabled = fa
       
       {showSuggestions && categories.length > 0 && typeof document !== 'undefined' && (
         ReactDOM.createPortal(
-          <div 
-            className="bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-auto py-1 z-[9999]"
-            style={{
-              position: 'fixed',
-              [dropdownPosition.showAbove ? 'bottom' : 'top']: dropdownPosition.showAbove 
-                ? `${window.innerHeight - dropdownPosition.top}px`
-                : `${dropdownPosition.top}px`,
-              left: `${dropdownPosition.left}px`,
-              width: `${dropdownPosition.width}px`,
-            }}
-          >
-            {filteredCategories.length > 0 ? (
-              filteredCategories.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className="w-full px-4 py-2.5 text-left hover:bg-indigo-50 text-sm text-gray-700 hover:text-indigo-700 transition-colors flex items-center justify-between group"
-                  onClick={() => handleSelectCategory(category.name)}
-                >
-                  <span>{category.name}</span>
-                  {inputValue === category.name && <Check size={14} className="text-indigo-600" />}
-                </button>
-              ))
-            ) : (
-              <div className="px-4 py-3 text-gray-400 text-sm text-center">
-                无匹配分类
-              </div>
-            )}
-          </div>,
+          <AnimatePresence>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 5 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              className="bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-auto py-1 z-[9999] custom-scrollbar"
+              style={{
+                position: 'fixed',
+                [dropdownPosition.showAbove ? 'bottom' : 'top']: dropdownPosition.showAbove 
+                  ? `${window.innerHeight - dropdownPosition.top}px`
+                  : `${dropdownPosition.top}px`,
+                left: `${dropdownPosition.left}px`,
+                width: `${dropdownPosition.width}px`,
+              }}
+            >
+              {filteredCategories.length > 0 ? (
+                filteredCategories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className="w-full px-4 py-2.5 text-left hover:bg-indigo-50 text-sm text-gray-700 hover:text-indigo-700 transition-colors flex items-center justify-between group"
+                    onClick={() => handleSelectCategory(category.name)}
+                  >
+                    <span>{category.name}</span>
+                    {inputValue === category.name && <Check size={14} className="text-indigo-600" />}
+                  </button>
+                ))
+              ) : (
+                <div className="px-4 py-3 text-gray-400 text-sm text-center">
+                  无匹配分类
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>,
           document.body
         )
       )}
@@ -1670,12 +1676,26 @@ export const VariantStockModal = ({ product, onClose, apiPrefix, onProductVarian
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ 
+          type: "spring",
+          stiffness: 350,
+          damping: 25,
+          mass: 0.8
+        }}
+        className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100 z-10"
       >
         <div className="bg-gray-50/80 px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">

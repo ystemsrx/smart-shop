@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { formatReservationCutoff } from './helpers';
 
 // 统一状态映射（显示）
@@ -199,18 +200,6 @@ const StatusSelectPopover = ({ currentStatus, onSelect, disabled }) => {
 };
 
 export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, formatDate, getUnifiedStatusFn, agentLabel }) => {
-  const [isVisible, setIsVisible] = React.useState(false);
-
-  React.useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => setIsVisible(true));
-    } else {
-      setIsVisible(false);
-    }
-  }, [open]);
-
-  if (!open && !isVisible) return null;
-
   const items = collapseAutoGiftItemsForDisplay(order?.items || []);
   const status = order && typeof getUnifiedStatusFn === 'function' ? getUnifiedStatusFn(order) : '';
   const statusBadge = status && typeof renderStatusBadge === 'function' ? renderStatusBadge(status) : null;
@@ -231,228 +220,250 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
     : [];
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${isVisible ? 'bg-black/40 backdrop-blur-md' : 'bg-black/0'}`}>
-      <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col overflow-hidden transform transition-all duration-300 ${isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}>
-        
-        {/* Header */}
-        <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-start bg-white z-10">
-          <div>
-            <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-              订单详情
-              <span className="text-sm font-normal text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md border border-gray-100">#{order?.id || '-'}</span>
-            </h3>
-            <div className="flex items-center gap-4 mt-2">
-              {statusBadge}
-              {createdAtDisplay && (
-                <span className="text-sm text-gray-500 flex items-center gap-1.5">
-                  <i className="far fa-clock text-gray-400"></i>
-                  {createdAtDisplay}
-                </span>
-              )}
-            </div>
-          </div>
-          <button
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-md"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-colors"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 350,
+              damping: 25,
+              mass: 0.8
+            }}
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col overflow-hidden z-10"
           >
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-gray-50/50">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            {/* Left Column: Products */}
-            <div className="lg:col-span-2 flex flex-col gap-6">
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
-                  <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                    <i className="fas fa-box-open text-blue-500"></i>
-                    商品清单
-                  </h4>
-                  <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
-                    共 {items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)} 件
-                  </span>
+            {/* Header */}
+            <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-start bg-white z-10">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                  订单详情
+                  <span className="text-sm font-normal text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md border border-gray-100">#{order?.id || '-'}</span>
+                </h3>
+                <div className="flex items-center gap-4 mt-2">
+                  {statusBadge}
+                  {createdAtDisplay && (
+                    <span className="text-sm text-gray-500 flex items-center gap-1.5">
+                      <i className="far fa-clock text-gray-400"></i>
+                      {createdAtDisplay}
+                    </span>
+                  )}
                 </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-colors active:scale-95"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-gray-50/50 custom-scrollbar">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 
-                {items.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400 text-sm">暂无商品记录</div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {items
-                      .sort((a, b) => {
-                        const aIsNonSellable = Boolean(a.is_not_for_sale);
-                        const bIsNonSellable = Boolean(b.is_not_for_sale);
-                        if (aIsNonSellable && !bIsNonSellable) return 1;
-                        if (!aIsNonSellable && bIsNonSellable) return -1;
-                        return 0;
-                      })
-                      .map((it, idx) => (
-                      <div key={`${it.product_id || 'item'}_${idx}`} className="px-6 py-4 hover:bg-gray-50/50 transition-colors group">
-                        <div className="flex justify-between items-start gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-gray-900 font-medium text-base mb-1.5 flex flex-wrap items-center gap-2">
-                              {it.name}
-                              {it.variant_name && (
-                                <span className="px-2 py-0.5 text-xs rounded-md bg-gray-100 text-gray-600 border border-gray-200 font-normal">
-                                  {it.variant_name}
-                                </span>
-                              )}
-                              {it.is_lottery && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-pink-50 text-pink-600 border border-pink-100 font-normal">
-                                  <i className="fas fa-trophy text-[10px]"></i> 抽奖
-                                </span>
-                              )}
-                              {it.is_auto_gift && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 font-normal">
-                                  <i className="fas fa-gift text-[10px]"></i> 赠品
-                                </span>
-                              )}
-                              {it.is_reservation && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-600 border border-blue-100 font-normal">
-                                  <i className="fas fa-calendar-check text-[10px]"></i> 预约
-                                </span>
-                              )}
-                              {it.is_not_for_sale && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-600 border border-purple-100 font-normal">
-                                  <i className="fas fa-ban text-[10px]"></i> 非卖
-                                </span>
-                              )}
-                            </div>
+                {/* Left Column: Products */}
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
+                      <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <i className="fas fa-box-open text-blue-500"></i>
+                        商品清单
+                      </h4>
+                      <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
+                        共 {items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)} 件
+                      </span>
+                    </div>
+                    
+                    {items.length === 0 ? (
+                      <div className="p-8 text-center text-gray-400 text-sm">暂无商品记录</div>
+                    ) : (
+                      <div className="divide-y divide-gray-50">
+                        {items
+                          .sort((a, b) => {
+                            const aIsNonSellable = Boolean(a.is_not_for_sale);
+                            const bIsNonSellable = Boolean(b.is_not_for_sale);
+                            if (aIsNonSellable && !bIsNonSellable) return 1;
+                            if (!aIsNonSellable && bIsNonSellable) return -1;
+                            return 0;
+                          })
+                          .map((it, idx) => (
+                          <div key={`${it.product_id || 'item'}_${idx}`} className="px-6 py-4 hover:bg-gray-50/50 transition-colors group">
+                            <div className="flex justify-between items-start gap-4">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-gray-900 font-medium text-base mb-1.5 flex flex-wrap items-center gap-2">
+                                  {it.name}
+                                  {it.variant_name && (
+                                    <span className="px-2 py-0.5 text-xs rounded-md bg-gray-100 text-gray-600 border border-gray-200 font-normal">
+                                      {it.variant_name}
+                                    </span>
+                                  )}
+                                  {it.is_lottery && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-pink-50 text-pink-600 border border-pink-100 font-normal">
+                                      <i className="fas fa-trophy text-[10px]"></i> 抽奖
+                                    </span>
+                                  )}
+                                  {it.is_auto_gift && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 font-normal">
+                                      <i className="fas fa-gift text-[10px]"></i> 赠品
+                                    </span>
+                                  )}
+                                  {it.is_reservation && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-600 border border-blue-100 font-normal">
+                                      <i className="fas fa-calendar-check text-[10px]"></i> 预约
+                                    </span>
+                                  )}
+                                  {it.is_not_for_sale && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-600 border border-purple-100 font-normal">
+                                      <i className="fas fa-ban text-[10px]"></i> 非卖
+                                    </span>
+                                  )}
+                                </div>
 
-                            <div className="text-sm text-gray-500 flex items-center gap-3">
-                              <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-600 text-xs">x{Number(it.quantity) || 0}</span>
-                              <span>单价 ¥{Number(it.unit_price || 0).toFixed(2)}</span>
-                            </div>
+                                <div className="text-sm text-gray-500 flex items-center gap-3">
+                                  <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-600 text-xs">x{Number(it.quantity) || 0}</span>
+                                  <span>单价 ¥{Number(it.unit_price || 0).toFixed(2)}</span>
+                                </div>
 
-                            {it.is_reservation && (
-                              <div className="mt-2 text-xs text-blue-600 bg-blue-50/50 p-2 rounded-lg border border-blue-100/50">
-                                <i className="fas fa-info-circle mr-1.5"></i>
-                                {formatReservationCutoff(it.reservation_cutoff)}
-                                {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                                {it.is_reservation && (
+                                  <div className="mt-2 text-xs text-blue-600 bg-blue-50/50 p-2 rounded-lg border border-blue-100/50">
+                                    <i className="fas fa-info-circle mr-1.5"></i>
+                                    {formatReservationCutoff(it.reservation_cutoff)}
+                                    {it.reservation_note ? ` · ${it.reservation_note}` : ''}
+                                  </div>
+                                )}
+
+                                {(it.is_lottery || it.is_auto_gift) && (
+                                  <div className="mt-1.5 text-xs text-gray-500">
+                                    <span className="text-pink-500 mr-1">
+                                      {it.is_lottery ? '抽奖赠' : '满额赠'}:
+                                    </span>
+                                    {(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name)) || '-'}
+                                    {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                                  </div>
+                                )}
                               </div>
-                            )}
-
-                            {(it.is_lottery || it.is_auto_gift) && (
-                              <div className="mt-1.5 text-xs text-gray-500">
-                                <span className="text-pink-500 mr-1">
-                                  {it.is_lottery ? '抽奖赠' : '满额赠'}:
-                                </span>
-                                {(it.is_lottery ? (it.lottery_product_name || it.name) : (it.auto_gift_product_name || it.name)) || '-'}
-                                {(it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name) ? `（${it.is_lottery ? it.lottery_variant_name : it.auto_gift_variant_name}）` : ''}
+                              
+                              <div className="text-right">
+                                <div className="text-gray-900 font-semibold text-base">¥{Number(it.subtotal || 0).toFixed(2)}</div>
                               </div>
-                            )}
+                            </div>
                           </div>
-                          
-                          <div className="text-right">
-                            <div className="text-gray-900 font-semibold text-base">¥{Number(it.subtotal || 0).toFixed(2)}</div>
-                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column: Info */}
+                <div className="flex flex-col gap-6">
+                  
+                  {/* Shipping Info */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-50 bg-white">
+                      <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <i className="fas fa-map-marker-alt text-red-500"></i>
+                        收货信息
+                      </h4>
+                    </div>
+                    <div className="p-5">
+                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-4 text-sm">
+                        <span className="text-gray-400 text-xs self-center">联系人</span>
+                        <div className="font-medium text-gray-900 flex items-center gap-2">
+                          {order?.shipping_info?.name || '—'}
+                          <span className="text-gray-300">|</span>
+                          {order?.shipping_info?.phone || '—'}
                         </div>
+
+                        <span className="text-gray-400 text-xs mt-0.5">地址</span>
+                        <div className="text-gray-700 leading-relaxed">
+                          {order?.shipping_info?.dormitory && order?.shipping_info?.building && order?.shipping_info?.room
+                            ? `${order.shipping_info.dormitory} · ${order.shipping_info.building} ${order.shipping_info.room}`
+                            : (order?.shipping_info?.full_address || '—')}
+                        </div>
+
+                        <span className="text-gray-400 text-xs self-center">用户ID</span>
+                        <div className="font-mono text-gray-500">{order?.student_id || '—'}</div>
                       </div>
-                    ))}
+
+                      {order?.note && (
+                        <div className="mt-4 bg-amber-50 p-3 rounded-lg border border-amber-100 text-amber-800 text-xs leading-relaxed">
+                          <span className="font-bold block mb-1">备注:</span>
+                          {order.note}
+                        </div>
+                      )}
+                      {reservationFlag && (
+                        <div className="mt-3 bg-blue-50 p-3 rounded-lg border border-blue-100 text-blue-800 text-xs leading-relaxed">
+                          <div className="flex items-center gap-1.5 font-bold mb-1">
+                            <i className="fas fa-calendar-day"></i>
+                            预约信息
+                          </div>
+                          {reservationReasons.length > 0 ? reservationReasons.join('，') : '预约订单'}
+                          {order?.shipping_info?.reservation_closure_note ? ` · ${order.shipping_info.reservation_closure_note}` : ''}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
+
+                  {/* Order Summary */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-50 bg-white">
+                      <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <i className="fas fa-file-invoice-dollar text-emerald-500"></i>
+                        订单概览
+                      </h4>
+                    </div>
+                    <div className="p-5 space-y-3 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">所属代理</span>
+                        <span className="font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded text-xs">{resolvedAgentLabel}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">支付方式</span>
+                        <span className="font-medium text-gray-900">{paymentMethod}</span>
+                      </div>
+                      <div className="h-px bg-gray-100 my-2"></div>
+                      {discountAmount > 0 && (
+                        <div className="flex justify-between items-center text-pink-600">
+                          <span>优惠抵扣</span>
+                          <span>-¥{discountAmount.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {couponAmount > 0 && (
+                        <div className="flex justify-between items-center text-indigo-600">
+                          <span>赠送优惠券</span>
+                          <span>{couponAmount.toFixed(2)} 元</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center pt-1">
+                        <span className="text-gray-900 font-medium">实付金额</span>
+                        <span className="text-xl font-bold text-gray-900">¥{totalAmount.toFixed(2)}</span>
+                      </div>
+                      {order?.gift_threshold_amount && (
+                        <div className="mt-2 text-xs text-center text-gray-400 bg-gray-50 py-1.5 rounded">
+                          已触发满 ¥{Number(order.gift_threshold_amount).toFixed(0)} 赠品门槛
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
               </div>
             </div>
-
-            {/* Right Column: Info */}
-            <div className="flex flex-col gap-6">
-              
-              {/* Shipping Info */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-50 bg-white">
-                  <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                    <i className="fas fa-map-marker-alt text-red-500"></i>
-                    收货信息
-                  </h4>
-                </div>
-                <div className="p-5">
-                  <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-4 text-sm">
-                    <span className="text-gray-400 text-xs self-center">联系人</span>
-                    <div className="font-medium text-gray-900 flex items-center gap-2">
-                      {order?.shipping_info?.name || '—'}
-                      <span className="text-gray-300">|</span>
-                      {order?.shipping_info?.phone || '—'}
-                    </div>
-
-                    <span className="text-gray-400 text-xs mt-0.5">地址</span>
-                    <div className="text-gray-700 leading-relaxed">
-                      {order?.shipping_info?.dormitory && order?.shipping_info?.building && order?.shipping_info?.room
-                        ? `${order.shipping_info.dormitory} · ${order.shipping_info.building} ${order.shipping_info.room}`
-                        : (order?.shipping_info?.full_address || '—')}
-                    </div>
-
-                    <span className="text-gray-400 text-xs self-center">用户ID</span>
-                    <div className="font-mono text-gray-500">{order?.student_id || '—'}</div>
-                  </div>
-
-                  {order?.note && (
-                    <div className="mt-4 bg-amber-50 p-3 rounded-lg border border-amber-100 text-amber-800 text-xs leading-relaxed">
-                      <span className="font-bold block mb-1">备注:</span>
-                      {order.note}
-                    </div>
-                  )}
-                  {reservationFlag && (
-                    <div className="mt-3 bg-blue-50 p-3 rounded-lg border border-blue-100 text-blue-800 text-xs leading-relaxed">
-                      <div className="flex items-center gap-1.5 font-bold mb-1">
-                        <i className="fas fa-calendar-day"></i>
-                        预约信息
-                      </div>
-                      {reservationReasons.length > 0 ? reservationReasons.join('，') : '预约订单'}
-                      {order?.shipping_info?.reservation_closure_note ? ` · ${order.shipping_info.reservation_closure_note}` : ''}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Order Summary */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-50 bg-white">
-                  <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                    <i className="fas fa-file-invoice-dollar text-emerald-500"></i>
-                    订单概览
-                  </h4>
-                </div>
-                <div className="p-5 space-y-3 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">所属代理</span>
-                    <span className="font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded text-xs">{resolvedAgentLabel}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">支付方式</span>
-                    <span className="font-medium text-gray-900">{paymentMethod}</span>
-                  </div>
-                  <div className="h-px bg-gray-100 my-2"></div>
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between items-center text-pink-600">
-                      <span>优惠抵扣</span>
-                      <span>-¥{discountAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-                  {couponAmount > 0 && (
-                    <div className="flex justify-between items-center text-indigo-600">
-                      <span>赠送优惠券</span>
-                      <span>{couponAmount.toFixed(2)} 元</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center pt-1">
-                    <span className="text-gray-900 font-medium">实付金额</span>
-                    <span className="text-xl font-bold text-gray-900">¥{totalAmount.toFixed(2)}</span>
-                  </div>
-                  {order?.gift_threshold_amount && (
-                    <div className="mt-2 text-xs text-center text-gray-400 bg-gray-50 py-1.5 rounded">
-                      已触发满 ¥{Number(order.gift_threshold_amount).toFixed(0)} 赠品门槛
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-          </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -710,7 +721,6 @@ const ScopeSelectPopover = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [popoverStyle, setPopoverStyle] = useState({});
-  const [animateState, setAnimateState] = useState('closed');
   const buttonRef = useRef(null);
   const popoverRef = useRef(null);
 
@@ -723,14 +733,12 @@ const ScopeSelectPopover = ({
         !buttonRef.current.contains(event.target)
       ) {
         setIsOpen(false);
-        setAnimateState('closed');
       }
     };
     
     const handleScroll = () => {
       if (isOpen) {
         setIsOpen(false);
-        setAnimateState('closed');
       }
     };
 
@@ -785,19 +793,15 @@ const ScopeSelectPopover = ({
           transformOrigin
         });
       }
-      setAnimateState('opening');
       setIsOpen(true);
-      setTimeout(() => setAnimateState('open'), 10);
     } else {
       setIsOpen(false);
-      setAnimateState('closed');
     }
   };
 
   const handleSelect = (val) => {
     onChange(val);
     setIsOpen(false);
-    setAnimateState('closed');
   };
 
   const getDisplayText = () => {
@@ -826,54 +830,63 @@ const ScopeSelectPopover = ({
         <i className={`fas fa-chevron-down text-xs text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180 text-blue-500' : ''}`}></i>
       </button>
 
-      {isOpen && createPortal(
-        <div 
-          ref={popoverRef}
-          style={{ ...popoverStyle, zIndex: 9999 }}
-          className={`
-            flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden
-            transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1)
-            ${animateState === 'open' ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'}
-          `}
-        >
-          <div className="p-2 space-y-1 max-h-[300px] overflow-y-auto">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">基础选项</div>
-            <button
-              onClick={() => handleSelect('self')}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'self' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+      {createPortal(
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div 
+              ref={popoverRef}
+              style={{ ...popoverStyle, zIndex: 9999 }}
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              transition={{ 
+                type: "spring",
+                stiffness: 400,
+                damping: 25,
+                mass: 0.8
+              }}
+              className="flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden"
             >
-              <span>我的订单 <span className="text-xs opacity-60 ml-1">({currentUserLabel || '当前账号'})</span></span>
-              {value === 'self' && <i className="fas fa-check text-blue-500"></i>}
-            </button>
-            <button
-              onClick={() => handleSelect('all')}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
-            >
-              <span>全部订单</span>
-              {value === 'all' && <i className="fas fa-check text-blue-500"></i>}
-            </button>
-            
-            {options.length > 0 && (
-              <>
-                <div className="my-1 border-t border-gray-100"></div>
-                <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">代理筛选</div>
-                {options.map(agent => (
-                  <button
-                    key={agent.id}
-                    onClick={() => handleSelect(agent.id)}
-                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === agent.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    <span className="truncate">
-                      {agent.name}
-                      {(!agent.isActive && !agent.isDeleted) && <span className="text-xs text-red-400 ml-1">(停用)</span>}
-                    </span>
-                    {value === agent.id && <i className="fas fa-check text-blue-500"></i>}
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-        </div>,
+              <div className="p-2 space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
+                <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">基础选项</div>
+                <button
+                  onClick={() => handleSelect('self')}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'self' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  <span>我的订单 <span className="text-xs opacity-60 ml-1">({currentUserLabel || '当前账号'})</span></span>
+                  {value === 'self' && <i className="fas fa-check text-blue-500"></i>}
+                </button>
+                <button
+                  onClick={() => handleSelect('all')}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  <span>全部订单</span>
+                  {value === 'all' && <i className="fas fa-check text-blue-500"></i>}
+                </button>
+                
+                {options.length > 0 && (
+                  <>
+                    <div className="my-1 border-t border-gray-100"></div>
+                    <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">代理筛选</div>
+                    {options.map(agent => (
+                      <button
+                        key={agent.id}
+                        onClick={() => handleSelect(agent.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === agent.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                      >
+                        <span className="truncate">
+                          {agent.name}
+                          {(!agent.isActive && !agent.isDeleted) && <span className="text-xs text-red-400 ml-1">(停用)</span>}
+                        </span>
+                        {value === agent.id && <i className="fas fa-check text-blue-500"></i>}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
         document.body
       )}
     </>

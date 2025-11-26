@@ -20,6 +20,11 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
   const xSync = useTransform(distance, [-120, 0, 120], [0, 10, 0]);
   const x = useSpring(xSync, { mass: 0.1, stiffness: 200, damping: 15 });
 
+  // Label opacity based on distance - only visible when very close (hovered)
+  const labelOpacity = useTransform(distance, [-30, 0, 30], [0, 1, 0]);
+  const labelX = useTransform(distance, [-30, 0, 30], [10, 20, 10]);
+  const labelScale = useTransform(distance, [-30, 0, 30], [0.8, 1, 0.8]);
+
   const handleClick = () => {
     setActiveTab(tab.id);
     // 点击后调用回调，用于手机版自动折叠
@@ -42,7 +47,6 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
           ? 'text-blue-600' 
           : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
       }`}
-      title={isCollapsed ? tab.label : undefined}
     >
       {activeTab === tab.id && (
         <motion.div
@@ -67,6 +71,7 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
         )}
       </motion.div>
       
+      {/* Expanded Label */}
       <motion.span
         initial={false}
         animate={{ opacity: isCollapsed ? 0 : 1, display: isCollapsed ? "none" : "block" }}
@@ -75,6 +80,22 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
       >
         {tab.label}
       </motion.span>
+
+      {/* Collapsed Floating Label */}
+      {shouldScale && (
+        <motion.div
+          style={{ 
+            opacity: labelOpacity, 
+            x: labelX, 
+            scale: labelScale,
+            left: '100%',
+            pointerEvents: 'none'
+          }}
+          className="absolute ml-2 px-2 py-1 bg-gray-900 text-white text-xs font-medium rounded-md shadow-lg whitespace-nowrap z-50"
+        >
+          {tab.label}
+        </motion.div>
+      )}
     </motion.button>
   );
 };

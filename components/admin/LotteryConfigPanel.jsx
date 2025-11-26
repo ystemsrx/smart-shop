@@ -1,154 +1,159 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
 import { normalizeBooleanFlag } from './helpers';
 
 // 商品详情弹窗组件
 const LotteryItemsViewModal = ({ open, onClose, prize }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  
-  useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => {
-        setIsVisible(true);
-      });
-    } else {
-      setIsVisible(false);
-    }
-  }, [open]);
-  
-  if (!open && !isVisible) return null;
-  
   const itemList = prize?.items || [];
   
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
-      isVisible ? 'bg-black/40 backdrop-blur-md' : 'bg-black/0'
-    }`}>
-      <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden transform transition-all duration-300 ring-1 ring-black/5 ${
-        isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
-      }`}>
-        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              {prize.display_name}
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">
-              共 {itemList.length} 件商品 · 权重 {Number.isFinite(prize.weight) ? prize.weight : 0}%
-            </p>
-          </div>
-          <button 
-            onClick={onClose} 
-            className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200"
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            onClick={onClose}
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 350,
+              damping: 25,
+              mass: 0.8
+            }}
+            className="relative bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden z-10"
           >
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-8 bg-white">
-          {itemList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 py-12">
-              <i className="fas fa-box-open text-6xl mb-4 opacity-20"></i>
-              <p className="text-lg">未关联任何商品</p>
+            <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  {prize.display_name}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  共 {itemList.length} 件商品 · 权重 {Number.isFinite(prize.weight) ? prize.weight : 0}%
+                </p>
+              </div>
+              <button 
+                onClick={onClose} 
+                className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200"
+              >
+                <i className="fas fa-times"></i>
+              </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {itemList.map((item, index) => {
-                const label = item.variant_name 
-                  ? `${item.product_name || ''}` 
-                  : (item.product_name || '未命名商品');
-                const stock = Number.parseInt(item.stock, 10);
-                const isActive = item.is_active !== false && item.is_active !== 0;
-                const hasStock = !Number.isNaN(stock) && stock > 0;
-                const available = isActive && hasStock;
-                
-                let statusText = '可用';
-                let statusIcon = 'fa-check-circle';
-                if (!available) {
-                  if (!isActive) {
-                    statusText = '下架';
-                    statusIcon = 'fa-pause-circle';
-                  } else if (!hasStock) {
-                    statusText = '缺货';
-                    statusIcon = 'fa-exclamation-circle';
-                  }
-                }
-                
-                return (
-                  <div 
-                    key={`${item.product_id}_${item.variant_id || 'base'}_${index}`} 
-                    className={`rounded-2xl border p-5 transition-all duration-200 hover:shadow-md ${
-                      available 
-                        ? 'border-gray-200 bg-white hover:border-emerald-200' 
-                        : 'border-gray-200 bg-gray-50 opacity-80'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-4">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-gray-900 text-sm truncate" title={label}>
-                          {label}
-                        </h4>
-                        {item.variant_name && (
-                          <p className="text-xs text-gray-500 mt-0.5 truncate" title={item.variant_name}>
-                            规格：{item.variant_name}
-                          </p>
-                        )}
-                      </div>
-                      <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        available 
-                          ? 'bg-emerald-50 text-emerald-700' 
-                          : 'bg-red-50 text-red-700'
-                      }`}>
-                        <i className={`fas ${statusIcon} text-[10px]`}></i>
-                        {statusText}
-                      </span>
-                    </div>
+            
+            <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
+              {itemList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 py-12">
+                  <i className="fas fa-box-open text-6xl mb-4 opacity-20"></i>
+                  <p className="text-lg">未关联任何商品</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {itemList.map((item, index) => {
+                    const label = item.variant_name 
+                      ? `${item.product_name || ''}` 
+                      : (item.product_name || '未命名商品');
+                    const stock = Number.parseInt(item.stock, 10);
+                    const isActive = item.is_active !== false && item.is_active !== 0;
+                    const hasStock = !Number.isNaN(stock) && stock > 0;
+                    const available = isActive && hasStock;
                     
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                        <div className="text-xs text-gray-500 mb-1">库存</div>
-                        <div className={`font-bold text-sm ${available ? 'text-gray-900' : 'text-red-600'}`}>
-                          {Number.isNaN(stock) ? '未知' : stock}
+                    let statusText = '可用';
+                    let statusIcon = 'fa-check-circle';
+                    if (!available) {
+                      if (!isActive) {
+                        statusText = '下架';
+                        statusIcon = 'fa-pause-circle';
+                      } else if (!hasStock) {
+                        statusText = '缺货';
+                        statusIcon = 'fa-exclamation-circle';
+                      }
+                    }
+                    
+                    return (
+                      <div 
+                        key={`${item.product_id}_${item.variant_id || 'base'}_${index}`} 
+                        className={`rounded-2xl border p-5 transition-all duration-200 hover:shadow-md ${
+                          available 
+                            ? 'border-gray-200 bg-white hover:border-emerald-200' 
+                            : 'border-gray-200 bg-gray-50 opacity-80'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-4">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-gray-900 text-sm truncate" title={label}>
+                              {label}
+                            </h4>
+                            {item.variant_name && (
+                              <p className="text-xs text-gray-500 mt-0.5 truncate" title={item.variant_name}>
+                                规格：{item.variant_name}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                            available 
+                              ? 'bg-emerald-50 text-emerald-700' 
+                              : 'bg-red-50 text-red-700'
+                          }`}>
+                            <i className={`fas ${statusIcon} text-[10px]`}></i>
+                            {statusText}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                            <div className="text-xs text-gray-500 mb-1">库存</div>
+                            <div className={`font-bold text-sm ${available ? 'text-gray-900' : 'text-red-600'}`}>
+                              {Number.isNaN(stock) ? '未知' : stock}
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                            <div className="text-xs text-gray-500 mb-1">参考价值</div>
+                            <div className="font-bold text-sm text-gray-900">
+                              ¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                        <div className="text-xs text-gray-500 mb-1">参考价值</div>
-                        <div className="font-bold text-sm text-gray-900">
-                          ¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        
-        <div className="px-8 py-5 bg-gray-50 border-t border-gray-100">
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-6">
-              <span className="text-gray-600 flex items-center gap-2">
-                <i className="fas fa-box text-gray-400"></i>
-                总商品数 <span className="font-bold text-gray-900">{itemList.length}</span>
-              </span>
-              <span className="text-gray-600 flex items-center gap-2">
-                <i className="fas fa-check-circle text-emerald-500"></i>
-                可用商品 <span className="font-bold text-emerald-600">
-                  {itemList.filter(it => it.available).length}
-                </span>
-              </span>
+            
+            <div className="px-8 py-5 bg-gray-50 border-t border-gray-100">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-6">
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-box text-gray-400"></i>
+                    总商品数 <span className="font-bold text-gray-900">{itemList.length}</span>
+                  </span>
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-check-circle text-emerald-500"></i>
+                    可用商品 <span className="font-bold text-emerald-600">
+                      {itemList.filter(it => it.available).length}
+                    </span>
+                  </span>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
-            <button
-              onClick={onClose}
-              className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
-            >
-              关闭
-            </button>
-          </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -161,18 +166,10 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isVisible, setIsVisible] = useState(false);
+
   const searchTimerRef = useRef(null);
   
-  useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => {
-        setIsVisible(true);
-      });
-    } else {
-      setIsVisible(false);
-    }
-  }, [open]);
+
 
   const mapResultToItem = (item) => ({
     id: item.id,
@@ -264,198 +261,214 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
     });
   };
 
-  if (!open && !isVisible) return null;
-  
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${
-      isVisible ? 'bg-black/40 backdrop-blur-md' : 'bg-black/0'
-    } ${!isVisible && 'pointer-events-none'}`}>
-      <div className="absolute inset-0" onClick={onClose}></div>
-      <div className={`relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden transform transition-all duration-300 ring-1 ring-black/5 ${
-        isVisible ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
-      }`}>
-        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
-            <p className="text-sm text-gray-500 mt-1">搜索并选择商品，支持多选组合</p>
-          </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200">
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-        <div className="px-8 py-6 space-y-6 max-h-[70vh] overflow-y-auto bg-white">
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-center gap-2"><i className="fas fa-exclamation-circle"></i>{error}</div>}
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">奖项名称</label>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="例如：特等奖、安慰奖"
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
-              />
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            onClick={onClose}
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 350,
+              damping: 25,
+              mass: 0.8
+            }}
+            className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col z-10"
+          >
+            <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">{initialPrize ? '编辑奖项' : '新增奖项'}</h3>
+                <p className="text-sm text-gray-500 mt-1">搜索并选择商品，支持多选组合</p>
+              </div>
+              <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200">
+                <i className="fas fa-times"></i>
+              </button>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">概率权重</label>
-              <input
-                type="number"
-                step="0.01"
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
-              />
-              <p className="mt-1.5 text-xs text-gray-400">支持百分比或小数（如 5 或 0.05）</p>
-            </div>
-          </div>
+            <div className="px-8 py-6 space-y-6 max-h-[70vh] overflow-y-auto bg-white custom-scrollbar">
+              {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-center gap-2"><i className="fas fa-exclamation-circle"></i>{error}</div>}
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">奖项名称</label>
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="例如：特等奖、安慰奖"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">概率权重</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
+                  />
+                  <p className="mt-1.5 text-xs text-gray-400">支持百分比或小数（如 5 或 0.05）</p>
+                </div>
+              </div>
 
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-700">状态</label>
-            <button
-              onClick={() => setIsActive(prev => !prev)}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
-                isActive 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
-                  : 'bg-gray-50 border-gray-200 text-gray-500'
-              }`}
-            >
-              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
-              {isActive ? '已启用' : '已停用'}
-            </button>
-          </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700">状态</label>
+                <button
+                  onClick={() => setIsActive(prev => !prev)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+                    isActive 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                      : 'bg-gray-50 border-gray-200 text-gray-500'
+                  }`}
+                >
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+                  {isActive ? '已启用' : '已停用'}
+                </button>
+              </div>
 
-          <div className="border-t border-gray-100 pt-6">
-            <label className="block text-sm font-bold text-gray-900 mb-3">添加奖品商品</label>
-            <div className="relative">
-              <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="搜索商品名称..."
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
-              />
+              <div className="border-t border-gray-100 pt-6">
+                <label className="block text-sm font-bold text-gray-900 mb-3">添加奖品商品</label>
+                <div className="relative">
+                  <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="搜索商品名称..."
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200"
+                  />
+                </div>
+                
+                <div className="mt-2 border border-gray-100 rounded-xl max-h-48 overflow-y-auto bg-white shadow-sm custom-scrollbar">
+                  {searchLoading ? (
+                    <div className="px-4 py-3 text-xs text-gray-500 flex items-center gap-2">
+                      <i className="fas fa-spinner fa-spin"></i> 搜索中...
+                    </div>
+                  ) : (searchResults || []).length === 0 ? (
+                    searchTerm && <div className="px-4 py-3 text-xs text-gray-400">未找到匹配商品</div>
+                  ) : (
+                    searchResults.map(item => {
+                      const key = `${item.product_id}__${item.variant_id || 'base'}`;
+                      const alreadySelected = selectedItems.some(it => `${it.product_id}__${it.variant_id || 'base'}` === key);
+                      const fullName = item.variant_name ? 
+                        `${item.product_name || item.label || ''} - ${item.variant_name}` : 
+                        (item.product_name || item.label || '');
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => handleAddItem(item)}
+                          disabled={alreadySelected}
+                          className={`w-full text-left px-4 py-3 text-sm border-b border-gray-50 last:border-b-0 transition-colors ${
+                            alreadySelected ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-medium truncate mr-2">{fullName}</span>
+                            {alreadySelected && <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-500">已选</span>}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1 flex gap-3">
+                            {item.is_active === false && (
+                              <span className="text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+                                <i className="fas fa-pause-circle mr-1"></i>已下架
+                              </span>
+                            )}
+                            <span>库存: {item.stock}</span>
+                            <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-bold text-gray-900">
+                    已选商品 <span className="text-gray-400 font-normal text-xs ml-1">({selectedItems.length})</span>
+                  </label>
+                </div>
+                {selectedItems.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    <i className="fas fa-inbox text-gray-300 text-2xl mb-2"></i>
+                    <p className="text-xs text-gray-500">暂未选择任何商品</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                    {selectedItems.map(item => (
+                      <div 
+                        key={`${item.product_id}_${item.variant_id || 'base'}`} 
+                        className="relative group rounded-xl border border-gray-200 p-3 bg-white hover:shadow-sm transition-all duration-200"
+                      >
+                        <button
+                          onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
+                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center shadow-sm transition-all z-10"
+                        >
+                          <i className="fas fa-times text-xs"></i>
+                        </button>
+                        
+                        <div className="pr-2">
+                          <div className="font-medium text-sm text-gray-900 mb-1 truncate" title={item.label}>
+                            {item.label}
+                          </div>
+                          
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>库存: {item.stock ?? '未知'}</span>
+                            <span className="font-medium text-gray-900">¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
+                          </div>
+                          
+                          <div className="mt-2">
+                             {item.available && item.is_active !== false && item.is_active !== 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                <i className="fas fa-check-circle"></i> 正常
+                              </span>
+                            ) : item.is_active === false || item.is_active === 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                <i className="fas fa-pause-circle"></i> 已下架
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                                <i className="fas fa-exclamation-circle"></i> 缺货
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             
-            <div className="mt-2 border border-gray-100 rounded-xl max-h-48 overflow-y-auto bg-white shadow-sm">
-              {searchLoading ? (
-                <div className="px-4 py-3 text-xs text-gray-500 flex items-center gap-2">
-                  <i className="fas fa-spinner fa-spin"></i> 搜索中...
-                </div>
-              ) : (searchResults || []).length === 0 ? (
-                searchTerm && <div className="px-4 py-3 text-xs text-gray-400">未找到匹配商品</div>
-              ) : (
-                searchResults.map(item => {
-                  const key = `${item.product_id}__${item.variant_id || 'base'}`;
-                  const alreadySelected = selectedItems.some(it => `${it.product_id}__${it.variant_id || 'base'}` === key);
-                  const fullName = item.variant_name ? 
-                    `${item.product_name || item.label || ''} - ${item.variant_name}` : 
-                    (item.product_name || item.label || '');
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleAddItem(item)}
-                      disabled={alreadySelected}
-                      className={`w-full text-left px-4 py-3 text-sm border-b border-gray-50 last:border-b-0 transition-colors ${
-                        alreadySelected ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'hover:bg-gray-50 text-gray-700'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium truncate mr-2">{fullName}</span>
-                        {alreadySelected && <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-500">已选</span>}
-                      </div>
-                      <div className="text-xs text-gray-400 mt-1 flex gap-3">
-                        {item.is_active === false && (
-                          <span className="text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
-                            <i className="fas fa-pause-circle mr-1"></i>已下架
-                          </span>
-                        )}
-                        <span>库存: {item.stock}</span>
-                        <span>¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
+            <div className="px-8 py-5 bg-white border-t border-gray-100 flex justify-end gap-3 sticky bottom-0 z-10">
+              <button 
+                onClick={onClose} 
+                className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-full hover:bg-gray-50 transition-all duration-200"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleSubmit} 
+                className="px-8 py-2.5 text-sm font-medium bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                保存配置
+              </button>
             </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-bold text-gray-900">
-                已选商品 <span className="text-gray-400 font-normal text-xs ml-1">({selectedItems.length})</span>
-              </label>
-            </div>
-            {selectedItems.length === 0 ? (
-              <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                <i className="fas fa-inbox text-gray-300 text-2xl mb-2"></i>
-                <p className="text-xs text-gray-500">暂未选择任何商品</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
-                {selectedItems.map(item => (
-                  <div 
-                    key={`${item.product_id}_${item.variant_id || 'base'}`} 
-                    className="relative group rounded-xl border border-gray-200 p-3 bg-white hover:shadow-sm transition-all duration-200"
-                  >
-                    <button
-                      onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
-                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center shadow-sm transition-all z-10"
-                    >
-                      <i className="fas fa-times text-xs"></i>
-                    </button>
-                    
-                    <div className="pr-2">
-                      <div className="font-medium text-sm text-gray-900 mb-1 truncate" title={item.label}>
-                        {item.label}
-                      </div>
-                      
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>库存: {item.stock ?? '未知'}</span>
-                        <span className="font-medium text-gray-900">¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
-                      </div>
-                      
-                      <div className="mt-2">
-                         {item.available && item.is_active !== false && item.is_active !== 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            <i className="fas fa-check-circle"></i> 正常
-                          </span>
-                        ) : item.is_active === false || item.is_active === 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-                            <i className="fas fa-pause-circle"></i> 已下架
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                            <i className="fas fa-exclamation-circle"></i> 缺货
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          </motion.div>
         </div>
-        
-        <div className="px-8 py-5 bg-white border-t border-gray-100 flex justify-end gap-3 sticky bottom-0 z-10">
-          <button 
-            onClick={onClose} 
-            className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-full hover:bg-gray-50 transition-all duration-200"
-          >
-            取消
-          </button>
-          <button 
-            onClick={handleSubmit} 
-            className="px-8 py-2.5 text-sm font-medium bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-lg hover:shadow-xl"
-          >
-            保存配置
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 };
 

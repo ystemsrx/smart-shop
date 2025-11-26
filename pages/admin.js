@@ -380,10 +380,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
                 className="h-full"
               >
                 {activeTab === 'overview' && (
@@ -607,16 +607,19 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           )}
         </Modal>
 
-        {variantStockProduct && (
-          <VariantStockModal
-            product={variantStockProduct}
-            onClose={() => setVariantStockProduct(null)}
-            apiPrefix={staffPrefix}
-            onProductVariantsSync={handleProductVariantsSync}
-            onStatsRefresh={refreshStats}
-            onWarningsRefresh={refreshAllWarnings}
-          />
-        )}
+        <AnimatePresence>
+          {variantStockProduct && (
+            <VariantStockModal
+              key="variant-stock-modal"
+              product={variantStockProduct}
+              onClose={() => setVariantStockProduct(null)}
+              apiPrefix={staffPrefix}
+              onProductVariantsSync={handleProductVariantsSync}
+              onStatsRefresh={refreshStats}
+              onWarningsRefresh={refreshAllWarnings}
+            />
+          )}
+        </AnimatePresence>
 
         <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
       </div>

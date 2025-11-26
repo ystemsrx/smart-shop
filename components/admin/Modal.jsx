@@ -1,8 +1,8 @@
 import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X } from 'lucide-react';
 
 export const Modal = ({ isOpen, onClose, title, children, size = 'large' }) => {
-  if (!isOpen) return null;
-
   const sizeClasses = {
     small: "max-w-md",
     medium: "max-w-lg", 
@@ -11,38 +11,54 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'large' }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        {/* 背景遮罩 */}
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300"
-          onClick={onClose}
-        />
-        
-        {/* 模态内容 */}
-        <div className={`relative w-full ${sizeClasses[size]} bg-white rounded-2xl shadow-2xl transform transition-all duration-300 overflow-hidden max-h-[95vh] flex flex-col`}>
-          {/* 顶部装饰条 */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500"></div>
-          
-          {/* 标题栏 */}
-          <div className="flex-shrink-0 flex items-center justify-between px-6 py-5 border-b-2 border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-            <h3 className="text-xl font-bold text-gray-900">{title}</h3>
-            <button
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto overflow-x-hidden">
+          <div className="flex min-h-screen items-center justify-center p-4 text-center">
+            {/* 背景遮罩 */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm"
               onClick={onClose}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all duration-200 focus:outline-none"
-              aria-label="关闭"
+            />
+            
+            {/* 模态内容 */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ 
+                type: "spring",
+                stiffness: 350,
+                damping: 25,
+                mass: 0.8
+              }}
+              className={`relative w-full ${sizeClasses[size]} bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col text-left transform align-middle`}
             >
-              <i className="fas fa-times text-lg"></i>
-            </button>
-          </div>
-          
-          {/* 内容区域 - 可滚动 */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            {children}
+              {/* 标题栏 */}
+              <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white/80 backdrop-blur-md z-10">
+                <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+                <button
+                  onClick={onClose}
+                  className="w-8 h-8 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-all duration-200 focus:outline-none active:scale-95"
+                  aria-label="关闭"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              
+              {/* 内容区域 - 可滚动 */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                {children}
+              </div>
+            </motion.div>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 };
 
