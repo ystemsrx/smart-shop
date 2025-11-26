@@ -1291,3 +1291,44 @@ body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
+
+.animate-fade-in-up {
+  animation: apple-slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(-5%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 3s infinite;
+}
+
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+
+.animate-stagger-fade-in > * {
+  opacity: 0;
+  animation: apple-slide-up 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+

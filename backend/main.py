@@ -4344,6 +4344,7 @@ async def create_order(
                     prize_variant_id = r.get("prize_variant_id")
                     prize_variant_name = r.get("prize_variant_name")
                     prize_product_name = r.get("prize_product_name") or prize_name
+                    prize_img_path = r.get("prize_img_path") or ""
                     try:
                         recorded_value = float(r.get("prize_unit_price") or 0.0)
                     except Exception:
@@ -4356,6 +4357,8 @@ async def create_order(
                         "subtotal": 0.0,
                         "category": "抽奖",
                         "is_lottery": True,
+                        "img_path": prize_img_path,
+                        "image_url": prize_img_path,
                         "lottery_display_name": prize_name,
                         "lottery_product_id": prize_pid,
                         "lottery_product_name": prize_product_name,
@@ -4480,6 +4483,51 @@ async def create_order(
         logger.error(f"创建订单失败: {e}")
         return error_response("创建订单失败", 500)
 
+def _enrich_order_items_with_images(order: Dict) -> Dict:
+    """为订单商品补充图片信息（主要用于抽奖/赠品商品的旧订单兼容）"""
+    items = order.get("items") or []
+    if not items:
+        return order
+    
+    # 收集需要查询图片的商品ID
+    product_ids_to_fetch = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        # 只处理缺少图片的抽奖或赠品商品
+        if (item.get("is_lottery") or item.get("is_auto_gift")):
+            if not item.get("img_path") and not item.get("image_url"):
+                # 优先使用 lottery_product_id，其次使用 product_id
+                pid = item.get("lottery_product_id") or item.get("product_id")
+                if pid and not pid.startswith("prize_"):  # 排除生成的临时ID
+                    product_ids_to_fetch.add(pid)
+    
+    if not product_ids_to_fetch:
+        return order
+    
+    # 批量查询商品图片
+    product_images = {}
+    for pid in product_ids_to_fetch:
+        try:
+            product = ProductDB.get_product_by_id(pid)
+            if product and product.get("img_path"):
+                product_images[pid] = product["img_path"]
+        except Exception:
+            pass
+    
+    # 更新订单项的图片
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if (item.get("is_lottery") or item.get("is_auto_gift")):
+            if not item.get("img_path") and not item.get("image_url"):
+                pid = item.get("lottery_product_id") or item.get("product_id")
+                if pid and pid in product_images:
+                    item["img_path"] = product_images[pid]
+                    item["image_url"] = product_images[pid]
+    
+    return order
+
 @app.get("/orders/my")
 async def get_my_orders(request: Request):
     """获取用户的订单列表"""
@@ -4493,6 +4541,8 @@ async def get_my_orders(request: Request):
         for order in orders:
             if order.get("created_at"):
                 order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
+            # 为订单商品补充图片信息
+            _enrich_order_items_with_images(order)
         
         return success_response("获取订单列表成功", {"orders": orders})
     
@@ -4518,6 +4568,9 @@ async def get_order_detail(order_id: str, request: Request):
         # 添加时间戳转换（与订单列表接口保持一致）
         if order.get("created_at"):
             order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
+        
+        # 为订单商品补充图片信息
+        _enrich_order_items_with_images(order)
         
         return success_response("获取订单详情成功", {"order": order})
     

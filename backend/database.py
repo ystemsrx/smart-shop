@@ -6383,8 +6383,8 @@ class RewardDB:
             
             # 优先使用user_id查询，向后兼容student_id
             clauses = [
-                '(user_id = ? OR student_id = ?)',
-                "status = 'eligible'"
+                '(ur.user_id = ? OR ur.student_id = ?)',
+                "ur.status = 'eligible'"
             ]
             params: List[Any] = [user_ref['user_id'], user_ref['student_id']]
 
@@ -6399,15 +6399,20 @@ class RewardDB:
                         normalized_owner = owner_id.strip() if isinstance(owner_id, str) else None
 
                 if normalized_owner is None:
-                    clauses.append('(owner_id IS NULL OR TRIM(owner_id) = "")')
+                    clauses.append('(ur.owner_id IS NULL OR TRIM(ur.owner_id) = "")')
                 elif normalized_owner == 'admin':
-                    clauses.append('(owner_id = ? OR owner_id IS NULL OR TRIM(owner_id) = "")')
+                    clauses.append('(ur.owner_id = ? OR ur.owner_id IS NULL OR TRIM(ur.owner_id) = "")')
                     params.append(normalized_owner)
                 else:
-                    clauses.append('owner_id = ?')
+                    clauses.append('ur.owner_id = ?')
                     params.append(normalized_owner)
 
-            query = 'SELECT * FROM user_rewards WHERE ' + ' AND '.join(clauses) + ' ORDER BY created_at ASC'
+            # 联表查询以获取商品图片路径
+            query = '''
+                SELECT ur.*, p.img_path as prize_img_path
+                FROM user_rewards ur
+                LEFT JOIN products p ON ur.prize_product_id = p.id
+                WHERE ''' + ' AND '.join(clauses) + ' ORDER BY ur.created_at ASC'
             cursor.execute(query, params)
             return [dict(r) for r in cursor.fetchall()]
 
