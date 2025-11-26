@@ -614,12 +614,9 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
                whileHover={{ scale: 1.05 }}
                whileTap={{ scale: 0.95 }}
                type="submit"
-               className="flex-shrink-0 px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 shadow-lg"
+               className="flex-shrink-0 w-10 h-10 my-auto bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 shadow-lg flex items-center justify-center"
              >
-              <div className="flex items-center gap-2">
-                <i className="fas fa-search"></i>
-                <span className="hidden sm:inline">搜索</span>
-              </div>
+              <i className="fas fa-search"></i>
             </motion.button>
           </div>
         </motion.div>

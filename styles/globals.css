@@ -1145,34 +1145,160 @@ body {
   z-index: 1000;
 }
 
-/* 购物车商品项动画 */
+/* 购物车商品项动画 - 优化版 */
 @keyframes cart-item-enter {
-  from {
+  0% {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(24px) scale(0.96);
   }
-  to {
+  60% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.01);
+  }
+  100% {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
 
 .cart-item-enter {
-  animation: cart-item-enter 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: cart-item-enter 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* 平滑的数量增减动画 */
+/* 购物车商品项退出动画 */
+@keyframes cart-item-exit {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-30px) scale(0.94);
+  }
+}
+
+.cart-item-exit {
+  animation: cart-item-exit 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* 平滑的数量增减动画 - 更灵动 */
 @keyframes pulse-gentle {
-  0%, 100% {
+  0% {
     transform: scale(1);
   }
-  50% {
-    transform: scale(1.05);
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
 .quantity-change {
-  animation: pulse-gentle 0.3s ease-out;
+  animation: pulse-gentle 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 购物车页面特定动画 */
+@keyframes cart-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cart-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cart-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  70% {
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-cart-slide-left {
+  animation: cart-slide-in-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-cart-slide-right {
+  animation: cart-slide-in-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-cart-pop {
+  animation: cart-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 骨架屏闪光效果优化 */
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+/* 购物车悬浮效果增强 */
+.cart-item-hover-lift {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), 
+              box-shadow 0.2s ease;
+}
+
+.cart-item-hover-lift:hover {
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+}
+
+/* 按钮点击反馈 */
+@keyframes button-press {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.button-press-effect:active {
+  animation: button-press 0.15s ease-out;
 }
 
 /* 渐变文字动画 */

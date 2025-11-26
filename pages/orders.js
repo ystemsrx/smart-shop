@@ -82,6 +82,17 @@ const getUnifiedStatus = (order) => {
 
 const UNIFIED_STATUS_ORDER = ['全部', '未付款', '待确认', '待配送', '配送中', '已完成'];
 
+// 手机端显示的简化筛选选项
+const MOBILE_FILTER_ORDER = ['全部', '待确认', '已确认', '已完成'];
+
+// 手机端筛选映射到实际状态
+const MOBILE_FILTER_MAP = {
+  '全部': ['全部'],
+  '待确认': ['未付款', '待确认'],
+  '已确认': ['待配送', '配送中'],
+  '已完成': ['已完成']
+};
+
 function StatusBadge({ status }) {
   const config = {
     '未付款': { bg: 'bg-slate-100', text: 'text-slate-600', icon: 'fa-credit-card', ring: 'ring-slate-200' },
@@ -295,7 +306,19 @@ export default function Orders() {
 
   if (!user) return null;
 
-  const filteredOrders = filter === '全部' ? orders : orders.filter(o => getUnifiedStatus(o) === filter);
+  // 根据筛选条件过滤订单
+  const filteredOrders = useMemo(() => {
+    if (filter === '全部') return orders;
+    
+    // 检查是否是手机端的合并筛选
+    const mappedStatuses = MOBILE_FILTER_MAP[filter];
+    if (mappedStatuses && mappedStatuses[0] !== '全部') {
+      return orders.filter(o => mappedStatuses.includes(getUnifiedStatus(o)));
+    }
+    
+    // 桌面端的单一状态筛选
+    return orders.filter(o => getUnifiedStatus(o) === filter);
+  }, [orders, filter]);
 
   const formatDate = (val) => {
     if (typeof val === 'number' && isFinite(val)) {
@@ -364,46 +387,55 @@ export default function Orders() {
             </div>
           ) : (
             <>
-              {/* 筛选器 */}
-              <div className="sticky top-16 z-30 -mx-4 sm:mx-0 mb-8 px-4 sm:px-0">
+              {/* 筛选器 - 手机端 */}
+              <div className="sticky top-16 z-30 -mx-4 sm:hidden mb-8 px-4 animate-fade-in-up" style={{ animationDelay: '0.05s', animationFillMode: 'both' }}>
                 <div className="bg-white/80 backdrop-blur-xl border border-white/20 shadow-sm rounded-2xl p-1.5 flex overflow-x-auto hide-scrollbar snap-x relative">
                   {/* 滑动背景 */}
                   <div 
                     className="absolute top-1.5 bottom-1.5 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-xl transition-all duration-300 ease-out z-0"
                     style={{
-                      left: `${(UNIFIED_STATUS_ORDER.indexOf(filter) - (typeof window !== 'undefined' && window.innerWidth < 640 && UNIFIED_STATUS_ORDER.indexOf(filter) > UNIFIED_STATUS_ORDER.indexOf('未付款') ? 1 : 0)) * (100 / (typeof window !== 'undefined' && window.innerWidth < 640 ? UNIFIED_STATUS_ORDER.length - 1 : UNIFIED_STATUS_ORDER.length))}%`,
-                      width: `${100 / (typeof window !== 'undefined' && window.innerWidth < 640 ? UNIFIED_STATUS_ORDER.length - 1 : UNIFIED_STATUS_ORDER.length)}%`,
-                      opacity: (filter === '未付款' && typeof window !== 'undefined' && window.innerWidth < 640) ? 0 : 1
+                      left: `calc(6px + ${MOBILE_FILTER_ORDER.indexOf(filter)} * ((100% - 12px) / ${MOBILE_FILTER_ORDER.length}))`,
+                      width: `calc((100% - 12px) / ${MOBILE_FILTER_ORDER.length})`
                     }}
                   ></div>
 
-                  {UNIFIED_STATUS_ORDER.map((label) => {
-                    // Hide "未付款" on mobile screens
-                    if (label === '未付款') {
-                      return (
-                        <button
-                          key={label}
-                          onClick={() => setFilter(label)}
-                          className={`hidden sm:flex flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10 ${
-                            filter === label ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    }
-                    return (
-                      <button
-                        key={label}
-                        onClick={() => setFilter(label)}
-                        className={`flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10 ${
-                          filter === label ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+                  {MOBILE_FILTER_ORDER.map((label) => (
+                    <button
+                      key={label}
+                      onClick={() => setFilter(label)}
+                      className={`flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10 ${
+                        filter === label ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 筛选器 - 桌面端 */}
+              <div className="sticky top-16 z-30 hidden sm:block mb-8 animate-fade-in-up" style={{ animationDelay: '0.05s', animationFillMode: 'both' }}>
+                <div className="bg-white/80 backdrop-blur-xl border border-white/20 shadow-sm rounded-2xl p-1.5 flex overflow-x-auto hide-scrollbar snap-x relative">
+                  {/* 滑动背景 */}
+                  <div 
+                    className="absolute top-1.5 bottom-1.5 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-xl transition-all duration-300 ease-out z-0"
+                    style={{
+                      left: `calc(6px + ${UNIFIED_STATUS_ORDER.indexOf(filter)} * ((100% - 12px) / ${UNIFIED_STATUS_ORDER.length}))`,
+                      width: `calc((100% - 12px) / ${UNIFIED_STATUS_ORDER.length})`
+                    }}
+                  ></div>
+
+                  {UNIFIED_STATUS_ORDER.map((label) => (
+                    <button
+                      key={label}
+                      onClick={() => setFilter(label)}
+                      className={`flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10 ${
+                        filter === label ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 

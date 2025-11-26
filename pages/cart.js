@@ -51,46 +51,125 @@ const createMissingValidation = () => ({
 
 
 
+// 页面容器动效 - 更流畅的进入动画
 const containerVariants = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    y: 0,
     transition: {
-      duration: 0.4,
-      ease: "easeOut"
+      duration: 0.3,
+      ease: [0.25, 0.1, 0.25, 1],
+      staggerChildren: 0.06,
+      delayChildren: 0.1
     }
   }
 };
 
+// 子元素通用动效
 const itemVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.98 },
+  hidden: { opacity: 0, y: 24, scale: 0.96 },
   visible: { 
     opacity: 1, 
     y: 0, 
     scale: 1,
-    transition: { type: "spring", stiffness: 350, damping: 25 }
+    transition: { 
+      type: "spring", 
+      stiffness: 400, 
+      damping: 28,
+      mass: 0.8
+    }
   },
   exit: { 
     opacity: 0, 
-    scale: 0.95, 
-    transition: { duration: 0.2 } 
+    scale: 0.92,
+    y: -10,
+    transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
   }
 };
 
-// 购物车商品项专用动效（更快响应，不受父容器stagger影响）
+// 购物车商品项专用动效 - 灵动弹性
 const cartItemVariants = {
-  hidden: { opacity: 0, y: 10 },
-  visible: { 
+  hidden: { opacity: 0, y: 16, scale: 0.97 },
+  visible: (custom) => ({ 
     opacity: 1, 
     y: 0,
-    transition: { type: "tween", duration: 0.2, ease: "easeOut" }
-  },
+    scale: 1,
+    transition: { 
+      type: "spring",
+      stiffness: 500,
+      damping: 30,
+      mass: 0.6,
+      delay: custom * 0.05
+    }
+  }),
   exit: { 
     opacity: 0, 
-    scale: 0.95, 
-    transition: { duration: 0.15 } 
+    scale: 0.94, 
+    x: -30,
+    transition: { 
+      duration: 0.25, 
+      ease: [0.4, 0, 0.2, 1]
+    } 
   }
+};
+
+// 标题区域动效
+const headerVariants = {
+  hidden: { opacity: 0, y: -20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      type: "spring",
+      stiffness: 300,
+      damping: 24
+    }
+  }
+};
+
+// 侧边栏订单摘要动效
+const sidebarVariants = {
+  hidden: { opacity: 0, x: 30, scale: 0.98 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    scale: 1,
+    transition: {
+      type: "spring",
+      stiffness: 350,
+      damping: 30,
+      delay: 0.15
+    }
+  }
+};
+
+// 空状态动效
+const emptyStateVariants = {
+  hidden: { opacity: 0, scale: 0.9, y: 30 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: {
+      type: "spring",
+      stiffness: 300,
+      damping: 25,
+      staggerChildren: 0.1,
+      delayChildren: 0.1
+    }
+  }
+};
+
+// 加载骨架屏动效
+const skeletonVariants = {
+  hidden: { opacity: 0 },
+  visible: (i) => ({
+    opacity: 1,
+    transition: {
+      delay: i * 0.08,
+      duration: 0.3
+    }
+  })
 };
 
 // 购物车商品项组件
@@ -122,10 +201,15 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   return (
     <motion.div 
       layout
-      initial={false}
+      layoutId={`cart-item-${item.product_id}-${item.variant_id || 'default'}`}
+      initial="hidden"
+      animate="visible"
       exit="exit"
       variants={cartItemVariants}
-      className={`group bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-4 transition-all duration-300 hover:shadow-lg hover:border-slate-300/80 ${isDown ? 'opacity-60 grayscale' : ''}`}
+      custom={0}
+      whileHover={{ scale: 1.01, transition: { duration: 0.2 } }}
+      whileTap={{ scale: 0.99 }}
+      className={`group bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-4 transition-colors duration-200 hover:shadow-lg hover:border-slate-300/80 ${isDown ? 'opacity-60 grayscale' : ''}`}
     >
       <div className="flex items-start gap-4">
         {/* 商品图片 */}
@@ -248,6 +332,105 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
         </button>
       </div>
     </motion.div>
+  );
+};
+
+// 优惠券选择器组件 - 现代弹窗风格
+const CouponSelector = ({ coupons, selectedId, onSelect }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  // 点击外部关闭
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const selectedCoupon = coupons.find(c => c.id === selectedId) || coupons[0];
+  const sortedCoupons = [...coupons].sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+
+  return (
+    <div className="mt-3 relative" ref={containerRef}>
+      <motion.button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-200 bg-white ${isOpen ? 'border-pink-400 ring-4 ring-pink-100 shadow-md' : 'border-slate-200 hover:border-pink-300 hover:shadow-sm'}`}
+        whileTap={{ scale: 0.98 }}
+      >
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+            ¥{parseFloat(selectedCoupon?.amount || 0)}
+          </div>
+          <div className="flex flex-col items-start min-w-0">
+            <span className="text-sm font-bold text-slate-800 truncate w-full text-left">
+              省 ¥{parseFloat(selectedCoupon?.amount || 0)}
+            </span>
+            <span className="text-xs text-slate-500 truncate w-full text-left">
+              {selectedCoupon?.expires_at ? `有效期至 ${new Date(selectedCoupon.expires_at).toLocaleDateString()}` : '永久有效'}
+            </span>
+          </div>
+        </div>
+        <motion.i 
+          className="fas fa-chevron-down text-slate-400 ml-2"
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ duration: 0.2 }}
+        />
+      </motion.button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 4, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="absolute left-0 right-0 top-full z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 max-h-64 overflow-y-auto custom-scrollbar"
+          >
+            {sortedCoupons.map((coupon) => {
+              const isSelected = coupon.id === selectedId;
+              return (
+                <motion.button
+                  key={coupon.id}
+                  onClick={() => {
+                    onSelect(coupon.id);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl mb-1 last:mb-0 transition-colors ${isSelected ? 'bg-pink-50 border border-pink-200' : 'hover:bg-slate-50 border border-transparent'}`}
+                  whileHover={{ scale: 1.02, x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold shadow-sm ${isSelected ? 'bg-gradient-to-br from-pink-500 to-rose-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                      ¥{parseFloat(coupon.amount || 0)}
+                    </div>
+                    <div className="text-left">
+                      <div className={`text-sm font-bold ${isSelected ? 'text-pink-700' : 'text-slate-700'}`}>
+                        省 ¥{parseFloat(coupon.amount || 0)}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {coupon.expires_at ? `截止 ${new Date(coupon.expires_at).toLocaleDateString()}` : '永久有效'}
+                      </div>
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <i className="fas fa-check-circle text-pink-500 text-lg"></i>
+                  )}
+                </motion.button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 };
 
@@ -374,9 +557,9 @@ const OrderSummary = ({
           </div>
         )}
         {/* 优惠券选择（靠近结算按钮） */}
-        <div className="border-t border-slate-200 pt-4 mt-4">
+        <div className="border-t border-slate-200 pt-4 mt-4 relative z-20">
           <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200/50">
-            <label className="flex items-center gap-2 text-slate-900 font-semibold cursor-pointer">
+            <label className="flex items-center gap-2 text-slate-900 font-semibold cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={!!applyCoupon}
@@ -388,7 +571,6 @@ const OrderSummary = ({
                   const checked = !!e.target.checked;
                   setApplyCoupon && setApplyCoupon(checked);
                   if (checked && !selectedCouponId && setSelectedCouponId) {
-                    // 如果勾选使用优惠券但没有选中券，自动选择最佳券
                     const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
                     if (usable.length > 0) {
                       usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
@@ -410,30 +592,21 @@ const OrderSummary = ({
               ) : '—'}
             </span>
           </div>
-          {/* 简单选择列表（若有多张） */}
+          
+          {/* 自定义优惠券选择器 */}
           {(() => {
             const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
             if (usable.length === 0) return null;
+            
+            // 如果未勾选使用优惠券，不显示选择器
+            if (!applyCoupon) return null;
+
             return (
-            <div className="mt-3 text-sm">
-              <select
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:border-pink-400 focus:ring-2 focus:ring-pink-200 transition-all duration-200"
-                value={selectedCouponId || (usable[0]?.id || '')}
-                onChange={(e) => setSelectedCouponId && setSelectedCouponId(e.target.value || null)}
-              >
-                {usable
-                  .slice()
-                  .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
-                  .map(c => {
-                    const amt = parseFloat(c.amount) || 0;
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {`¥${amt.toFixed(2)}${c.expires_at ? ` · 截止 ${new Date(c.expires_at).toLocaleDateString('zh-CN')}` : ' · 永久'}`}
-                      </option>
-                    );
-                  })}
-              </select>
-            </div>
+              <CouponSelector 
+                coupons={usable} 
+                selectedId={selectedCouponId} 
+                onSelect={(id) => setSelectedCouponId && setSelectedCouponId(id)} 
+              />
             );
           })()}
         </div>
@@ -1056,48 +1229,120 @@ export default function Cart() {
           animate="visible"
           className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
         >
-          <div className="mb-8 pb-6 flex justify-between items-center">
+          <motion.div 
+            className="mb-8 pb-6 flex justify-between items-center"
+            variants={headerVariants}
+            initial="hidden"
+            animate="visible"
+          >
             <div>
-              <h1 className="text-4xl font-black text-slate-900 mb-2 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+              <motion.h1 
+                className="text-4xl font-black text-slate-900 mb-2 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.1 }}
+              >
                 购物车
-              </h1>
-              <p className="text-slate-600 mt-1 flex items-center gap-2">
+              </motion.h1>
+              <motion.p 
+                className="text-slate-600 mt-1 flex items-center gap-2"
+                initial={{ opacity: 0, x: -15 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.2 }}
+              >
                 <i className="fas fa-shopping-bag text-emerald-500"></i>
                 管理您的购物车商品
-              </p>
+              </motion.p>
             </div>
             
             {cart.items && cart.items.length > 0 && (
-              <button
+              <motion.button
                 onClick={handleClearCart}
-                className="text-sm text-slate-600 hover:text-rose-600 border-2 border-slate-300 hover:border-rose-400 px-4 py-2.5 rounded-xl hover:bg-rose-50 transition-all duration-300 font-semibold transform hover:scale-105 active:scale-95 flex items-center gap-2"
+                className="text-sm text-slate-600 hover:text-rose-600 border-2 border-slate-300 hover:border-rose-400 px-4 py-2.5 rounded-xl hover:bg-rose-50 transition-colors duration-200 font-semibold flex items-center gap-2"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25, delay: 0.3 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 <i className="fas fa-trash-alt"></i>
                 清空购物车
-              </button>
+              </motion.button>
             )}
-          </div>
+          </motion.div>
 
-          {/* 加载状态 */}
+          {/* 加载状态 - 优化骨架屏动画 */}
           {isLoading ? (
-            <div className="space-y-4">
+            <motion.div 
+              className="space-y-4"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                  opacity: 1,
+                  transition: { staggerChildren: 0.1 }
+                }
+              }}
+            >
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 animate-pulse">
+                <motion.div 
+                  key={i} 
+                  custom={i}
+                  variants={skeletonVariants}
+                  className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6"
+                >
                   <div className="flex items-start gap-4">
-                    <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-xl"></div>
+                    <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-xl overflow-hidden relative">
+                      <motion.div 
+                        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                        animate={{ x: ["-100%", "100%"] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 }}
+                      />
+                    </div>
                     <div className="flex-1">
-                      <div className="h-5 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg mb-3 w-3/4"></div>
-                      <div className="h-4 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/2 mb-2"></div>
-                      <div className="h-3 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/3"></div>
+                      <div className="h-5 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg mb-3 w-3/4 overflow-hidden relative">
+                        <motion.div 
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.1 }}
+                        />
+                      </div>
+                      <div className="h-4 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/2 mb-2 overflow-hidden relative">
+                        <motion.div 
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.2 }}
+                        />
+                      </div>
+                      <div className="h-3 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/3 overflow-hidden relative">
+                        <motion.div 
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.3 }}
+                        />
+                      </div>
                     </div>
                     <div className="flex flex-col gap-3">
-                      <div className="w-20 h-6 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg"></div>
-                      <div className="w-24 h-9 bg-gradient-to-r from-slate-100 to-slate-200 rounded-xl"></div>
+                      <div className="w-20 h-6 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg overflow-hidden relative">
+                        <motion.div 
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.4 }}
+                        />
+                      </div>
+                      <div className="w-24 h-9 bg-gradient-to-r from-slate-100 to-slate-200 rounded-xl overflow-hidden relative">
+                        <motion.div 
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.5 }}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           ) : cart.items && cart.items.length > 0 ? (
             <>
               {/* 整体网格布局：左侧内容 + 右侧订单摘要 */}
@@ -1106,14 +1351,25 @@ export default function Cart() {
                 <div className="lg:col-span-2 space-y-6">
                   {/* 地址和打烊提示 */}
                   {user?.type === 'user' && (
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <button
+                    <motion.div 
+                      className="flex flex-col sm:flex-row gap-3"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.15 }}
+                    >
+                      <motion.button
                         onClick={openLocationModal}
-                        className="group flex items-center gap-3 px-5 py-4 bg-white border-2 border-emerald-300/50 rounded-2xl text-emerald-700 hover:shadow-xl hover:border-emerald-400 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] bg-gradient-to-r from-emerald-50/50 to-teal-50/50"
+                        className="group flex items-center gap-3 px-5 py-4 bg-white border-2 border-emerald-300/50 rounded-2xl text-emerald-700 hover:shadow-xl hover:border-emerald-400 transition-colors duration-200 bg-gradient-to-r from-emerald-50/50 to-teal-50/50"
+                        whileHover={{ scale: 1.02, y: -2 }}
+                        whileTap={{ scale: 0.98 }}
                       >
-                        <span className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-lg group-hover:shadow-xl transition-shadow">
+                        <motion.span 
+                          className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-lg"
+                          whileHover={{ rotate: 10, scale: 1.1 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 15 }}
+                        >
                           <i className="fas fa-location-dot"></i>
-                        </span>
+                        </motion.span>
                         <div className="text-left flex-1">
                           <div className="text-xs text-emerald-600 font-semibold">当前配送地址</div>
                           <div className="text-base font-bold text-emerald-800 mt-0.5">{displayLocation}</div>
@@ -1122,78 +1378,135 @@ export default function Cart() {
                           修改
                           <i className="fas fa-chevron-right text-xs"></i>
                         </span>
-                      </button>
+                      </motion.button>
 
                       {reservationFromClosure && (
-                        <div className="rounded-2xl border-2 border-sky-300/50 bg-gradient-to-r from-sky-50 to-blue-50 px-5 py-4 text-sky-800 flex items-start gap-3 flex-1 shadow-sm">
-                          <div className="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-500 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
+                        <motion.div 
+                          className="rounded-2xl border-2 border-sky-300/50 bg-gradient-to-r from-sky-50 to-blue-50 px-5 py-4 text-sky-800 flex items-start gap-3 flex-1 shadow-sm"
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.25 }}
+                        >
+                          <motion.div 
+                            className="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-500 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg"
+                            animate={{ scale: [1, 1.05, 1] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          >
                             <i className="fas fa-calendar-check text-white"></i>
-                          </div>
+                          </motion.div>
                           <div>
                             <p className="text-sm font-bold text-sky-900">店铺打烊中，支持预约下单</p>
                             <p className="text-xs text-sky-700 leading-snug mt-1">提交订单后将作为预约订单保存，我们会在营业后优先处理。</p>
                           </div>
-                        </div>
+                        </motion.div>
                       )}
-                    </div>
+                    </motion.div>
                   )}
 
                   {/* 地址验证错误提示 */}
                   {addressInvalid && (
-                    <div className="flex items-start gap-3 rounded-2xl border-2 border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-5 py-4 text-sm text-rose-800 shadow-sm">
-                      <i className="fas fa-exclamation-triangle mt-0.5 text-rose-500 text-lg"></i>
+                    <motion.div 
+                      className="flex items-start gap-3 rounded-2xl border-2 border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-5 py-4 text-sm text-rose-800 shadow-sm"
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    >
+                      <motion.i 
+                        className="fas fa-exclamation-triangle mt-0.5 text-rose-500 text-lg"
+                        animate={{ rotate: [0, -10, 10, -10, 0] }}
+                        transition={{ duration: 0.5, delay: 0.3 }}
+                      />
                       <span className="flex-1 font-semibold">{addressAlertMessage}</span>
-                      <button
+                      <motion.button
                         onClick={openLocationModal}
                         className="ml-3 text-rose-600 hover:text-rose-800 font-bold underline decoration-2 underline-offset-2 transition-colors"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
                       >
                         重新选择
-                      </button>
-                    </div>
+                      </motion.button>
+                    </motion.div>
                   )}
 
                   {/* 信息提示 */}
                   {infoMessage && (
-                    <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/50 text-emerald-800 px-5 py-4 rounded-2xl flex items-start gap-3 shadow-sm">
+                    <motion.div 
+                      className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/50 text-emerald-800 px-5 py-4 rounded-2xl flex items-start gap-3 shadow-sm"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    >
                       <i className="fas fa-info-circle mt-0.5 text-emerald-600 text-lg"></i>
                       <span className="flex-1 font-semibold">{infoMessage}</span>
-                      <button
+                      <motion.button
                         onClick={() => setInfoMessage('')}
                         className="ml-auto text-emerald-600 hover:text-emerald-800 transition-colors"
                         aria-label="关闭提示"
+                        whileHover={{ scale: 1.1, rotate: 90 }}
+                        whileTap={{ scale: 0.9 }}
                       >
                         <i className="fas fa-times"></i>
-                      </button>
-                    </div>
+                      </motion.button>
+                    </motion.div>
                   )}
 
                   {/* 错误提示 */}
                   {error && (
-                    <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200/50 text-red-800 px-5 py-4 rounded-2xl shadow-sm font-semibold">
-                      <i className="fas fa-exclamation-circle mr-2"></i>
+                    <motion.div 
+                      className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200/50 text-red-800 px-5 py-4 rounded-2xl shadow-sm font-semibold"
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    >
+                      <motion.i 
+                        className="fas fa-exclamation-circle mr-2"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 0.3 }}
+                      />
                       {error}
-                    </div>
+                    </motion.div>
                   )}
 
                   {/* 优惠券概览 */}
                   {coupons && coupons.length > 0 && (
-                    <div className="border-2 border-pink-200/50 rounded-2xl overflow-hidden shadow-sm bg-white">
-                      <button
-                        className="w-full flex items-center justify-between px-5 py-4 bg-gradient-to-r from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 transition-all duration-300"
+                    <motion.div 
+                      className="border-2 border-pink-200/50 rounded-2xl overflow-hidden shadow-sm bg-white"
+                      initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.2 }}
+                    >
+                      <motion.button
+                        className="w-full flex items-center justify-between px-5 py-4 bg-gradient-to-r from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 transition-colors duration-200"
                         onClick={() => setCouponExpanded(!couponExpanded)}
+                        whileHover={{ backgroundColor: "rgba(251, 207, 232, 0.3)" }}
+                        whileTap={{ scale: 0.99 }}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-full flex items-center justify-center text-white shadow-lg">
+                          <motion.div 
+                            className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-full flex items-center justify-center text-white shadow-lg"
+                            whileHover={{ rotate: 15, scale: 1.1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 15 }}
+                          >
                             <i className="fas fa-ticket-alt"></i>
-                          </div>
+                          </motion.div>
                           <span className="font-bold text-slate-900 text-lg">我的优惠券</span>
-                          <span className="text-sm text-pink-600 font-semibold bg-white px-3 py-1 rounded-full shadow-sm">
+                          <motion.span 
+                            className="text-sm text-pink-600 font-semibold bg-white px-3 py-1 rounded-full shadow-sm"
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 20, delay: 0.4 }}
+                          >
                             {coupons.length} 张
-                          </span>
+                          </motion.span>
                         </div>
-                        <i className={`fas ${couponExpanded ? 'fa-chevron-up' : 'fa-chevron-down'} text-pink-500 transition-transform duration-300`}></i>
-                      </button>
-                      {couponExpanded && (() => {
+                        <motion.i 
+                          className={`fas fa-chevron-down text-pink-500`}
+                          animate={{ rotate: couponExpanded ? 180 : 0 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                        />
+                      </motion.button>
+                      {(() => {
                         const sub = cart?.total_price || 0;
                         const groups = {};
                         for (const c of coupons) {
@@ -1203,12 +1516,27 @@ export default function Cart() {
                         }
                         const keys = Object.keys(groups).sort((a, b) => (groups[b].amount - groups[a].amount));
                         return (
-                          <div className="bg-gradient-to-br from-slate-50 to-slate-100 px-5 py-4">
-                            {keys.map(k => {
+                          <div 
+                            className="bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden transition-all duration-300 ease-out"
+                            style={{
+                              maxHeight: couponExpanded ? `${keys.length * 100 + 32}px` : '0px',
+                              opacity: couponExpanded ? 1 : 0,
+                              padding: couponExpanded ? '1rem 1.25rem' : '0 1.25rem',
+                            }}
+                          >
+                            {keys.map((k, idx) => {
                               const g = groups[k];
                               const usable = sub > g.amount;
                               return (
-                                <div key={k} className={`flex items-center justify-between border-2 bg-white rounded-xl px-4 py-3 mb-3 shadow-sm transition-all duration-300 hover:shadow-md ${usable ? 'border-pink-300/50 hover:border-pink-400' : 'border-slate-200 opacity-60'}`}>
+                                <div 
+                                  key={k} 
+                                  className={`flex items-center justify-between border-2 bg-white rounded-xl px-4 py-3 mb-3 shadow-sm transition-all duration-200 hover:shadow-md hover:scale-[1.01] hover:translate-x-1 ${usable ? 'border-pink-300/50 hover:border-pink-400' : 'border-slate-200 opacity-60'}`}
+                                  style={{
+                                    transform: couponExpanded ? 'translateX(0)' : 'translateX(-20px)',
+                                    opacity: couponExpanded ? 1 : 0,
+                                    transition: `all 0.25s ease-out ${idx * 0.05}s`,
+                                  }}
+                                >
                                   <div className="flex items-center gap-4">
                                     <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-lg shadow-inner ${usable ? 'bg-gradient-to-br from-pink-500 to-rose-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
                                       ¥{g.amount}
@@ -1230,11 +1558,25 @@ export default function Cart() {
                           </div>
                         );
                       })()}
-                    </div>
+                    </motion.div>
                   )}
 
                   {/* 商品列表容器 */}
-                  <div className="space-y-0">
+                  <motion.div 
+                    className="space-y-0"
+                    initial="hidden"
+                    animate="visible"
+                    variants={{
+                      hidden: { opacity: 0 },
+                      visible: {
+                        opacity: 1,
+                        transition: {
+                          staggerChildren: 0.06,
+                          delayChildren: 0.1
+                        }
+                      }
+                    }}
+                  >
                     <AnimatePresence mode="popLayout">
                     {cart.items
                       .sort((a, b) => {
@@ -1245,16 +1587,16 @@ export default function Cart() {
                         if (!aIsNonSellable && bIsNonSellable) return -1;
                         return 0;
                       })
-                      .map((item) => (
+                      .map((item, index) => (
                       <CartItem
-                        key={item.product_id}
-                        item={item}
+                        key={`${item.product_id}-${item.variant_id || 'default'}`}
+                        item={{...item, _animIndex: index}}
                         onUpdateQuantity={handleUpdateQuantity}
                         onRemove={handleRemoveItem}
                       />
                     ))}
                     </AnimatePresence>
-                  </div>
+                  </motion.div>
 
                   {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
                   {eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
@@ -1322,11 +1664,25 @@ export default function Cart() {
                     const titleTextClass = hasAnyUnlocked ? 'text-pink-700' : 'text-gray-500';
                     
                     return (
-                      <div className={containerClass}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <i className={`fas fa-gift ${titleIconClass}`}></i>
+                      <motion.div 
+                        className={containerClass}
+                        initial={{ opacity: 0, y: 25 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ type: "spring", stiffness: 350, damping: 30, delay: 0.3 }}
+                      >
+                        <motion.div 
+                          className="flex items-center gap-2 mb-3"
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.4 }}
+                        >
+                          <motion.i 
+                            className={`fas fa-gift ${titleIconClass}`}
+                            animate={{ rotate: [0, -10, 10, 0] }}
+                            transition={{ duration: 0.5, delay: 0.5 }}
+                          />
                           <span className={`text-sm font-semibold ${titleTextClass}`}>满额门槛</span>
-                        </div>
+                        </motion.div>
                         <div className="grid gap-2">
                           {autoGifts.map((threshold, index) => {
                             const thresholdAmount = threshold.threshold_amount || 0;
@@ -1346,30 +1702,48 @@ export default function Cart() {
                             const hint = unlocked ? '已满足条件' : `还差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`;
                             
                             return (
-                              <div
+                              <motion.div
                                 key={threshold.threshold_amount || index}
                                 className={`text-xs rounded-md px-3 py-2 border ${cardClass}`}
+                                initial={{ opacity: 0, x: -15, scale: 0.95 }}
+                                animate={{ opacity: 1, x: 0, scale: 1 }}
+                                transition={{ 
+                                  type: "spring", 
+                                  stiffness: 400, 
+                                  damping: 25, 
+                                  delay: 0.35 + index * 0.08 
+                                }}
+                                whileHover={{ scale: 1.02, x: 3 }}
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="min-w-0 flex-1">
                                     <div className="font-medium">满 ¥{thresholdAmount}</div>
                                     <div className="mt-1 text-[11px] break-words">{rewardText}</div>
                                   </div>
-                                  <div className="text-[11px] ml-2 flex-shrink-0">
+                                  <motion.div 
+                                    className="text-[11px] ml-2 flex-shrink-0"
+                                    animate={unlocked ? { scale: [1, 1.1, 1] } : {}}
+                                    transition={{ duration: 0.3 }}
+                                  >
                                     {hint}
-                                  </div>
+                                  </motion.div>
                                 </div>
-                              </div>
+                              </motion.div>
                             );
                           })}
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })()}
                 </div>
 
                 {/* 右侧订单摘要 */}
-                <div className="lg:col-span-1 mt-6 lg:mt-0">
+                <motion.div 
+                  className="lg:col-span-1 mt-6 lg:mt-0"
+                  variants={sidebarVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
                   <div className="lg:sticky lg:top-24">
                     <OrderSummary
                       cart={cart}
@@ -1394,24 +1768,76 @@ export default function Cart() {
                       isProcessingCheckout={isCheckingOut}
                     />
                   </div>
-                </div>
+                </motion.div>
               </div>
             </>
           ) : (
             /* 购物车为空时的状态 - 完整宽度居中显示 */
-            <div className="text-center py-20">
+            <motion.div 
+              className="text-center py-20"
+              variants={emptyStateVariants}
+              initial="hidden"
+              animate="visible"
+            >
               <div className="max-w-md mx-auto">
-                <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full mx-auto mb-6 flex items-center justify-center shadow-inner">
-                  <i className="fas fa-shopping-cart text-slate-400 text-3xl"></i>
-                </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-3">购物车是空的</h3>
-                <p className="text-slate-600 mb-8 text-lg">快去商城逛逛，发现喜欢的商品吧！</p>
-                <Link href="/shop" className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-lg rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95">
-                  <i className="fas fa-store"></i>
-                  去购物
-                </Link>
+                <motion.div 
+                  className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full mx-auto mb-6 flex items-center justify-center shadow-inner"
+                  variants={{
+                    hidden: { scale: 0, rotate: -180 },
+                    visible: { 
+                      scale: 1, 
+                      rotate: 0,
+                      transition: { type: "spring", stiffness: 200, damping: 15, delay: 0.1 }
+                    }
+                  }}
+                  whileHover={{ scale: 1.1, rotate: 10 }}
+                >
+                  <motion.i 
+                    className="fas fa-shopping-cart text-slate-400 text-3xl"
+                    animate={{ y: [0, -3, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                </motion.div>
+                <motion.h3 
+                  className="text-2xl font-bold text-slate-900 mb-3"
+                  variants={{
+                    hidden: { opacity: 0, y: 20 },
+                    visible: { opacity: 1, y: 0, transition: { delay: 0.2 } }
+                  }}
+                >
+                  购物车是空的
+                </motion.h3>
+                <motion.p 
+                  className="text-slate-600 mb-8 text-lg"
+                  variants={{
+                    hidden: { opacity: 0, y: 15 },
+                    visible: { opacity: 1, y: 0, transition: { delay: 0.3 } }
+                  }}
+                >
+                  快去商城逛逛，发现喜欢的商品吧！
+                </motion.p>
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 20, scale: 0.9 },
+                    visible: { opacity: 1, y: 0, scale: 1, transition: { delay: 0.4 } }
+                  }}
+                >
+                  <Link 
+                    href="/shop" 
+                    className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-lg rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-colors duration-200 shadow-lg hover:shadow-xl"
+                  >
+                    <motion.span
+                      className="flex items-center gap-2"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <i className="fas fa-store"></i>
+                      去购物
+                    </motion.span>
+                  </Link>
+                </motion.div>
               </div>
-            </div>
+            </motion.div>
           )}
         </motion.main>
       </div>
