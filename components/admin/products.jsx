@@ -1293,7 +1293,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
             价格与库存
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">售价 <span className="text-red-500">*</span></label>
               <div className="relative group">
@@ -1309,6 +1309,25 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
                   value={formData.price}
                   onChange={handleInputChange}
                   className="w-full pl-8 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all font-medium"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">成本</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-400 font-medium group-focus-within:text-blue-500 transition-colors">¥</span>
+                </div>
+                <input
+                  type="number"
+                  name="cost"
+                  min="0"
+                  step="0.01"
+                  value={formData.cost}
+                  onChange={handleInputChange}
+                  className="w-full pl-8 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium"
                   placeholder="0.00"
                 />
               </div>
@@ -1355,7 +1374,45 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
             </div>
           </div>
           
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* 利润与利润率显示 */}
+            {(() => {
+              const price = parseFloat(formData.price) || 0;
+              const cost = formData.cost !== '' && formData.cost !== null && formData.cost !== undefined ? parseFloat(formData.cost) : null;
+              const discount = parseFloat(formData.discount) || 10;
+              const finalPrice = price * (discount / 10);
+              const hasCost = cost !== null && !isNaN(cost);
+              const profit = hasCost ? (finalPrice - cost) : finalPrice;
+              const profitRate = hasCost && cost > 0 ? ((profit / cost) * 100) : null;
+              const isNegative = profit < 0;
+              const isZero = profit === 0 && hasCost;
+              
+              const bgColor = isNegative ? 'bg-red-50 border-red-200' : isZero ? 'bg-gray-50 border-gray-200' : 'bg-green-50 border-green-200';
+              const textColor = isNegative ? 'text-red-600' : isZero ? 'text-gray-500' : 'text-green-600';
+              const secondaryTextColor = isNegative ? 'text-red-500' : isZero ? 'text-gray-400' : 'text-green-500';
+              
+              return (
+                <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${bgColor}`}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isNegative ? 'bg-red-100' : isZero ? 'bg-gray-100' : 'bg-green-100'}`}>
+                    <DollarSign size={18} className={textColor} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-sm font-semibold ${textColor}`}>
+                        {profit >= 0 ? '+' : ''}{profit.toFixed(2)}
+                      </span>
+                      <span className={`text-xs ${hasCost ? secondaryTextColor : 'text-gray-400'}`}>
+                        {hasCost && profitRate !== null ? `${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(1)}%` : '--'}
+                      </span>
+                    </div>
+                    <span className={`block text-xs ${secondaryTextColor}`}>
+                      {hasCost ? '预估利润 / 利润率' : '预估利润 (未设成本)'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
             <label className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${formData.is_hot ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
               <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${formData.is_hot ? 'bg-orange-500 border-orange-500' : 'border-gray-300 bg-white'}`}>
                 {formData.is_hot && <Check size={12} className="text-white" />}
