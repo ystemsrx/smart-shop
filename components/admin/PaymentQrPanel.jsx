@@ -2,8 +2,9 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
 
-export const PaymentQrPanel = ({ staffPrefix }) => {
-  const { apiRequest } = useApi();
+export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) => {
+  const { apiRequest: contextApiRequest } = useApi();
+  const apiRequest = injectedApiRequest || contextApiRequest;
   const [paymentQrs, setPaymentQrs] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -28,7 +29,7 @@ export const PaymentQrPanel = ({ staffPrefix }) => {
 
   React.useEffect(() => {
     loadPaymentQrs();
-  }, []);
+  }, [apiRequest, staffPrefix]);
 
   const handleCreate = async () => {
     if (!form.name.trim()) {

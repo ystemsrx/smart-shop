@@ -34,7 +34,7 @@ const AGENT_TABS = ['overview', 'products', 'orders', 'lottery', 'autoGifts', 'c
 function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'overview' }) {
   const router = useRouter();
   const { user, logout, isInitialized } = useAuth();
-  const { apiRequest } = useApi();
+  const { apiRequest: baseApiRequest } = useApi();
   const expectedRole = role === 'agent' ? 'agent' : 'admin';
   const isAdmin = expectedRole === 'admin';
   const isAgent = expectedRole === 'agent';
@@ -60,6 +60,24 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const isImpersonatingAgent = isAdmin && !!viewingAgentId;
   const isAdminView = isAdmin && !isImpersonatingAgent;
   const isAgentView = isAgent || isImpersonatingAgent;
+
+  const apiRequest = useCallback((endpoint, options = {}) => {
+    if (isImpersonatingAgent && typeof endpoint === 'string' && endpoint.startsWith('/admin')) {
+      try {
+        const url = new URL(endpoint, 'http://placeholder');
+        if (viewingAgentId && !url.searchParams.has('owner_id')) {
+          url.searchParams.set('owner_id', viewingAgentId);
+        }
+        const normalized = `${url.pathname}${url.search}`;
+        return baseApiRequest(normalized, options);
+      } catch (e) {
+        const separator = endpoint.includes('?') ? '&' : '?';
+        const fallback = viewingAgentId ? `${endpoint}${separator}owner_id=${encodeURIComponent(viewingAgentId)}` : endpoint;
+        return baseApiRequest(fallback, options);
+      }
+    }
+    return baseApiRequest(endpoint, options);
+  }, [baseApiRequest, isImpersonatingAgent, viewingAgentId]);
 
   useEffect(() => {
     if (!allowedTabs.includes(activeTab)) {
@@ -495,9 +513,9 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   />
                 )}
 
-                {activeTab === 'coupons' && <CouponsPanel apiPrefix={staffPrefix} />}
+                {activeTab === 'coupons' && <CouponsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />}
 
-                {activeTab === 'paymentQrs' && <PaymentQrPanel staffPrefix={staffPrefix} />}
+                {activeTab === 'paymentQrs' && <PaymentQrPanel staffPrefix={staffPrefix} apiRequest={apiRequest} />}
 
                 {activeTab === 'addresses' && (
                   <AddressManagement
@@ -534,6 +552,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     <LotteryConfigPanel 
                       apiPrefix={staffPrefix} 
                       onWarningChange={setLotteryHasStockWarning}
+                      apiRequest={apiRequest}
                     />
                   </div>
                 )}
@@ -545,7 +564,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                         <h2 className="text-xl font-bold text-gray-900">配送费设置</h2>
                         <p className="text-sm text-gray-500 mt-1">设置基础配送费和免配送费门槛。</p>                                                      
                       </div>
-                      <DeliverySettingsPanel apiPrefix={staffPrefix} />
+                      <DeliverySettingsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />
                     </div>
                     
                     <div className="space-y-6">
@@ -556,6 +575,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                       <GiftThresholdPanel 
                         apiPrefix={staffPrefix} 
                         onWarningChange={setGiftThresholdHasStockWarning}
+                        apiRequest={apiRequest}
                       />
                     </div>
                   </div>

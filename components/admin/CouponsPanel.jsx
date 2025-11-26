@@ -1,8 +1,9 @@
 import React from 'react';
 import { useApi } from '../../hooks/useAuth';
 
-export const CouponsPanel = ({ apiPrefix }) => {
-  const { apiRequest } = useApi();
+export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
+  const { apiRequest: contextApiRequest } = useApi();
+  const apiRequest = injectedApiRequest || contextApiRequest;
   const [q, setQ] = React.useState('');
   const [suggests, setSuggests] = React.useState([]);
   const [selected, setSelected] = React.useState('');
@@ -51,7 +52,7 @@ export const CouponsPanel = ({ apiPrefix }) => {
   };
 
   // 组件挂载时加载一次列表
-  React.useEffect(() => { loadList(); }, []);
+  React.useEffect(() => { loadList(); }, [apiPrefix, apiRequest]);
 
   const handleIssue = async () => {
     const sid = selected || (suggests[0]?.id || '');

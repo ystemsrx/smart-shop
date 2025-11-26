@@ -4,6 +4,18 @@ import {
   ChevronLeft, ChevronRight, LogOut, User, ChevronUp, ChevronDown 
 } from 'lucide-react';
 
+const formatHeaderName = (name) => {
+  const text = String(name || '').trim();
+  if (text.length <= 3) return text || '---';
+  return `${text.slice(0, 3)}...`;
+};
+
+const formatMenuName = (name) => {
+  const text = String(name || '').trim();
+  if (text.length <= 3) return text || '---';
+  return `${text.slice(0, 2)}...`;
+};
+
 const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItemClick, isMobile }) => {
   const ref = useRef(null);
   
@@ -190,6 +202,8 @@ export function AdminSidebar({
   const currentSelection = selectedAgentId || 'self';
   const resolvedAgent = agentOptions.find((a) => a.id === currentSelection) || agentOptions[0];
   const roleLabel = role === 'admin' && currentSelection !== 'self' ? 'Agent' : (role === 'admin' ? 'Admin' : 'Agent');
+  const resolvedAgentName = resolvedAgent?.name || (role === 'admin' ? 'Admin' : 'Agent');
+  const headerDisplayName = formatHeaderName(resolvedAgentName);
 
   const handleAgentClick = (agentId) => {
     if (!canSwitchAgent || switchDisabled) return;
@@ -236,8 +250,8 @@ export function AdminSidebar({
             </div>
             
             <div className="ml-2.5 flex-1 min-w-0 overflow-hidden">
-              <div className="text-sm font-semibold text-gray-900 truncate">
-                {resolvedAgent?.name || (role === 'admin' ? 'Admin' : 'Agent')}
+              <div className="text-sm font-semibold text-gray-900 truncate" title={resolvedAgentName}>
+                {headerDisplayName}
               </div>
               <div className="text-xs text-gray-500 truncate">
                 {roleLabel}
@@ -291,6 +305,9 @@ export function AdminSidebar({
                     'from-purple-500 to-pink-500'
                   ];
                   const gradient = avatarColors[idx % avatarColors.length];
+                  const baseName = agent.name || agent.id || '';
+                  const avatarLabel = (baseName || '代').slice(0, 2) || '代';
+                  const menuDisplayName = formatMenuName(baseName);
                   return (
                     <button
                       key={agent.id}
@@ -305,11 +322,11 @@ export function AdminSidebar({
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-xs font-bold text-white shadow-sm`}>
-                          {agent.name?.slice(0, 2) || '代'}
+                          {avatarLabel}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold" title={agent.name}>
-                            {agent.name?.length > 4 ? agent.name.slice(0, 4) + '...' : agent.name}
+                          <div className="text-sm font-semibold" title={baseName}>
+                            {menuDisplayName}
                           </div>
                         </div>
                       </div>

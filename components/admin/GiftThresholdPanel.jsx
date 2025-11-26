@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
 
-export const GiftThresholdPanel = ({ apiPrefix, onWarningChange }) => {
-  const { apiRequest } = useApi();
+export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: injectedApiRequest }) => {
+  const { apiRequest: contextApiRequest } = useApi();
+  const apiRequest = injectedApiRequest || contextApiRequest;
   const [thresholds, setThresholds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,7 +43,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange }) => {
     }
   };
 
-  useEffect(() => { loadThresholds(); }, []);
+  useEffect(() => { loadThresholds(); }, [apiPrefix, apiRequest]);
 
   const handleDelete = async (thresholdId) => {
     if (!confirm('确定要删除这个满额门槛配置吗？')) return;

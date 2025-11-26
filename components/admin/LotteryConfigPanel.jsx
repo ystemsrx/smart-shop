@@ -472,8 +472,9 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   );
 };
 
-export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
-  const { apiRequest } = useApi();
+export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: injectedApiRequest }) => {
+  const { apiRequest: contextApiRequest } = useApi();
+  const apiRequest = injectedApiRequest || contextApiRequest;
   const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -544,7 +545,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange }) => {
     }
   };
 
-  useEffect(() => { loadPrizes(); }, []);
+  useEffect(() => { loadPrizes(); }, [apiPrefix, apiRequest]);
 
   const totalWeightRaw = prizes.reduce((acc, p) => {
     if (!p.is_active) return acc;

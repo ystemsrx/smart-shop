@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useApi } from '../../hooks/useAuth';
 
-export const DeliverySettingsPanel = ({ apiPrefix }) => {
-  const { apiRequest } = useApi();
+export const DeliverySettingsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
+  const { apiRequest: contextApiRequest } = useApi();
+  const apiRequest = injectedApiRequest || contextApiRequest;
   const [settings, setSettings] = useState({
     delivery_fee: 1.0,
     free_delivery_threshold: 10.0
@@ -34,7 +35,7 @@ export const DeliverySettingsPanel = ({ apiPrefix }) => {
     }
   };
 
-  useEffect(() => { loadSettings(); }, []);
+  useEffect(() => { loadSettings(); }, [apiPrefix, apiRequest]);
 
   const handleSave = async (field, value) => {
     const numericValue = typeof value === 'number' ? value : parseFloat(value);

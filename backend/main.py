@@ -867,6 +867,30 @@ def resolve_owner_filter_for_staff(
     return [filter_value], False, filter_value
 
 
+def resolve_single_owner_for_staff(
+    staff: Dict[str, Any],
+    owner_param: Optional[str]
+) -> Tuple[str, str]:
+    """
+    解析单一 owner_id，支持管理员在查询参数中指定代理。
+    返回 (owner_id, normalized_filter)
+    """
+    scope = build_staff_scope(staff)
+    owner_ids, _, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_param)
+    if normalized_filter == 'all':
+        # 这些资源不支持一次性查询全部归属
+        raise HTTPException(status_code=400, detail="不支持查询全部归属的数据范围")
+
+    if owner_ids and len(owner_ids) > 0:
+        return owner_ids[0], normalized_filter
+
+    # 回退到当前身份的默认 owner
+    fallback_owner = get_owner_id_for_staff(staff)
+    if not fallback_owner:
+        raise HTTPException(status_code=400, detail="无法解析归属范围")
+    return fallback_owner, normalized_filter
+
+
 def resolve_staff_order_scope(
     staff: Dict[str, Any],
     scope: Dict[str, Any],
@@ -1848,9 +1872,9 @@ async def my_coupons(request: Request):
         return error_response("获取优惠券失败", 500)
 
 @app.get("/admin/coupons")
-async def admin_list_coupons(request: Request, student_id: Optional[str] = None):
+async def admin_list_coupons(request: Request, student_id: Optional[str] = None, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         items = CouponDB.list_all(student_id, owner_id=owner_id)  # student_id参数名保持不变，但内部已支持user_id
         return success_response("获取优惠券列表成功", {"coupons": items})
@@ -1871,9 +1895,9 @@ async def agent_list_coupons(request: Request, student_id: Optional[str] = None)
         return error_response("获取优惠券失败", 500)
 
 @app.post("/admin/coupons/issue")
-async def admin_issue_coupons(payload: CouponIssueRequest, request: Request):
+async def admin_issue_coupons(payload: CouponIssueRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         amt = float(payload.amount)
         if amt <= 0:
@@ -1933,9 +1957,9 @@ async def agent_issue_coupons(payload: CouponIssueRequest, request: Request):
         return error_response("发放优惠券失败", 500)
 
 @app.patch("/admin/coupons/{coupon_id}/revoke")
-async def admin_revoke_coupon(coupon_id: str, request: Request):
+async def admin_revoke_coupon(coupon_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         ok = CouponDB.revoke(coupon_id, owner_id)
         if not ok:
@@ -1960,9 +1984,9 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
         return error_response("撤回失败", 500)
 
 @app.delete("/admin/coupons/{coupon_id}")
-async def admin_delete_coupon(coupon_id: str, request: Request):
+async def admin_delete_coupon(coupon_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         ok = CouponDB.permanently_delete_coupon(coupon_id, owner_id)
         if not ok:
@@ -2581,12 +2605,13 @@ class PaymentQrStatusRequest(BaseModel):
     is_enabled: bool
 
 @app.get("/admin/payment-qrs")
-async def admin_get_payment_qrs(request: Request):
-    """管理员获取收款码列表（所有管理员共享）"""
+async def admin_get_payment_qrs(request: Request, owner_id: Optional[str] = None):
+    """管理员获取收款码列表，支持切换归属"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        # 所有管理员统一使用 'admin' 作为 owner_id
-        qrs = PaymentQrDB.get_payment_qrs('admin', 'admin', include_disabled=True)
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        owner_type = 'agent' if (normalized not in ('self', None) or staff.get('type') == 'agent') else 'admin'
+        qrs = PaymentQrDB.get_payment_qrs(target_owner_id, owner_type, include_disabled=True)
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as e:
         logger.error(f"获取管理员收款码列表失败: {e}")
@@ -2609,13 +2634,17 @@ async def agent_get_payment_qrs(request: Request):
 async def admin_create_payment_qr(
     request: Request,
     name: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    owner_id: Optional[str] = None
 ):
     """管理员创建收款码"""
     staff = get_current_staff_required_from_cookie(request)
     try:
         if not file or not file.filename:
             return error_response("请上传图片文件", 400)
+
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        owner_type = 'agent' if (normalized not in ('self', None) or staff.get('type') == 'agent') else 'admin'
 
         # 验证文件类型
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
@@ -2627,7 +2656,7 @@ async def admin_create_payment_qr(
         import time
         timestamp = int(time.time() * 1000)
         safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', name)
-        filename = f"payment_qr_{staff['id']}_{timestamp}_{safe_name}{ext}"
+        filename = f"payment_qr_{target_owner_id}_{timestamp}_{safe_name}{ext}"
         target_path = os.path.join(public_dir, filename)
 
         # 保存文件
@@ -2637,8 +2666,8 @@ async def admin_create_payment_qr(
 
         web_path = f"/public/{filename}"
         
-        # 创建收款码记录（所有管理员统一使用 'admin' 作为 owner_id）
-        qr_id = PaymentQrDB.create_payment_qr('admin', 'admin', name, web_path)
+        # 创建收款码记录
+        qr_id = PaymentQrDB.create_payment_qr(target_owner_id, owner_type, name, web_path)
         qr = PaymentQrDB.get_payment_qr(qr_id)
         
         return success_response("收款码创建成功", {"payment_qr": qr})
@@ -2690,13 +2719,15 @@ async def agent_create_payment_qr(
         return error_response("创建收款码失败", 500)
 
 @app.put("/admin/payment-qrs/{qr_id}")
-async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, request: Request):
+async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, request: Request, owner_id: Optional[str] = None):
     """管理员更新收款码"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        # 验证收款码所有权（所有管理员共享）
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        owner_type = 'agent' if (normalized not in ('self', None) or staff.get('type') == 'agent') else 'admin'
+        # 验证收款码所有权
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+        if not qr or qr['owner_id'] != target_owner_id or qr['owner_type'] != owner_type:
             return error_response("收款码不存在或无权限", 404)
         
         # 更新
@@ -2732,18 +2763,20 @@ async def agent_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         return error_response("更新收款码失败", 500)
 
 @app.patch("/admin/payment-qrs/{qr_id}/status")
-async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusRequest, request: Request):
+async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusRequest, request: Request, owner_id: Optional[str] = None):
     """管理员更新收款码启用状态"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        # 验证收款码所有权（所有管理员共享）
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        owner_type = 'agent' if (normalized not in ('self', None) or staff.get('type') == 'agent') else 'admin'
+        # 验证收款码所有权
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+        if not qr or qr['owner_id'] != target_owner_id or qr['owner_type'] != owner_type:
             return error_response("收款码不存在或无权限", 404)
         
         # 如果要禁用，确保至少有一个启用的收款码
         if not payload.is_enabled:
-            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs('admin', 'admin')
+            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(target_owner_id, owner_type)
             if len(enabled_qrs) <= 1 and qr['is_enabled'] == 1:
                 return error_response("至少需要保留一个启用的收款码", 400)
         
@@ -2782,13 +2815,15 @@ async def agent_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         return error_response("更新收款码状态失败", 500)
 
 @app.delete("/admin/payment-qrs/{qr_id}")
-async def admin_delete_payment_qr(qr_id: str, request: Request):
+async def admin_delete_payment_qr(qr_id: str, request: Request, owner_id: Optional[str] = None):
     """管理员删除收款码"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        # 验证收款码所有权（所有管理员共享）
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        owner_type = 'agent' if (normalized not in ('self', None) or staff.get('type') == 'agent') else 'admin'
+        # 验证收款码所有权
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr['owner_id'] != 'admin' or qr['owner_type'] != 'admin':
+        if not qr or qr['owner_id'] != target_owner_id or qr['owner_type'] != owner_type:
             return error_response("收款码不存在或无权限", 404)
         
         # 注释掉最后一个收款码的限制，允许删除唯一收款码
@@ -2809,7 +2844,7 @@ async def admin_delete_payment_qr(qr_id: str, request: Request):
         PaymentQrDB.delete_payment_qr(qr_id)
         
         # 如果删除的是启用的收款码，确保还有其他启用的
-        PaymentQrDB.ensure_at_least_one_enabled('admin', 'admin')
+        PaymentQrDB.ensure_at_least_one_enabled(target_owner_id, owner_type)
         
         return success_response("收款码删除成功")
     except Exception as e:
@@ -4646,10 +4681,10 @@ async def get_agent_orders(
         return error_response("获取订单列表失败", 500)
 
 @app.get("/admin/lottery-config")
-async def admin_get_lottery_config(request: Request):
+async def admin_get_lottery_config(request: Request, owner_id: Optional[str] = None):
     """读取抽奖配置（管理员）。"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
         config = LotteryConfigDB.get_config(owner_id)
@@ -4785,9 +4820,15 @@ def _persist_lottery_prize_from_payload(
     )
 
 
-def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _search_inventory_for_selector(
+    term: Optional[str],
+    staff: Optional[Dict[str, Any]] = None,
+    owner_override: Optional[str] = None
+) -> List[Dict[str, Any]]:
     scope = build_staff_scope(staff) if staff else None
     owner_ids = scope.get('owner_ids') if scope else None
+    if owner_override:
+        owner_ids = [owner_override]
     # 现在所有商品都有owner_id，不再需要include_unassigned
     include_unassigned = False
     try:
@@ -4882,10 +4923,10 @@ def _search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str
 
 
 @app.put("/admin/lottery-config")
-async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request):
+async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request, owner_id: Optional[str] = None):
     """批量更新抽奖配置，完全覆盖现有奖项。"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         prizes_payload = payload.prizes or []
         saved_ids: List[str] = []
@@ -4936,9 +4977,9 @@ async def agent_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
 
 
 @app.patch("/admin/lottery-config/threshold")
-async def admin_update_lottery_threshold(payload: LotteryThresholdUpdateRequest, request: Request):
+async def admin_update_lottery_threshold(payload: LotteryThresholdUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         value = LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
         return success_response("抽奖门槛已更新", {"threshold_amount": value})
@@ -4964,9 +5005,9 @@ async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
 
 
 @app.patch("/admin/lottery-config/enabled")
-async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request):
+async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
         return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
@@ -5000,9 +5041,9 @@ async def admin_get_auto_gifts(request: Request):
 
 
 @app.put("/admin/auto-gifts")
-async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Request):
+async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         items = payload.items or []
         unique: set = set()
@@ -5022,10 +5063,11 @@ async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Reque
 
 
 @app.get("/admin/auto-gifts/search")
-async def admin_search_auto_gift_items(request: Request, query: Optional[str] = None):
+async def admin_search_auto_gift_items(request: Request, query: Optional[str] = None, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
     try:
-        results = _search_inventory_for_selector(query, staff=admin)
+        owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+        results = _search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as e:
         logger.error(f"搜索满额赠品候选失败: {e}")
@@ -5196,10 +5238,10 @@ async def get_delivery_config(request: Request):
 
 
 @app.get("/admin/delivery-settings")
-async def admin_get_delivery_settings(request: Request):
+async def admin_get_delivery_settings(request: Request, owner_id: Optional[str] = None):
     """获取配送费设置（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("获取配送费设置成功", {"settings": settings})
@@ -5209,10 +5251,10 @@ async def admin_get_delivery_settings(request: Request):
 
 
 @app.post("/admin/delivery-settings")
-async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCreate, request: Request):
+async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCreate, request: Request, owner_id: Optional[str] = None):
     """创建或更新配送费设置（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         if payload.delivery_fee < 0:
             return error_response("配送费不能为负数", 400)
@@ -5272,9 +5314,9 @@ async def agent_create_or_update_delivery_settings(payload: DeliverySettingsCrea
 
 
 @app.post("/admin/lottery-prizes")
-async def admin_create_lottery_prize(payload: LotteryPrizeInput, request: Request):
+async def admin_create_lottery_prize(payload: LotteryPrizeInput, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         prize_id = _persist_lottery_prize_from_payload(payload, owner_id)
         prize = next((p for p in LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True) if p.get('id') == prize_id), None)
@@ -5302,9 +5344,9 @@ async def agent_create_lottery_prize(payload: LotteryPrizeInput, request: Reques
 
 
 @app.put("/admin/lottery-prizes/{prize_id}")
-async def admin_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, request: Request):
+async def admin_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         updated_id = _persist_lottery_prize_from_payload(payload, owner_id, override_id=prize_id)
         prize = next((p for p in LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True) if p.get('id') == updated_id), None)
@@ -5336,9 +5378,9 @@ async def agent_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, 
 
 
 @app.delete("/admin/lottery-prizes/{prize_id}")
-async def admin_delete_lottery_prize(prize_id: str, request: Request):
+async def admin_delete_lottery_prize(prize_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         ok = LotteryDB.delete_prize(prize_id, owner_id)
         if not ok:
@@ -5364,10 +5406,11 @@ async def agent_delete_lottery_prize(prize_id: str, request: Request):
 
 
 @app.get("/admin/lottery-prizes/search")
-async def admin_search_lottery_prize_items(request: Request, query: Optional[str] = None):
+async def admin_search_lottery_prize_items(request: Request, query: Optional[str] = None, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
     try:
-        results = _search_inventory_for_selector(query, staff=admin)
+        owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+        results = _search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as e:
         logger.error(f"搜索抽奖候选商品失败: {e}")
@@ -5388,10 +5431,10 @@ async def agent_search_lottery_prize_items(request: Request, query: Optional[str
 # ==================== 满额门槛配置管理（管理员） ====================
 
 @app.get("/admin/gift-thresholds")
-async def admin_get_gift_thresholds(request: Request, include_inactive: bool = False):
+async def admin_get_gift_thresholds(request: Request, include_inactive: bool = False, owner_id: Optional[str] = None):
     """获取满额门槛配置列表（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=include_inactive)
         return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
@@ -5413,10 +5456,10 @@ async def agent_get_gift_thresholds(request: Request, include_inactive: bool = F
 
 
 @app.post("/admin/gift-thresholds")
-async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Request):
+async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Request, owner_id: Optional[str] = None):
     """创建满额门槛配置（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         if payload.threshold_amount <= 0:
             return error_response("门槛金额必须大于0", 400)
@@ -5506,10 +5549,10 @@ async def agent_create_gift_threshold(payload: GiftThresholdCreate, request: Req
 
 
 @app.put("/admin/gift-thresholds/{threshold_id}")
-async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdUpdate, request: Request):
+async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdUpdate, request: Request, owner_id: Optional[str] = None):
     """更新满额门槛配置（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         existing = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not existing:
@@ -5619,10 +5662,10 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
 
 
 @app.delete("/admin/gift-thresholds/{threshold_id}")
-async def admin_delete_gift_threshold(threshold_id: str, request: Request):
+async def admin_delete_gift_threshold(threshold_id: str, request: Request, owner_id: Optional[str] = None):
     """删除满额门槛配置（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
-    owner_id = get_owner_id_for_staff(admin)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         existing = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not existing:
@@ -5658,11 +5701,12 @@ async def agent_delete_gift_threshold(threshold_id: str, request: Request):
 
 
 @app.get("/admin/gift-thresholds/search")
-async def admin_search_gift_threshold_items(request: Request, query: Optional[str] = None):
+async def admin_search_gift_threshold_items(request: Request, query: Optional[str] = None, owner_id: Optional[str] = None):
     """搜索满额门槛赠品候选商品（管理员）"""
     admin = get_current_admin_required_from_cookie(request)
     try:
-        results = _search_inventory_for_selector(query, staff=admin)
+        owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+        results = _search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as e:
         logger.error(f"搜索满额门槛赠品候选失败: {e}")
