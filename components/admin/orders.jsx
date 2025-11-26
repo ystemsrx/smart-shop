@@ -153,11 +153,12 @@ const StatusSelectPopover = ({ currentStatus, onSelect, disabled }) => {
       <button
         ref={buttonRef}
         onClick={handleToggle}
+        disabled={disabled}
         className={`px-3 py-1 inline-flex items-center gap-1.5 text-xs font-semibold rounded-full transition-all duration-200 ${currentStatusInfo.bg} ${currentStatusInfo.textCol} hover:opacity-80 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed`}
       >
         <span className={`w-1.5 h-1.5 rounded-full bg-current opacity-60`}></span>
         {currentStatusInfo.text}
-        {!disabled && <i className={`fas fa-chevron-down text-[10px] opacity-50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}></i>}
+        <i className={`fas fa-chevron-down text-[10px] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${disabled ? 'opacity-30' : 'opacity-50'}`}></i>
       </button>
 
       {isOpen && createPortal(
