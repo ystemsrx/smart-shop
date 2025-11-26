@@ -162,9 +162,9 @@ export const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 折扣选择下拉框组件
-const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣' }) => {
+const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', fullWidth = false }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0, isAbove: false });
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0, isAbove: false });
   const buttonRef = useRef(null);
 
   const updatePosition = useCallback(() => {
@@ -178,6 +178,7 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣' }
       top: rect.top,
       bottom: rect.bottom,
       left: rect.left,
+      width: rect.width,
       isAbove: showAbove
     });
   }, []);
@@ -226,12 +227,18 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣' }
         type="button"
         onClick={toggleOpen}
         disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all border shadow-sm active:scale-95 ${
+        className={`flex items-center justify-between gap-1.5 font-medium rounded-xl transition-all border shadow-sm active:scale-95 ${
+          fullWidth ? 'w-full px-3 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'
+        } ${
           disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'
-        } ${value && value < 10 ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-gray-600 bg-white border-gray-200'}`}
+        } ${
+          fullWidth 
+            ? (value && value < 10 ? 'text-purple-600 bg-gray-50 border-gray-200 focus:bg-white focus:border-purple-500' : 'text-gray-600 bg-gray-50 border-gray-200')
+            : (value && value < 10 ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-gray-600 bg-white border-gray-200')
+        }`}
       >
         <span>{currentLabel}</span>
-        <ChevronDown size={12} className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={fullWidth ? 14 : 12} className={`transition-transform duration-300 text-gray-400 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {ReactDOM.createPortal(
@@ -1335,23 +1342,12 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
             
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">折扣</label>
-              <div className="relative">
-                <select
-                  name="discount"
-                  value={formData.discount}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all appearance-none"
-                >
-                  {Array.from({ length: 20 }).map((_, i) => {
-                    const val = 10 - i * 0.5;
-                    const v = Math.max(0.5, parseFloat(val.toFixed(1)));
-                    return <option key={v} value={v}>{v}折</option>;
-                  })}
-                </select>
-                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                  <ArrowUpDown size={14} className="text-gray-400" />
-                </div>
-              </div>
+              <DiscountSelect
+                value={formData.discount}
+                onChange={(val) => setFormData(prev => ({ ...prev, discount: val }))}
+                placeholder="无折扣"
+                fullWidth
+              />
             </div>
             
             <div className="space-y-1.5">
