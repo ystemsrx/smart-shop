@@ -381,6 +381,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               setActiveTab(id);
               if (id === 'addresses') loadAddresses();
               if (id === 'agents') loadAgents();
+              if (id === 'orders') loadOrders(0, orderSearch, orderAgentFilter);
             }}
             tabs={tabItems}
             isCollapsed={isSidebarCollapsed}
