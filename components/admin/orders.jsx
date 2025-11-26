@@ -379,9 +379,14 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
                     <div className="p-5">
                       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-4 text-sm">
                         <span className="text-gray-400 text-xs self-center">联系人</span>
-                        <div className="font-medium text-gray-900 flex items-center gap-2">
-                          {order?.shipping_info?.name || '—'}
-                          <span className="text-gray-300">|</span>
+                        <div className="font-medium text-gray-900 truncate max-w-[200px]" title={order?.shipping_info?.name}>
+                          {(order?.shipping_info?.name || '—').length > 8 
+                            ? (order.shipping_info.name.slice(0, 8) + '...') 
+                            : (order?.shipping_info?.name || '—')}
+                        </div>
+
+                        <span className="text-gray-400 text-xs self-center">电话</span>
+                        <div className="font-medium text-gray-900">
                           {order?.shipping_info?.phone || '—'}
                         </div>
 
