@@ -120,9 +120,9 @@
 <p>数据统计与业务分析</p>
 </td>
 <td width="50%">
-<h4>📦 商品管理</h4>
+<h4>📦 后台管理</h4>
 <img src="./assets/manage.png" alt="Product Management"/>
-<p>上架/编辑/库存管理</p>
+<p>管理商品、订单等</p>
 </td>
 </tr>
 </table>
