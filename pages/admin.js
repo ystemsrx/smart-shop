@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import { useAuth, useApi } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
@@ -28,6 +28,9 @@ import {
 import { AdminSidebar } from '../components/admin/AdminSidebar';
 import { OverviewPanel } from '../components/admin/OverviewPanel';
 
+const ADMIN_TABS = ['overview', 'products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+const AGENT_TABS = ['overview', 'products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+
 function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'overview' }) {
   const router = useRouter();
   const { user, logout, isInitialized } = useAuth();
@@ -37,22 +40,49 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
   const isAgent = expectedRole === 'agent';
   const staffPrefix = isAgent ? '/agent' : '/admin';
   const shopName = getShopName();
-  
-  const allowedTabs = isAdmin
-    ? ['overview', 'products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs']
-    : ['overview', 'products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
-    
-  const { toast, showToast, hideToast } = useToast();
-  const [activeTab, setActiveTab] = useState(
-    allowedTabs.includes(initialTab) ? initialTab : allowedTabs[0]
+
+  const [viewingAgentId, setViewingAgentId] = useState(null);
+  const [isSwitchingAgent, setIsSwitchingAgent] = useState(false);
+
+  const initialTabs = isAdmin ? ADMIN_TABS : AGENT_TABS;
+  const initialActiveTab = initialTabs.includes(initialTab) ? initialTab : initialTabs[0];
+  const [activeTab, setActiveTab] = useState(initialActiveTab);
+  const [lastAdminTab, setLastAdminTab] = useState(
+    isAdmin ? (ADMIN_TABS.includes(initialActiveTab) ? initialActiveTab : ADMIN_TABS[0]) : null
   );
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const allowedTabs = useMemo(() => {
+    if (isAdmin && viewingAgentId) return AGENT_TABS;
+    return isAdmin ? ADMIN_TABS : AGENT_TABS;
+  }, [isAdmin, viewingAgentId]);
+
+  const isImpersonatingAgent = isAdmin && !!viewingAgentId;
+  const isAdminView = isAdmin && !isImpersonatingAgent;
+  const isAgentView = isAgent || isImpersonatingAgent;
+
+  useEffect(() => {
+    if (!allowedTabs.includes(activeTab)) {
+      setActiveTab(allowedTabs[0]);
+    }
+  }, [allowedTabs, activeTab]);
+
+  useEffect(() => {
+    if (!isAdminView) return;
+    setLastAdminTab((prev) => {
+      const safeTab = ADMIN_TABS.includes(activeTab) ? activeTab : (prev || ADMIN_TABS[0]);
+      return prev === safeTab ? prev : safeTab;
+    });
+  }, [isAdminView, activeTab]);
+
+  const { toast, showToast, hideToast } = useToast();
 
   const {
     lotteryHasStockWarning,
     giftThresholdHasStockWarning,
     setLotteryHasStockWarning,
-    setGiftThresholdHasStockWarning
+    setGiftThresholdHasStockWarning,
+    refreshAllWarnings
   } = useAdminWarnings({ user, expectedRole, staffPrefix, apiRequest });
 
   const {
@@ -191,7 +221,57 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     loadOrders,
     setOrderStats,
     setAddresses,
+    refreshAllWarnings,
   });
+
+  const agentSwitcherOptions = useMemo(() => {
+    if (!isAdmin) return [];
+    const base = [{
+      id: 'self',
+      name: user?.name || '管理员',
+      isActive: true,
+      isDeleted: false,
+      note: '管理员视角'
+    }];
+    const normalized = orderAgentOptions
+      .filter((agent) => agent && agent.id)
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name || agent.id,
+        isActive: agent.isActive !== false,
+        isDeleted: !!agent.isDeleted,
+        note: agent.isDeleted ? '已删除' : (agent.isActive === false ? '停用' : '活跃')
+      }));
+    normalized.sort((a, b) => Number(b.isActive) - Number(a.isActive));
+    return [...base, ...normalized];
+  }, [isAdmin, orderAgentOptions, user]);
+
+  const selectedAgentName = useMemo(() => {
+    if (!viewingAgentId) return '';
+    const target = agentSwitcherOptions.find((item) => item.id === viewingAgentId);
+    return target?.name || viewingAgentId;
+  }, [agentSwitcherOptions, viewingAgentId]);
+
+  const handleAgentSwitch = useCallback(async (agentId) => {
+    if (!isAdmin) return;
+    const normalized = agentId && agentId !== 'self' ? agentId : null;
+    if (isSwitchingAgent) return;
+    setIsSwitchingAgent(true);
+    try {
+      if (!normalized) {
+        setViewingAgentId(null);
+        await handleOrderAgentFilterChange('self');
+        const fallback = (lastAdminTab && ADMIN_TABS.includes(lastAdminTab)) ? lastAdminTab : ADMIN_TABS[0];
+        setActiveTab(fallback);
+      } else {
+        setViewingAgentId(normalized);
+        setActiveTab((prev) => (AGENT_TABS.includes(prev) ? prev : AGENT_TABS[0]));
+        await handleOrderAgentFilterChange(normalized);
+      }
+    } finally {
+      setIsSwitchingAgent(false);
+    }
+  }, [isAdmin, isSwitchingAgent, handleOrderAgentFilterChange, lastAdminTab]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -227,6 +307,13 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     return null;
   }
 
+  const pageTitle = isAdmin
+    ? (isImpersonatingAgent ? `代理视角 - ${shopName}` : `管理后台 - ${shopName}`)
+    : `代理后台 - ${shopName}`;
+  const currentOwnerLabel = isImpersonatingAgent
+    ? (selectedAgentName || viewingAgentId || '目标代理')
+    : (user?.name || user?.id || '当前账号');
+
   const tabItems = [
     { id: 'overview', label: '概览', icon: <LayoutDashboard size={18} /> },
     { id: 'products', label: '商品管理', icon: <Package size={18} /> },
@@ -237,7 +324,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       badge: orderStats.status_counts?.pending > 0 ? orderStats.status_counts.pending : null,
       badgeColor: 'bg-red-500'
     },
-    ...(isAdmin ? [
+    ...(isAdminView ? [
       { id: 'addresses', label: '地址管理', icon: <MapPin size={18} /> },
       { id: 'agents', label: '代理管理', icon: <UserCog size={18} /> }
     ] : []),
@@ -255,12 +342,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     }] : []),
     ...(allowedTabs.includes('coupons') ? [{ id: 'coupons', label: '优惠券', icon: <Ticket size={18} /> }] : []),
     ...(allowedTabs.includes('paymentQrs') ? [{ id: 'paymentQrs', label: '收款码', icon: <QrCode size={18} /> }] : []),
-  ];
+  ].filter((item) => allowedTabs.includes(item.id));
 
   return (
     <>
       <Head>
-        <title>{isAdmin ? `管理后台 - ${shopName}` : `代理后台 - ${shopName}`}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
@@ -282,6 +369,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             setIsCollapsed={setIsSidebarCollapsed}
             role={expectedRole}
             onLogout={logout}
+            agentOptions={agentSwitcherOptions}
+            selectedAgentId={viewingAgentId}
+            onAgentSelect={handleAgentSwitch}
+            switchDisabled={isSwitchingAgent}
           />
 
           {/* Main Content Area */}
@@ -297,8 +388,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               >
                 {activeTab === 'overview' && (
                   <OverviewPanel 
-                    isAdmin={isAdmin}
-                    isAgent={isAgent}
+                    isAdmin={isAdminView}
+                    isAgent={isAgentView}
                     stats={stats}
                     orderStats={orderStats}
                     isLoading={isLoading}
@@ -308,7 +399,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
                 {activeTab === 'products' && (
                   <ProductsPanel
-                    isAdmin={isAdmin}
+                    isAdmin={isAdminView}
                     showInactiveInShop={showInactiveInShop}
                     updateShopInactiveSetting={updateShopInactiveSetting}
                     isLoadingShopSetting={isLoadingShopSetting}
@@ -348,7 +439,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
 
                 {activeTab === 'orders' && (
                   <OrdersPanel
-                    isAdmin={isAdmin}
+                    isAdmin={isAdminView}
                     orderAgentFilter={orderAgentFilter}
                     orderAgentOptions={orderAgentOptions}
                     orderAgentFilterLabel={orderAgentFilterLabel}
@@ -373,7 +464,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     onNextPage={handleNextPage}
                     agentNameMap={orderAgentNameMap}
                     isSubmitting={isSubmitting}
-                    currentUserLabel={user?.name || user?.id || '当前账号'}
+                    currentUserLabel={currentOwnerLabel}
                     onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
                   />
                 )}
@@ -485,7 +576,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             isLoading={isSubmitting}
             onCancel={() => setShowAddModal(false)}
             apiPrefix={staffPrefix}
-            isAdmin={isAdmin}
+            isAdmin={isAdminView}
             onStatsRefresh={refreshStats}
           />
         </Modal>
@@ -510,7 +601,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
               }}
               onRefreshProduct={refreshSingleProduct}
               apiPrefix={staffPrefix}
-              isAdmin={isAdmin}
+              isAdmin={isAdminView}
               onStatsRefresh={refreshStats}
             />
           )}
@@ -523,6 +614,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             apiPrefix={staffPrefix}
             onProductVariantsSync={handleProductVariantsSync}
             onStatsRefresh={refreshStats}
+            onWarningsRefresh={refreshAllWarnings}
           />
         )}
 

@@ -700,6 +700,186 @@ export const OrderTable = ({
   );
 };
 
+// 范围选择气泡组件
+const ScopeSelectPopover = ({ 
+  value, 
+  onChange, 
+  options, 
+  currentUserLabel, 
+  disabled 
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState({});
+  const [animateState, setAnimateState] = useState('closed');
+  const buttonRef = useRef(null);
+  const popoverRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        popoverRef.current && 
+        !popoverRef.current.contains(event.target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target)
+      ) {
+        setIsOpen(false);
+        setAnimateState('closed');
+      }
+    };
+    
+    const handleScroll = () => {
+      if (isOpen) {
+        setIsOpen(false);
+        setAnimateState('closed');
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScroll, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [isOpen]);
+
+  const handleToggle = (e) => {
+    if (disabled) return;
+    e.stopPropagation();
+    
+    if (!isOpen) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const popoverHeight = 300; // Estimated max height
+      const spaceBelow = window.innerHeight - rect.bottom;
+      
+      let top, left = rect.left;
+      let transformOrigin = 'top left';
+      
+      // Align right edge if it overflows right
+      if (left + rect.width > window.innerWidth) {
+          left = rect.right - rect.width;
+          transformOrigin = 'top right';
+      }
+
+      if (spaceBelow < popoverHeight) {
+        // Place above
+        top = rect.top - 8;
+        transformOrigin = transformOrigin.replace('top', 'bottom');
+        setPopoverStyle({
+          position: 'fixed',
+          top: 'auto',
+          bottom: `${window.innerHeight - rect.top + 8}px`,
+          left: `${left}px`,
+          width: `${rect.width}px`,
+          transformOrigin
+        });
+      } else {
+        // Place below
+        top = rect.bottom + 8;
+        setPopoverStyle({
+          position: 'fixed',
+          top: `${top}px`,
+          left: `${left}px`,
+          width: `${rect.width}px`,
+          transformOrigin
+        });
+      }
+      setAnimateState('opening');
+      setIsOpen(true);
+      setTimeout(() => setAnimateState('open'), 10);
+    } else {
+      setIsOpen(false);
+      setAnimateState('closed');
+    }
+  };
+
+  const handleSelect = (val) => {
+    onChange(val);
+    setIsOpen(false);
+    setAnimateState('closed');
+  };
+
+  const getDisplayText = () => {
+    if (value === 'self') return `我的订单（${currentUserLabel || '当前账号'}）`;
+    if (value === 'all') return '全部订单';
+    const agent = options.find(a => a.id === value);
+    return agent ? agent.name : '选择范围';
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        disabled={disabled}
+        className={`
+          group relative flex items-center justify-between gap-3 px-4 py-2 
+          bg-gray-50 hover:bg-gray-100 active:bg-gray-200 
+          border border-gray-200 rounded-xl transition-all duration-200 
+          text-sm text-gray-700 font-medium min-w-[160px]
+          ${isOpen ? 'ring-2 ring-blue-500/20 border-blue-500' : ''}
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        <span className="truncate max-w-[140px]">{getDisplayText()}</span>
+        <i className={`fas fa-chevron-down text-xs text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180 text-blue-500' : ''}`}></i>
+      </button>
+
+      {isOpen && createPortal(
+        <div 
+          ref={popoverRef}
+          style={{ ...popoverStyle, zIndex: 9999 }}
+          className={`
+            flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden
+            transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1)
+            ${animateState === 'open' ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'}
+          `}
+        >
+          <div className="p-2 space-y-1 max-h-[300px] overflow-y-auto">
+            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">基础选项</div>
+            <button
+              onClick={() => handleSelect('self')}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'self' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              <span>我的订单 <span className="text-xs opacity-60 ml-1">({currentUserLabel || '当前账号'})</span></span>
+              {value === 'self' && <i className="fas fa-check text-blue-500"></i>}
+            </button>
+            <button
+              onClick={() => handleSelect('all')}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              <span>全部订单</span>
+              {value === 'all' && <i className="fas fa-check text-blue-500"></i>}
+            </button>
+            
+            {options.length > 0 && (
+              <>
+                <div className="my-1 border-t border-gray-100"></div>
+                <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">代理筛选</div>
+                {options.map(agent => (
+                  <button
+                    key={agent.id}
+                    onClick={() => handleSelect(agent.id)}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === agent.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <span className="truncate">
+                      {agent.name}
+                      {(!agent.isActive && !agent.isDeleted) && <span className="text-xs text-red-400 ml-1">(停用)</span>}
+                    </span>
+                    {value === agent.id && <i className="fas fa-check text-blue-500"></i>}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
+
 // 订单管理面板
 export const OrdersPanel = ({
   isAdmin,
@@ -739,22 +919,15 @@ export const OrdersPanel = ({
       </div>
       
       {isAdmin && (
-        <div className="flex items-center gap-3 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
-          <span className="text-xs font-medium text-gray-500 pl-2">查看范围</span>
-          <select
-            className="text-sm border-none bg-gray-50 rounded-lg px-3 py-1.5 text-gray-700 focus:ring-0 cursor-pointer hover:bg-gray-100 transition-colors"
+        <div className="flex items-center gap-3 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
+          <span className="text-xs font-medium text-gray-500 pl-3">查看范围</span>
+          <ScopeSelectPopover
             value={orderAgentFilter}
-            onChange={(e) => onOrderAgentFilterChange(e.target.value)}
+            onChange={onOrderAgentFilterChange}
+            options={orderAgentOptions}
+            currentUserLabel={currentUserLabel}
             disabled={orderLoading}
-          >
-            <option value="self">我的订单（{currentUserLabel || '当前账号'}）</option>
-            <option value="all">全部订单</option>
-            {orderAgentOptions.map(agent => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}{(!agent.isActive && !agent.isDeleted) ? '（停用）' : ''}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       )}
     </div>

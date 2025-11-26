@@ -1531,7 +1531,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
 };
 
 // 规格库存编辑弹窗
-export const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync, onStatsRefresh }) => {
+export const VariantStockModal = ({ product, onClose, apiPrefix, onProductVariantsSync, onStatsRefresh, onWarningsRefresh }) => {
   const { apiRequest } = useApi();
   const [variants, setVariants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1651,6 +1651,10 @@ export const VariantStockModal = ({ product, onClose, apiPrefix, onProductVarian
 
       if (typeof onStatsRefresh === 'function') {
         onStatsRefresh().catch(err => console.error('刷新统计数据失败:', err));
+      }
+
+      if (typeof onWarningsRefresh === 'function') {
+        onWarningsRefresh().catch(err => console.error('刷新警告状态失败:', err));
       }
 
       return nextStock;

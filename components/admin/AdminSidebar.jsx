@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useSpring } from 'framer-motion';
+import { motion, useMotionValue, useTransform, useSpring, AnimatePresence } from 'framer-motion';
 import { 
-  ChevronLeft, ChevronRight, LogOut, User 
+  ChevronLeft, ChevronRight, LogOut, User, ChevronUp, ChevronDown 
 } from 'lucide-react';
 
 const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItemClick, isMobile }) => {
@@ -86,10 +86,31 @@ export function AdminSidebar({
   isCollapsed, 
   setIsCollapsed,
   role,
-  onLogout 
+  onLogout,
+  agentOptions = [],
+  selectedAgentId = null,
+  onAgentSelect,
+  switchDisabled = false
 }) {
   const mouseY = useMotionValue(Infinity);
   const [isMobile, setIsMobile] = useState(false);
+  const [showAgentMenu, setShowAgentMenu] = useState(false);
+  const headerRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuStyle, setMenuStyle] = useState({});
+
+  const updateMenuPosition = () => {
+    const rect = headerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const padding = 8;
+    setMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 10,
+      left: rect.left + padding,
+      width: Math.max(140, rect.width - padding * 2),
+      zIndex: 100
+    });
+  };
 
   // 检测是否为移动设备
   useEffect(() => {
@@ -103,6 +124,35 @@ export function AdminSidebar({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    if (!showAgentMenu) return;
+    const handleClickOutside = (e) => {
+      if (
+        headerRef.current && headerRef.current.contains(e.target)
+      ) return;
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (headerRef.current && !headerRef.current.contains(e.target)) {
+        setShowAgentMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAgentMenu]);
+
+  useEffect(() => {
+    setShowAgentMenu(false);
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    if (!showAgentMenu) return;
+    const updatePosition = () => {
+      updateMenuPosition();
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [showAgentMenu]);
+
   const sidebarVariants = {
     expanded: { width: 180 },
     collapsed: { width: 64 }
@@ -113,6 +163,27 @@ export function AdminSidebar({
     if (isMobile && !isCollapsed) {
       setIsCollapsed(true);
     }
+  };
+
+  const canSwitchAgent = role === 'admin' && agentOptions.length > 0 && typeof onAgentSelect === 'function';
+  const currentSelection = selectedAgentId || 'self';
+  const resolvedAgent = agentOptions.find((a) => a.id === currentSelection) || agentOptions[0];
+  const roleLabel = role === 'admin' && currentSelection !== 'self' ? 'Agent' : (role === 'admin' ? 'Admin' : 'Agent');
+
+  const handleAgentClick = (agentId) => {
+    if (!canSwitchAgent || switchDisabled) return;
+    setShowAgentMenu(false);
+    if (agentId === currentSelection) return;
+    onAgentSelect(agentId);
+  };
+
+  const handleToggleMenu = () => {
+    if (showAgentMenu) {
+      setShowAgentMenu(false);
+      return;
+    }
+    updateMenuPosition();
+    setShowAgentMenu(true);
   };
 
   return (
@@ -126,26 +197,40 @@ export function AdminSidebar({
       onMouseLeave={() => mouseY.set(Infinity)}
     >
       {/* Header with User Avatar and Toggle */}
-      <div className={`p-3 border-b border-gray-100 flex items-center flex-shrink-0 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+      <div 
+        ref={headerRef}
+        className={`p-3 border-b border-gray-100 flex items-center flex-shrink-0 gap-2 ${isCollapsed ? 'justify-center' : 'justify-between'} relative`}
+      >
         {/* User Avatar and Info - hide avatar when collapsed */}
-        {!isCollapsed && (
-          <div className="flex items-center min-w-0 flex-1">
-            {/* User Avatar */}
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+        {!isCollapsed ? (
+          <button
+            type="button"
+            disabled={!canSwitchAgent || switchDisabled}
+            onClick={handleToggleMenu}
+            className={`flex items-center text-left transition-colors rounded-lg ${canSwitchAgent ? 'hover:bg-gray-50' : ''} ${switchDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            style={{ width: '140px' }}
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
               <User size={18} className="text-white" />
             </div>
             
-            {/* User Info */}
-            <div className="ml-2.5 min-w-0 overflow-hidden">
+            <div className="ml-2.5 flex-1 min-w-0 overflow-hidden">
               <div className="text-sm font-semibold text-gray-900 truncate">
-                {role === 'admin' ? '管理员' : '代理商'}
+                {resolvedAgent?.name || (role === 'admin' ? 'Admin' : 'Agent')}
               </div>
               <div className="text-xs text-gray-500 truncate">
-                {role === 'admin' ? 'Admin' : 'Agent'}
+                {roleLabel}
               </div>
             </div>
-          </div>
-        )}
+
+            {canSwitchAgent && (
+              <span className="flex flex-col items-center justify-center text-gray-400 flex-shrink-0 ml-1">
+                <ChevronUp size={12} />
+                <ChevronDown size={12} />
+              </span>
+            )}
+          </button>
+        ) : null}
 
         {/* Toggle Button */}
         <button
@@ -154,6 +239,67 @@ export function AdminSidebar({
         >
           {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
+
+        <AnimatePresence>
+          {canSwitchAgent && showAgentMenu && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -8, filter: "blur(4px)" }}
+              animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, scale: 0.95, y: -8, filter: "blur(4px)" }}
+              transition={{ 
+                type: "spring", 
+                stiffness: 500, 
+                damping: 30, 
+                mass: 1 
+              }}
+              ref={menuRef}
+              style={menuStyle}
+              className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden origin-top-left"
+            >
+              <div className="max-h-72 overflow-y-auto space-y-1 p-2">
+                {agentOptions.map((agent, idx) => {
+                  const isActive = agent.id === currentSelection;
+                  const disabled = agent.isDeleted || switchDisabled;
+                  const badgeClass = agent.isDeleted
+                    ? 'bg-gray-200'
+                    : agent.isActive !== false ? 'bg-emerald-500' : 'bg-red-500';
+                  const avatarColors = [
+                    'from-blue-500 to-indigo-500',
+                    'from-emerald-500 to-teal-500',
+                    'from-amber-500 to-orange-500',
+                    'from-purple-500 to-pink-500'
+                  ];
+                  const gradient = avatarColors[idx % avatarColors.length];
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => handleAgentClick(agent.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border transition-all duration-150 ${
+                        isActive
+                          ? 'bg-blue-50 border-blue-300 text-blue-700'
+                          : 'bg-white border-gray-100 text-gray-700 hover:bg-gray-50'
+                      } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-xs font-bold text-white shadow-sm`}>
+                          {agent.name?.slice(0, 2) || '代'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold" title={agent.name}>
+                            {agent.name?.length > 4 ? agent.name.slice(0, 4) + '...' : agent.name}
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${badgeClass}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Navigation Items */}

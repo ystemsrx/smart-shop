@@ -12,6 +12,7 @@ export function useProductManagement({
   loadOrders,
   setOrderStats,
   setAddresses,
+  refreshAllWarnings,
 }) {
   const [stats, setStats] = useState({
     total_products: 0,
@@ -41,6 +42,7 @@ export function useProductManagement({
   const safeSetAddresses = setAddresses || (() => {});
   const safeSetOrderStats = setOrderStats || (() => {});
   const safeLoadOrders = loadOrders || (() => Promise.resolve());
+  const safeRefreshAllWarnings = refreshAllWarnings || (() => Promise.resolve());
 
   const updateShopInactiveSetting = async (showInactive) => {
     setIsLoadingShopSetting(true);
@@ -294,9 +296,11 @@ export function useProductManagement({
         setProducts(prevProducts => [normalizedNewProduct, ...prevProducts]);
         setShowAddModal(false);
         await refreshStats();
+        safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
       } else {
         setShowAddModal(false);
         await loadData();
+        safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
       }
 
     } catch (err) {
@@ -359,6 +363,7 @@ export function useProductManagement({
       if (!skipCloseModal) {
         if (needsFullRefresh) {
           await loadData();
+          safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
         } else {
           try {
             const refreshedProduct = await apiRequest(`${staffPrefix}/products/${editingProduct.id}`);
@@ -382,9 +387,11 @@ export function useProductManagement({
             });
             setProducts(updatedProducts);
             await refreshStats();
+            safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
           } catch (refreshErr) {
             console.error('重新获取商品数据失败，执行完整刷新:', refreshErr);
             await loadData();
+            safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
           }
         }
       }
@@ -486,6 +493,7 @@ export function useProductManagement({
 
     try {
       await apiRequest(`${staffPrefix}/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
+      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
     } catch (e) {
       const revertedProducts = products.map(p =>
         p.id === product.id ? { ...p, is_active: product.is_active } : p
@@ -615,6 +623,7 @@ export function useProductManagement({
       ));
 
       refreshStats().catch(err => console.error('刷新统计数据失败:', err));
+      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
 
       return nextStock;
     } catch (err) {
@@ -669,6 +678,7 @@ export function useProductManagement({
       });
 
       alert('商品删除成功！');
+      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
     } catch (err) {
       setProducts(originalProducts);
       alert(err.message || '删除商品失败');
@@ -722,6 +732,7 @@ export function useProductManagement({
       });
 
       alert(`成功删除 ${productIds.length} 件商品！`);
+      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
 
     } catch (err) {
       setProducts(originalProducts);
@@ -756,6 +767,7 @@ export function useProductManagement({
       );
 
       await Promise.all(promises);
+      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
     } catch (err) {
       setProducts(originalProducts);
       console.error('批量操作失败:', err);
