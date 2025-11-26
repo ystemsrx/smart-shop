@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
+import { usePaymentQr } from '../hooks/usePaymentQr';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
@@ -50,6 +51,7 @@ export default function Checkout() {
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
+  const { getCachedPaymentQr, getPaymentQr, preloadPaymentQr } = usePaymentQr();
   const shopName = getShopName();
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
@@ -494,17 +496,22 @@ export default function Checkout() {
 
     setIsCreatingPayment(true);
     setError('');
-    setPaymentQr(null); // 重置收款码
     
     try {
-      // 获取收款码（基于当前地址信息）
+      // 优先使用预加载的收款码，否则实时获取
       const buildingId = location?.building_id;
       const addressId = location?.address_id;
-
-      const qrResponse = await apiRequest(`/payment-qr?building_id=${buildingId || ''}&address_id=${addressId || ''}`);
       
-      if (qrResponse.success && qrResponse.data?.payment_qr) {
-        setPaymentQr(qrResponse.data.payment_qr);
+      // 先尝试获取缓存的收款码（同步，无等待）
+      let qr = getCachedPaymentQr(addressId, buildingId);
+      
+      if (!qr) {
+        // 如果缓存中没有，则异步获取
+        qr = await getPaymentQr(addressId, buildingId);
+      }
+      
+      if (qr) {
+        setPaymentQr(qr);
       } else {
         // 没有收款码
         setPaymentQr({
