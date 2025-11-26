@@ -496,6 +496,7 @@ export default function Orders() {
                             const isCompleted = idx < currentIdx;
                             const isCurrent = idx === currentIdx;
                             const isPending = idx > currentIdx;
+                            const isLastStepCompleted = step === '已完成' && us === '已完成';
                             
                             // 定义每个状态的主题色
                             const stepColors = {
@@ -518,11 +519,7 @@ export default function Orders() {
                                   ${isCompleted ? borderColor : ''}
                                   ${isCurrent ? `${borderColor} scale-150 shadow-[0_0_0_3px_rgba(255,255,255,1),0_0_0_4px_rgba(0,0,0,0.05)]` : ''}
                                   ${isPending ? 'border-gray-200' : ''}
-                                `}>
-                                  {isCompleted && (
-                                    <i className={`fas fa-check text-[4px] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${textColor}`}></i>
-                                  )}
-                                </div>
+                                `}></div>
                                 
                                 {/* 节点文字 */}
                                 <div className={`
@@ -631,9 +628,9 @@ export default function Orders() {
 
       {/* 订单详情弹窗 */}
       {viewingOrder && (
-        <div className={`fixed inset-0 z-[60] flex items-center justify-center sm:items-end sm:justify-center p-4 transition-opacity duration-300 ${isClosing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`fixed inset-0 z-[60] flex items-center justify-center p-4 transition-opacity duration-300 ${isClosing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           <div className="absolute inset-0 bg-gray-900/30 backdrop-blur-sm" onClick={handleCloseOrderModal}></div>
-          <div className={`relative w-full max-w-2xl bg-white h-[85vh] sm:h-auto sm:max-h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden transform transition-all duration-300 ${isClosing ? 'translate-y-full sm:scale-95 sm:opacity-0' : 'animate-fade-in-up'}`}>
+          <div className={`relative w-full max-w-2xl bg-white max-h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden transform transition-all duration-300 ${isClosing ? 'scale-95 opacity-0' : 'animate-fade-in-up'}`}>
             {/* Header */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
               <div>
@@ -656,7 +653,7 @@ export default function Orders() {
                   <p className="text-xs text-gray-500 mb-1">当前状态</p>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={getUnifiedStatus(viewingOrder)} />
-                    {viewingOrder.is_reservation && (
+                    {Boolean(viewingOrder.is_reservation) && (
                       <span className="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">预约单</span>
                     )}
                   </div>
