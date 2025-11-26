@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
@@ -100,6 +101,36 @@ const buildSphereSubtitle = (product = {}) => {
   return parts.join(' · ');
 };
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.05,
+      delayChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.95 },
+  visible: { 
+    opacity: 1, 
+    y: 0, 
+    scale: 1,
+    transition: { type: "spring", stiffness: 300, damping: 24 }
+  }
+};
+
+const headerVariants = {
+  hidden: { opacity: 0, y: -20 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { type: "spring", stiffness: 200, damping: 20 }
+  }
+};
+
 // 商品卡片组件
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, onOpenDetailModal, itemsMap = {}, isLoading }) => {
   const { user } = useAuth();
@@ -163,11 +194,18 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const limitReached = effectiveStock !== null && effectiveStock > 0 && cartQuantity >= effectiveStock;
 
   return (
-    <div 
-      className={`card-modern group overflow-hidden transform transition-all duration-300 ease-out h-[420px] flex flex-col ${
+    <motion.div 
+      layout
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, margin: "-50px" }}
+      variants={itemVariants}
+      whileHover={{ transition: { type: "spring", stiffness: 400, damping: 25 } }}
+      whileTap={{ scale: 0.98 }}
+      className={`card-modern group overflow-hidden h-[420px] flex flex-col ${
         (isOutOfStock || isDown)
           ? 'opacity-60 grayscale cursor-not-allowed'
-          : 'hover:scale-105 cursor-pointer'
+          : 'cursor-pointer'
       }`}
       onClick={(e) => {
         // 如果点击的是按钮或其子元素，不打开详情
@@ -207,7 +245,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           <RetryImage
             src={imageSrc}
             alt={product.name}
-            className={`h-full w-full object-cover object-center group-hover:scale-110 transition-transform duration-500 ${
+            className={`h-full w-full object-cover object-center transition-transform duration-500 ${
               (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
@@ -411,7 +449,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -432,7 +470,12 @@ const CategoryFilter = ({
   const toggleButtonLabel = isSphere ? '网格视图' : '球形视图';
 
   return (
-    <div className="mb-8 opacity-0 animate-apple-slide-up animate-delay-200">
+    <motion.div 
+      variants={headerVariants}
+      initial="hidden"
+      animate="visible"
+      className="mb-8"
+    >
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
           <i className="fas fa-layer-group text-white text-sm"></i>
@@ -440,30 +483,40 @@ const CategoryFilter = ({
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
         {onToggleView && (
           <div className="ml-auto mt-3 sm:mt-0">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               type="button"
               onClick={onToggleView}
               disabled={disableSphereToggle}
               aria-pressed={isSphere}
               aria-label={toggleAriaLabel}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-300 text-sm font-medium ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors duration-300 text-sm font-medium ${
                 isSphere
                   ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
-              } ${disableSphereToggle ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}`}
+              } ${disableSphereToggle ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
               title={toggleAriaLabel}
             >
               <i className={`fas ${toggleButtonIcon}`}></i>
               <span className="hidden sm:inline">{toggleButtonLabel}</span>
-            </button>
+            </motion.button>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-3">
+      <motion.div 
+        className="flex flex-wrap gap-3"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
         {hasHotProducts && (
-          <button
+          <motion.button
+            variants={itemVariants}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => onCategoryChange('hot')}
-            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
               isActive('hot')
                 ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
                 : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -473,11 +526,14 @@ const CategoryFilter = ({
               <i className="fas fa-fire"></i>
               <span>热销</span>
             </div>
-          </button>
+          </motion.button>
         )}
-        <button
+        <motion.button
+          variants={itemVariants}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => onCategoryChange('all')}
-          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
             isActive('all')
               ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
               : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -487,29 +543,31 @@ const CategoryFilter = ({
             <i className="fas fa-th-large"></i>
             <span>全部</span>
           </div>
-        </button>
+        </motion.button>
         {categories.map((category, index) => {
           const value = `category:${category.name}`;
           return (
-            <button
+            <motion.button
               key={category.id}
+              variants={itemVariants}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => onCategoryChange(value)}
-              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-300 transform hover:scale-105 opacity-0 animate-apple-fade-in ${
+              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-300 ${
                 isActive(value)
                   ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
               }`}
-              style={{ animationDelay: `${index * 0.05}s` }}
             >
               <div className="flex items-center gap-2">
                 <i className="fas fa-tag"></i>
                 <span>{category.name}</span>
               </div>
-            </button>
+            </motion.button>
           );
         })}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 
@@ -521,14 +579,22 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
   };
 
   return (
-    <div className="mb-8 opacity-0 animate-apple-fade-in animate-delay-100">
+    <motion.div 
+      variants={headerVariants}
+      initial="hidden"
+      animate="visible"
+      className="mb-8"
+    >
       <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto">
-        <div className="relative group">
+        <motion.div 
+          whileHover={{ scale: 1.02 }}
+          className="relative group"
+        >
            {/* 背景光晕 */}
            <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-pink-600 rounded-2xl blur opacity-30 group-hover:opacity-50 transition-opacity duration-300"></div>
           
           {/* 搜索框主体 */}
-          <div className="relative flex items-center bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
+          <div className="relative flex items-center bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-lg hover:shadow-xl transition-shadow pr-2">
             {/* 搜索图标 */}
             <div className="absolute left-4 text-gray-400 group-focus-within:text-orange-500 transition-colors">
               <i className="fas fa-search"></i>
@@ -544,19 +610,21 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
             />
             
             {/* 搜索按钮 */}
-             <button
+             <motion.button
+               whileHover={{ scale: 1.05 }}
+               whileTap={{ scale: 0.95 }}
                type="submit"
-               className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-all duration-300 hover:scale-105 shadow-lg"
+               className="flex-shrink-0 px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 shadow-lg"
              >
               <div className="flex items-center gap-2">
                 <i className="fas fa-search"></i>
                 <span className="hidden sm:inline">搜索</span>
               </div>
-            </button>
+            </motion.button>
           </div>
-        </div>
+        </motion.div>
       </form>
-    </div>
+    </motion.div>
   );
 };
 
@@ -1464,14 +1532,23 @@ export default function Shop() {
           )}
           
           {/* 页面标题区域 */}
-          <div className="mb-12 text-center opacity-0 animate-apple-fade-in">
+          <motion.div 
+            variants={headerVariants}
+            initial="hidden"
+            animate="visible"
+            className="mb-12 text-center"
+          >
             <div className="flex justify-center mb-6">
-              <div className="relative">
+              <motion.div 
+                whileHover={{ rotate: 10, scale: 1.1 }}
+                transition={{ type: "spring", stiffness: 300 }}
+                className="relative"
+              >
                 <div className="absolute -inset-4 bg-gradient-to-r from-orange-500 to-pink-600 rounded-3xl blur-2xl opacity-30"></div>
                 <div className="relative w-20 h-20 bg-gradient-to-br from-orange-500 via-pink-600 to-purple-500 rounded-3xl flex items-center justify-center shadow-2xl">
                   <i className="fas fa-store text-white text-2xl"></i>
                 </div>
-              </div>
+              </motion.div>
             </div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-3">
               {shopName}
@@ -1500,7 +1577,9 @@ export default function Shop() {
 
             {user?.type === 'user' && (
               <div className="mt-6 flex justify-center">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={openLocationModal}
                   className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/90 text-gray-700 border border-gray-200/60 shadow-md hover:shadow-lg transition-all duration-300 hover:bg-white"
                 >
@@ -1512,7 +1591,7 @@ export default function Shop() {
                     <div className="text-sm font-semibold text-gray-900 mt-0.5">{displayLocation}</div>
                   </div>
                   <span className="text-xs text-emerald-600 font-medium ml-2">更改</span>
-                </button>
+                </motion.button>
               </div>
             )}
 
@@ -1521,7 +1600,7 @@ export default function Shop() {
                 为了展示可售商品，请先选择您的配送地址。
               </div>
             )}
-          </div>
+          </motion.div>
 
           {/* 搜索栏 */}
           <SearchBar
@@ -1590,14 +1669,15 @@ export default function Shop() {
                   </>
                 ) : (
                   <>
-                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <motion.div 
+                      variants={containerVariants}
+                      initial="hidden"
+                      animate="visible"
+                      className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                    >
                       {products.map((product, index) => (
-                        <div 
-                          key={product.id}
-                          className="opacity-0 animate-apple-fade-in"
-                          style={{ animationDelay: `${index * 0.05}s` }}
-                        >
-                          <ProductCard
+                        <ProductCard
+                            key={product.id}
                             product={product}
                             onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
                             onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
@@ -1607,9 +1687,8 @@ export default function Shop() {
                             itemsMap={cartItemsMap}
                             isLoading={cartLoading}
                           />
-                        </div>
                       ))}
-                    </div>
+                    </motion.div>
                     
                     {/* 底部提示线 */}
                     <div className="flex items-center justify-center gap-4 mt-12 mb-20">

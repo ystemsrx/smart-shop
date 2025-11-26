@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
@@ -48,6 +49,50 @@ const createMissingValidation = () => ({
   should_force_reselect: true,
 });
 
+
+
+const containerVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.4,
+      ease: "easeOut"
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.98 },
+  visible: { 
+    opacity: 1, 
+    y: 0, 
+    scale: 1,
+    transition: { type: "spring", stiffness: 350, damping: 25 }
+  },
+  exit: { 
+    opacity: 0, 
+    scale: 0.95, 
+    transition: { duration: 0.2 } 
+  }
+};
+
+// 购物车商品项专用动效（更快响应，不受父容器stagger影响）
+const cartItemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { type: "tween", duration: 0.2, ease: "easeOut" }
+  },
+  exit: { 
+    opacity: 0, 
+    scale: 0.95, 
+    transition: { duration: 0.15 } 
+  }
+};
+
 // 购物车商品项组件
 const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   const isDown = item.is_active === 0 || item.is_active === false;
@@ -75,7 +120,13 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   };
 
   return (
-    <div className={`group bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-4 transition-all duration-300 hover:shadow-lg hover:border-slate-300/80 ${isDown ? 'opacity-60 grayscale' : ''}`}>
+    <motion.div 
+      layout
+      initial={false}
+      exit="exit"
+      variants={cartItemVariants}
+      className={`group bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-4 transition-all duration-300 hover:shadow-lg hover:border-slate-300/80 ${isDown ? 'opacity-60 grayscale' : ''}`}
+    >
       <div className="flex items-start gap-4">
         {/* 商品图片 */}
         <div className="flex-shrink-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 transition-transform duration-300 group-hover:scale-105">
@@ -196,7 +247,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
           <i className="fas fa-trash-alt mr-1"></i>移除
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -998,9 +1049,15 @@ export default function Cart() {
 
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 pt-16">
         {/* 主要内容 */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* 主要内容 */}
+        <motion.main 
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+        >
           <div className="mb-8 pb-6 flex justify-between items-center">
-            <div className="animate-apple-fade-in">
+            <div>
               <h1 className="text-4xl font-black text-slate-900 mb-2 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
                 购物车
               </h1>
@@ -1049,7 +1106,7 @@ export default function Cart() {
                 <div className="lg:col-span-2 space-y-6">
                   {/* 地址和打烊提示 */}
                   {user?.type === 'user' && (
-                    <div className="flex flex-col sm:flex-row gap-3 animate-apple-fade-in">
+                    <div className="flex flex-col sm:flex-row gap-3">
                       <button
                         onClick={openLocationModal}
                         className="group flex items-center gap-3 px-5 py-4 bg-white border-2 border-emerald-300/50 rounded-2xl text-emerald-700 hover:shadow-xl hover:border-emerald-400 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] bg-gradient-to-r from-emerald-50/50 to-teal-50/50"
@@ -1083,7 +1140,7 @@ export default function Cart() {
 
                   {/* 地址验证错误提示 */}
                   {addressInvalid && (
-                    <div className="flex items-start gap-3 rounded-2xl border-2 border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-5 py-4 text-sm text-rose-800 shadow-sm animate-apple-fade-in">
+                    <div className="flex items-start gap-3 rounded-2xl border-2 border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-5 py-4 text-sm text-rose-800 shadow-sm">
                       <i className="fas fa-exclamation-triangle mt-0.5 text-rose-500 text-lg"></i>
                       <span className="flex-1 font-semibold">{addressAlertMessage}</span>
                       <button
@@ -1097,7 +1154,7 @@ export default function Cart() {
 
                   {/* 信息提示 */}
                   {infoMessage && (
-                    <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/50 text-emerald-800 px-5 py-4 rounded-2xl flex items-start gap-3 shadow-sm animate-apple-fade-in">
+                    <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/50 text-emerald-800 px-5 py-4 rounded-2xl flex items-start gap-3 shadow-sm">
                       <i className="fas fa-info-circle mt-0.5 text-emerald-600 text-lg"></i>
                       <span className="flex-1 font-semibold">{infoMessage}</span>
                       <button
@@ -1112,7 +1169,7 @@ export default function Cart() {
 
                   {/* 错误提示 */}
                   {error && (
-                    <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200/50 text-red-800 px-5 py-4 rounded-2xl shadow-sm font-semibold animate-apple-fade-in">
+                    <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200/50 text-red-800 px-5 py-4 rounded-2xl shadow-sm font-semibold">
                       <i className="fas fa-exclamation-circle mr-2"></i>
                       {error}
                     </div>
@@ -1178,6 +1235,7 @@ export default function Cart() {
 
                   {/* 商品列表容器 */}
                   <div className="space-y-0">
+                    <AnimatePresence mode="popLayout">
                     {cart.items
                       .sort((a, b) => {
                         // 非卖品排到最后
@@ -1195,6 +1253,7 @@ export default function Cart() {
                         onRemove={handleRemoveItem}
                       />
                     ))}
+                    </AnimatePresence>
                   </div>
 
                   {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
@@ -1340,7 +1399,7 @@ export default function Cart() {
             </>
           ) : (
             /* 购物车为空时的状态 - 完整宽度居中显示 */
-            <div className="text-center py-20 animate-apple-fade-in">
+            <div className="text-center py-20">
               <div className="max-w-md mx-auto">
                 <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full mx-auto mb-6 flex items-center justify-center shadow-inner">
                   <i className="fas fa-shopping-cart text-slate-400 text-3xl"></i>
@@ -1354,7 +1413,7 @@ export default function Cart() {
               </div>
             </div>
           )}
-        </main>
+        </motion.main>
       </div>
 
       {/* 打烊提示模态框 */}
