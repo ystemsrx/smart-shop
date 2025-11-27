@@ -17,6 +17,17 @@ const RetryImage = ({
   const retryCountRef = useRef(0);
 
   const handleError = () => {
+    // blob URL 失败后重试没有意义（blob 被释放就不会恢复），直接标记失败
+    if (src && src.startsWith('blob:')) {
+      console.log('blob URL 加载失败，不重试:', src);
+      setHasError(true);
+      setIsLoading(false);
+      if (onFinalError) {
+        onFinalError();
+      }
+      return;
+    }
+
     retryCountRef.current += 1;
     setRetryCount(retryCountRef.current);
     

@@ -1644,6 +1644,8 @@ def migrate_product_image_hashes(items_root: Optional[str] = None) -> Dict[str, 
     返回字典包含 updated（成功更新的数量）和 skipped（缺少文件或路径的数量）。
     """
     base_dir = items_root or os.path.join(os.path.dirname(__file__), 'items')
+    # backend_dir 用于处理 img_path 带有 items/ 前缀的情况
+    backend_dir = os.path.dirname(base_dir)
     updated = 0
     skipped = 0
 
@@ -1665,9 +1667,27 @@ def migrate_product_image_hashes(items_root: Optional[str] = None) -> Dict[str, 
                 continue
 
             normalized_path = str(img_path).lstrip('/\\')
-            full_path = normalized_path
-            if not os.path.isabs(normalized_path):
-                full_path = os.path.join(base_dir, normalized_path)
+            full_path = None
+            
+            # 尝试多种路径解析方式
+            if os.path.isabs(normalized_path):
+                full_path = normalized_path
+            else:
+                # 方式1：img_path 格式为 "items/category/file.webp"，拼接 backend_dir
+                candidate1 = os.path.normpath(os.path.join(backend_dir, normalized_path))
+                # 方式2：img_path 格式为 "category/file.webp"，拼接 base_dir (items目录)
+                candidate2 = os.path.normpath(os.path.join(base_dir, normalized_path))
+                
+                if os.path.exists(candidate1) and os.path.isfile(candidate1):
+                    full_path = candidate1
+                elif os.path.exists(candidate2) and os.path.isfile(candidate2):
+                    full_path = candidate2
+                else:
+                    # 如果都不存在，记录日志方便调试
+                    logger.debug(f"商品 {product_id} 图片路径无法解析: {img_path}, 尝试: {candidate1}, {candidate2}")
+                    skipped += 1
+                    continue
+            
             full_path = os.path.normpath(full_path)
 
             if not os.path.exists(full_path) or not os.path.isfile(full_path):
@@ -2100,10 +2120,12 @@ class ProductDB:
 
     @staticmethod
     def _normalize_product_row(product: Dict[str, Any]) -> Dict[str, Any]:
+        """规范化产品数据，统一字段名"""
         if not isinstance(product, dict):
             return product
         try:
-            img_hash = product.get('img_hash')
+            # 将内部字段 img_hash 统一为对外字段 image_hash，并删除原字段避免重复
+            img_hash = product.pop('img_hash', None)
             if img_hash is not None and 'image_hash' not in product:
                 product['image_hash'] = img_hash
         except Exception:

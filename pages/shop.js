@@ -953,15 +953,20 @@ export default function Shop() {
     }
   }, []);
 
+  // 组件卸载时清理所有 blob URL（注意：不要依赖 cachedImageUrls，否则每次更新都会触发清理）
+  const cachedImageUrlsRef = useRef(cachedImageUrls);
+  cachedImageUrlsRef.current = cachedImageUrls;
+  
   useEffect(() => () => {
-    Object.values(cachedImageUrls || {}).forEach((url) => {
+    // 只在组件卸载时清理
+    Object.values(cachedImageUrlsRef.current || {}).forEach((url) => {
       try {
         URL.revokeObjectURL(url);
       } catch (err) {
         console.warn('清理图片缓存URL失败', err);
       }
     });
-  }, [cachedImageUrls]);
+  }, []); // 空依赖，只在卸载时执行
 
   // 加载商品和分类（只在首次加载或位置变化时调用）
   const loadData = async () => {

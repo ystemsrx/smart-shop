@@ -1,8 +1,21 @@
-import { getProductImage } from './urls';
+import { resolveImageUrl } from './urls';
 
 const DB_NAME = 'smart-shop-images';
 const STORE_NAME = 'productImages';
 const DB_VERSION = 1;
+
+// 获取原始图片URL（不包括cached_image_url，避免获取到blob URL）
+function getOriginalImageUrl(product) {
+  if (!product) return '';
+  const src =
+    product.image_url ||
+    product.img_url ||
+    product.image ||
+    product.imgPath ||
+    product.img_path ||
+    '';
+  return resolveImageUrl(src);
+}
 
 const isClient = typeof window !== 'undefined' && typeof indexedDB !== 'undefined';
 
@@ -72,7 +85,20 @@ async function pruneMissingProducts(db, validIds) {
 }
 
 function getImageHash(product = {}) {
-  return product.image_hash || product.img_hash || product.imageHash || '';
+  // 优先使用服务器提供的图片哈希
+  const serverHash = product.image_hash || product.img_hash || product.imageHash;
+  if (serverHash) return serverHash;
+  
+  // 如果没有服务器哈希，使用图片路径生成一个简单的哈希作为缓存key
+  // 这样即使旧数据没有哈希也能缓存，图片路径变化时会更新缓存
+  const imgPath = product.img_path || '';
+  if (imgPath) {
+    // 简单的字符串哈希：路径+更新时间(如果有)
+    const updateTime = product.updated_at || '';
+    return `path:${imgPath}:${updateTime}`;
+  }
+  
+  return '';
 }
 
 export async function syncProductImageCache(products = []) {
@@ -89,7 +115,7 @@ export async function syncProductImageCache(products = []) {
   for (const product of products) {
     const productId = product.id;
     const hash = getImageHash(product);
-    const imageUrl = getProductImage(product);
+    const imageUrl = getOriginalImageUrl(product);
 
     if (!productId || !hash || !imageUrl) continue;
 

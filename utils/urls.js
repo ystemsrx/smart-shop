@@ -9,8 +9,8 @@ const DEFAULT_API_BASE = imageBaseUrl || fileBaseUrl || apiUrl
 export function resolveImageUrl(path) {
   if (!path || typeof path !== 'string') return '';
 
-  // Already absolute or protocol-relative
-  if (/^https?:\/\//i.test(path) || path.startsWith('//')) return path;
+  // Already absolute, protocol-relative, or blob URL
+  if (/^https?:\/\//i.test(path) || path.startsWith('//') || path.startsWith('blob:')) return path;
 
   // 在浏览器环境中，优先使用相对路径以利用Next.js的rewrites代理
   if (typeof window !== 'undefined') {
