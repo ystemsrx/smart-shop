@@ -234,7 +234,8 @@ def auto_migrate_database(conn) -> None:
             'is_not_for_sale': 'INTEGER DEFAULT 0',
             'reservation_required': 'INTEGER DEFAULT 0',
             'reservation_cutoff': 'TEXT',
-            'reservation_note': 'TEXT'
+            'reservation_note': 'TEXT',
+            'img_hash': 'TEXT'
         },
         'orders': {
             'payment_status': 'TEXT DEFAULT "pending"',
@@ -898,6 +899,7 @@ def init_database():
                 stock INTEGER DEFAULT 0,
                 discount REAL DEFAULT 10.0, -- 折扣（以折为单位，10为不打折，0.5为五折）
                 img_path TEXT,  -- 图片路径 items/类别/商品名.扩展名
+                img_hash TEXT,  -- 图片内容哈希
                 description TEXT,
                 is_active INTEGER DEFAULT 1, -- 是否上架（1 上架，0 下架）
                 reservation_required INTEGER DEFAULT 0, -- 是否必须预约
@@ -1621,6 +1623,83 @@ def init_database():
     except Exception as e:
         logger.warning(f"密码迁移失败: {e}")
 
+
+def _compute_file_sha256(file_path: str) -> Optional[str]:
+    """计算文件的 SHA-256 哈希值。"""
+    try:
+        hasher = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception as exc:
+        logger.warning(f"计算文件哈希失败: {exc}")
+        return None
+
+
+def migrate_product_image_hashes(items_root: Optional[str] = None) -> Dict[str, int]:
+    """
+    为没有哈希的商品图片计算并补全 img_hash 字段。
+
+    返回字典包含 updated（成功更新的数量）和 skipped（缺少文件或路径的数量）。
+    """
+    base_dir = items_root or os.path.join(os.path.dirname(__file__), 'items')
+    updated = 0
+    skipped = 0
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 确保列存在
+        ensure_table_columns(conn, 'products', {'img_hash': 'TEXT'})
+
+        cursor.execute('SELECT id, img_path, img_hash FROM products')
+        rows = cursor.fetchall()
+
+        for row in rows:
+            product_id, img_path, img_hash = row
+            if img_hash:
+                continue
+            if not img_path:
+                skipped += 1
+                continue
+
+            normalized_path = str(img_path).lstrip('/\\')
+            full_path = normalized_path
+            if not os.path.isabs(normalized_path):
+                full_path = os.path.join(base_dir, normalized_path)
+            full_path = os.path.normpath(full_path)
+
+            if not os.path.exists(full_path) or not os.path.isfile(full_path):
+                skipped += 1
+                continue
+
+            file_hash = _compute_file_sha256(full_path)
+            if not file_hash:
+                skipped += 1
+                continue
+
+            try:
+                cursor.execute(
+                    'UPDATE products SET img_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (file_hash, product_id)
+                )
+                if cursor.rowcount:
+                    updated += 1
+            except Exception as exc:
+                logger.warning(f"更新商品 {product_id} 图片哈希失败: {exc}")
+
+        conn.commit()
+
+    if updated:
+        logger.info(f"已为 {updated} 个商品补全图片哈希，跳过 {skipped} 个")
+    elif skipped:
+        logger.info(f"图片哈希迁移完成，跳过 {skipped} 个缺少路径或文件的商品")
+    else:
+        logger.info("所有商品图片哈希已存在，无需迁移")
+
+    return {"updated": updated, "skipped": skipped}
+
 @contextmanager
 def get_db_connection():
     """获取数据库连接的上下文管理器"""
@@ -1961,9 +2040,9 @@ class ProductDB:
                 ''', (category_id, category_name, f"自动创建的分类：{category_name}"))
             
             cursor.execute('''
-                INSERT INTO products 
-                (id, name, category, price, stock, discount, img_path, description, cost, owner_id, is_hot, is_not_for_sale, reservation_required, reservation_cutoff, reservation_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products
+                (id, name, category, price, stock, discount, img_path, img_hash, description, cost, owner_id, is_hot, is_not_for_sale, reservation_required, reservation_cutoff, reservation_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 product_id,
                 product_data['name'],
@@ -1972,6 +2051,7 @@ class ProductDB:
                 product_data.get('stock', 0),
                 float(product_data.get('discount', 10.0)),
                 product_data.get('img_path', ''),
+                product_data.get('img_hash', ''),
                 product_data.get('description', ''),
                 float(product_data.get('cost', 0.0)),
                 product_data.get('owner_id'),
@@ -2019,6 +2099,18 @@ class ProductDB:
         return max(round(effective, 2), 0.0)
 
     @staticmethod
+    def _normalize_product_row(product: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(product, dict):
+            return product
+        try:
+            img_hash = product.get('img_hash')
+            if img_hash is not None and 'image_hash' not in product:
+                product['image_hash'] = img_hash
+        except Exception:
+            pass
+        return product
+
+    @staticmethod
     def _sort_products_for_display(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not products:
             return []
@@ -2027,6 +2119,7 @@ class ProductDB:
         normal_items: List[Tuple[int, Dict[str, Any]]] = []
 
         for idx, product in enumerate(products):
+            product = ProductDB._normalize_product_row(product)
             bucket = hot_items if ProductDB._is_hot_product(product) else normal_items
             bucket.append((idx, product))
 
@@ -2090,7 +2183,7 @@ class ProductDB:
             sql += ' ORDER BY created_at DESC'
 
             cursor.execute(sql, query_params)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [ProductDB._normalize_product_row(dict(row)) for row in cursor.fetchall()]
             return ProductDB._sort_products_for_display(rows)
 
     @staticmethod
@@ -2120,7 +2213,7 @@ class ProductDB:
 
             sql = f"SELECT * FROM products WHERE {' AND '.join(clauses)} ORDER BY created_at DESC"
             cursor.execute(sql, query_params)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [ProductDB._normalize_product_row(dict(row)) for row in cursor.fetchall()]
             return ProductDB._sort_products_for_display(rows)
 
     @staticmethod
@@ -2152,7 +2245,7 @@ class ProductDB:
                     return []
                 sql, sql_params = build_base_sql(False)
                 cursor.execute(sql, sql_params)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [ProductDB._normalize_product_row(dict(row)) for row in cursor.fetchall()]
             return ProductDB._sort_products_for_display(rows)
     
     @staticmethod
@@ -2162,7 +2255,7 @@ class ProductDB:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            return ProductDB._normalize_product_row(dict(row)) if row else None
 
     @staticmethod
     def update_product(product_id: str, product_data: Dict) -> bool:
@@ -2192,7 +2285,7 @@ class ProductDB:
             update_fields = []
             values = []
             
-            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'description', 'is_active', 'cost', 'owner_id', 'is_hot', 'is_not_for_sale', 'reservation_required', 'reservation_cutoff', 'reservation_note']:
+            for field in ['name', 'category', 'price', 'stock', 'discount', 'img_path', 'img_hash', 'description', 'is_active', 'cost', 'owner_id', 'is_hot', 'is_not_for_sale', 'reservation_required', 'reservation_cutoff', 'reservation_note']:
                 if field in product_data:
                     update_fields.append(f"{field} = ?")
                     values.append(product_data[field])
@@ -2236,15 +2329,24 @@ class ProductDB:
             return success
 
     @staticmethod
-    def update_image_path(product_id: str, new_img_path: str) -> bool:
-        """仅更新商品图片路径"""
+    def update_image_path(product_id: str, new_img_path: str, img_hash: Optional[str] = None) -> bool:
+        """仅更新商品图片路径及哈希"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE products 
-                SET img_path = ?, updated_at = CURRENT_TIMESTAMP 
+            fields = ['img_path = ?']
+            params: List[Any] = [new_img_path]
+            if img_hash is not None:
+                fields.append('img_hash = ?')
+                params.append(img_hash)
+            params.append(product_id)
+            cursor.execute(
+                f"""
+                UPDATE products
+                SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (new_img_path, product_id))
+                """,
+                params
+            )
             ok = cursor.rowcount > 0
             conn.commit()
             return ok

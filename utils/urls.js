@@ -34,6 +34,7 @@ export function resolveImageUrl(path) {
 export function getProductImage(product) {
   if (!product) return '';
   const src =
+    product.cached_image_url ||
     product.image_url ||
     product.img_url ||
     product.image ||

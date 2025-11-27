@@ -18,13 +18,14 @@ import json
 import random
 from PIL import Image
 import io
+import hashlib
 
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
     VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB,
-    PaymentQrDB, DeliverySettingsDB
+    PaymentQrDB, DeliverySettingsDB, migrate_product_image_hashes
 )
 from database import AgentAssignmentDB, AgentDeletionDB
 from auth import (
@@ -470,7 +471,7 @@ def ensure_product_accessible(staff: Dict[str, Any], product_id: str) -> Dict[st
     return product
 
 
-async def store_product_image(category: str, base_name: str, image: UploadFile) -> Tuple[str, str]:
+async def store_product_image(category: str, base_name: str, image: UploadFile) -> Tuple[str, str, str]:
     if not image:
         raise HTTPException(status_code=400, detail="未上传图片")
     safe_category = (category or "misc").strip() or "misc"
@@ -507,7 +508,19 @@ async def store_product_image(category: str, base_name: str, image: UploadFile) 
         raise HTTPException(status_code=400, detail=f"图片处理失败: {str(e)}")
 
     relative_path = f"items/{safe_category}/{filename}"
-    return relative_path, file_path
+
+    # 计算存储后的文件哈希
+    try:
+        hasher = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                hasher.update(chunk)
+        img_hash = hasher.hexdigest()
+    except Exception as exc:
+        logger.warning(f"计算图片哈希失败: {exc}")
+        img_hash = ''
+
+    return relative_path, file_path, img_hash
 
 
 def normalize_reservation_cutoff(value: Optional[str]) -> Optional[str]:
@@ -549,9 +562,10 @@ async def handle_product_creation(
     try:
         assigned_owner_id = resolve_owner_id_for_staff(staff, owner_id)
         img_path = ""
+        img_hash = ''
         if image:
-            img_path, new_file_path = await store_product_image(category, name, image)
-
+            img_path, new_file_path, img_hash = await store_product_image(category, name, image)
+        
         # 处理折扣
         discount_value = 10.0
         if discount is not None:
@@ -570,6 +584,7 @@ async def handle_product_creation(
             "discount": discount_value,
             "description": description,
             "img_path": img_path,
+            "img_hash": img_hash if image else '',
             "cost": cost,
             "owner_id": assigned_owner_id,
             "is_hot": 1 if is_hot else 0,
@@ -726,12 +741,12 @@ async def handle_product_image_update(
     base_name = existing.get("name", "prod") or "prod"
 
     try:
-        img_path, new_file_path = await store_product_image(category, base_name, image)
+        img_path, new_file_path, img_hash = await store_product_image(category, base_name, image)
     except HTTPException as exc:
         return error_response(exc.detail, exc.status_code)
 
     try:
-        ok = ProductDB.update_image_path(product_id, img_path)
+        ok = ProductDB.update_image_path(product_id, img_path, img_hash)
     except Exception as e:
         ok = False
         logger.error(f"商品图片数据库更新失败: {e}")
@@ -758,6 +773,7 @@ async def handle_product_image_update(
 
     return success_response("图片更新成功", {
         "img_path": img_path,
+        "img_hash": img_hash,
         "image_url": f"/items/{img_path.split('items/')[-1]}" if img_path else ""
     })
 
@@ -1498,7 +1514,13 @@ async def run_startup_tasks() -> List[asyncio.Task]:
     
     # 初始化数据库（包含收款码数据清理和迁移）
     init_database()
-    
+
+    # 自动为缺少哈希的商品图片计算哈希
+    try:
+        migrate_product_image_hashes(items_dir)
+    except Exception as e:
+        logger.warning(f"商品图片哈希迁移失败: {e}")
+
     # 启动时清理无商品的空分类
     try:
         CategoryDB.cleanup_orphan_categories()

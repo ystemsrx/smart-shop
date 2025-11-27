@@ -15,6 +15,7 @@ import PastelBackground from '../components/ModalCard';
 import ProductDetailModal from '../components/ProductDetailModal';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { syncProductImageCache } from '../utils/imageCache';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -605,6 +606,7 @@ export default function Shop() {
   const [shopNote, setShopNote] = useState('');
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
+  const [cachedImageUrls, setCachedImageUrls] = useState({});
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
   const [viewMode, setViewMode] = useState('grid'); // grid | sphere
   const [showCartDrawer, setShowCartDrawer] = useState(false); // 购物车浮窗状态
@@ -921,6 +923,46 @@ export default function Shop() {
     return [...sortByPriority(available), ...sortByPriority(deferred)];
   };
 
+  const applyCachedImages = useCallback(async (productsToProcess = []) => {
+    try {
+      const { urls } = await syncProductImageCache(productsToProcess);
+      const cacheMap = urls || {};
+
+      setCachedImageUrls((prev) => {
+        const next = { ...cacheMap };
+        Object.entries(prev || {}).forEach(([pid, objectUrl]) => {
+          if (!next[pid] || next[pid] !== objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch (err) {
+              console.warn('释放旧图片URL失败', err);
+            }
+          }
+        });
+        return next;
+      });
+
+      return productsToProcess.map((p) => (
+        cacheMap[p.id]
+          ? { ...p, cached_image_url: cacheMap[p.id] }
+          : p
+      ));
+    } catch (err) {
+      console.error('同步图片缓存时出错', err);
+      return productsToProcess;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(cachedImageUrls || {}).forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.warn('清理图片缓存URL失败', err);
+      }
+    });
+  }, [cachedImageUrls]);
+
   // 加载商品和分类（只在首次加载或位置变化时调用）
   const loadData = async () => {
     if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
@@ -942,7 +984,8 @@ export default function Shop() {
       ]);
       
       const fetchedProducts = allProductsData.data.products || [];
-      const hasHotProducts = fetchedProducts.some(p => Boolean(p.is_hot));
+      const cachedProducts = await applyCachedImages(fetchedProducts);
+      const hasHotProducts = cachedProducts.some(p => Boolean(p.is_hot));
       setHasGlobalHotProducts(hasHotProducts);
 
       // 首次加载时，如果选择了热销但没有热销商品，切换到全部
@@ -954,7 +997,7 @@ export default function Shop() {
       }
 
       // 排序所有商品
-      const sortedAllProducts = sortProductsByPrice([...fetchedProducts]);
+      const sortedAllProducts = sortProductsByPrice([...cachedProducts]);
       setAllProducts(sortedAllProducts);
 
       // 分类按拼音/英文排序
