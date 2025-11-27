@@ -394,7 +394,7 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
                         <span className="text-gray-400 text-xs mt-0.5">地址</span>
                         <div className="text-gray-700 leading-relaxed">
                           {order?.shipping_info?.dormitory && order?.shipping_info?.building && order?.shipping_info?.room
-                            ? `${order.shipping_info.dormitory} · ${order.shipping_info.building} ${order.shipping_info.room}`
+                            ? `${order.shipping_info.dormitory} · ${order.shipping_info.building} · ${order.shipping_info.room}`
                             : (order?.shipping_info?.full_address || '—')}
                         </div>
 

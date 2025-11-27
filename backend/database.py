@@ -6901,7 +6901,7 @@ class GiftThresholdDB:
                 # 获取关联的商品列表
                 threshold_id = threshold_dict['id']
                 cursor.execute('''
-                    SELECT gti.*, p.name as product_name, p.img_path, p.category, p.stock, p.is_active,
+                    SELECT gti.*, p.name as product_name, p.img_path, p.category, p.stock, p.is_active, p.price as product_price, p.discount,
                            pv.name as variant_name, pv.stock as variant_stock
                     FROM gift_threshold_items gti
                     LEFT JOIN products p ON gti.product_id = p.id
@@ -6914,11 +6914,20 @@ class GiftThresholdDB:
                 items = []
                 for item_row in items_rows:
                     item_dict = dict(item_row)
-                    # 判断库存情况
+                    
+                    # 计算库存
                     if item_dict.get('variant_id'):
                         stock = int(item_dict.get('variant_stock') or 0)
                     else:
                         stock = int(item_dict.get('stock') or 0)
+                    
+                    # 计算零售价（应用折扣）- 规格使用产品的价格和折扣
+                    try:
+                        base_price = float(item_dict.get('product_price') or 0)
+                        discount = float(item_dict.get('discount') or 10.0)
+                        retail_price = round(base_price * (discount / 10.0), 2)
+                    except (TypeError, ValueError):
+                        retail_price = 0.0
                     
                     # 修复：正确处理 is_active 字段，当值为 0 时不应被 or 1 覆盖
                     raw_is_active = item_dict.get('is_active')
@@ -6930,6 +6939,7 @@ class GiftThresholdDB:
                     item_dict['is_active'] = is_active
                     item_dict['available'] = is_active and stock > 0
                     item_dict['stock'] = stock
+                    item_dict['price'] = retail_price  # 设置计算后的零售价
                     items.append(item_dict)
                 
                 threshold_dict['items'] = items

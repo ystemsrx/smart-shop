@@ -279,7 +279,7 @@ export const AgentManagement = ({
                 damping: 25,
                 mass: 0.8
               }}
-              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-10"
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col z-10"
             >
               {/* 模态框头部 */}
               <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">

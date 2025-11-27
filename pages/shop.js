@@ -612,6 +612,7 @@ export default function Shop() {
   const [coupons, setCoupons] = useState([]); // 用户的优惠券列表
   const [applyCoupon, setApplyCoupon] = useState(false); // 是否使用优惠券
   const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
+  const [showCouponDropdown, setShowCouponDropdown] = useState(false); // 优惠券下拉框状态
   const couponAutoSelectedRef = useRef(false); // 追踪是否已自动选择过优惠券
   const { toast, showToast, hideToast } = useToast();
   
@@ -758,7 +759,7 @@ export default function Shop() {
       setApplyCoupon(true);
       couponAutoSelectedRef.current = true; // 标记已自动选择过
     }
-  }, [showCartDrawer, coupons, cart?.total_price, applyCoupon]);
+  }, [showCartDrawer, coupons, cart?.total_price]);
 
   // 规格选择弹窗状态
   const [showSpecModal, setShowSpecModal] = useState(false);
@@ -1328,6 +1329,7 @@ export default function Shop() {
       setTimeout(() => {
         setShowCartDrawer(false);
         setIsClosingDrawer(false);
+        setShowCouponDropdown(false); // 重置优惠券下拉框状态
         if (applyCoupon && selectedCouponId) {
           router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
         } else {
@@ -1683,13 +1685,14 @@ export default function Shop() {
                 setTimeout(() => {
                   setShowCartDrawer(false);
                   setIsClosingDrawer(false);
+                  setShowCouponDropdown(false); // 重置优惠券下拉框状态
                 }, 200);
               }}
             />
             
             {/* 浮窗主体 - 在按钮上方右对齐显示 */}
             <div 
-              className={`fixed bottom-24 right-6 z-50 w-full sm:w-[420px] max-w-[calc(100vw-3rem)] max-h-[70vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden ${
+              className={`fixed bottom-24 right-6 z-50 w-full sm:w-[420px] max-w-[calc(100vw-3rem)] max-h-[70vh] bg-white rounded-2xl shadow-2xl flex flex-col ${
                 isClosingDrawer ? 'animate-scale-out' : 'animate-scale-in'
               }`}
               style={{ transformOrigin: 'bottom right' }}
@@ -1791,7 +1794,7 @@ export default function Shop() {
 
               {/* 底部结算区域 */}
               {cart?.items && cart.items.length > 0 && (
-                <div className="border-t border-gray-200 px-5 py-4 bg-gradient-to-br from-gray-50 to-white">
+                <div className="border-t border-gray-200 px-5 py-4 bg-gradient-to-br from-gray-50 to-white rounded-b-2xl">
                   {/* 价格明细 */}
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center justify-between text-sm">
@@ -1815,7 +1818,7 @@ export default function Shop() {
                       
                       return (
                         <>
-                          <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-200">
+                          <div className="relative z-20 flex items-center justify-between text-sm pt-2 border-t border-gray-200">
                             <label className="flex items-center gap-2 cursor-pointer">
                               <input
                                 type="checkbox"
@@ -1824,6 +1827,7 @@ export default function Shop() {
                                 onChange={(e) => {
                                   const checked = e.target.checked;
                                   setApplyCoupon(checked);
+                                  if (!checked) setShowCouponDropdown(false);
                                   if (checked && !selectedCouponId && usableCoupons.length > 0) {
                                     // 自动选择最佳优惠券
                                     usableCoupons.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
@@ -1855,25 +1859,83 @@ export default function Shop() {
                             </span>
                           </div>
                           
-                          {/* 优惠券下拉选择 */}
-                          {applyCoupon && usableCoupons.length > 1 && (
-                            <div className="text-xs">
-                              <select
-                                value={selectedCouponId || ''}
-                                onChange={(e) => setSelectedCouponId(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-gray-900 focus:border-pink-400 focus:ring-2 focus:ring-pink-200 transition-all duration-200"
+                          {/* 优惠券自定义下拉选择 */}
+                          <AnimatePresence>
+                            {applyCoupon && usableCoupons.length > 1 && (
+                              <motion.div 
+                                initial={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
+                                animate={{ opacity: 1, height: "auto", marginTop: "0.5rem", transitionEnd: { overflow: "visible" } }}
+                                exit={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
+                                transition={{ duration: 0.2, ease: "easeInOut" }}
+                                className="relative"
                               >
-                                {usableCoupons
-                                  .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
-                                  .map(c => (
-                                    <option key={c.id} value={c.id}>
-                                      {parseFloat(c.amount).toFixed(2)}元优惠券
-                                      {c.expires_at ? ` (${new Date(c.expires_at).toLocaleDateString()})` : ''}
-                                    </option>
-                                  ))}
-                              </select>
-                            </div>
-                          )}
+                              {/* 点击外部关闭遮罩 */}
+                              {showCouponDropdown && (
+                                <div 
+                                  className="fixed inset-0 z-10" 
+                                  onClick={() => setShowCouponDropdown(false)}
+                                ></div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setShowCouponDropdown(!showCouponDropdown)}
+                                className="relative z-20 w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 hover:border-pink-300 hover:shadow-sm transition-all duration-200"
+                              >
+                                <span className="truncate">
+                                  {selectedCouponId 
+                                    ? (() => {
+                                        const c = usableCoupons.find(c => c.id === selectedCouponId);
+                                        return c ? `${parseFloat(c.amount).toFixed(2)}元优惠券${c.expires_at ? ` (${new Date(c.expires_at).toLocaleDateString()})` : ''}` : '请选择优惠券';
+                                      })()
+                                    : '请选择优惠券'}
+                                </span>
+                                <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${showCouponDropdown ? 'rotate-180' : ''}`}></i>
+                              </button>
+
+                              <AnimatePresence>
+                                {showCouponDropdown && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: -8, scale: 1 }}
+                                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                                    className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-30"
+                                  >
+                                    <div className="max-h-48 overflow-y-auto custom-scrollbar p-1.5 space-y-1">
+                                      {usableCoupons
+                                        .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
+                                        .map(c => (
+                                          <button
+                                            key={c.id}
+                                            onClick={() => {
+                                              setSelectedCouponId(c.id);
+                                              setShowCouponDropdown(false);
+                                            }}
+                                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors duration-200 flex items-center justify-between group ${
+                                              selectedCouponId === c.id
+                                                ? 'bg-pink-50 text-pink-700 font-medium'
+                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                            }`}
+                                          >
+                                            <span className="truncate">
+                                              {parseFloat(c.amount).toFixed(2)}元优惠券
+                                              <span className={`text-xs ml-2 ${selectedCouponId === c.id ? 'text-pink-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
+                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at).toLocaleDateString()}` : ''}
+                                              </span>
+                                            </span>
+                                            {selectedCouponId === c.id && (
+                                              <i className="fas fa-check text-pink-500"></i>
+                                            )}
+                                          </button>
+                                        ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </>
                       );
                     })()}

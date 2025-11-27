@@ -184,7 +184,17 @@ export function useOrderManagement({
         const year = dateObj.getFullYear();
         const month = String(dateObj.getMonth() + 1).padStart(2, '0');
         const day = String(dateObj.getDate()).padStart(2, '0');
-        return `${year}${month}${day}`;
+        return `${year}-${month}-${day}`;
+      };
+
+      const formatTimestamp = (dateObj) => {
+        if (!(dateObj instanceof Date) || Number.isNaN(dateObj.valueOf())) return null;
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const hours = String(dateObj.getHours()).padStart(2, '0');
+        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+        return `${year}${month}${day}T${hours}${minutes}`;
       };
 
       const normalizeOrderDate = (order) => {
@@ -201,6 +211,7 @@ export function useOrderManagement({
       };
 
       let earliestDate = null;
+      let latestDate = null;
 
       const rows = scopedOrders.map((order) => {
         const shipping = order?.shipping_info && typeof order.shipping_info === 'object'
@@ -239,8 +250,13 @@ export function useOrderManagement({
         }).filter(Boolean).join('\\n');
 
         const createdAtDate = normalizeOrderDate(order);
-        if (createdAtDate && (!earliestDate || createdAtDate < earliestDate)) {
-          earliestDate = createdAtDate;
+        if (createdAtDate) {
+          if (!earliestDate || createdAtDate < earliestDate) {
+            earliestDate = createdAtDate;
+          }
+          if (!latestDate || createdAtDate > latestDate) {
+            latestDate = createdAtDate;
+          }
         }
         const createdAtText = createdAtDate
           ? createdAtDate.toLocaleString('zh-CN', { hour12: false })
@@ -271,11 +287,13 @@ export function useOrderManagement({
       });
       const url = URL.createObjectURL(blob);
 
-      const todayStamp = formatDateStamp(new Date()) || '今日';
-      const earliestStamp = formatDateStamp(earliestDate || new Date()) || todayStamp;
+      const now = new Date();
+      const startDateStamp = formatDateStamp(earliestDate || now) || '未知';
+      const endDateStamp = formatDateStamp(latestDate || now) || '未知';
+      const timestampStamp = formatTimestamp(now) || 'export';
       const link = document.createElement('a');
       link.href = url;
-      link.download = `订单导出_${todayStamp}T${earliestStamp}.xlsx`;
+      link.download = `${startDateStamp}-${endDateStamp}_${timestampStamp}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

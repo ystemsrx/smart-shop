@@ -77,6 +77,20 @@ export function useAddressManagement({ apiRequest, isAdmin }) {
     }
   };
 
+  const handleAddressReorder = async (newAddresses) => {
+    setAddresses(newAddresses);
+    try {
+      const order = newAddresses.map(a => a.id);
+      await apiRequest('/admin/addresses/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ order })
+      });
+    } catch (e) {
+      alert(e.message || '保存地址排序失败');
+      await loadAddresses();
+    }
+  };
+
   const handleAddAddress = async () => {
     const name = newAddrName.trim();
     if (!name) { alert('请输入地址名称'); return; }

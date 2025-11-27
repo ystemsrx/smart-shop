@@ -1,6 +1,161 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
+import { normalizeBooleanFlag } from './helpers';
+
+// 赠品详情弹窗组件
+const GiftItemsViewModal = ({ open, onClose, threshold }) => {
+  const itemList = threshold?.items || [];
+  
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-md"
+            onClick={onClose}
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 350,
+              damping: 25,
+              mass: 0.8
+            }}
+            className="relative bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col overflow-hidden z-10"
+          >
+            <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  满 {threshold.threshold_amount} 元赠品详情
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  共 {itemList.length} 件赠品 · {threshold.per_order_limit ? `每单限选 ${threshold.per_order_limit} 件` : '不限数量'}
+                </p>
+              </div>
+              <button 
+                onClick={onClose} 
+                className="w-9 h-9 rounded-full bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-200"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
+              {itemList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 py-12">
+                  <i className="fas fa-box-open text-6xl mb-4 opacity-20"></i>
+                  <p className="text-lg">未关联任何商品</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {itemList.map((item, index) => {
+                    const label = item.variant_name 
+                      ? `${item.product_name || ''}` 
+                      : (item.product_name || '未命名商品');
+                    const stock = Number.parseInt(item.stock, 10);
+                    const isActive = item.is_active !== false && item.is_active !== 0;
+                    const hasStock = !Number.isNaN(stock) && stock > 0;
+                    const available = isActive && hasStock;
+                    
+                    let statusText = '可用';
+                    let statusIcon = 'fa-check-circle';
+                    if (!available) {
+                      if (!isActive) {
+                        statusText = '下架';
+                        statusIcon = 'fa-pause-circle';
+                      } else if (!hasStock) {
+                        statusText = '缺货';
+                        statusIcon = 'fa-exclamation-circle';
+                      }
+                    }
+                    
+                    return (
+                      <div 
+                        key={`${item.product_id}_${item.variant_id || 'base'}_${index}`} 
+                        className={`rounded-2xl border p-5 transition-all duration-200 hover:shadow-md ${
+                          available 
+                            ? 'border-gray-200 bg-white hover:border-emerald-200' 
+                            : 'border-gray-200 bg-gray-50 opacity-80'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-4">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-gray-900 text-sm truncate" title={label}>
+                              {label}
+                            </h4>
+                            {item.variant_name && (
+                              <p className="text-xs text-gray-500 mt-0.5 truncate" title={item.variant_name}>
+                                规格：{item.variant_name}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                            available 
+                              ? 'bg-emerald-50 text-emerald-700' 
+                              : 'bg-red-50 text-red-700'
+                          }`}>
+                            <i className={`fas ${statusIcon} text-[10px]`}></i>
+                            {statusText}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                            <div className="text-xs text-gray-500 mb-1">库存</div>
+                            <div className={`font-bold text-sm ${available ? 'text-gray-900' : 'text-red-600'}`}>
+                              {Number.isNaN(stock) ? '未知' : stock}
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                            <div className="text-xs text-gray-500 mb-1">原价</div>
+                            <div className="font-bold text-sm text-gray-900">
+                              ¥{Number.isFinite(item.price) && item.price > 0 ? Number(item.price).toFixed(2) : '--'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            
+            <div className="px-8 py-5 bg-gray-50 border-t border-gray-100">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-6">
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-box text-gray-400"></i>
+                    总商品数 <span className="font-bold text-gray-900">{itemList.length}</span>
+                  </span>
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-check-circle text-emerald-500"></i>
+                    可用商品 <span className="font-bold text-emerald-600">
+                      {itemList.filter(it => it.available).length}
+                    </span>
+                  </span>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
 
 export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: injectedApiRequest }) => {
   const { apiRequest: contextApiRequest } = useApi();
@@ -9,6 +164,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingThreshold, setEditingThreshold] = useState(null);
+  const [viewingThreshold, setViewingThreshold] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const checkForStockWarnings = useCallback((thresholdsData) => {
@@ -176,9 +332,11 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className={`p-4 rounded-xl border ${
+                    <div 
+                      onClick={() => threshold.gift_products && setViewingThreshold(threshold)}
+                      className={`p-4 rounded-xl border transition-all duration-200 ${
                       threshold.gift_products 
-                        ? 'bg-gray-50 border-gray-200' 
+                        ? 'bg-gray-50 border-gray-200 cursor-pointer hover:bg-gray-100 hover:shadow-sm' 
                         : 'bg-gray-50/50 border-gray-100 text-gray-400'
                     }`}>
                       <div className="flex items-center gap-3 mb-2">
@@ -277,6 +435,12 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
           />
         )}
       </AnimatePresence>
+
+      <GiftItemsViewModal
+        open={!!viewingThreshold}
+        threshold={viewingThreshold}
+        onClose={() => setViewingThreshold(null)}
+      />
       
       {saving && <div className="px-8 py-3 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">正在保存更改...</div>}
     </div>

@@ -379,6 +379,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
             activeTab={activeTab}
             setActiveTab={(id) => {
               setActiveTab(id);
+              if (id === 'products') loadData(orderAgentFilter, false, true);
               if (id === 'addresses') loadAddresses();
               if (id === 'agents') loadAgents();
               if (id === 'orders') loadOrders(0, orderSearch, orderAgentFilter);
@@ -542,15 +543,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     onAddressDragEnd={onAddressDragEnd}
                     setBuildingsByAddress={setBuildingsByAddress}
                     apiRequest={apiRequest}
+                    setAddresses={setAddresses}
                   />
                 )}
 
                 {activeTab === 'lottery' && (
                   <div className="space-y-6">
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900">抽奖配置</h2>
-                      <p className="text-sm text-gray-500 mt-1">点击名称或权重即可编辑，修改后自动保存。</p>
-                    </div>
                     <LotteryConfigPanel 
                       apiPrefix={staffPrefix} 
                       onWarningChange={setLotteryHasStockWarning}
@@ -562,18 +560,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 {activeTab === 'autoGifts' && (
                   <div className="space-y-10">
                     <div className="space-y-6">
-                      <div>
-                        <h2 className="text-xl font-bold text-gray-900">配送费设置</h2>
-                        <p className="text-sm text-gray-500 mt-1">设置基础配送费和免配送费门槛。</p>                                                      
-                      </div>
                       <DeliverySettingsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />
                     </div>
                     
                     <div className="space-y-6">
-                      <div>
-                        <h2 className="text-xl font-bold text-gray-900">满额门槛</h2>
-                        <p className="text-sm text-gray-500 mt-1">设置多个满额门槛，可以选择发放商品或优惠券。</p>                                                      
-                      </div>
                       <GiftThresholdPanel 
                         apiPrefix={staffPrefix} 
                         onWarningChange={setGiftThresholdHasStockWarning}

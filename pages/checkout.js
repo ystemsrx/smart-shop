@@ -776,7 +776,7 @@ export default function Checkout() {
         {/* 主要内容 */}
         <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
           {/* 页面标题 */}
-          <div className="text-center mb-12 animate-apple-fade-in">
+          <div className="text-center mb-12 animate-fade-in-up">
             <div className="flex justify-center mb-6">
               <div className="relative">
                 <div className="absolute -inset-2 bg-gradient-to-r from-purple-500 to-pink-600 rounded-2xl blur opacity-60"></div>
@@ -810,11 +810,11 @@ export default function Checkout() {
               </div>
             </div>
           ) : (
-            <div className="lg:grid lg:grid-cols-3 lg:gap-8 animate-apple-fade-in animate-delay-200">
+            <div className="lg:grid lg:grid-cols-3 lg:gap-8">
               {/* 订单表单 */}
               <div className="lg:col-span-2 space-y-8">
                 {/* 收货信息 */}
-                <div className="card-glass p-8 border border-white/30 animate-apple-slide-up">
+                <div className="card-glass p-8 border border-white/30 animate-fade-in-up" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-xl flex items-center justify-center">
                       <i className="fas fa-map-marker-alt text-white"></i>
@@ -960,7 +960,7 @@ export default function Checkout() {
                 </div>
 
                 {/* 支付方式说明 */}
-                <div className="card-glass p-6 border border-white/30 animate-apple-slide-up animate-delay-100">
+                <div className="card-glass p-6 border border-white/30 animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
                       <i className="fas fa-credit-card text-white"></i>
@@ -989,7 +989,7 @@ export default function Checkout() {
 
               {/* 订单摘要 */}
               <div className="lg:col-span-1">
-                <div className="card-glass p-6 border border-white/30 sticky top-8 animate-apple-scale-in animate-delay-300">
+                <div className="card-glass p-6 border border-white/30 sticky top-8 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
                       <i className="fas fa-file-invoice-dollar text-white"></i>
@@ -1014,8 +1014,8 @@ export default function Checkout() {
                       return (
                         <div 
                           key={(item.product_id + (item.variant_id || ''))} 
-                          className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 animate-apple-fade-in ${isDown ? 'opacity-60 grayscale' : ''}`}
-                          style={{ animationDelay: `${index * 0.1}s` }}
+                          className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 animate-fade-in-up ${isDown ? 'opacity-60 grayscale' : ''}`}
+                          style={{ animationDelay: `${index * 0.05 + 0.3}s`, animationFillMode: 'both' }}
                         >
                           <div className="flex justify-between items-start gap-3">
                             <div className="flex-1 min-w-0">
@@ -1298,12 +1298,12 @@ export default function Checkout() {
       </div>
       {/* 微信收款码弹窗 */}
       {showPayModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
           <div className="absolute inset-0" onClick={() => {
             setShowPayModal(false);
             setPaymentQr(null);
           }}></div>
-          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-apple-scale-in z-10">
+          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-fade-in-up z-10">
             {/* 弹窗标题 */}
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
@@ -1390,7 +1390,7 @@ export default function Checkout() {
 
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
           <div className="absolute inset-0" onClick={() => { 
             setLotteryOpen(false); 
             setLotteryPrize(null); 
@@ -1400,7 +1400,7 @@ export default function Checkout() {
               router.push('/orders');
             }, 1700);
           }}></div>
-          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl z-10">
+          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl animate-fade-in-up z-10">
             <div className="text-center mb-4">
               <h3 className="text-lg font-semibold">抽奖中</h3>
               <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
@@ -1446,8 +1446,8 @@ export default function Checkout() {
 
       {/* 成功动画弹窗 */}
       {showSuccessAnimation && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-apple-fade-in">
-          <div className="relative bg-white rounded-3xl p-8 shadow-2xl animate-apple-scale-in">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
+          <div className="relative bg-white rounded-3xl p-8 shadow-2xl animate-fade-in-up">
             <dotlottie-wc 
               src="https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie" 
               style={{width: '300px', height: '300px'}}
