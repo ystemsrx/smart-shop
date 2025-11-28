@@ -5947,7 +5947,8 @@ async def get_dashboard_statistics(
     request: Request, 
     period: str = 'week',
     range_start: Optional[str] = None,
-    range_end: Optional[str] = None
+    range_end: Optional[str] = None,
+    agent_id: Optional[str] = None
 ):
     """获取仪表盘详细统计信息（管理员）"""
     staff = get_current_staff_required_from_cookie(request)
@@ -5957,16 +5958,29 @@ async def get_dashboard_statistics(
             period = 'week'
 
         scope = build_staff_scope(staff)
+        (
+            selected_agent_id,
+            selected_address_ids,
+            selected_building_ids,
+            _,
+            _,
+            selected_filter
+        ) = resolve_staff_order_scope(staff, scope, agent_id)
+        filter_admin_orders = scope.get('filter_admin_orders', False)
+        if selected_filter and selected_filter != 'self':
+            filter_admin_orders = False
+
         stats = OrderDB.get_dashboard_stats(
             period,
-            agent_id=scope.get('agent_id'),
-            address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids'),
-            filter_admin_orders=scope.get('filter_admin_orders', False),
+            agent_id=selected_agent_id,
+            address_ids=selected_address_ids,
+            building_ids=selected_building_ids,
+            filter_admin_orders=filter_admin_orders,
             top_range_start=range_start,
             top_range_end=range_end
         )
         stats["scope"] = scope
+        stats["selected_agent_id"] = selected_agent_id
         return success_response("获取仪表盘统计成功", stats)
     
     except Exception as e:
@@ -6005,7 +6019,7 @@ async def get_agent_dashboard_statistics(
         return error_response("获取仪表盘统计失败", 500)
 
 @app.get("/admin/customers")
-async def get_customers_with_purchases(request: Request, limit: Optional[int] = 5, offset: Optional[int] = 0):
+async def get_customers_with_purchases(request: Request, limit: Optional[int] = 5, offset: Optional[int] = 0, agent_id: Optional[str] = None):
     """获取购买过商品的客户列表（管理员）"""
     staff = get_current_staff_required_from_cookie(request)
 
@@ -6028,13 +6042,24 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
             offset_val = 0
 
         scope = build_staff_scope(staff)
+        (
+            selected_agent_id,
+            selected_address_ids,
+            selected_building_ids,
+            _,
+            _,
+            selected_filter
+        ) = resolve_staff_order_scope(staff, scope, agent_id)
+        filter_admin_orders = scope.get('filter_admin_orders', False)
+        if selected_filter and selected_filter != 'self':
+            filter_admin_orders = False
         customers_data = OrderDB.get_customers_with_purchases(
             limit=limit_val,
             offset=offset_val,
-            agent_id=scope.get('agent_id'),
-            address_ids=scope.get('address_ids'),
-            building_ids=scope.get('building_ids'),
-            filter_admin_orders=scope.get('filter_admin_orders', False)
+            agent_id=selected_agent_id,
+            address_ids=selected_address_ids,
+            building_ids=selected_building_ids,
+            filter_admin_orders=filter_admin_orders
         )
         customers_data['scope'] = scope
         return success_response("获取客户列表成功", customers_data)

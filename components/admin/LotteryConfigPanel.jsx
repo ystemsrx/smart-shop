@@ -141,6 +141,15 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
                       {itemList.filter(it => it.available).length}
                     </span>
                   </span>
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-boxes text-emerald-500"></i>
+                    可用库存 <span className="font-bold text-emerald-600">
+                      {itemList.filter(it => it.available).reduce((sum, item) => {
+                        const stock = Number.parseInt(item.stock, 10);
+                        return sum + (Number.isNaN(stock) ? 0 : stock);
+                      }, 0)}
+                    </span>
+                  </span>
                 </div>
                 <button
                   onClick={onClose}
@@ -812,7 +821,8 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">状态</th>
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">权重</th>
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">商品数</th>
-                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">可用库存</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">可用数</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">库存</th>
                   <th className="px-8 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
@@ -821,6 +831,13 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   const itemList = prize.items || [];
                   const availableItems = itemList.filter(it => it.available);
                   const hasWarning = availableItems.length === 0 && itemList.length > 0;
+                  const totalStock = itemList.reduce((sum, item) => {
+                    const stock = Number.parseInt(item.stock, 10);
+                    if (Number.isFinite(stock) && stock > 0) {
+                      return sum + stock;
+                    }
+                    return sum;
+                  }, 0);
                   
                   return (
                     <tr key={prize.id} className="hover:bg-gray-50/50 transition-colors group">
@@ -865,6 +882,12 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                       <td className="px-4 py-5 text-center">
                         <span className={`text-sm font-bold ${availableItems.length > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {availableItems.length}
+                        </span>
+                      </td>
+                      
+                      <td className="px-4 py-5 text-center">
+                        <span className="text-sm font-bold text-gray-700">
+                          {totalStock}
                         </span>
                       </td>
                       

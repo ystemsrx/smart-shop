@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
 import { getApiBaseUrl, getShopName } from '../../utils/runtimeConfig';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShoppingCart, 
   DollarSign, 
@@ -22,7 +22,9 @@ import {
   Calendar,
   Crown,
   Medal,
-  Award
+  Award,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 
 const API_BASE = getApiBaseUrl();
@@ -975,6 +977,125 @@ const TimePeriodSelector = ({ period, onChange }) => (
   </div>
 );
 
+const AgentSelector = ({ selectedId, options, onChange, loading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const truncateNameForButton = (name) => {
+    if (!name) return '';
+    return name.length > 5 ? name.substring(0, 4) + '...' : name;
+  };
+
+  const truncateNameForDropdown = (name) => {
+    if (!name) return '';
+    return name.length > 6 ? name.substring(0, 5) + '...' : name;
+  };
+
+  const selectedLabel = selectedId === 'admin' 
+    ? '自营' 
+    : truncateNameForButton(options.find(a => a.id === selectedId)?.name || selectedId);
+
+  return (
+    <div className="relative z-50" ref={containerRef}>
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-colors duration-200 group min-w-[160px]"
+      >
+        <div className="flex flex-col items-start text-left">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">当前查看</span>
+          <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors max-w-[120px] truncate">{selectedLabel}</span>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <div className="w-px h-8 bg-slate-100"></div>
+          
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-50 group-hover:bg-indigo-50 transition-colors">
+            {loading ? (
+              <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <ChevronDown size={14} className={`text-slate-400 group-hover:text-indigo-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+            )}
+          </div>
+        </div>
+      </motion.button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.8, filter: "blur(8px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -10, scale: 0.8, filter: "blur(8px)" }}
+            transition={{ type: "spring", stiffness: 400, damping: 25, mass: 0.8 }}
+            className="absolute top-full right-0 mt-2 w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden origin-top-right"
+          >
+            <div className="p-2 max-h-[320px] overflow-y-auto custom-scrollbar">
+                <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">选择视角</div>
+                
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    onChange('admin');
+                    setIsOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium transition-colors duration-150 flex items-center justify-between mb-1 ${
+                    selectedId === 'admin' ? 'bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100' : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${selectedId === 'admin' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
+                      <Crown size={14} />
+                    </div>
+                    <span>自营 (管理员)</span>
+                  </div>
+                  {selectedId === 'admin' && <Check size={16} className="text-indigo-600" />}
+                </motion.button>
+                
+                {options.length > 0 && <div className="h-px bg-slate-100 my-2 mx-2"></div>}
+                
+                {options.map((agent) => (
+                  <motion.button
+                    key={agent.id}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      onChange(agent.id);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium transition-colors duration-150 flex items-center justify-between mb-1 ${
+                      selectedId === agent.id ? 'bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100' : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${selectedId === agent.id ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
+                        <Users size={14} />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="truncate">{truncateNameForDropdown(agent.name || agent.id)}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">ID: {agent.id}</span>
+                      </div>
+                    </div>
+                    {selectedId === agent.id && <Check size={16} className="text-indigo-600" />}
+                  </motion.button>
+                ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // --- Main Page Component ---
 
 function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
@@ -986,6 +1107,10 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     basicStats: {}
   });
   const dashboardRequestIdRef = useRef(0);
+  const [selectedAgentId, setSelectedAgentId] = useState('admin');
+  const [agentOptions, setAgentOptions] = useState([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const agentRequestIdRef = useRef(0);
   const [topProducts, setTopProducts] = useState([]);
   const [topProductsLoading, setTopProductsLoading] = useState(false);
   const topProductsRequestIdRef = useRef(0);
@@ -997,6 +1122,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const expectedRole = role === 'agent' ? 'agent' : 'admin';
   const isAdmin = expectedRole === 'admin';
   const staffPrefix = isAdmin ? '/admin' : '/agent';
+  const selectedAgentParam = useMemo(() => (
+    isAdmin && selectedAgentId && selectedAgentId !== 'admin' ? selectedAgentId : null
+  ), [isAdmin, selectedAgentId]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -1009,23 +1137,66 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       router.replace(fallback);
       return;
     }
-    loadDashboardData();
-    loadCustomersData(0);
   }, [isInitialized, user, expectedRole]);
+
+  const loadAgentOptions = useCallback(async () => {
+    if (!isAdmin) return;
+    const requestId = agentRequestIdRef.current + 1;
+    agentRequestIdRef.current = requestId;
+    setAgentLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/agents?include_inactive=true`, { credentials: 'include' });
+      const json = await res.json();
+      if (agentRequestIdRef.current !== requestId) return;
+      if (json.success) {
+        const agentsList = Array.isArray(json.data?.agents) ? json.data.agents : Array.isArray(json.data) ? json.data : [];
+        setAgentOptions(agentsList);
+      } else {
+        setAgentOptions([]);
+      }
+    } catch (error) {
+      if (agentRequestIdRef.current === requestId) {
+        setAgentOptions([]);
+      }
+      console.error('Agent list load error:', error);
+    } finally {
+      if (agentRequestIdRef.current === requestId) {
+        setAgentLoading(false);
+      }
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !isInitialized || !user) return;
+    loadAgentOptions();
+  }, [isAdmin, isInitialized, user, loadAgentOptions]);
 
   useEffect(() => {
     if (!user || user.type !== expectedRole) return;
     loadDashboardData();
-  }, [timePeriod, user, expectedRole]);
+  }, [timePeriod, selectedAgentParam, user, expectedRole]);
+
+  useEffect(() => {
+    if (!user || user.type !== expectedRole) return;
+    loadCustomersData(0);
+  }, [selectedAgentParam, user, expectedRole]);
 
   const loadDashboardData = async () => {
     const requestId = dashboardRequestIdRef.current + 1;
     dashboardRequestIdRef.current = requestId;
     setLoading(true);
     try {
+      const dashboardParams = new URLSearchParams({ period: timePeriod });
+      const statsParams = new URLSearchParams();
+      if (selectedAgentParam) {
+        dashboardParams.append('agent_id', selectedAgentParam);
+        statsParams.append('owner_id', selectedAgentParam);
+      }
+      const dashboardUrl = `${API_BASE}${staffPrefix}/dashboard-stats?${dashboardParams.toString()}`;
+      const statsUrl = `${API_BASE}/admin/stats${statsParams.toString() ? `?${statsParams.toString()}` : ''}`;
       const [dashboardRes, statsRes] = await Promise.all([
-        fetch(`${API_BASE}${staffPrefix}/dashboard-stats?period=${timePeriod}`, { credentials: 'include' }),
-        fetch(`${API_BASE}/admin/stats`, { credentials: 'include' })
+        fetch(dashboardUrl, { credentials: 'include' }),
+        fetch(statsUrl, { credentials: 'include' })
       ]);
       const [dashboardJson, statsJson] = await Promise.all([dashboardRes.json(), statsRes.json()]);
       if (dashboardRequestIdRef.current !== requestId) return;
@@ -1048,7 +1219,14 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     setCustomersLoading(true);
     try {
       const offset = page * 5;
-      const res = await fetch(`${API_BASE}/admin/customers?limit=5&offset=${offset}`, { credentials: 'include' });
+      const params = new URLSearchParams({
+        limit: '5',
+        offset: `${offset}`
+      });
+      if (selectedAgentParam) {
+        params.append('agent_id', selectedAgentParam);
+      }
+      const res = await fetch(`${API_BASE}/admin/customers?${params.toString()}`, { credentials: 'include' });
       const json = await res.json();
       if (json.success) {
         setCustomersData({
@@ -1116,6 +1294,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
         range_start: range.start,
         range_end: range.end
       });
+      if (selectedAgentParam) {
+        params.append('agent_id', selectedAgentParam);
+      }
       const res = await fetch(`${API_BASE}${staffPrefix}/dashboard-stats?${params.toString()}`, { credentials: 'include' });
       const json = await res.json();
       if (topProductsRequestIdRef.current !== requestId) return;
@@ -1133,7 +1314,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     // 切换时间段时重置趋势范围
     setTrendRange(null);
     setTopProductsLoading(false);
-  }, [timePeriod]);
+  }, [timePeriod, selectedAgentParam]);
 
   useEffect(() => {
     // 只在有效范围时加载窗口数据
@@ -1181,10 +1362,20 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                  {isAdmin ? '运营概览' : '代理概览'}
             </h1>
                <p className="text-slate-500">
-                 {isAdmin ? '欢迎回来，这里是您今天的业务概况。' : '欢迎回来，查看您的区域销售表现。'}
+                 {isAdmin ? '欢迎回来，这里是您最近的业务概况。' : '欢迎回来，查看您的区域销售表现。'}
                </p>
              </div>
-             <TimePeriodSelector period={timePeriod} onChange={setTimePeriod} />
+             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+               {isAdmin && (
+                 <AgentSelector 
+                   selectedId={selectedAgentId}
+                   options={agentOptions}
+                   onChange={setSelectedAgentId}
+                   loading={agentLoading}
+                 />
+               )}
+               <TimePeriodSelector period={timePeriod} onChange={setTimePeriod} />
+             </div>
           </div>
 
           {/* Stat Cards Grid */}

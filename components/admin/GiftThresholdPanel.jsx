@@ -1,11 +1,39 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
 import { normalizeBooleanFlag } from './helpers';
 
+const parseStockValue = (stock) => {
+  const parsed = Number.parseInt(stock, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const getItemAvailability = (item) => {
+  const stockValue = parseStockValue(item?.stock);
+  const hasStock = stockValue !== null && stockValue > 0;
+  const isActive = item?.is_active !== false && item?.is_active !== 0;
+  const available = normalizeBooleanFlag(item?.available, isActive && hasStock);
+  return { available, stockValue, hasStock, isActive };
+};
+
+const countAvailableItems = (items) => (items || []).reduce((count, item) => {
+  const { available } = getItemAvailability(item);
+  return available ? count + 1 : count;
+}, 0);
+
+const sumAvailableStock = (items) => (items || []).reduce((sum, item) => {
+  const { available, stockValue } = getItemAvailability(item);
+  if (available && stockValue !== null && stockValue > 0) {
+    return sum + stockValue;
+  }
+  return sum;
+}, 0);
+
 // 赠品详情弹窗组件
 const GiftItemsViewModal = ({ open, onClose, threshold }) => {
   const itemList = threshold?.items || [];
+  const availableItemCount = countAvailableItems(itemList);
+  const availableStock = sumAvailableStock(itemList);
   
   return (
     <AnimatePresence>
@@ -57,13 +85,10 @@ const GiftItemsViewModal = ({ open, onClose, threshold }) => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {itemList.map((item, index) => {
-                    const label = item.variant_name 
+                    const label = item.variant_name
                       ? `${item.product_name || ''}` 
                       : (item.product_name || '未命名商品');
-                    const stock = Number.parseInt(item.stock, 10);
-                    const isActive = item.is_active !== false && item.is_active !== 0;
-                    const hasStock = !Number.isNaN(stock) && stock > 0;
-                    const available = isActive && hasStock;
+                    const { available, stockValue, hasStock, isActive } = getItemAvailability(item);
                     
                     let statusText = '可用';
                     let statusIcon = 'fa-check-circle';
@@ -111,7 +136,7 @@ const GiftItemsViewModal = ({ open, onClose, threshold }) => {
                           <div className="bg-gray-50 rounded-xl px-3 py-2.5">
                             <div className="text-xs text-gray-500 mb-1">库存</div>
                             <div className={`font-bold text-sm ${available ? 'text-gray-900' : 'text-red-600'}`}>
-                              {Number.isNaN(stock) ? '未知' : stock}
+                              {stockValue === null ? '未知' : stockValue}
                             </div>
                           </div>
                           <div className="bg-gray-50 rounded-xl px-3 py-2.5">
@@ -138,7 +163,13 @@ const GiftItemsViewModal = ({ open, onClose, threshold }) => {
                   <span className="text-gray-600 flex items-center gap-2">
                     <i className="fas fa-check-circle text-emerald-500"></i>
                     可用商品 <span className="font-bold text-emerald-600">
-                      {itemList.filter(it => it.available).length}
+                      {availableItemCount}
+                    </span>
+                  </span>
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="fas fa-boxes text-emerald-500"></i>
+                    可用库存 <span className="font-bold text-emerald-600">
+                      {availableStock}
                     </span>
                   </span>
                 </div>
@@ -344,7 +375,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                         <span className="text-sm font-semibold">赠送商品</span>
                       </div>
                       <div className="text-lg font-bold">
-                        {threshold.gift_products ? `${threshold.items?.filter(i => i.available).length || 0} 种可用` : '未启用'}
+                        {threshold.gift_products ? `共 ${countAvailableItems(threshold.items)} 种可用，剩余总库存：${sumAvailableStock(threshold.items)}` : '未启用'}
                       </div>
                     </div>
                     
@@ -380,7 +411,9 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   {threshold.gift_products && threshold.items?.length > 0 && (
                     <div className="mt-6 pt-6 border-t border-gray-100">
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">赠品列表</span>
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                          赠品列表（共{threshold.items.length}个）
+                        </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {threshold.items.slice(0, 5).map((item, idx) => (
@@ -428,7 +461,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
           <GiftThresholdModal
             open={!!editingThreshold}
             threshold={editingThreshold}
-            onClose={() => setEditingThreshold(null)}
+                        onClose={() => setEditingThreshold(null)}
             onSave={loadThresholds}
             apiRequest={apiRequest}
             apiPrefix={apiPrefix}
@@ -462,6 +495,7 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
   const [searchLoading, setSearchLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const searchTimerRef = useRef(null);
+  const selectedAvailableStock = useMemo(() => sumAvailableStock(selectedItems), [selectedItems]);
 
   useEffect(() => {
     if (!open) {
@@ -738,13 +772,18 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
 
             {formData.gift_products && (
               <section className="animate-fadeIn space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
                   <label className="block text-sm font-bold text-gray-900">选择赠送商品</label>
-                  {selectedItems.length > 0 && (
-                    <span className="text-xs font-medium bg-black text-white px-2 py-1 rounded-md">
-                      已选 {selectedItems.length}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-medium bg-emerald-50 text-emerald-700 px-3 py-1 rounded-md border border-emerald-100">
+                      可用库存 {selectedAvailableStock}
                     </span>
-                  )}
+                    {selectedItems.length > 0 && (
+                      <span className="text-xs font-medium bg-black text-white px-2 py-1 rounded-md">
+                        已选 {selectedItems.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
