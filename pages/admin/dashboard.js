@@ -1006,7 +1006,7 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
     : truncateNameForButton(options.find(a => a.id === selectedId)?.name || selectedId);
 
   return (
-    <div className="relative z-50" ref={containerRef}>
+    <div className="relative z-40" ref={containerRef}>
       <motion.button
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
