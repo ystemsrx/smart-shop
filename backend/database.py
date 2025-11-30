@@ -1008,6 +1008,39 @@ def init_database():
             )
         ''')
 
+        # 订单导出记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_exports (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                agent_filter TEXT,
+                keyword TEXT,
+                status_filter TEXT,
+                start_time_ms INTEGER,
+                end_time_ms INTEGER,
+                status TEXT DEFAULT 'pending',
+                total_count INTEGER DEFAULT 0,
+                exported_count INTEGER DEFAULT 0,
+                file_path TEXT,
+                download_token TEXT,
+                expires_at TIMESTAMP,
+                message TEXT,
+                filename TEXT,
+                scope_label TEXT,
+                client_tz_offset INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_order_exports_owner ON order_exports(owner_id, created_at DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_order_exports_expires_at ON order_exports(expires_at)')
+        ensure_table_columns(conn, 'order_exports', {
+            'client_tz_offset': 'INTEGER',
+            'keyword': 'TEXT',
+            'status_filter': 'TEXT'
+        })
+
         # 用户资料表（缓存最近一次成功付款的收货信息）
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_profiles (
@@ -4531,11 +4564,17 @@ class OrderDB:
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
         exclude_address_ids: Optional[List[str]] = None,
-        exclude_building_ids: Optional[List[str]] = None
+        exclude_building_ids: Optional[List[str]] = None,
+        start_time_ms: Optional[float] = None,
+        end_time_ms: Optional[float] = None,
+        unified_status: Optional[str] = None,
+        filter_admin_orders: bool = False,
+        allow_large_limit: bool = False
     ) -> Dict[str, Any]:
         """
         获取订单（管理员/代理），支持按订单ID模糊查询与分页。
         返回 { 'orders': [...], 'total': int }
+        allow_large_limit: 是否允许超过100的limit（用于导出等场景）
         """
         # 保护性限制，避免一次性取太多
         try:
@@ -4544,7 +4583,8 @@ class OrderDB:
             limit = 20
         if limit <= 0:
             limit = 20
-        if limit > 100:
+        # 仅在非导出场景下限制为100
+        if not allow_large_limit and limit > 100:
             limit = 100
         try:
             offset = int(offset)
@@ -4577,7 +4617,7 @@ class OrderDB:
                 )
                 params.extend([like_value, like_value, like_value, like_value])
 
-            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids)
+            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
             if scope_clause:
                 where_sql.append(scope_clause)
                 params.extend(scope_params)
@@ -4595,6 +4635,43 @@ class OrderDB:
                 params.extend(excluded_addresses)
             if excluded_buildings or excluded_addresses:
                 where_sql.append('(o.agent_id IS NULL OR o.agent_id = "")')
+
+            normalized_start: Optional[float] = None
+            normalized_end: Optional[float] = None
+            try:
+                if start_time_ms is not None:
+                    normalized_start = float(start_time_ms) / 1000.0
+            except Exception:
+                normalized_start = None
+            try:
+                if end_time_ms is not None:
+                    normalized_end = float(end_time_ms) / 1000.0
+            except Exception:
+                normalized_end = None
+
+            if normalized_start is not None:
+                start_dt = datetime.utcfromtimestamp(normalized_start)
+                where_sql.append('datetime(o.created_at) >= datetime(?)')
+                params.append(start_dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+            if normalized_end is not None:
+                end_dt = datetime.utcfromtimestamp(normalized_end)
+                where_sql.append('datetime(o.created_at) <= datetime(?)')
+                params.append(end_dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+            if unified_status:
+                where_sql.append(
+                    "("
+                    "CASE "
+                    "WHEN (o.payment_status IS NULL OR TRIM(o.payment_status) = '') AND (o.status IS NULL OR TRIM(o.status) = '') THEN '未付款' "
+                    "WHEN o.payment_status = 'processing' THEN '待确认' "
+                    "WHEN o.payment_status IS NULL OR o.payment_status != 'succeeded' THEN '未付款' "
+                    "WHEN o.status = 'shipped' THEN '配送中' "
+                    "WHEN o.status = 'delivered' THEN '已完成' "
+                    "ELSE '待配送' "
+                    "END) = ?"
+                )
+                params.append(unified_status)
             where_clause = (' WHERE ' + ' AND '.join(where_sql)) if where_sql else ''
 
             # 统计总数
@@ -4860,11 +4937,18 @@ class OrderDB:
             cursor.execute(f'SELECT COALESCE(SUM(total_amount), 0) FROM orders{where_clause}', params)
             total_revenue = cursor.fetchone()[0]
             
+            # 最早订单时间（用于导出报表时间范围选择）
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT MIN(created_at) FROM orders{where_clause}', params)
+            earliest_row = cursor.fetchone()
+            earliest_order_time = earliest_row[0] if earliest_row and earliest_row[0] else None
+            
             return {
                 'total_orders': total_orders,
                 'status_counts': status_counts,
                 'today_orders': today_orders,
-                'total_revenue': round(total_revenue, 2)
+                'total_revenue': round(total_revenue, 2),
+                'earliest_order_time': earliest_order_time
             }
 
     @staticmethod
@@ -5479,6 +5563,171 @@ class OrderDB:
                 'offset': offset,
                 'has_more': (offset + len(customers)) < total
             }
+
+class OrderExportDB:
+    DEFAULT_EXPIRE_HOURS = 24
+
+    @staticmethod
+    def create_job(
+        owner_id: str,
+        role: str,
+        agent_filter: Optional[str],
+        keyword: Optional[str],
+        status_filter: Optional[str],
+        start_time_ms: Optional[float],
+        end_time_ms: Optional[float],
+        scope_label: Optional[str],
+        filename: Optional[str],
+        total_count: int = 0,
+        expires_at: Optional[datetime] = None,
+        client_tz_offset: Optional[int] = None
+    ) -> Dict[str, Any]:
+        job_id = f"exp_{uuid.uuid4().hex}"
+        download_token = uuid.uuid4().hex
+        expire_dt = expires_at or (datetime.now() + timedelta(hours=OrderExportDB.DEFAULT_EXPIRE_HOURS))
+        expire_str = expire_dt.strftime("%Y-%m-%d %H:%M:%S")
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO order_exports (
+                    id, owner_id, role, agent_filter, keyword, status_filter, start_time_ms, end_time_ms,
+                    status, total_count, exported_count, file_path, download_token,
+                    expires_at, message, filename, scope_label, client_tz_offset
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0, NULL, ?, ?, NULL, ?, ?, ?)
+            ''', (
+                job_id,
+                owner_id,
+                role,
+                agent_filter,
+                keyword,
+                status_filter,
+                int(start_time_ms) if start_time_ms is not None else None,
+                int(end_time_ms) if end_time_ms is not None else None,
+                int(total_count or 0),
+                download_token,
+                expire_str,
+                filename,
+                scope_label,
+                client_tz_offset
+            ))
+            conn.commit()
+        return {
+            "id": job_id,
+            "download_token": download_token,
+            "expires_at": expire_str,
+            "total_count": int(total_count or 0),
+            "filename": filename,
+            "scope_label": scope_label,
+            "client_tz_offset": client_tz_offset,
+            "keyword": keyword,
+            "status_filter": status_filter
+        }
+
+    @staticmethod
+    def update_job(
+        job_id: str,
+        *,
+        status: Optional[str] = None,
+        exported_count: Optional[int] = None,
+        total_count: Optional[int] = None,
+        file_path: Optional[str] = None,
+        message: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
+        filename: Optional[str] = None
+    ) -> None:
+        fields: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            fields.append("status = ?")
+            params.append(status)
+        if exported_count is not None:
+            fields.append("exported_count = ?")
+            params.append(int(exported_count))
+        if total_count is not None:
+            fields.append("total_count = ?")
+            params.append(int(total_count))
+        if file_path is not None:
+            fields.append("file_path = ?")
+            params.append(file_path)
+        if message is not None:
+            fields.append("message = ?")
+            params.append(message)
+        if expires_at is not None:
+            fields.append("expires_at = ?")
+            params.append(expires_at.strftime("%Y-%m-%d %H:%M:%S"))
+        if filename is not None:
+            fields.append("filename = ?")
+            params.append(filename)
+
+        if not fields:
+            return
+
+        fields.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(job_id)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'''
+                UPDATE order_exports
+                SET {', '.join(fields)}
+                WHERE id = ?
+            ''', params)
+            conn.commit()
+
+    @staticmethod
+    def get_job(job_id: str) -> Optional[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM order_exports WHERE id = ?', (job_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def list_jobs_for_owner(owner_id: str, limit: int = 12) -> List[Dict[str, Any]]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM order_exports 
+                WHERE owner_id = ? 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (owner_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def cleanup_expired_files(base_dir: str) -> int:
+        removed = 0
+        safe_root = os.path.abspath(base_dir)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, file_path FROM order_exports
+                WHERE status = 'completed'
+                  AND expires_at IS NOT NULL
+                  AND datetime(expires_at) <= datetime('now')
+            ''')
+            expired_rows = cursor.fetchall() or []
+            for row in expired_rows:
+                job_id = row['id']
+                file_path = row['file_path']
+                if file_path:
+                    try:
+                        abs_path = os.path.abspath(file_path)
+                        if abs_path.startswith(safe_root) and os.path.exists(abs_path):
+                            os.remove(abs_path)
+                            removed += 1
+                    except Exception as e:
+                        logger.warning(f"清理过期导出文件失败({job_id}): {e}")
+                cursor.execute('''
+                    UPDATE order_exports
+                    SET status = 'expired',
+                        updated_at = CURRENT_TIMESTAMP,
+                        message = '导出链接已过期，文件已清理',
+                        file_path = NULL
+                    WHERE id = ?
+                ''', (job_id,))
+            conn.commit()
+        return removed
 
 # 用户资料缓存（收货信息）
 class UserProfileDB:

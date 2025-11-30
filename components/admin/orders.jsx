@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatReservationCutoff } from './helpers';
+import { getApiBaseUrl } from '../../utils/runtimeConfig';
 
 // 统一状态映射（显示）
 export const UNIFIED_STATUS_MAP = {
@@ -10,6 +11,700 @@ export const UNIFIED_STATUS_MAP = {
   '待配送': { text: '待配送', color: 'blue', bg: 'bg-blue-100', textCol: 'text-blue-700', ring: 'ring-blue-200', hoverBg: 'hover:bg-blue-200' },
   '配送中': { text: '配送中', color: 'purple', bg: 'bg-purple-100', textCol: 'text-purple-700', ring: 'ring-purple-200', hoverBg: 'hover:bg-purple-200' },
   '已完成': { text: '已完成', color: 'emerald', bg: 'bg-emerald-100', textCol: 'text-emerald-700', ring: 'ring-emerald-200', hoverBg: 'hover:bg-emerald-200' }
+};
+
+
+// Double Handle Time Slider Component
+const DualTimeSlider = ({ startTime, endTime, onChange, minDate, maxDate }) => {
+  const trackRef = useRef(null);
+  const [dragging, setDragging] = useState(null); // 'left' | 'right'
+
+  // Convert date to percentage (0-100)
+  const getPercent = (date) => {
+    if (!date) return 0;
+    const total = maxDate.getTime() - minDate.getTime();
+    const current = date.getTime() - minDate.getTime();
+    return Math.max(0, Math.min(100, (current / total) * 100));
+  };
+
+  const startPercent = startTime ? getPercent(startTime) : 0;
+  const endPercent = endTime ? getPercent(endTime) : 100;
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handlePointerMove = (e) => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const totalMs = maxDate.getTime() - minDate.getTime();
+      const newTime = new Date(minDate.getTime() + totalMs * percent);
+
+      if (dragging === 'left') {
+        const newStart = newTime;
+        // Prevent crossing
+        if (endTime && newStart > endTime) return;
+        onChange(newStart, endTime);
+      } else {
+        const newEnd = newTime;
+        // Prevent crossing
+        if (startTime && newEnd < startTime) return;
+        onChange(startTime, newEnd);
+      }
+    };
+
+    const handlePointerUp = () => {
+      setDragging(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [dragging, startTime, endTime, minDate, maxDate, onChange]);
+
+  return (
+    <div className="relative w-full h-12 flex items-center select-none touch-none">
+      {/* Track Background */}
+      <div ref={trackRef} className="absolute w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+        {/* Active Range */}
+        <div 
+          className="absolute h-full bg-gradient-to-r from-gray-800 to-black rounded-full"
+          style={{ 
+            left: `${startPercent}%`, 
+            width: `${endPercent - startPercent}%` 
+          }}
+        />
+      </div>
+
+      {/* Left Handle */}
+      <div
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setDragging('left');
+        }}
+        className="absolute top-1/2 w-6 h-6 -ml-3 bg-white rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-gray-200 cursor-grab active:cursor-grabbing flex items-center justify-center z-10 hover:scale-110 transition-transform"
+        style={{ left: `${startPercent}%`, transform: 'translateY(-50%)' }}
+      >
+        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+        {/* Tooltip */}
+        <div className={`absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-medium px-2 py-1 rounded-lg whitespace-nowrap pointer-events-none transition-all duration-200 ${dragging === 'left' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
+          {startTime ? startTime.toLocaleDateString() : minDate.toLocaleDateString()}
+        </div>
+      </div>
+
+      {/* Right Handle */}
+      <div
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setDragging('right');
+        }}
+        className="absolute top-1/2 w-6 h-6 -ml-3 bg-white rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-gray-200 cursor-grab active:cursor-grabbing flex items-center justify-center z-10 hover:scale-110 transition-transform"
+        style={{ left: `${endPercent}%`, transform: 'translateY(-50%)' }}
+      >
+        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+        {/* Tooltip */}
+        <div className={`absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-medium px-2 py-1 rounded-lg whitespace-nowrap pointer-events-none transition-all duration-200 ${dragging === 'right' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
+          {endTime ? endTime.toLocaleDateString() : maxDate.toLocaleDateString()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// New Export Modal Component
+const ExportModal = ({ 
+  open, 
+  onClose, 
+  onExport, 
+  isExporting, 
+  exportState, 
+  exportHistory, 
+  onLoadHistory,
+  minDate: propMinDate,
+  showToast
+}) => {
+  const [step, setStep] = useState('config'); // 'config' | 'exporting'
+  const [rangeMode, setRangeMode] = useState('all'); // 'all', '7d', '30d', '90d', '180d', 'custom'
+  const [startTime, setStartTime] = useState(null);
+  const [endTime, setEndTime] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const historyButtonRef = useRef(null);
+  const historyPanelRef = useRef(null);
+
+  // Close history panel when clicking outside
+  useEffect(() => {
+    if (!showHistory) return;
+    
+    const handleClickOutside = (e) => {
+      if (
+        historyPanelRef.current && 
+        !historyPanelRef.current.contains(e.target) &&
+        historyButtonRef.current &&
+        !historyButtonRef.current.contains(e.target)
+      ) {
+        setShowHistory(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showHistory]);
+
+  // Prevent scroll on overlay without hiding scrollbar
+  const handleOverlayWheel = (e) => {
+    e.preventDefault();
+  };
+
+  const handleOverlayTouchMove = (e) => {
+    e.preventDefault();
+  };
+
+  // Global max date (today)
+  const globalMaxDate = useMemo(() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, []);
+  
+  // Global min date (first order date or fallback)
+  const globalMinDate = useMemo(() => {
+    if (propMinDate) return propMinDate;
+    const d = new Date();
+    d.setDate(d.getDate() - 180);
+    return d;
+  }, [propMinDate]);
+
+  // Dynamic slider bounds based on rangeMode
+  const { sliderMinDate, sliderMaxDate } = useMemo(() => {
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    
+    switch (rangeMode) {
+      case '7d': {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 7);
+        start.setHours(0, 0, 0, 0);
+        return { sliderMinDate: start, sliderMaxDate: now };
+      }
+      case '30d': {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 30);
+        start.setHours(0, 0, 0, 0);
+        return { sliderMinDate: start, sliderMaxDate: now };
+      }
+      case '90d': {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 90);
+        start.setHours(0, 0, 0, 0);
+        return { sliderMinDate: start, sliderMaxDate: now };
+      }
+      case '180d': {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 180);
+        start.setHours(0, 0, 0, 0);
+        return { sliderMinDate: start, sliderMaxDate: now };
+      }
+      case 'all':
+      case 'custom':
+      default:
+        return { sliderMinDate: globalMinDate, sliderMaxDate: now };
+    }
+  }, [rangeMode, globalMinDate]);
+
+  // Check if endTime is "today"
+  const isEndTimeToday = useMemo(() => {
+    if (!endTime) return true;
+    const today = new Date();
+    return endTime.toDateString() === today.toDateString();
+  }, [endTime]);
+
+  // Check if current range covers the full time span (for display purposes)
+  const isFullRange = useMemo(() => {
+    if (!startTime || !endTime) return false;
+    // Check if start is at or before globalMinDate and end is at or after today
+    const startAtMin = startTime.getTime() <= globalMinDate.getTime() + 86400000; // 1 day tolerance
+    const endAtMax = endTime.toDateString() === globalMaxDate.toDateString();
+    return startAtMin && endAtMax;
+  }, [startTime, endTime, globalMinDate, globalMaxDate]);
+
+  useEffect(() => {
+    if (open) {
+      setStep('config');
+      setRangeMode('all');
+      // Initialize with first order date to now for "all"
+      setStartTime(globalMinDate);
+      setEndTime(globalMaxDate);
+      setShowHistory(false);
+    }
+  }, [open, globalMinDate, globalMaxDate]);
+
+  useEffect(() => {
+    if (isExporting) {
+      setStep('exporting');
+    }
+  }, [isExporting]);
+
+  const handleShortcut = (mode) => {
+    setRangeMode(mode);
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    let start = null;
+    let end = now;
+
+    switch (mode) {
+      case 'all':
+        start = globalMinDate;
+        end = now;
+        break;
+      case '7d': {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 7);
+        d.setHours(0, 0, 0, 0);
+        start = d;
+        break;
+      }
+      case '30d': {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 30);
+        d.setHours(0, 0, 0, 0);
+        start = d;
+        break;
+      }
+      case '90d': {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 90);
+        d.setHours(0, 0, 0, 0);
+        start = d;
+        break;
+      }
+      case '180d': {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 180);
+        d.setHours(0, 0, 0, 0);
+        start = d;
+        break;
+      }
+    }
+    setStartTime(start);
+    setEndTime(end);
+  };
+
+  const handleSliderChange = (newStart, newEnd) => {
+    // Don't change rangeMode when dragging - keep the current slider bounds
+    setStartTime(newStart);
+    setEndTime(newEnd);
+  };
+
+  const handleStartExport = () => {
+    setStep('exporting');
+    onExport({
+      startTimeMs: startTime ? startTime.getTime() : null,
+      endTimeMs: endTime ? endTime.getTime() : null,
+    });
+  };
+
+  const shortcuts = [
+    { id: 'all', label: '全部' },
+    { id: '7d', label: '近7天' },
+    { id: '30d', label: '近30天' },
+    { id: '90d', label: '近90天' },
+    { id: '180d', label: '近半年' },
+  ];
+
+  const progressValue = Math.min(100, Math.max(0, exportState?.progress || 0));
+
+  const statusLabelMap = {
+    idle: '等待开始',
+    running: '导出中',
+    completed: '已完成',
+    failed: '失败',
+    expired: '已过期'
+  };
+
+  const formatHistoryTime = (val) => {
+    if (!val) return '--';
+    // Handle SQLite UTC timestamp format: "YYYY-MM-DD HH:MM:SS"
+    let parsed;
+    if (typeof val === 'string' && val.includes(' ') && !val.includes('T')) {
+      // Convert SQLite format to ISO format with UTC timezone
+      parsed = new Date(val.replace(' ', 'T') + 'Z');
+    } else {
+      parsed = new Date(val);
+    }
+    if (Number.isNaN(parsed.valueOf())) return val;
+    // Display in local timezone
+    return parsed.toLocaleString('zh-CN', { 
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  };
+
+  // Build full download URL with API base
+  const buildDownloadUrl = (url) => {
+    if (!url) return null;
+    if (url.startsWith('http')) return url;
+    return `${getApiBaseUrl()}${url}`;
+  };
+
+  // Extract filename from content-disposition header
+  const extractFilename = (contentDisposition) => {
+    if (!contentDisposition) return null;
+    
+    // Try filename*= (RFC 5987) first - handles UTF-8 encoded names
+    const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*(?:utf-8''|UTF-8'')([^;\s]+)/i);
+    if (filenameStarMatch && filenameStarMatch[1]) {
+      try {
+        return decodeURIComponent(filenameStarMatch[1]);
+      } catch (e) { /* ignore */ }
+    }
+    
+    // Try filename= with quotes
+    const quotedMatch = contentDisposition.match(/filename\s*=\s*"([^"]+)"/i);
+    if (quotedMatch && quotedMatch[1]) {
+      try {
+        return decodeURIComponent(quotedMatch[1]);
+      } catch (e) {
+        return quotedMatch[1];
+      }
+    }
+    
+    // Try filename= without quotes
+    const unquotedMatch = contentDisposition.match(/filename\s*=\s*([^;\s]+)/i);
+    if (unquotedMatch && unquotedMatch[1]) {
+      try {
+        return decodeURIComponent(unquotedMatch[1]);
+      } catch (e) {
+        return unquotedMatch[1];
+      }
+    }
+    
+    return null;
+  };
+
+  // Handle download with error checking
+  const handleDownload = async (url, fallbackFilename = null) => {
+    if (!url) return;
+    const fullUrl = buildDownloadUrl(url);
+    try {
+      const response = await fetch(fullUrl, { 
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        // File exists, download it
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get('content-disposition');
+        
+        // Try to get filename from various sources
+        let filename = extractFilename(contentDisposition);
+        
+        // Fallback to provided filename
+        if (!filename && fallbackFilename) {
+          filename = fallbackFilename;
+        }
+        
+        // Final fallback
+        if (!filename) {
+          filename = `orders_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        }
+        
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+      } else {
+        // Parse error response
+        let errorText = '下载失败，请重试';
+        try {
+          const errorData = await response.json();
+          errorText = errorData.detail || errorText;
+        } catch (e) { /* ignore */ }
+        
+        if (response.status === 404) {
+          errorText = '导出文件已过期或不存在，请重新导出';
+        } else if (response.status === 410) {
+          errorText = '导出链接已过期，请重新导出';
+        }
+        
+        if (showToast) {
+          showToast(errorText);
+        } else {
+          alert(errorText);
+        }
+      }
+    } catch (e) {
+      if (showToast) {
+        showToast('下载失败，请检查网络连接');
+      } else {
+        alert('下载失败，请检查网络连接');
+      }
+    }
+  };
+
+  const modalContent = (
+    <AnimatePresence>
+      {open && (
+        <div 
+          className="fixed inset-0 z-[999] flex items-center justify-center p-4"
+          onWheel={handleOverlayWheel}
+          onTouchMove={handleOverlayTouchMove}
+        >
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            layout
+            className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl z-10"
+          >
+            {/* Header */}
+            <div className="px-8 pt-8 pb-4 flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">导出报表</h3>
+                <p className="text-sm text-gray-500 mt-1">选择时间范围生成订单数据报表</p>
+              </div>
+              <div className="flex items-center gap-2 relative">
+                {step !== 'exporting' && (
+                  <div className="relative">
+                    <button
+                      ref={historyButtonRef}
+                      onClick={() => {
+                        if (!showHistory && onLoadHistory) void onLoadHistory();
+                        setShowHistory(prev => !prev);
+                      }}
+                      className={`h-10 w-10 rounded-2xl border flex items-center justify-center transition-all duration-200 ${
+                        showHistory ? 'bg-gray-900 text-white border-gray-800 shadow-lg shadow-gray-200/40' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+                      }`}
+                      title="查看历史导出记录"
+                    >
+                      <i className="fas fa-clock-rotate-left"></i>
+                    </button>
+                    
+                    {/* History Dropdown Panel */}
+                    <AnimatePresence>
+                      {showHistory && (
+                        <motion.div
+                          ref={historyPanelRef}
+                          initial={{ opacity: 0, scale: 0.9, y: -10 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.9, y: -10 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                          className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50"
+                          style={{ transformOrigin: 'top right' }}
+                        >
+                          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                            <h4 className="text-sm font-bold text-gray-900">导出历史</h4>
+                            <button 
+                              onClick={() => setShowHistory(false)}
+                              className="w-6 h-6 rounded-full hover:bg-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                              <i className="fas fa-times text-xs"></i>
+                            </button>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                            {exportHistory.length === 0 ? (
+                              <div className="py-8 text-center text-gray-400 text-sm">
+                                <i className="fas fa-inbox text-2xl mb-2 opacity-50"></i>
+                                <p>暂无导出记录</p>
+                              </div>
+                            ) : (
+                              <div className="divide-y divide-gray-50">
+                                {exportHistory.map((item) => {
+                                  const statusText = statusLabelMap[item.status] || '进行中';
+                                  const tagColor = item.status === 'completed'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : item.status === 'failed'
+                                      ? 'bg-red-50 text-red-600'
+                                      : item.status === 'expired'
+                                        ? 'bg-gray-100 text-gray-500'
+                                        : 'bg-blue-50 text-blue-700';
+                                  return (
+                                    <div key={item.id} className="px-4 py-3 hover:bg-gray-50 transition-colors">
+                                      <div className="flex items-center justify-between gap-2 mb-1">
+                                        <div className="text-sm font-medium text-gray-900 truncate">{item.range_label || item.rangeLabel || '全部时间'}</div>
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${tagColor}`}>{statusText}</span>
+                                      </div>
+                                      <div className="flex items-center justify-between text-xs text-gray-400">
+                                        <span>{formatHistoryTime(item.created_at)}</span>
+                                        {item.download_url && (
+                                          <button
+                                            onClick={() => handleDownload(item.download_url, item.filename)}
+                                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-500 font-medium"
+                                          >
+                                            <i className="fas fa-download text-[10px]"></i> 下载
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+                <button 
+                  onClick={onClose}
+                  className="w-10 h-10 rounded-2xl border border-gray-200 bg-white text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <motion.div 
+              layout
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="px-8 pb-8 flex flex-col justify-center"
+            >
+              <AnimatePresence mode="wait">
+                {step === 'config' && (
+                  <motion.div
+                    key="config"
+                    layout
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-8"
+                  >
+                    {/* Time Slider Section */}
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-end px-1">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">时间范围</span>
+                        <span className="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                          {(rangeMode === 'all' && isFullRange) ? '全部时间' : 
+                           `${startTime?.toLocaleDateString() || sliderMinDate.toLocaleDateString()} - ${isEndTimeToday ? '至今' : endTime?.toLocaleDateString()}`}
+                        </span>
+                      </div>
+                      <DualTimeSlider 
+                        startTime={startTime} 
+                        endTime={endTime} 
+                        onChange={handleSliderChange}
+                        minDate={sliderMinDate}
+                        maxDate={sliderMaxDate}
+                      />
+                    </div>
+
+                    {/* Shortcuts */}
+                    <div className="grid grid-cols-5 gap-2">
+                      {shortcuts.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => handleShortcut(s.id)}
+                          className={`
+                            py-2 rounded-xl text-xs font-medium transition-all duration-200
+                            ${rangeMode === s.id 
+                              ? 'bg-gray-900 text-white shadow-lg shadow-gray-200 scale-105' 
+                              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}
+                          `}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Action Button */}
+                    <button
+                      onClick={handleStartExport}
+                      className="w-full py-3.5 rounded-2xl bg-gray-900 text-white font-semibold text-sm shadow-xl shadow-gray-200 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 flex items-center justify-center gap-2"
+                    >
+                      <i className="fas fa-cloud-arrow-down"></i>
+                      开始导出
+                    </button>
+                  </motion.div>
+                )}
+
+                {step === 'exporting' && (
+                  <motion.div
+                    key="progress"
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.05 }}
+                    transition={{ type: "spring", stiffness: 200, damping: 25 }}
+                    className="flex flex-col items-center justify-center space-y-6 py-8"
+                  >
+                    <div className="relative w-24 h-24 flex items-center justify-center">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                        <path
+                          className="text-gray-100"
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                        />
+                        <path
+                          className="text-blue-500 transition-all duration-500 ease-out"
+                          strokeDasharray={`${progressValue}, 100`}
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center flex-col">
+                        <span className="text-2xl font-bold text-gray-900">{progressValue}%</span>
+                      </div>
+                    </div>
+                    
+                    <div className="text-center space-y-1">
+                      <h4 className="text-lg font-semibold text-gray-900">
+                        {exportState?.status === 'completed' ? '导出完成' : '正在导出...'}
+                      </h4>
+                      <p className="text-sm text-gray-500 max-w-[200px] mx-auto">
+                        {exportState?.message || '正在处理数据，请稍候'}
+                      </p>
+                    </div>
+
+                    {exportState?.downloadUrl && (
+                      <motion.button
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onClick={() => handleDownload(exportState.downloadUrl, exportState.filename)}
+                        className="px-6 py-2.5 rounded-xl bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-200 hover:bg-blue-600 transition-all flex items-center gap-2"
+                      >
+                        <i className="fas fa-download"></i>
+                        下载文件
+                      </motion.button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
+  // Use portal to render modal at document.body level
+  if (typeof window === 'undefined') return null;
+  return createPortal(modalContent, document.body);
 };
 
 export const UNIFIED_STATUS_ORDER = ['未付款', '待确认', '待配送', '配送中', '已完成'];
@@ -742,7 +1437,11 @@ const ScopeSelectPopover = ({
       }
     };
     
-    const handleScroll = () => {
+    const handleScroll = (event) => {
+      // 如果滚动发生在弹窗内部，不关闭
+      if (popoverRef.current && popoverRef.current.contains(event.target)) {
+        return;
+      }
       if (isOpen) {
         setIsOpen(false);
       }
@@ -910,7 +1609,11 @@ export const OrdersPanel = ({
   orderStatusFilter,
   onOrderStatusFilterChange,
   orderExporting,
+  exportHistory = [],
+  exportState = {},
   onExportOrders,
+  onLoadExportHistory,
+  onResetExportState,
   orderStats,
   onOrderAgentFilterChange,
   selectedOrders,
@@ -927,9 +1630,67 @@ export const OrdersPanel = ({
   agentNameMap,
   isSubmitting,
   currentUserLabel,
-  onUpdateUnifiedStatus
-}) => (
-  <div className="space-y-6">
+  onUpdateUnifiedStatus,
+  showToast
+}) => {
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  
+  const openExportModal = () => {
+    if (onResetExportState) onResetExportState();
+    setExportModalOpen(true);
+  };
+
+  // Calculate earliest order date for export range from backend stats
+  const minOrderDate = useMemo(() => {
+    // Use earliest_order_time from backend stats (covers all orders, not just current page)
+    const earliestTime = orderStats?.earliest_order_time;
+    if (earliestTime) {
+      // Parse SQLite timestamp string (UTC format: "YYYY-MM-DD HH:MM:SS")
+      const parsed = new Date(earliestTime.replace(' ', 'T') + 'Z');
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    
+    // Fallback: use current page orders if stats not available
+    if (orders && orders.length > 0) {
+      const timestamps = orders.map(o => o.created_at_timestamp ? o.created_at_timestamp * 1000 : new Date(o.created_at).getTime());
+      const minTs = Math.min(...timestamps);
+      if (minTs && !isNaN(minTs)) {
+        return new Date(minTs);
+      }
+    }
+    
+    // Final fallback: Jan 1st of current year
+    return new Date(new Date().getFullYear(), 0, 1);
+  }, [orderStats?.earliest_order_time, orders]);
+
+  const closeExportModal = () => {
+    setExportModalOpen(false);
+    if (onResetExportState) onResetExportState();
+  };
+
+  return (
+    <div className="space-y-6">
+    <ExportModal 
+      open={exportModalOpen}
+      onClose={closeExportModal}
+      onExport={async (range) => {
+        await onExportOrders?.({
+          startTimeMs: range.startTimeMs,
+          endTimeMs: range.endTimeMs,
+          statusFilter: orderStatusFilter,
+          keyword: orderSearch
+        });
+      }}
+      isExporting={orderExporting}
+      exportState={exportState}
+      exportHistory={exportHistory}
+      onLoadHistory={onLoadExportHistory}
+      minDate={minOrderDate}
+      showToast={showToast}
+    />
+
     {/* Header Section */}
     <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
       <div>
@@ -1016,12 +1777,12 @@ export const OrdersPanel = ({
             ))}
           </div>
           <button
-            onClick={onExportOrders}
+            onClick={openExportModal}
             disabled={orderExporting}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium shadow-sm shadow-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition-all active:scale-95"
           >
-            {orderExporting ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-file-excel"></i>}
-            {orderExporting ? '导出中...' : '导出报表'}
+            {orderExporting ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-file-export"></i>}
+            {orderExporting ? '导出进行中' : '导出报表'}
           </button>
         </div>
 
@@ -1046,6 +1807,7 @@ export const OrdersPanel = ({
       </>
     )}
   </div>
-);
+  );
+};
 
 export default OrdersPanel;

@@ -5,26 +5,29 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Set
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
+from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 import uvicorn
 import json
 import random
 from PIL import Image
 import io
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 # 导入自定义模块
 from database import (
     init_database, cleanup_old_chat_logs, get_db_connection,
     UserDB, ProductDB, CartDB, ChatLogDB, AdminDB, CategoryDB, OrderDB, AddressDB, BuildingDB, UserProfileDB,
     VariantDB, SettingsDB, LotteryDB, RewardDB, CouponDB, AutoGiftDB, GiftThresholdDB, LotteryConfigDB, AgentStatusDB,
-    PaymentQrDB, DeliverySettingsDB
+    PaymentQrDB, DeliverySettingsDB, OrderExportDB
 )
 from database import AgentAssignmentDB, AgentDeletionDB
 from auth import (
@@ -102,6 +105,40 @@ def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) 
         # 如果转换失败，使用当前时间戳减去1小时（确保倒计时能正常显示）
         import time
         return int(time.time() - 3600)
+
+def format_device_time_ms(ms_value: Optional[float], tz_offset_minutes: Optional[int], fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """根据设备时区偏移格式化毫秒时间戳。"""
+    if ms_value is None:
+        return ""
+    try:
+        seconds = float(ms_value) / 1000.0
+        dt_utc = datetime.utcfromtimestamp(seconds)
+        if tz_offset_minutes is not None:
+            dt_local = dt_utc - timedelta(minutes=int(tz_offset_minutes))
+        else:
+            dt_local = datetime.fromtimestamp(seconds)
+        return dt_local.strftime(fmt)
+    except Exception:
+        return ""
+
+
+def format_export_range_label(start_ms: Optional[float], end_ms: Optional[float], tz_offset_minutes: Optional[int]) -> str:
+    """生成导出范围的友好描述。"""
+    if start_ms is None and end_ms is None:
+        return "全部时间"
+    start_label = format_device_time_ms(start_ms, tz_offset_minutes, "%Y-%m-%d") if start_ms is not None else ""
+    end_label = format_device_time_ms(end_ms, tz_offset_minutes, "%Y-%m-%d") if end_ms is not None else ""
+    if start_label and end_label:
+        return f"{start_label} 至 {end_label}"
+    return start_label or end_label or "全部时间"
+
+
+def build_export_filename(start_ms: Optional[float], end_ms: Optional[float]) -> str:
+    """根据时间范围生成导出文件名。"""
+    start_part = format_device_time_ms(start_ms, None, "%Y%m%d") if start_ms is not None else "all"
+    end_part = format_device_time_ms(end_ms, None, "%Y%m%d") if end_ms is not None else "all"
+    timestamp_part = datetime.now().strftime("%Y%m%dT%H%M%S")
+    return f"orders_{start_part}-{end_part}_{timestamp_part}.xlsx"
 
 # 配置日志
 log_level = settings.log_level.upper()
@@ -958,6 +995,226 @@ def resolve_staff_order_scope(
 
     return filter_value, address_ids, building_ids, None, None, filter_value
 
+def compute_unified_order_status(order: Dict[str, Any]) -> str:
+    """统一获取订单状态标签。"""
+    ps = order.get("payment_status") if isinstance(order, dict) else None
+    st = order.get("status") if isinstance(order, dict) else None
+    if not ps and not st:
+        return "未付款"
+    if ps == "processing":
+        return "待确认"
+    if ps != "succeeded":
+        return "未付款"
+    if st == "shipped":
+        return "配送中"
+    if st == "delivered":
+        return "已完成"
+    return "待配送"
+
+
+def resolve_order_timestamp_ms(order: Dict[str, Any]) -> Optional[float]:
+    """优先使用已有时间戳，否则从字符串转换为毫秒。"""
+    if not isinstance(order, dict):
+        return None
+    raw_ts = order.get("created_at_timestamp")
+    if isinstance(raw_ts, (int, float)):
+        return float(raw_ts) * 1000
+    created_at_str = order.get("created_at")
+    if created_at_str:
+        try:
+            return float(convert_sqlite_timestamp_to_unix(created_at_str, order.get("id"))) * 1000
+        except Exception:
+            return None
+    return None
+
+
+def build_agent_name_map() -> Dict[str, str]:
+    """获取代理名称映射，包含禁用/已删除的代理方便展示历史数据。"""
+    mapping: Dict[str, str] = {}
+    agents = AdminDB.list_admins(role='agent', include_disabled=True, include_deleted=True)
+    for agent in agents:
+        agent_id = agent.get('id')
+        if not agent_id:
+            continue
+        mapping[agent_id] = agent.get('name') or agent_id
+    return mapping
+
+
+def resolve_scope_label(selected_filter: Optional[str], staff: Dict[str, Any], agent_name_map: Dict[str, str]) -> str:
+    """根据过滤条件生成归属范围标签。"""
+    if staff.get('type') == 'agent':
+        return staff.get('name') or staff.get('id') or '我的订单'
+    lower = (selected_filter or 'self').lower()
+    if lower == 'all':
+        return '全部订单'
+    if lower == 'self':
+        return '管理员订单'
+    return f"{agent_name_map.get(selected_filter, selected_filter)} 的订单"
+
+
+def resolve_order_owner_label(order: Dict[str, Any], agent_name_map: Dict[str, str], staff: Dict[str, Any], is_admin_role: bool) -> str:
+    agent_id = order.get("agent_id") if isinstance(order, dict) else None
+    if is_admin_role:
+        if agent_id:
+            return agent_name_map.get(agent_id) or agent_id
+        return staff.get('name') or staff.get('id') or '管理员'
+    if agent_id:
+        return agent_name_map.get(agent_id) or agent_id
+    return staff.get('name') or staff.get('id') or '我的订单'
+
+
+def build_export_row(order: Dict[str, Any], agent_name_map: Dict[str, str], staff: Dict[str, Any], is_admin_role: bool, tz_offset_minutes: Optional[int]) -> List[str]:
+    shipping = order.get('shipping_info') if isinstance(order, dict) and isinstance(order.get('shipping_info'), dict) else {}
+    owner_label = resolve_order_owner_label(order, agent_name_map, staff, is_admin_role)
+    address_parts = [shipping.get('dormitory'), shipping.get('building')]
+    base_address = ' '.join([part for part in address_parts if part]) or shipping.get('full_address') or ''
+    detail_segments = [
+        shipping.get('room'),
+        shipping.get('address_detail'),
+        shipping.get('detail'),
+        shipping.get('extra')
+    ]
+    detail_address = ' '.join([seg for seg in detail_segments if seg]) or ''
+
+    total_value = order.get('total_amount')
+    total_text = f"{float(total_value):.2f}" if isinstance(total_value, (int, float)) else str(total_value or '')
+
+    items = order.get('items') if isinstance(order, dict) and isinstance(order.get('items'), list) else []
+    item_summary_parts: List[str] = []
+    for item in items:
+        if not item:
+            continue
+        markers: List[str] = []
+        try:
+            if item.get('is_auto_gift'):
+                markers.append('赠品')
+            if item.get('is_lottery'):
+                markers.append('抽奖')
+        except Exception:
+            pass
+        marker_text = f"[{'+'.join(markers)}]" if markers else ''
+        base_name = (item.get('name') or item.get('product_name') or item.get('title') or '未命名商品') if isinstance(item, dict) else '未命名商品'
+        variant = f"({item.get('variant_name')})" if isinstance(item, dict) and item.get('variant_name') else ''
+        quantity = ''
+        try:
+            qty_val = int(item.get('quantity', 0))
+            if qty_val:
+                quantity = f"x{qty_val}"
+        except Exception:
+            quantity = ''
+        item_summary_parts.append(' '.join(part for part in [marker_text, f"{base_name}{variant}".strip(), quantity] if part).strip())
+    item_summary = "\n".join([part for part in item_summary_parts if part])
+
+    created_ms = resolve_order_timestamp_ms(order)
+    created_at_text = format_device_time_ms(created_ms, tz_offset_minutes) if created_ms is not None else ''
+    unified_status = compute_unified_order_status(order)
+
+    return [
+        str(order.get('id') or ''),
+        owner_label or '',
+        order.get('student_id') or order.get('user_id') or '',
+        shipping.get('phone') or '',
+        base_address,
+        detail_address,
+        total_text,
+        item_summary,
+        unified_status,
+        created_at_text
+    ]
+
+def write_export_workbook(rows: List[List[str]], file_path: str) -> None:
+    """将行数据写入xlsx文件。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "订单导出"
+    header = ['订单号', '归属', '用户名', '电话', '地址', '详细地址', '订单金额', '订单信息', '订单状态', '创建时间']
+    ws.append(header)
+    for row in rows:
+        ws.append(row)
+
+    for col_idx, column_cells in enumerate(ws.columns, start=1):
+        try:
+            max_len = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+        except ValueError:
+            max_len = 0
+        adjusted_width = min(max(max_len + 4, 12), 50)
+        ws.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
+
+    wb.save(file_path)
+
+def prepare_export_scope(staff: Dict[str, Any], agent_filter_value: Optional[str]) -> Tuple[
+    Optional[str], Optional[List[str]], Optional[List[str]], Optional[List[str]], Optional[List[str]], str, bool
+]:
+    """根据身份和筛选值计算导出范围及是否限制仅管理员订单。"""
+    scope = build_staff_scope(staff)
+    if staff.get('type') == 'agent':
+        return (
+            scope.get('agent_id'),
+            scope.get('address_ids'),
+            scope.get('building_ids'),
+            None,
+            None,
+            'self',
+            False
+        )
+
+    selected_agent_id, selected_address_ids, selected_building_ids, exclude_address_ids, exclude_building_ids, selected_filter = resolve_staff_order_scope(
+        staff,
+        scope,
+        agent_filter_value
+    )
+    enforce_admin_only = bool(scope.get('filter_admin_orders')) if (selected_filter or '').lower() == 'self' else False
+    return (
+        selected_agent_id,
+        selected_address_ids,
+        selected_building_ids,
+        exclude_address_ids,
+        exclude_building_ids,
+        selected_filter,
+        enforce_admin_only
+    )
+
+
+def serialize_export_job(job: Dict[str, Any], staff_prefix: str) -> Dict[str, Any]:
+    """转换导出记录为前端可用的数据结构。"""
+    if not job:
+        return {}
+    download_url = None
+    is_valid = False
+    expires_at = job.get('expires_at')
+    now = datetime.now()
+    if job.get('status') == 'completed' and job.get('download_token'):
+        try:
+            if expires_at:
+                expire_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+                is_valid = expire_dt > now
+            else:
+                is_valid = True
+        except Exception:
+            is_valid = False
+        if is_valid:
+            download_url = f"{staff_prefix}/orders/export/download/{job.get('id')}?token={job.get('download_token')}"
+
+    range_label = format_export_range_label(job.get('start_time_ms'), job.get('end_time_ms'), job.get('client_tz_offset'))
+
+    return {
+        "id": job.get('id'),
+        "status": job.get('status'),
+        "created_at": job.get('created_at'),
+        "expires_at": expires_at,
+        "exported_count": job.get('exported_count'),
+        "total_count": job.get('total_count'),
+        "range_label": range_label,
+        "agent_filter": job.get('agent_filter'),
+        "scope_label": job.get('scope_label'),
+        "status_filter": job.get('status_filter'),
+        "keyword": job.get('keyword'),
+        "download_url": download_url,
+        "filename": job.get('filename'),
+        "message": job.get('message'),
+        "is_active": is_valid
+    }
+
 
 async def handle_product_stock_update(
     staff: Dict[str, Any],
@@ -1189,6 +1446,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Length", "Content-Type"],
 )
 
 # 静态文件服务
@@ -1198,6 +1456,8 @@ os.makedirs(items_dir, exist_ok=True)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 public_dir = os.path.join(project_root, "public")
 os.makedirs(public_dir, exist_ok=True)
+exports_dir = os.path.join(os.path.dirname(__file__), "exports")
+os.makedirs(exports_dir, exist_ok=True)
 
 class CachedStaticFiles(StaticFiles):
     def __init__(self, *args, max_age: int = STATIC_CACHE_MAX_AGE, **kwargs):
@@ -1376,6 +1636,14 @@ class OrderStatusUpdateRequest(BaseModel):
 class PaymentStatusUpdateRequest(BaseModel):
     payment_status: str
 
+class OrderExportRequest(BaseModel):
+    start_time_ms: Optional[float] = None
+    end_time_ms: Optional[float] = None
+    status_filter: Optional[str] = None
+    keyword: Optional[str] = None
+    agent_filter: Optional[str] = None
+    timezone_offset_minutes: Optional[int] = None
+
 # 地址管理模型
 class AddressCreateRequest(BaseModel):
     name: str
@@ -1545,6 +1813,12 @@ async def periodic_cleanup():
                 CategoryDB.cleanup_orphan_categories()
             except Exception as e:
                 logger.warning(f"定时清理空分类失败: {e}")
+            try:
+                removed_exports = OrderExportDB.cleanup_expired_files(exports_dir)
+                if removed_exports:
+                    logger.info(f"清理过期导出文件 {removed_exports} 个")
+            except Exception as e:
+                logger.warning(f"清理导出文件失败: {e}")
         except Exception as e:
             logger.error(f"定时清理任务失败: {e}")
 
@@ -4732,6 +5006,348 @@ async def get_agent_orders(
     except Exception as e:
         logger.error(f"代理获取订单列表失败: {e}")
         return error_response("获取订单列表失败", 500)
+
+
+async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExportRequest, staff_prefix: str):
+    """创建导出任务，返回基础信息和最新历史。"""
+    start_ms = payload.start_time_ms
+    end_ms = payload.end_time_ms
+    if start_ms is not None and end_ms is not None and start_ms > end_ms:
+        start_ms, end_ms = end_ms, start_ms
+    tz_offset = payload.timezone_offset_minutes
+    keyword = (payload.keyword or '').strip() or None
+    status_filter = (payload.status_filter or '').strip()
+    unified_status = status_filter if status_filter and status_filter != '全部' else None
+
+    (
+        selected_agent_id,
+        selected_address_ids,
+        selected_building_ids,
+        exclude_address_ids,
+        exclude_building_ids,
+        selected_filter,
+        filter_admin_orders
+    ) = prepare_export_scope(staff, payload.agent_filter if staff.get('type') == 'admin' else 'self')
+
+    page_data = OrderDB.get_orders_paginated(
+        keyword=keyword,
+        limit=1,
+        offset=0,
+        agent_id=selected_agent_id,
+        address_ids=selected_address_ids,
+        building_ids=selected_building_ids,
+        exclude_address_ids=exclude_address_ids,
+        exclude_building_ids=exclude_building_ids,
+        start_time_ms=start_ms,
+        end_time_ms=end_ms,
+        unified_status=unified_status,
+        filter_admin_orders=filter_admin_orders
+    )
+    total = int(page_data.get("total") or 0)
+    if total <= 0:
+        return error_response("当前筛选条件下没有可导出的订单", 400)
+
+    agent_name_map = build_agent_name_map()
+    scope_label = resolve_scope_label(selected_filter, staff, agent_name_map)
+    owner_id = get_owner_id_for_staff(staff) or staff.get('id')
+    filename = build_export_filename(start_ms, end_ms)
+
+    job = OrderExportDB.create_job(
+        owner_id=owner_id,
+        role=staff.get('type'),
+        agent_filter=selected_filter,
+        keyword=keyword,
+        status_filter=unified_status,
+        start_time_ms=start_ms,
+        end_time_ms=end_ms,
+        scope_label=scope_label,
+        filename=filename,
+        total_count=total,
+        client_tz_offset=tz_offset
+    )
+
+    history_rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
+    history = [serialize_export_job(entry, staff_prefix) for entry in history_rows]
+
+    return success_response("导出任务已创建", {
+        "job_id": job["id"],
+        "stream_path": f"{staff_prefix}/orders/export/stream/{job['id']}",
+        "history": history,
+        "expires_at": job.get("expires_at"),
+        "total": total,
+        "filename": job.get("filename"),
+        "range_label": format_export_range_label(start_ms, end_ms, tz_offset),
+        "scope_label": scope_label
+    })
+
+
+async def stream_export_for_staff(request: Request, staff: Dict[str, Any], staff_prefix: str, job_id: str):
+    """SSE流式导出订单并推送进度。"""
+    owner_id = get_owner_id_for_staff(staff) or staff.get('id')
+    job = OrderExportDB.get_job(job_id)
+    if not job or job.get('owner_id') != owner_id:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+
+    agent_name_map = build_agent_name_map()
+    selected_filter_value = job.get('agent_filter') or 'self'
+    (
+        selected_agent_id,
+        selected_address_ids,
+        selected_building_ids,
+        exclude_address_ids,
+        exclude_building_ids,
+        _resolved_filter,
+        filter_admin_orders
+    ) = prepare_export_scope(staff, selected_filter_value)
+
+    unified_status = job.get('status_filter') or None
+    keyword = job.get('keyword') or None
+    start_ms = job.get('start_time_ms')
+    end_ms = job.get('end_time_ms')
+    tz_offset = job.get('client_tz_offset')
+    is_admin_role = staff.get('type') == 'admin'
+    safe_filename = os.path.basename(job.get('filename') or "") or f"{job_id}.xlsx"
+    file_path = os.path.abspath(os.path.join(exports_dir, safe_filename))
+    safe_root = os.path.abspath(exports_dir)
+    if not file_path.startswith(safe_root):
+        file_path = os.path.join(safe_root, f"{job_id}.xlsx")
+
+    def is_expired(expires_at: Optional[str]) -> bool:
+        if not expires_at:
+            return False
+        try:
+            expire_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+            return expire_dt <= datetime.now()
+        except Exception:
+            return False
+
+    async def event_generator():
+        nonlocal job
+        try:
+            if is_expired(job.get('expires_at')):
+                OrderExportDB.update_job(job_id, status='expired', message='导出链接已过期')
+                refreshed = OrderExportDB.get_job(job_id)
+                history_rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
+                history = [serialize_export_job(entry, staff_prefix) for entry in history_rows]
+                yield {"data": json.dumps({
+                    "status": "expired",
+                    "message": "导出链接已过期，请重新生成",
+                    "history": history,
+                    "range_label": format_export_range_label(start_ms, end_ms, tz_offset)
+                })}
+                return
+
+            if job.get('status') == 'completed' and os.path.exists(file_path):
+                history_rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
+                history = [serialize_export_job(entry, staff_prefix) for entry in history_rows]
+                final_job = serialize_export_job(job, staff_prefix)
+                final_job.update({
+                    "status": "completed",
+                    "progress": 100,
+                    "stage": "已完成",
+                    "exported": job.get('exported_count'),
+                    "total": job.get('total_count'),
+                    "history": history
+                })
+                yield {"data": json.dumps(final_job)}
+                return
+
+            OrderExportDB.update_job(job_id, status='running', message='正在准备导出')
+            yield {"data": json.dumps({
+                "status": "running",
+                "stage": "准备导出",
+                "progress": 5,
+                "total": job.get('total_count'),
+                "range_label": format_export_range_label(start_ms, end_ms, tz_offset)
+            })}
+
+            exported_rows: List[List[str]] = []
+            exported_count = 0
+            total_count = 0
+            offset = 0
+            batch_size = 200
+            progress = 5
+
+            while True:
+                page_data = OrderDB.get_orders_paginated(
+                    keyword=keyword,
+                    limit=batch_size,
+                    offset=offset,
+                    agent_id=selected_agent_id,
+                    address_ids=selected_address_ids,
+                    building_ids=selected_building_ids,
+                    exclude_address_ids=exclude_address_ids,
+                    exclude_building_ids=exclude_building_ids,
+                    start_time_ms=start_ms,
+                    end_time_ms=end_ms,
+                    unified_status=unified_status,
+                    filter_admin_orders=filter_admin_orders,
+                    allow_large_limit=True
+                )
+                orders_batch = page_data.get("orders") or []
+                if offset == 0:
+                    total_count = int(page_data.get("total") or 0)
+                    OrderExportDB.update_job(job_id, total_count=total_count)
+
+                if not orders_batch:
+                    break
+
+                for order in orders_batch:
+                    exported_rows.append(build_export_row(order, agent_name_map, staff, is_admin_role, tz_offset))
+
+                exported_count = len(exported_rows)
+                OrderExportDB.update_job(job_id, exported_count=exported_count)
+                progress = 10 if total_count == 0 else min(96, max(10, int(exported_count / max(total_count, 1) * 85)))
+                yield {"data": json.dumps({
+                    "status": "running",
+                    "stage": "正在解析数据",
+                    "progress": progress,
+                    "exported": exported_count,
+                    "total": total_count,
+                    "message": f"正在解析... {exported_count}/{total_count or '未知'}"
+                })}
+
+                offset += len(orders_batch)
+                if len(orders_batch) < batch_size:
+                    break
+
+            if exported_count == 0:
+                OrderExportDB.update_job(job_id, status='failed', message='当前筛选无数据')
+                yield {"data": json.dumps({
+                    "status": "failed",
+                    "message": "当前筛选条件下没有可导出的订单"
+                })}
+                return
+
+            OrderExportDB.update_job(job_id, exported_count=exported_count, message='正在生成文件')
+            yield {"data": json.dumps({
+                "status": "running",
+                "stage": "生成文件",
+                "progress": min(98, max(progress, 90)),
+                "exported": exported_count,
+                "total": total_count
+            })}
+
+            await asyncio.to_thread(write_export_workbook, exported_rows, file_path)
+
+            OrderExportDB.update_job(
+                job_id,
+                status='completed',
+                exported_count=exported_count,
+                total_count=total_count,
+                file_path=file_path,
+                message='导出完成',
+                filename=os.path.basename(file_path)
+            )
+            job = OrderExportDB.get_job(job_id)
+            history_rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
+            history = [serialize_export_job(entry, staff_prefix) for entry in history_rows]
+            final_job = serialize_export_job(job, staff_prefix)
+            final_job.update({
+                "status": "completed",
+                "progress": 100,
+                "stage": "已完成",
+                "exported": exported_count,
+                "total": total_count,
+                "history": history
+            })
+            yield {"data": json.dumps(final_job)}
+        except Exception as e:
+            logger.error(f"导出订单失败({job_id}): {e}")
+            OrderExportDB.update_job(job_id, status='failed', message=str(e))
+            yield {"data": json.dumps({
+                "status": "failed",
+                "message": str(e) or "导出失败"
+            })}
+
+    return EventSourceResponse(event_generator(), ping=15000)
+
+
+async def download_export_for_staff(staff: Dict[str, Any], job_id: str, token: Optional[str]):
+    """下载导出文件并校验有效期。"""
+    owner_id = get_owner_id_for_staff(staff) or staff.get('id')
+    job = OrderExportDB.get_job(job_id)
+    if not job or job.get('owner_id') != owner_id:
+        raise HTTPException(status_code=404, detail="导出记录不存在")
+    if token is None or token != job.get('download_token'):
+        raise HTTPException(status_code=403, detail="下载链接已失效，请重新导出")
+    if job.get('status') != 'completed':
+        raise HTTPException(status_code=400, detail="文件尚未生成，请稍后重试")
+    expires_at = job.get('expires_at')
+    if expires_at:
+        try:
+            expire_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+            if expire_dt <= datetime.now():
+                OrderExportDB.update_job(job_id, status='expired', message='导出链接已过期')
+                raise HTTPException(status_code=410, detail="导出链接已过期，请重新导出")
+        except ValueError:
+            pass
+
+    file_path = job.get('file_path')
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="导出文件不存在，请重新导出")
+
+    filename = os.path.basename(job.get('filename') or file_path) or f"{job_id}.xlsx"
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=filename
+    )
+
+
+async def get_export_history_for_staff(staff: Dict[str, Any], staff_prefix: str):
+    owner_id = get_owner_id_for_staff(staff) or staff.get('id')
+    rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
+    history = [serialize_export_job(row, staff_prefix) for row in rows]
+    return success_response("获取导出记录成功", {"history": history})
+
+
+@app.post("/admin/orders/export")
+async def admin_create_order_export(request: Request, payload: OrderExportRequest):
+    staff = get_current_staff_required_from_cookie(request)
+    return await create_export_job_for_staff(staff, payload, '/admin')
+
+
+@app.post("/agent/orders/export")
+async def agent_create_order_export(request: Request, payload: OrderExportRequest):
+    agent, _ = require_agent_with_scope(request)
+    return await create_export_job_for_staff(agent, payload, '/agent')
+
+
+@app.get("/admin/orders/export/stream/{job_id}")
+async def admin_stream_order_export(job_id: str, request: Request):
+    staff = get_current_staff_required_from_cookie(request)
+    return await stream_export_for_staff(request, staff, '/admin', job_id)
+
+
+@app.get("/agent/orders/export/stream/{job_id}")
+async def agent_stream_order_export(job_id: str, request: Request):
+    agent, _ = require_agent_with_scope(request)
+    return await stream_export_for_staff(request, agent, '/agent', job_id)
+
+
+@app.get("/admin/orders/export/download/{job_id}")
+async def admin_download_order_export(job_id: str, request: Request, token: Optional[str] = None):
+    staff = get_current_staff_required_from_cookie(request)
+    return await download_export_for_staff(staff, job_id, token)
+
+
+@app.get("/agent/orders/export/download/{job_id}")
+async def agent_download_order_export(job_id: str, request: Request, token: Optional[str] = None):
+    agent, _ = require_agent_with_scope(request)
+    return await download_export_for_staff(agent, job_id, token)
+
+
+@app.get("/admin/orders/export/history")
+async def admin_export_history(request: Request):
+    staff = get_current_staff_required_from_cookie(request)
+    return await get_export_history_for_staff(staff, '/admin')
+
+
+@app.get("/agent/orders/export/history")
+async def agent_export_history(request: Request):
+    agent, _ = require_agent_with_scope(request)
+    return await get_export_history_for_staff(agent, '/agent')
 
 @app.get("/admin/lottery-config")
 async def admin_get_lottery_config(request: Request, owner_id: Optional[str] = None):

@@ -1,10 +1,14 @@
 # /backend/scheduler.py
 import asyncio
 import logging
+import os
 from datetime import datetime, time
-from database import cleanup_old_chat_logs
+from database import cleanup_old_chat_logs, OrderExportDB
 
 logger = logging.getLogger(__name__)
+
+# 导出文件目录
+EXPORTS_DIR = os.path.join(os.path.dirname(__file__), 'exports')
 
 async def daily_cleanup_task():
     """每日清理任务"""
@@ -36,6 +40,17 @@ async def daily_cleanup_task():
                 f"聊天记录清理完成，删除了 {cleanup_result.get('deleted_logs', 0)} 条过期记录，"
                 f"移除了 {cleanup_result.get('deleted_threads', 0)} 条会话"
             )
+            
+            # 清理过期导出文件
+            try:
+                if os.path.exists(EXPORTS_DIR):
+                    removed_exports = OrderExportDB.cleanup_expired_files(EXPORTS_DIR)
+                    if removed_exports:
+                        logger.info(f"清理过期导出文件 {removed_exports} 个")
+                    else:
+                        logger.info("无过期导出文件需要清理")
+            except Exception as e:
+                logger.error(f"清理过期导出文件失败: {e}")
             
         except Exception as e:
             logger.error(f"清理任务执行失败: {e}")

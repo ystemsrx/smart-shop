@@ -115,6 +115,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setOrderSearch,
     orderLoading,
     orderExporting,
+    exportHistory,
+    exportState,
     orderAgentFilter,
     setOrderAgentFilter,
     orderAgentOptions,
@@ -124,6 +126,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     selectedOrders,
     handleOrderRefresh,
     handleExportOrders,
+    loadExportHistory,
+    resetExportState,
     handlePrevPage,
     handleNextPage,
     handleOrderAgentFilterChange,
@@ -469,7 +473,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     orderStatusFilter={orderStatusFilter}
                     onOrderStatusFilterChange={setOrderStatusFilter}
                     orderExporting={orderExporting}
+                    exportHistory={exportHistory}
+                    exportState={exportState}
                     onExportOrders={handleExportOrders}
+                    onLoadExportHistory={loadExportHistory}
+                    onResetExportState={resetExportState}
                     orderStats={orderStats}
                     onOrderAgentFilterChange={handleOrderAgentFilterChange}
                     selectedOrders={selectedOrders}
@@ -487,6 +495,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     isSubmitting={isSubmitting}
                     currentUserLabel={currentOwnerLabel}
                     onUpdateUnifiedStatus={handleUpdateUnifiedStatus}
+                    showToast={showToast}
                   />
                 )}
 

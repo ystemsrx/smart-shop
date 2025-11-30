@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getUnifiedStatus } from '../orders';
+import { getApiBaseUrl } from '../../../utils/runtimeConfig';
 
 export function useOrderManagement({
   apiRequest,
@@ -23,6 +24,20 @@ export function useOrderManagement({
   const [orderSearch, setOrderSearch] = useState('');
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderExporting, setOrderExporting] = useState(false);
+  const [exportHistory, setExportHistory] = useState([]);
+  const [exportState, setExportState] = useState({
+    status: 'idle',
+    progress: 0,
+    stage: '',
+    message: '',
+    downloadUrl: '',
+    filename: '',
+    expiresAt: '',
+    rangeLabel: '',
+    scopeLabel: '',
+    exported: 0,
+    total: 0
+  });
   const [orderAgentFilter, setOrderAgentFilter] = useState('self');
   const [orderAgentOptions, setOrderAgentOptions] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
@@ -30,10 +45,18 @@ export function useOrderManagement({
   const loadOrdersRef = useRef(null);
   const previousOrderSearchRef = useRef(orderSearch);
   const agentFilterChangeHandlerRef = useRef(onAgentFilterChange);
+  const exportEventSourceRef = useRef(null);
 
   useEffect(() => {
     agentFilterChangeHandlerRef.current = onAgentFilterChange;
   }, [onAgentFilterChange]);
+
+  useEffect(() => () => {
+    if (exportEventSourceRef.current) {
+      exportEventSourceRef.current.close();
+      exportEventSourceRef.current = null;
+    }
+  }, []);
 
   const buildOrdersQueryParams = useCallback(({
     limit = 20,
@@ -124,187 +147,153 @@ export function useOrderManagement({
     return map;
   }, [orderAgentOptions]);
 
-  const handleExportOrders = useCallback(async () => {
-    if (orderExporting) return;
-    setOrderExporting(true);
+  const stopExportStream = useCallback(() => {
+    if (exportEventSourceRef.current) {
+      exportEventSourceRef.current.close();
+      exportEventSourceRef.current = null;
+    }
+  }, []);
+
+  const resetExportState = useCallback(() => {
+    stopExportStream();
+    setOrderExporting(false);
+    setExportState((prev) => ({
+      ...prev,
+      status: 'idle',
+      progress: 0,
+      stage: '',
+      message: '',
+      downloadUrl: '',
+      filename: '',
+      expiresAt: '',
+      rangeLabel: '',
+      scopeLabel: '',
+      exported: 0,
+      total: 0
+    }));
+  }, [stopExportStream]);
+
+  const loadExportHistory = useCallback(async () => {
     try {
-      const limit = 200;
-      const allOrders = [];
-      let offset = 0;
-      let hasMore = true;
+      const res = await apiRequest(`${staffPrefix}/orders/export/history`);
+      const historyList = res?.data?.history || [];
+      setExportHistory(historyList);
+      return historyList;
+    } catch (e) {
+      console.error('获取导出记录失败', e);
+      return [];
+    }
+  }, [apiRequest, staffPrefix]);
 
-      while (hasMore) {
-        const url = buildOrdersQueryParams({
-          limit,
-          offset,
-          search: orderSearch,
-          agentFilterValue: orderAgentFilter
-        });
-        const res = await apiRequest(url);
-        const data = res?.data || {};
-        const batch = Array.isArray(data.orders) ? data.orders : [];
-        allOrders.push(...batch);
-
-        hasMore = !!data.has_more && batch.length > 0;
-        if (hasMore) {
-          offset += limit;
-        }
-      }
-
-      const scopedOrders = orderStatusFilter === '全部'
-        ? allOrders
-        : allOrders.filter((order) => getUnifiedStatus(order) === orderStatusFilter);
-
-      if (scopedOrders.length === 0) {
-        alert('当前筛选条件下没有可导出的订单');
-        return;
-      }
-
-      const xlsxModule = await import('xlsx');
-      const XLSXLib = xlsxModule?.default?.utils ? xlsxModule.default : xlsxModule;
-      if (!XLSXLib?.utils) {
-        throw new Error('未能加载 Excel 导出依赖，请稍后重试');
-      }
-
-      const header = [
-        '订单号',
-        '归属',
-        '用户名',
-        '电话',
-        '地址',
-        '详细地址',
-        '订单金额',
-        '订单信息',
-        '订单状态',
-        '创建时间'
-      ];
-
-      const formatDateStamp = (dateObj) => {
-        if (!(dateObj instanceof Date) || Number.isNaN(dateObj.valueOf())) return null;
-        const year = dateObj.getFullYear();
-        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const day = String(dateObj.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      };
-
-      const formatTimestamp = (dateObj) => {
-        if (!(dateObj instanceof Date) || Number.isNaN(dateObj.valueOf())) return null;
-        const year = dateObj.getFullYear();
-        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const day = String(dateObj.getDate()).padStart(2, '0');
-        const hours = String(dateObj.getHours()).padStart(2, '0');
-        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
-        return `${year}${month}${day}T${hours}${minutes}`;
-      };
-
-      const normalizeOrderDate = (order) => {
-        if (Number.isFinite(order?.created_at_timestamp)) {
-          return new Date(order.created_at_timestamp * 1000);
-        }
-        if (order?.created_at) {
-          const parsed = new Date(order.created_at);
-          if (!Number.isNaN(parsed.valueOf())) {
-            return parsed;
-          }
-        }
-        return null;
-      };
-
-      let earliestDate = null;
-      let latestDate = null;
-
-      const rows = scopedOrders.map((order) => {
-        const shipping = order?.shipping_info && typeof order.shipping_info === 'object'
-          ? order.shipping_info
-          : {};
-        const ownerLabel = isAdmin
-          ? (orderAgentNameMap?.[order.agent_id] || order.agent_id || '未分配')
-          : (order.agent_id || user?.name || user?.id || '我的订单');
-        const addressParts = [shipping.dormitory, shipping.building].filter(Boolean);
-        const baseAddress = addressParts.join(' ') || shipping.full_address || '';
-        const detailSegments = [
-          shipping.room,
-          shipping.address_detail,
-          shipping.detail,
-          shipping.extra
-        ].filter(Boolean);
-        const detailAddress = detailSegments.join(' ') || '';
-        const totalValue = Number(order?.total_amount);
-        const totalText = Number.isFinite(totalValue)
-          ? totalValue.toFixed(2)
-          : String(order?.total_amount ?? '');
-        const items = Array.isArray(order?.items) ? order.items : [];
-        const itemSummary = items.map((item) => {
-          if (!item) return '';
-          const markers = [];
-          if (item.is_auto_gift) markers.push('赠品');
-          if (item.is_lottery) markers.push('抽奖');
-          const markerText = markers.length > 0 ? `[${markers.join('+')}]` : '';
-          const baseName = item.name || item.product_name || item.title || '未命名商品';
-          const variant = item.variant_name ? `(${item.variant_name})` : '';
-          const quantity = Number(item.quantity);
-          const quantityText = Number.isFinite(quantity) ? `x${quantity}` : '';
-          return [markerText, `${baseName}${variant}`.trim(), quantityText]
-            .filter(Boolean)
-            .join(' ');
-        }).filter(Boolean).join('\\n');
-
-        const createdAtDate = normalizeOrderDate(order);
-        if (createdAtDate) {
-          if (!earliestDate || createdAtDate < earliestDate) {
-            earliestDate = createdAtDate;
-          }
-          if (!latestDate || createdAtDate > latestDate) {
-            latestDate = createdAtDate;
-          }
-        }
-        const createdAtText = createdAtDate
-          ? createdAtDate.toLocaleString('zh-CN', { hour12: false })
-          : '';
-
-        return [
-          order?.id || '',
-          ownerLabel,
-          order?.student_id || order?.user_id || '',
-          shipping.phone || '',
-          baseAddress,
-          detailAddress,
-          totalText,
-          itemSummary,
-          getUnifiedStatus(order),
-          createdAtText
-        ].map((cell) => (cell == null ? '' : String(cell)));
+  const handleExportOrders = useCallback(async ({
+    startTimeMs = null,
+    endTimeMs = null,
+    statusFilter = orderStatusFilter,
+    keyword = orderSearch
+  } = {}) => {
+    if (orderExporting) return null;
+    const timezoneOffset = typeof window !== 'undefined' ? new Date().getTimezoneOffset() : 0;
+    const payload = {
+      start_time_ms: startTimeMs,
+      end_time_ms: endTimeMs,
+      status_filter: statusFilter && statusFilter !== '全部' ? statusFilter : null,
+      keyword: keyword || '',
+      agent_filter: isAdmin ? orderAgentFilter : undefined,
+      timezone_offset_minutes: timezoneOffset
+    };
+    setOrderExporting(true);
+    setExportState((prev) => ({
+      ...prev,
+      status: 'running',
+      progress: 4,
+      stage: '准备导出',
+      message: '',
+      downloadUrl: '',
+      filename: '',
+      expiresAt: '',
+      rangeLabel: '',
+      scopeLabel: '',
+      exported: 0,
+      total: 0
+    }));
+    try {
+      const res = await apiRequest(`${staffPrefix}/orders/export`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
       });
-
-      const worksheetData = [header, ...rows];
-      const workbook = XLSXLib.utils.book_new();
-      const worksheet = XLSXLib.utils.aoa_to_sheet(worksheetData);
-      XLSXLib.utils.book_append_sheet(workbook, worksheet, '订单导出');
-
-      const excelBuffer = XLSXLib.write(workbook, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([excelBuffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      });
-      const url = URL.createObjectURL(blob);
-
-      const now = new Date();
-      const startDateStamp = formatDateStamp(earliestDate || now) || '未知';
-      const endDateStamp = formatDateStamp(latestDate || now) || '未知';
-      const timestampStamp = formatTimestamp(now) || 'export';
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${startDateStamp}-${endDateStamp}_${timestampStamp}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      if (!res?.success) {
+        throw new Error(res?.message || '创建导出任务失败');
+      }
+      const data = res.data || {};
+      if (Array.isArray(data.history)) {
+        setExportHistory(data.history);
+      }
+      setExportState((prev) => ({
+        ...prev,
+        rangeLabel: data.range_label || prev.rangeLabel,
+        scopeLabel: data.scope_label || prev.scopeLabel,
+        filename: data.filename || prev.filename,
+        expiresAt: data.expires_at || prev.expiresAt
+      }));
+      const streamPath = data.stream_path;
+      if (!streamPath) {
+        throw new Error('未获取到导出进度流地址');
+      }
+      const source = new EventSource(`${getApiBaseUrl()}${streamPath}`, { withCredentials: true });
+      exportEventSourceRef.current = source;
+      source.onmessage = (event) => {
+        if (!event?.data) return;
+        try {
+          const payloadData = JSON.parse(event.data);
+          const nextStatus = payloadData.status || 'running';
+          setExportState((prev) => ({
+            ...prev,
+            status: nextStatus,
+            progress: typeof payloadData.progress === 'number' ? payloadData.progress : prev.progress,
+            stage: payloadData.stage || prev.stage,
+            message: payloadData.message || prev.message,
+            downloadUrl: payloadData.download_url || prev.downloadUrl,
+            filename: payloadData.filename || prev.filename,
+            expiresAt: payloadData.expires_at || prev.expiresAt,
+            rangeLabel: payloadData.range_label || prev.rangeLabel,
+            scopeLabel: payloadData.scope_label || prev.scopeLabel,
+            exported: payloadData.exported ?? prev.exported,
+            total: payloadData.total ?? prev.total
+          }));
+          if (Array.isArray(payloadData.history)) {
+            setExportHistory(payloadData.history);
+          }
+          if (nextStatus === 'completed' || nextStatus === 'failed' || nextStatus === 'expired') {
+            setOrderExporting(false);
+            stopExportStream();
+          }
+        } catch (err) {
+          console.error('解析导出进度失败', err);
+        }
+      };
+      source.onerror = (err) => {
+        console.error('导出进度连接异常', err);
+        setExportState((prev) => ({
+          ...prev,
+          status: 'failed',
+          message: '导出进度连接中断，请重试',
+        }));
+        setOrderExporting(false);
+        stopExportStream();
+      };
+      return data;
     } catch (error) {
       console.error('导出订单失败:', error);
-      alert(error?.message || '导出订单失败，请稍后重试');
-    } finally {
+      if (showToast) {
+        showToast(error?.message || '导出订单失败，请稍后重试');
+      } else {
+        alert(error?.message || '导出订单失败，请稍后重试');
+      }
       setOrderExporting(false);
+      stopExportStream();
+      return null;
     }
-  }, [apiRequest, buildOrdersQueryParams, orderAgentFilter, orderExporting, orderSearch, orderStatusFilter, orderAgentNameMap, isAdmin, user]);
+  }, [apiRequest, staffPrefix, isAdmin, orderAgentFilter, orderExporting, orderStatusFilter, orderSearch, stopExportStream, showToast]);
 
   const handlePrevPage = useCallback(async () => {
     const next = Math.max(0, (orderPage || 0) - 1);
@@ -458,6 +447,8 @@ export function useOrderManagement({
     setOrderSearch,
     orderLoading,
     orderExporting,
+    exportHistory,
+    exportState,
     orderAgentFilter,
     setOrderAgentFilter,
     orderAgentOptions,
@@ -467,6 +458,8 @@ export function useOrderManagement({
     selectedOrders,
     handleOrderRefresh,
     handleExportOrders,
+    loadExportHistory,
+    resetExportState,
     handlePrevPage,
     handleNextPage,
     handleOrderAgentFilterChange,

@@ -3,7 +3,7 @@ import React from 'react';
 const Toast = ({ message, show = false, onClose = null }) => {
   return (
     <div
-      className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 ${
+      className={`fixed top-5 left-1/2 -translate-x-1/2 z-[1100] transition-all duration-500 ${
         show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
       }`}
       aria-live="assertive"

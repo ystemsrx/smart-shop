@@ -16,3 +16,4 @@ public/
 items/
 logs/
 .pytest_cache/
+exports/
