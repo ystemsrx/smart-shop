@@ -127,7 +127,8 @@ const ExportModal = ({
   showToast
 }) => {
   const [step, setStep] = useState('config'); // 'config' | 'exporting'
-  const [rangeMode, setRangeMode] = useState('all'); // 'all', '7d', '30d', '90d', '180d', 'custom'
+  const [rangeMode, setRangeMode] = useState('all'); // 'all', '7d', '30d', '90d', '180d' - 控制滑条范围
+  const [isManuallyAdjusted, setIsManuallyAdjusted] = useState(false); // 是否手动调整过滑条（控制快捷按钮选中效果）
   const [startTime, setStartTime] = useState(null);
   const [endTime, setEndTime] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -169,11 +170,14 @@ const ExportModal = ({
     return d;
   }, []);
   
-  // Global min date (first order date or fallback)
+  // Global min date (first order date or fallback) - 确保是那天的凌晨00:00:00
   const globalMinDate = useMemo(() => {
-    if (propMinDate) return propMinDate;
-    const d = new Date();
-    d.setDate(d.getDate() - 180);
+    const d = propMinDate ? new Date(propMinDate) : new Date();
+    if (!propMinDate) {
+      d.setDate(d.getDate() - 180);
+    }
+    // 确保是那天的凌晨00:00:00（设备本地时区）
+    d.setHours(0, 0, 0, 0);
     return d;
   }, [propMinDate]);
 
@@ -234,6 +238,7 @@ const ExportModal = ({
     if (open) {
       setStep('config');
       setRangeMode('all');
+      setIsManuallyAdjusted(false); // 重置手动调整标记
       // Initialize with first order date to now for "all"
       setStartTime(globalMinDate);
       setEndTime(globalMaxDate);
@@ -249,6 +254,7 @@ const ExportModal = ({
 
   const handleShortcut = (mode) => {
     setRangeMode(mode);
+    setIsManuallyAdjusted(false); // 点击快捷按钮时重置手动调整标记
     const now = new Date();
     now.setHours(23, 59, 59, 999);
     let start = null;
@@ -293,16 +299,43 @@ const ExportModal = ({
   };
 
   const handleSliderChange = (newStart, newEnd) => {
-    // Don't change rangeMode when dragging - keep the current slider bounds
+    // 手动调整时，标记为已手动调整，取消快捷选项的选中效果（但保持滑条范围不变）
+    setIsManuallyAdjusted(true);
     setStartTime(newStart);
     setEndTime(newEnd);
   };
 
   const handleStartExport = () => {
     setStep('exporting');
+    
+    // 计算正确的起始时间（那天凌晨00:00:00，设备本地时区）
+    let finalStartMs = null;
+    if (startTime) {
+      const startOfDay = new Date(startTime);
+      startOfDay.setHours(0, 0, 0, 0);
+      finalStartMs = startOfDay.getTime();
+    }
+    
+    // 计算正确的结束时间
+    let finalEndMs = null;
+    if (endTime) {
+      const today = new Date();
+      const isToday = endTime.toDateString() === today.toDateString();
+      
+      if (isToday) {
+        // 如果结束时间是今天，使用当前时刻
+        finalEndMs = new Date().getTime();
+      } else {
+        // 如果结束时间不是今天，使用那天的23:59:59
+        const endOfDay = new Date(endTime);
+        endOfDay.setHours(23, 59, 59, 999);
+        finalEndMs = endOfDay.getTime();
+      }
+    }
+    
     onExport({
-      startTimeMs: startTime ? startTime.getTime() : null,
-      endTimeMs: endTime ? endTime.getTime() : null,
+      startTimeMs: finalStartMs,
+      endTimeMs: finalEndMs,
     });
   };
 
@@ -617,7 +650,7 @@ const ExportModal = ({
                           onClick={() => handleShortcut(s.id)}
                           className={`
                             py-2 rounded-xl text-xs font-medium transition-all duration-200
-                            ${rangeMode === s.id 
+                            ${!isManuallyAdjusted && rangeMode === s.id 
                               ? 'bg-gray-900 text-white shadow-lg shadow-gray-200 scale-105' 
                               : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}
                           `}

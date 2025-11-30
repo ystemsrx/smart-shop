@@ -254,7 +254,7 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', 
                 damping: 25,
                 mass: 0.8
               }}
-              className="discount-dropdown-portal fixed z-[9999] p-2 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/20 w-[220px]"
+              className="discount-dropdown-portal fixed z-40 p-2 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/20 w-[220px]"
               style={{
                 left: position.left,
                 top: position.isAbove ? 'auto' : position.bottom + 8,
