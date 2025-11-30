@@ -1669,19 +1669,53 @@ def safe_execute_with_migration(conn, sql: str, params: tuple = (), table_name: 
             raise e
 
 def cleanup_old_chat_logs():
-    """清理7天前的聊天记录"""
+    """清理7天前的聊天记录和关联的会话标题等信息"""
     cutoff_date = datetime.now() - timedelta(days=7)
-    
+    # 使用 SQLite 默认的时间格式，避免字符串比较因 'T' 分隔符导致误删
+    cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        # 确保聊天表结构存在，避免旧库缺列导致清理失败
+        try:
+            ChatLogDB._ensure_chat_schema(conn)
+        except Exception as e:
+            logger.warning(f"清理聊天记录前确保表结构失败: {e}")
+
+        # 先删除过期的消息内容
         cursor.execute(
             'DELETE FROM chat_logs WHERE timestamp < ?',
-            (cutoff_date.isoformat(),)
+            (cutoff_str,)
         )
-        deleted_count = cursor.rowcount
+        deleted_logs = cursor.rowcount or 0
+
+        # 再删除已经没有消息或最后一条消息早于截止日期的会话，避免残留标题
+        cursor.execute(
+            '''
+            DELETE FROM chat_threads
+            WHERE
+                (last_message_at IS NOT NULL AND last_message_at < ?)
+                OR (
+                    created_at < ?
+                    AND id NOT IN (
+                        SELECT DISTINCT thread_id
+                        FROM chat_logs
+                        WHERE thread_id IS NOT NULL
+                    )
+                )
+            ''',
+            (cutoff_str, cutoff_str)
+        )
+        deleted_threads = cursor.rowcount or 0
+
         conn.commit()
-        logger.info(f"清理了 {deleted_count} 条过期聊天记录")
-        return deleted_count
+        logger.info(
+            f"清理了 {deleted_logs} 条过期聊天记录，移除 {deleted_threads} 条过期会话"
+        )
+        return {
+            "deleted_logs": deleted_logs,
+            "deleted_threads": deleted_threads
+        }
 
 # 用户相关操作
 class UserDB:

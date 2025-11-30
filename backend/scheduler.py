@@ -31,8 +31,11 @@ async def daily_cleanup_task():
             logger.info("开始执行清理任务")
             
             # 清理聊天记录
-            deleted_chats = cleanup_old_chat_logs()
-            logger.info(f"聊天记录清理完成，删除了 {deleted_chats} 条过期记录")
+            cleanup_result = cleanup_old_chat_logs()
+            logger.info(
+                f"聊天记录清理完成，删除了 {cleanup_result.get('deleted_logs', 0)} 条过期记录，"
+                f"移除了 {cleanup_result.get('deleted_threads', 0)} 条会话"
+            )
             
         except Exception as e:
             logger.error(f"清理任务执行失败: {e}")
