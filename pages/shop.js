@@ -441,22 +441,58 @@ const CategoryFilter = ({
   const toggleButtonIcon = isSphere ? 'fa-border-all' : 'fa-globe';
   const toggleButtonLabel = isSphere ? '网格视图' : '球形视图';
 
+  // 容器动画：控制子元素交错出现
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.06,
+        delayChildren: 0.1
+      }
+    }
+  };
+
+  // 标签动画：弹性上浮
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20, scale: 0.8 },
+    visible: { 
+      opacity: 1, 
+      y: 0, 
+      scale: 1,
+      transition: {
+        type: "spring",
+        stiffness: 400,
+        damping: 25,
+        mass: 0.8
+      }
+    }
+  };
+
   return (
-    <div className="mb-8 animate-fade-in-fast">
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+    <div className="mb-8">
+      {/* 标题栏 */}
+      <motion.div 
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="flex flex-wrap items-center gap-3 mb-4"
+      >
+        <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md">
           <i className="fas fa-layer-group text-white text-sm"></i>
         </div>
         <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
         {onToggleView && (
           <div className="ml-auto mt-3 sm:mt-0">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               type="button"
               onClick={onToggleView}
               disabled={disableSphereToggle}
               aria-pressed={isSphere}
               aria-label={toggleAriaLabel}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-200 text-sm font-medium hover:scale-105 active:scale-95 ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors duration-200 text-sm font-medium ${
                 isSphere
                   ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -465,15 +501,25 @@ const CategoryFilter = ({
             >
               <i className={`fas ${toggleButtonIcon}`}></i>
               <span className="hidden sm:inline">{toggleButtonLabel}</span>
-            </button>
+            </motion.button>
           </div>
         )}
-      </div>
-      <div className="flex flex-wrap gap-3">
+      </motion.div>
+
+      {/* 分类标签列表 */}
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="flex flex-wrap gap-3"
+      >
         {hasHotProducts && (
-          <button
+          <motion.button
+            variants={itemVariants}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => onCategoryChange('hot')}
-            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
+            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
               isActive('hot')
                 ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
                 : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -483,11 +529,14 @@ const CategoryFilter = ({
               <i className="fas fa-fire"></i>
               <span>热销</span>
             </div>
-          </button>
+          </motion.button>
         )}
-        <button
+        <motion.button
+          variants={itemVariants}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => onCategoryChange('all')}
-          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
+          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
             isActive('all')
               ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
               : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -497,14 +546,17 @@ const CategoryFilter = ({
             <i className="fas fa-th-large"></i>
             <span>全部</span>
           </div>
-        </button>
+        </motion.button>
         {categories.map((category, index) => {
           const value = `category:${category.name}`;
           return (
-            <button
+            <motion.button
               key={category.id}
+              variants={itemVariants}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => onCategoryChange(value)}
-              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all duration-200 hover:scale-105 active:scale-95 ${
+              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
                 isActive(value)
                   ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
                   : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
@@ -514,10 +566,10 @@ const CategoryFilter = ({
                 <i className="fas fa-tag"></i>
                 <span>{category.name}</span>
               </div>
-            </button>
+            </motion.button>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 };
