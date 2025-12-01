@@ -1474,9 +1474,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                 title="热销商品排行" 
                 key={`top-${timePeriod}`}
               />
-              {topProductsLoading && (
-                <div className="mt-3 text-xs text-slate-400 text-right pr-1">正在同步当前窗口排行榜...</div>
-              )}
+
             </div>
           </div>
 
