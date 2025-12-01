@@ -769,14 +769,14 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
                 
                 let groupKey;
                 if (period === 'day') {
-                  // 日报：按日期分组，避免分钟始终为00的无用标签
+                  // 日报：按日期分组
                   groupKey = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}-${parsedDate.getDate()}`;
                 } else if (period === 'week') {
-                  // 周报：按月份分组
-                  groupKey = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
-                } else {
-                  // 月报：按年份分组
+                  // 周报：按年份分组
                   groupKey = `${parsedDate.getFullYear()}`;
+                } else {
+                  // 月报：按年月分组
+                  groupKey = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
                 }
                 
                 if (!dateGroups.has(groupKey)) {
@@ -788,7 +788,38 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
                 dateGroups.get(groupKey).indices.push(index);
               });
               
-              // 渲染标签
+              // 周报：只有跨年时才显示年份标签（多个年份分组）
+              // 月报：只有跨月时才显示年月标签（多个年月分组）
+              // 日报：始终显示
+              const shouldShowLabels = period === 'day' || dateGroups.size > 1;
+              
+              if (!shouldShowLabels) {
+                // 如果只有一个分组，在中间显示单个标签
+                const singleGroup = Array.from(dateGroups.values())[0];
+                if (!singleGroup) return null;
+                
+                const centerX = leftPadding + chartWidth / 2;
+                let label;
+                if (period === 'week') {
+                  label = singleGroup.date.getFullYear();
+                } else if (period === 'month') {
+                  label = `${singleGroup.date.getFullYear()}.${String(singleGroup.date.getMonth() + 1).padStart(2, '0')}`;
+                }
+                
+                return (
+                  <text
+                    key="period-single"
+                    x={centerX}
+                    y={svgHeight - 2}
+                    textAnchor="middle"
+                    className="text-[11px] fill-slate-500 font-semibold"
+                  >
+                    {label}
+                  </text>
+                );
+              }
+              
+              // 渲染多个分组标签
               return Array.from(dateGroups.entries()).map(([key, { indices, date }]) => {
                 const positions = indices.map(idx => {
                   const length = plottedData.length;
@@ -807,7 +838,8 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
                 } else if (period === 'week') {
                   label = date.getFullYear();
                 } else {
-                  label = date.getFullYear();
+                  // 月报：yyyy.mm 格式
+                  label = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}`;
                 }
                 
                 return (
