@@ -162,7 +162,7 @@ export const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 折扣选择下拉框组件
-const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', fullWidth = false }) => {
+const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', fullWidth = false, inModal = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, isAbove: false });
   const buttonRef = useRef(null);
@@ -254,7 +254,7 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', 
                 damping: 25,
                 mass: 0.8
               }}
-              className="discount-dropdown-portal fixed z-40 p-2 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/20 w-[220px]"
+              className={`discount-dropdown-portal fixed p-2 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/20 w-[220px] ${inModal ? 'z-[110]' : 'z-40'}`}
               style={{
                 left: position.left,
                 top: position.isAbove ? 'auto' : position.bottom + 8,
@@ -1347,6 +1347,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
                 onChange={(val) => setFormData(prev => ({ ...prev, discount: val }))}
                 placeholder="无折扣"
                 fullWidth
+                inModal
               />
             </div>
             
