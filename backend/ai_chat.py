@@ -296,9 +296,17 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
             pass
         
         # 构建配送费规则描述
+        # 阈值常量：当 free_threshold >= 此值时，视为"始终收取配送费"模式
+        ALWAYS_CHARGE_THRESHOLD = 999999999
+        
         if delivery_fee == 0 or free_threshold == 0:
+            # 免费配送模式
             shipping_rule = "Shipping: Free shipping for all orders"
+        elif free_threshold >= ALWAYS_CHARGE_THRESHOLD:
+            # 始终收取配送费模式（无论订单金额多少都收取）
+            shipping_rule = f"Shipping: A flat ¥{delivery_fee:.2f} delivery fee applies to all orders"
         else:
+            # 正常模式：满额免配送费
             shipping_rule = f"Shipping: Free shipping for orders over ¥{free_threshold:.2f}; otherwise, a ¥{delivery_fee:.2f} delivery fee will be charged"
         
         # 构建满额门槛规则描述

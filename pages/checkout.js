@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
@@ -84,6 +85,9 @@ export default function Checkout() {
   const [coupons, setCoupons] = useState([]);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
+  const [showCouponDropdown, setShowCouponDropdown] = useState(false);
+  const [couponDropdownDirection, setCouponDropdownDirection] = useState('down'); // 'up' 或 'down'
+  const couponDropdownRef = useRef(null);
   const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
   // 抽奖弹窗
   const [lotteryOpen, setLotteryOpen] = useState(false);
@@ -1093,7 +1097,7 @@ export default function Checkout() {
                         )}
                       </span>
                     </div>
-                    {cart.shipping_fee > 0 && (
+                    {cart.shipping_fee > 0 && deliveryConfig.free_delivery_threshold < 999999999 && (
                       <div className="text-xs text-gray-500 flex justify-end">
                         满 ¥{deliveryConfig.free_delivery_threshold} 免配送费
                       </div>
@@ -1130,29 +1134,113 @@ export default function Checkout() {
                         })() : '—'}
                       </span>
                     </div>
+                    {/* 优惠券自定义下拉选择 */}
                     {(() => {
-                      const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                      if (usable.length === 0) return null;
+                      const usableCoupons = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
+                      if (usableCoupons.length === 0) return null;
+                      
+                      // 计算弹出方向
+                      const handleToggleDropdown = () => {
+                        if (!showCouponDropdown && couponDropdownRef.current) {
+                          const rect = couponDropdownRef.current.getBoundingClientRect();
+                          const viewportHeight = window.innerHeight;
+                          const spaceBelow = viewportHeight - rect.bottom;
+                          const spaceAbove = rect.top;
+                          const dropdownHeight = 200; // 预估下拉框高度
+                          
+                          // 默认向下弹出，只有当下方空间不足且上方空间充足时才向上
+                          if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+                            setCouponDropdownDirection('up');
+                          } else {
+                            setCouponDropdownDirection('down');
+                          }
+                        }
+                        setShowCouponDropdown(!showCouponDropdown);
+                      };
+                      
                       return (
-                        <div className="text-xs text-gray-700">
-                          <select
-                            className="w-full border border-white/30 bg-white/40 px-2 py-1 rounded"
-                            value={selectedCouponId || (usable[0]?.id || '')}
-                            onChange={(e) => setSelectedCouponId(e.target.value || null)}
-                          >
-                            {usable
-                              .slice()
-                              .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
-                              .map(c => {
-                                const amt = parseFloat(c.amount) || 0;
-                                return (
-                                  <option key={c.id} value={c.id}>
-                                    {`¥${amt.toFixed(2)}${c.expires_at ? ` · 截止 ${new Date(c.expires_at).toLocaleDateString('zh-CN')}` : ' · 永久'}`}
-                                  </option>
-                                );
-                              })}
-                          </select>
-                        </div>
+                        <>
+                          {/* 点击外部关闭遮罩 - 放在最外层确保全屏覆盖 */}
+                          {showCouponDropdown && (
+                            <div 
+                              className="fixed inset-0 z-[100]" 
+                              onClick={() => setShowCouponDropdown(false)}
+                            ></div>
+                          )}
+                          <AnimatePresence>
+                            {applyCoupon && usableCoupons.length > 0 && (
+                              <motion.div 
+                                initial={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
+                                animate={{ opacity: 1, height: "auto", marginTop: "0.5rem", transitionEnd: { overflow: "visible" } }}
+                                exit={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
+                                transition={{ duration: 0.2, ease: "easeInOut" }}
+                                className="relative z-[101]"
+                              >
+                                <button
+                                ref={couponDropdownRef}
+                                type="button"
+                                onClick={handleToggleDropdown}
+                                className="relative z-20 w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 hover:border-pink-300 hover:shadow-sm transition-all duration-200"
+                              >
+                                <span className="truncate">
+                                  {selectedCouponId 
+                                    ? (() => {
+                                        const c = usableCoupons.find(c => c.id === selectedCouponId);
+                                        return c ? `${parseFloat(c.amount).toFixed(2)}元优惠券${c.expires_at ? ` (${new Date(c.expires_at).toLocaleDateString()})` : ''}` : '请选择优惠券';
+                                      })()
+                                    : '请选择优惠券'}
+                                </span>
+                                <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${showCouponDropdown ? (couponDropdownDirection === 'up' ? 'rotate-180' : '-rotate-180') : ''}`}></i>
+                              </button>
+
+                              <AnimatePresence>
+                                {showCouponDropdown && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: couponDropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: couponDropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
+                                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                                    className={`absolute left-0 right-0 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-30 ${
+                                      couponDropdownDirection === 'up' 
+                                        ? 'bottom-full mb-1' 
+                                        : 'top-full mt-1'
+                                    }`}
+                                  >
+                                    <div className="max-h-48 overflow-y-auto custom-scrollbar p-1.5 space-y-1">
+                                      {usableCoupons
+                                        .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
+                                        .map(c => (
+                                          <button
+                                            key={c.id}
+                                            onClick={() => {
+                                              setSelectedCouponId(c.id);
+                                              setShowCouponDropdown(false);
+                                            }}
+                                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors duration-200 flex items-center justify-between group ${
+                                              selectedCouponId === c.id
+                                                ? 'bg-pink-50 text-pink-700 font-medium'
+                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                            }`}
+                                          >
+                                            <span className="truncate">
+                                              {parseFloat(c.amount).toFixed(2)}元优惠券
+                                              <span className={`text-xs ml-2 ${selectedCouponId === c.id ? 'text-pink-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
+                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at).toLocaleDateString()}` : '永久有效'}
+                                              </span>
+                                            </span>
+                                            {selectedCouponId === c.id && (
+                                              <i className="fas fa-check text-pink-500"></i>
+                                            )}
+                                          </button>
+                                        ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        </>
                       );
                     })()}
                     <div className="bg-white/10 rounded-xl p-4 border border-white/20">

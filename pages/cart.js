@@ -336,7 +336,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
 };
 
 // 优惠券选择器组件 - 现代弹窗风格
-const CouponSelector = ({ coupons, selectedId, onSelect }) => {
+const CouponSelector = ({ coupons, selectedId, onSelect, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -362,16 +362,23 @@ const CouponSelector = ({ coupons, selectedId, onSelect }) => {
     <div className="mt-3 relative" ref={containerRef}>
       <motion.button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-200 bg-white ${isOpen ? 'border-pink-400 ring-4 ring-pink-100 shadow-md' : 'border-slate-200 hover:border-pink-300 hover:shadow-sm'}`}
-        whileTap={{ scale: 0.98 }}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-200 ${
+          disabled 
+            ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed' 
+            : `bg-white ${isOpen ? 'border-pink-400 ring-4 ring-pink-100 shadow-md' : 'border-slate-200 hover:border-pink-300 hover:shadow-sm'}`
+        }`}
+        whileTap={disabled ? {} : { scale: 0.98 }}
       >
         <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0 ${
+            disabled ? 'bg-slate-300' : 'bg-gradient-to-br from-pink-500 to-rose-600'
+          }`}>
             ¥{parseFloat(selectedCoupon?.amount || 0)}
           </div>
           <div className="flex flex-col items-start min-w-0">
-            <span className="text-sm font-bold text-slate-800 truncate w-full text-left">
+            <span className={`text-sm font-bold truncate w-full text-left ${disabled ? 'text-slate-400' : 'text-slate-800'}`}>
               省 ¥{parseFloat(selectedCoupon?.amount || 0)}
             </span>
             <span className="text-xs text-slate-500 truncate w-full text-left">
@@ -380,14 +387,14 @@ const CouponSelector = ({ coupons, selectedId, onSelect }) => {
           </div>
         </div>
         <motion.i 
-          className="fas fa-chevron-down text-slate-400 ml-2"
+          className={`fas fa-chevron-down ml-2 ${disabled ? 'text-slate-300' : 'text-slate-400'}`}
           animate={{ rotate: isOpen ? 180 : 0 }}
           transition={{ duration: 0.2 }}
         />
       </motion.button>
 
       <AnimatePresence>
-        {isOpen && (
+        {isOpen && !disabled && (
           <motion.div
             initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 4, scale: 1 }}
@@ -465,7 +472,9 @@ const OrderSummary = ({
   const shippingThreshold = deliveryConfig?.free_delivery_threshold || 10;
   // 只要基础配送费或免配送费门槛任意一个为0，就是免运费
   const isFreeShipping = (deliveryConfig?.delivery_fee === 0 || deliveryConfig?.free_delivery_threshold === 0);
-  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold && (deliveryConfig?.delivery_fee > 0) && !isFreeShipping;
+  // 当门槛 >= 999999999 时，视为"始终收取配送费"，不显示免运费提示
+  const isAlwaysChargeShipping = shippingThreshold >= 999999999;
+  const needsShipping = cart.total_quantity > 0 && cart.total_price < shippingThreshold && (deliveryConfig?.delivery_fee > 0) && !isFreeShipping && !isAlwaysChargeShipping;
   const needsLottery = lotteryEnabled && cart.total_quantity > 0 && cart.total_price < validLotteryThreshold;
   const missingShipping = needsShipping ? Math.max(0, shippingThreshold - cart.total_price) : 0;
   const missingLottery = needsLottery ? Math.max(0, validLotteryThreshold - cart.total_price) : 0;
@@ -593,19 +602,17 @@ const OrderSummary = ({
             </span>
           </div>
           
-          {/* 自定义优惠券选择器 */}
+          {/* 自定义优惠券选择器 - 无论是否勾选都显示 */}
           {(() => {
             const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
             if (usable.length === 0) return null;
-            
-            // 如果未勾选使用优惠券，不显示选择器
-            if (!applyCoupon) return null;
 
             return (
               <CouponSelector 
                 coupons={usable} 
                 selectedId={selectedCouponId} 
-                onSelect={(id) => setSelectedCouponId && setSelectedCouponId(id)} 
+                onSelect={(id) => setSelectedCouponId && setSelectedCouponId(id)}
+                disabled={!applyCoupon}
               />
             );
           })()}

@@ -606,6 +606,7 @@ export default function Shop() {
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
+  const [baseDeliveryFee, setBaseDeliveryFee] = useState(1); // 基础配送费
   const [viewMode, setViewMode] = useState('grid'); // grid | sphere
   const [showCartDrawer, setShowCartDrawer] = useState(false); // 购物车浮窗状态
   const [isClosingDrawer, setIsClosingDrawer] = useState(false); // 购物车浮窗关闭动画状态
@@ -1433,8 +1434,10 @@ export default function Shop() {
         const result = await response.json();
         if (result.success && result.data && result.data.delivery_config) {
           const threshold = result.data.delivery_config.free_delivery_threshold;
+          const fee = result.data.delivery_config.delivery_fee;
           // 使用 ?? 而不是 ||，这样 0 也是有效值
           setFreeDeliveryThreshold(threshold !== undefined && threshold !== null ? parseFloat(threshold) : 10);
+          setBaseDeliveryFee(fee !== undefined && fee !== null ? parseFloat(fee) : 1);
         }
       } catch (e) {
         console.warn('获取配送费设置失败，使用默认值:', e);
@@ -1510,7 +1513,13 @@ export default function Shop() {
             <div className="flex justify-center items-center gap-8 mt-8 text-sm text-gray-700">
               <div className="flex items-center gap-2">
                 <i className="fas fa-truck text-green-500"></i>
-                <span>{freeDeliveryThreshold === 0 ? '免费配送' : `满${freeDeliveryThreshold}免费配送`}</span>
+                <span>{
+                  baseDeliveryFee === 0 || freeDeliveryThreshold === 0
+                    ? '免费配送'
+                    : freeDeliveryThreshold >= 999999999
+                      ? `配送费 ¥${baseDeliveryFee}`
+                      : `满${freeDeliveryThreshold}免费配送`
+                }</span>
               </div>
               <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
               <div className="flex items-center gap-2">
