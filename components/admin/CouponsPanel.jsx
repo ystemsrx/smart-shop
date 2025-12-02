@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { useApi } from '../../hooks/useAuth';
 
 export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
@@ -16,11 +17,73 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
   const [expandedStudents, setExpandedStudents] = React.useState(new Set());
   const [statusFilter, setStatusFilter] = React.useState('all'); // all, active, used, revoked
   const [searchUser, setSearchUser] = React.useState('');
+  const [dropdownOpen, setDropdownOpen] = React.useState(false);
+  const [dropdownStyle, setDropdownStyle] = React.useState({});
+  const inputRef = React.useRef(null);
+  const dropdownRef = React.useRef(null);
+
+  // 计算下拉框位置
+  const updateDropdownPosition = React.useCallback(() => {
+    if (!inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    const navHeight = 64; // 导航栏高度
+    const spacing = 8; // 与输入框的间距
+    const maxDropdownHeight = 320; // 下拉框最大高度限制
+    
+    // 计算上下可用空间（注意：顶部要留出导航栏空间）
+    const spaceBelow = window.innerHeight - rect.bottom - 20; // 底部留20px边距
+    const spaceAbove = rect.top - navHeight - 20; // 顶部留出导航栏高度+20px边距
+    
+    const shouldOpenUp = spaceBelow < 150 && spaceAbove > spaceBelow;
+    
+    // 计算实际可用的最大高度
+    const availableHeight = shouldOpenUp ? spaceAbove : spaceBelow;
+    const finalMaxHeight = Math.min(maxDropdownHeight, availableHeight);
+    
+    setDropdownStyle({
+      position: 'fixed',
+      width: rect.width,
+      left: rect.left,
+      ...(shouldOpenUp 
+        ? { bottom: window.innerHeight - rect.top + spacing }
+        : { top: rect.bottom + spacing }
+      ),
+      maxHeight: finalMaxHeight,
+    });
+  }, [suggests.length]);
+
+  // 点击外部关闭下拉框
+  React.useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+        inputRef.current && !inputRef.current.contains(e.target)
+      ) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 窗口滚动或调整大小时更新位置
+  React.useEffect(() => {
+    if (!dropdownOpen) return;
+    updateDropdownPosition();
+    const handleUpdate = () => updateDropdownPosition();
+    window.addEventListener('scroll', handleUpdate, true);
+    window.addEventListener('resize', handleUpdate);
+    return () => {
+      window.removeEventListener('scroll', handleUpdate, true);
+      window.removeEventListener('resize', handleUpdate);
+    };
+  }, [dropdownOpen, updateDropdownPosition]);
 
   // 实时查询（只有输入至少一个字符时才搜索）
   React.useEffect(() => {
     if (q.trim().length === 0) {
       setSuggests([]);
+      setDropdownOpen(false);
       return;
     }
     
@@ -29,14 +92,20 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
       try {
         const r = await apiRequest(`/admin/students/search?q=${encodeURIComponent(q)}`);
         if (!mounted) return;
-        setSuggests(r?.data?.students || []);
+        const students = r?.data?.students || [];
+        setSuggests(students);
+        if (students.length > 0) {
+          setDropdownOpen(true);
+          // 稍微延迟更新位置，等待 DOM 更新
+          setTimeout(() => updateDropdownPosition(), 0);
+        }
       } catch (e) {
         if (!mounted) return;
         setSuggests([]);
       }
     })();
     return () => { mounted = false; };
-  }, [q, apiRequest]);
+  }, [q, apiRequest, updateDropdownPosition]);
 
   const loadList = async () => {
     setLoading(true);
@@ -242,28 +311,30 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
               <label className="block text-sm font-medium text-gray-700 mb-2">选择用户 <span className="text-red-500">*</span></label>
               <div className="relative">
                 <input 
+                  ref={inputRef}
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200" 
                   placeholder="输入用户名搜索..." 
                   value={q} 
-                  onChange={(e) => setQ(e.target.value)}
-                  onFocus={() => {
-                    if (q.length > 0 && suggests.length > 0) {
-                      document.getElementById('suggest-dropdown').style.display = 'block';
+                  onChange={(e) => {
+                    setQ(e.target.value);
+                    if (e.target.value.trim().length > 0) {
+                      setDropdownOpen(true);
                     }
                   }}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      const dropdown = document.getElementById('suggest-dropdown');
-                      if (dropdown) dropdown.style.display = 'none';
-                    }, 200);
+                  onFocus={() => {
+                    if (q.length > 0 && suggests.length > 0) {
+                      setDropdownOpen(true);
+                      updateDropdownPosition();
+                    }
                   }}
                 />
                 <i className="fas fa-search absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
               </div>
-              {q.length > 0 && suggests.length > 0 && (
+              {dropdownOpen && q.length > 0 && suggests.length > 0 && typeof document !== 'undefined' && ReactDOM.createPortal(
                 <div 
-                  id="suggest-dropdown"
-                  className="absolute z-20 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar"
+                  ref={dropdownRef}
+                  style={dropdownStyle}
+                  className="z-40 bg-white border border-gray-100 rounded-xl shadow-xl overflow-y-auto custom-scrollbar"
                 >
                   {suggests.map(s => (
                     <div 
@@ -272,7 +343,7 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                       onClick={() => {
                         setSelected(s.id);
                         setQ(s.id + (s.name ? ` · ${s.name}` : ''));
-                        document.getElementById('suggest-dropdown').style.display = 'none';
+                        setDropdownOpen(false);
                       }}
                     >
                       <div>
@@ -282,7 +353,8 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                       <i className="fas fa-plus text-gray-300 group-hover:text-black transition-colors"></i>
                     </div>
                   ))}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
             
