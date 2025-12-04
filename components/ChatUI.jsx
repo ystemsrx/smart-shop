@@ -2014,8 +2014,14 @@ const ToolCallCard = ({
        const actionMap = { add: '添加商品', remove: '移除商品', update: '更新数量', clear: '清空购物车' };
        // 优先从结果中获取商品名称，否则显示商品数量
        const productNames = result?.product_names || [];
-       const productCount = Array.isArray(args.product_id) ? args.product_id.length : (args.product_id ? 1 : 0);
-       const quantityDisplay = Array.isArray(args.quantity) ? args.quantity.join(', ') : args.quantity;
+       // 新API结构: args.items 是数组，每个元素有 product_id, variant_id?, quantity?
+       const itemsArray = Array.isArray(args.items) ? args.items : [];
+       const productCount = itemsArray.length;
+       
+       // 汇总数量显示：如果有多个item显示每个的数量，否则显示单个数量
+       const quantities = itemsArray.map(item => item.quantity ?? 1).filter(q => q !== undefined);
+       const quantityDisplay = quantities.length > 1 ? quantities.join(', ') : (quantities[0] ?? null);
+       const hasQuantity = quantities.length > 0 && args.action !== 'clear';
        
        // 商品名称显示：优先使用结果中的名称，否则显示数量
        let productDisplay = null;
@@ -2032,7 +2038,7 @@ const ToolCallCard = ({
         <div className="flex flex-col gap-1 text-sm">
            <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
            {productDisplay && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品</span> <span className="text-gray-900">{productDisplay}</span></div>}
-           {args.quantity !== undefined && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{quantityDisplay}</span></div>}
+           {hasQuantity && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{quantityDisplay}</span></div>}
         </div>
        );
     }

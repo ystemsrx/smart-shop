@@ -1163,6 +1163,7 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
         
         results = []
         success_count = 0
+        partial_count = 0  # 追踪部分成功的操作（购物车被修改但未完全满足请求）
         product_names = []
         
         for item in items_list:
@@ -1229,12 +1230,12 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
                         results.append({"item": display_name, "success": False, "error": f"库存不足，当前购物车已有 {current_qty} 件，库存上限 {stock_limit} 件"})
                         continue
                     else:
-                        # 部分添加成功
+                        # 部分添加成功 - 购物车实际被修改了
                         actual_add = stock_limit - current_qty
                         cart_items[key] = stock_limit
-                        results.append({"item": display_name, "success": False, "error": f"库存不足，请求添加 {qty} 件，实际只能添加 {actual_add} 件（库存上限 {stock_limit} 件）"})
+                        results.append({"item": display_name, "success": True, "partial": True, "message": f"库存受限，请求添加 {qty} 件，实际添加 {actual_add} 件（已达库存上限 {stock_limit} 件）"})
                         product_names.append(display_name)
-                        # 不计入 success_count，因为没有完全满足请求
+                        partial_count += 1
                         continue
                 
                 # 正常添加
@@ -1261,10 +1262,11 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
                             results.append({"item": display_name, "success": False, "error": "库存不足，无法设置数量"})
                             continue
                         else:
-                            # 超过库存，返回错误但仍设置为最大可用库存
+                            # 超过库存，但仍设置为最大可用库存 - 购物车实际被修改了
                             cart_items[key] = stock_limit
-                            results.append({"item": display_name, "success": False, "error": f"库存不足，请求设置 {qty} 件，但库存只有 {stock_limit} 件，已设置为 {stock_limit} 件"})
+                            results.append({"item": display_name, "success": True, "partial": True, "message": f"库存受限，请求设置 {qty} 件，已设置为库存上限 {stock_limit} 件"})
                             product_names.append(display_name)
+                            partial_count += 1
                             continue
                     cart_items[key] = qty
                     results.append({"item": display_name, "success": True, "message": f"数量已更新为 {qty}"})
@@ -1273,16 +1275,20 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
         
         CartDB.update_cart(user_id, cart_items)
 
-        # 统计失败的项目
+        # 统计失败的项目（不包括 partial 成功的）
         failed_count = len([r for r in results if isinstance(r, dict) and not r.get("success", True)])
         error_messages = [r.get("error") for r in results if isinstance(r, dict) and r.get("error")]
+        # 部分成功的警告信息
+        partial_messages = [r.get("message") for r in results if isinstance(r, dict) and r.get("partial")]
         
         # 构建返回结果
+        # ok = True 当有任何成功操作（包括部分成功，因为购物车实际被修改了）
         response = {
-            "ok": success_count > 0 or (len(items_list) > 0 and failed_count == 0),
+            "ok": (success_count + partial_count) > 0 or (len(items_list) > 0 and failed_count == 0),
             "action": action,
             "processed": len(items_list),
             "successful": success_count,
+            "partial": partial_count,
             "failed": failed_count,
             "product_names": product_names,
             "details": results
@@ -1292,6 +1298,11 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
         if error_messages:
             response["has_errors"] = True
             response["error_summary"] = "; ".join(error_messages)
+        
+        # 如果有部分成功的项目，添加警告摘要
+        if partial_messages:
+            response["has_warnings"] = True
+            response["warning_summary"] = "; ".join(partial_messages)
         
         return response
         
