@@ -112,7 +112,7 @@ function StatusBadge({ status }) {
 
 export default function Orders() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isInitialized } = useAuth();
   const { apiRequest } = useApi();
   const { clearCart } = useCart();
   const shopName = getShopName();
@@ -150,11 +150,13 @@ export default function Orders() {
   ), [lotteryThreshold]);
 
   useEffect(() => {
+    if (!router.isReady || !isInitialized) return;
     if (!user) {
-      router.push('/login');
+      const redirect = encodeURIComponent(router.asPath || '/orders');
+      router.replace(`/login?redirect=${redirect}`);
       return;
     }
-  }, [user, router]);
+  }, [user, isInitialized, router, router.asPath, router.isReady]);
 
   const loadOrders = async () => {
     setLoading(true);

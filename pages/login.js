@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
@@ -7,20 +7,40 @@ import PastelBackground from '../components/ModalCard';
 
 export default function Login() {
   const router = useRouter();
-  const { login, isLoading, user, error } = useAuth();
+  const { login, isLoading, user, error, isInitialized } = useAuth();
   const shopName = getShopName();
   const [formData, setFormData] = useState({
     student_id: '',
     password: ''
   });
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
-
-  // 如果已登录，重定向到聊天页面
-  useEffect(() => {
-    if (user) {
-      router.push('/');
+  const getSafeRedirect = useCallback(() => {
+    if (!router.isReady) return null;
+    const redirectPath = router.query?.redirect;
+    if (typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//')) {
+      return redirectPath;
     }
-  }, [user, router]);
+    return null;
+  }, [router]);
+
+  // 如果已登录，重定向到对应页面（带回原始入口）
+  useEffect(() => {
+    if (!router.isReady || !isInitialized || !user) return;
+    const redirectPath = getSafeRedirect();
+    if (user?.type === 'admin') {
+      router.replace('/admin/dashboard');
+      return;
+    }
+    if (user?.type === 'agent') {
+      router.replace('/agent/dashboard');
+      return;
+    }
+    if (redirectPath) {
+      router.replace(redirectPath);
+      return;
+    }
+    router.replace('/');
+  }, [user, isInitialized, router, getSafeRedirect]);
 
   // 检查注册功能是否启用
   useEffect(() => {
@@ -44,10 +64,13 @@ export default function Login() {
     try {
       const account = await login(formData.student_id.trim(), formData.password);
 
+      const redirectPath = getSafeRedirect();
       if (account?.type === 'admin') {
         router.push('/admin/dashboard');
       } else if (account?.type === 'agent') {
         router.push('/agent/dashboard');
+      } else if (redirectPath) {
+        router.push(redirectPath);
       } else {
         router.push('/');
       }

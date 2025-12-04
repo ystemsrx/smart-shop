@@ -680,7 +680,7 @@ const OrderSummary = ({
 
 export default function Cart() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isInitialized } = useAuth();
   const { getCart, updateCart, removeFromCart, clearCart } = useCart();
   const { getShopStatus } = useProducts();
   const { apiRequest } = useApi();
@@ -859,11 +859,13 @@ export default function Cart() {
 
   // 检查登录状态
   useEffect(() => {
+    if (!router.isReady || !isInitialized) return;
     if (!user) {
-      router.push('/login');
+      const redirect = encodeURIComponent(router.asPath || '/cart');
+      router.replace(`/login?redirect=${redirect}`);
       return;
     }
-  }, [user, router]);
+  }, [user, isInitialized, router, router.asPath, router.isReady]);
 
   // 加载购物车数据
   const loadCart = async () => {

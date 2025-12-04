@@ -47,7 +47,7 @@ const createMissingValidation = () => ({
 
 export default function Checkout() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isInitialized } = useAuth();
   const { getCart, clearCart } = useCart();
   const { apiRequest } = useApi();
   const { getShopStatus } = useProducts();
@@ -329,8 +329,10 @@ export default function Checkout() {
 
   // 检查登录状态
   useEffect(() => {
+    if (!router.isReady || !isInitialized) return;
     if (!user) {
-      router.push('/login');
+      const redirect = encodeURIComponent(router.asPath || '/checkout');
+      router.replace(`/login?redirect=${redirect}`);
       return;
     }
     // 同步店铺/代理状态
@@ -359,7 +361,7 @@ export default function Checkout() {
         setReservationAllowed(false);
       }
     })();
-  }, [user, router, location]);
+  }, [user, isInitialized, router, router.asPath, router.isReady, location, getUserAgentStatus]);
 
   // 加载购物车数据
   const loadCart = async () => {
