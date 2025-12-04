@@ -304,9 +304,7 @@ export default function Orders() {
     }
   };
 
-  if (!user) return null;
-
-  // 根据筛选条件过滤订单
+  // 根据筛选条件过滤订单 - 必须在所有条件返回之前调用（React Hooks规则）
   const filteredOrders = useMemo(() => {
     if (filter === '全部') return orders;
     
@@ -319,6 +317,9 @@ export default function Orders() {
     // 桌面端的单一状态筛选
     return orders.filter(o => getUnifiedStatus(o) === filter);
   }, [orders, filter]);
+
+  // 提前返回必须在所有hooks之后
+  if (!user) return null;
 
   const formatDate = (val) => {
     if (typeof val === 'number' && isFinite(val)) {

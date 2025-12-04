@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/router";
 import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
-import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package } from "lucide-react";
+import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 
 /**
@@ -1955,13 +1955,25 @@ const ToolCallCard = ({
 
   const displayName = getDisplayName(function_name);
 
-  // Helper to parse JSON safely
-  const safeParse = (text) => {
-    try {
-      return JSON.parse(text);
-    } catch {
+  // Helper to parse JSON safely - handles strings, objects, and edge cases
+  const safeParse = (input) => {
+    // If already an object, return it directly
+    if (input !== null && typeof input === 'object') {
+      return input;
+    }
+    // Handle undefined, null, or empty string
+    if (input === undefined || input === null || input === '') {
       return null;
     }
+    // Try to parse string as JSON
+    if (typeof input === 'string') {
+      try {
+        return JSON.parse(input);
+      } catch {
+        return null;
+      }
+    }
+    return null;
   };
 
   const args = safeParse(arguments_text);
@@ -1999,12 +2011,28 @@ const ToolCallCard = ({
       );
     }
     if (function_name === 'update_cart') {
-       const actionMap = { add: '添加商品', remove: '移除商品', update: '更新数量' };
+       const actionMap = { add: '添加商品', remove: '移除商品', update: '更新数量', clear: '清空购物车' };
+       // 优先从结果中获取商品名称，否则显示商品数量
+       const productNames = result?.product_names || [];
+       const productCount = Array.isArray(args.product_id) ? args.product_id.length : (args.product_id ? 1 : 0);
+       const quantityDisplay = Array.isArray(args.quantity) ? args.quantity.join(', ') : args.quantity;
+       
+       // 商品名称显示：优先使用结果中的名称，否则显示数量
+       let productDisplay = null;
+       if (productNames.length > 0) {
+           // 最多显示3个商品名称
+           const displayNames = productNames.slice(0, 3).join('、');
+           const moreCount = productNames.length - 3;
+           productDisplay = moreCount > 0 ? `${displayNames} 等${productNames.length}件` : displayNames;
+       } else if (productCount > 0) {
+           productDisplay = `${productCount} 件商品`;
+       }
+       
        return (
         <div className="flex flex-col gap-1 text-sm">
-           <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">动作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-           {args.product_id && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品ID</span> <span className="font-mono text-gray-600">{args.product_id}</span></div>}
-           {args.quantity !== undefined && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.quantity}</span></div>}
+           <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+           {productDisplay && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品</span> <span className="text-gray-900">{productDisplay}</span></div>}
+           {args.quantity !== undefined && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{quantityDisplay}</span></div>}
         </div>
        );
     }
@@ -2027,7 +2055,33 @@ const ToolCallCard = ({
   // Render Result
   const renderResult = () => {
     if (error_message) return <div className="text-red-600 text-sm">{error_message}</div>;
-    if (!result) return <div className="font-mono text-xs text-gray-600 whitespace-pre-wrap break-all">{result_summary}</div>;
+    
+    // 当 result 为 null 时的后备处理
+    if (!result) {
+      // 如果 result_summary 为空或空白
+      if (!result_summary || !result_summary.toString().trim()) {
+        return <div className="text-xs text-gray-400">无返回数据</div>;
+      }
+      
+      // 尝试以更友好的方式显示 result_summary
+      const summaryStr = typeof result_summary === 'string' ? result_summary : JSON.stringify(result_summary);
+      
+      // 如果看起来像 JSON，尝试格式化显示
+      if (summaryStr.trim().startsWith('{') || summaryStr.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(summaryStr);
+          // 解析成功但之前 safeParse 返回 null（不应该发生，但作为保护）
+          return <pre className="font-mono text-xs text-gray-600 whitespace-pre-wrap overflow-x-auto bg-gray-50 p-2 rounded-lg">{JSON.stringify(parsed, null, 2)}</pre>;
+        } catch {
+          // JSON 解析失败，显示原始文本但截断
+          const truncated = summaryStr.length > 500 ? summaryStr.slice(0, 500) + '...' : summaryStr;
+          return <div className="font-mono text-xs text-gray-600 whitespace-pre-wrap break-all">{truncated}</div>;
+        }
+      }
+      
+      // 普通文本，直接显示
+      return <div className="font-mono text-xs text-gray-600 whitespace-pre-wrap break-all">{summaryStr}</div>;
+    }
 
     if (function_name === 'search_products') {
       // 处理多查询结果
@@ -2159,8 +2213,117 @@ const ToolCallCard = ({
         )
     }
 
-    // Generic JSON
-    return <pre className="font-mono text-xs text-gray-600 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(result, null, 2)}</pre>;
+    if (function_name === 'update_cart') {
+        const actionLabels = {
+            add: '添加',
+            remove: '移除',
+            update: '更新',
+            clear: '清空'
+        };
+        const actionLabel = actionLabels[result.action] || result.action;
+        
+        // 处理操作结果
+        if (result.action === 'clear') {
+            return (
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
+                    <div className="flex items-center justify-center w-8 h-8 bg-green-100 rounded-full">
+                        <Check className="w-4 h-4 text-green-600" />
+                    </div>
+                    <span className="text-sm text-gray-700">{result.message || '购物车已清空'}</span>
+                </div>
+            );
+        }
+        
+        // 批量操作或单个操作
+        const processed = result.processed ?? 1;
+        const successful = result.successful ?? (result.ok ? 1 : 0);
+        const failed = result.failed ?? 0;
+        const productNames = result.product_names || [];
+        const details = result.details || [];
+        const hasErrors = result.has_errors || failed > 0;
+        
+        // 构建商品名称显示
+        let namesDisplay = '';
+        if (productNames.length > 0) {
+            const displayNames = productNames.slice(0, 3).join('、');
+            const moreCount = productNames.length - 3;
+            namesDisplay = moreCount > 0 ? `${displayNames} 等${productNames.length}件` : displayNames;
+        }
+        
+        // 提取错误信息
+        const errorItems = details.filter(d => d && typeof d === 'object' && !d.success && d.error);
+        const successItems = details.filter(d => d && typeof d === 'object' && d.success);
+        
+        // 判断整体状态
+        const isFullSuccess = result.ok && !hasErrors && errorItems.length === 0;
+        const isPartialSuccess = result.ok && (hasErrors || errorItems.length > 0);
+        const isFailure = !result.ok;
+        
+        return (
+            <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100">
+                <div className={cx(
+                    "flex items-center justify-center w-8 h-8 rounded-full shrink-0",
+                    isFullSuccess ? "bg-green-100" :
+                    isPartialSuccess ? "bg-yellow-100" :
+                    "bg-red-100"
+                )}>
+                    {isFullSuccess ? (
+                        <Check className="w-4 h-4 text-green-600" />
+                    ) : isPartialSuccess ? (
+                        <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                    ) : (
+                        <XCircle className="w-4 h-4 text-red-600" />
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900">
+                        {actionLabel}操作{isFullSuccess ? '成功' : isPartialSuccess ? '部分成功' : '失败'}
+                    </div>
+                    {namesDisplay && (
+                        <div className="text-xs text-gray-600 truncate" title={productNames.join('、')}>
+                            {namesDisplay}
+                        </div>
+                    )}
+                    {processed > 1 && (
+                        <div className="text-xs text-gray-500">
+                            处理 {processed} 项，成功 {successful} 项{failed > 0 && `，失败 ${failed} 项`}
+                        </div>
+                    )}
+                    {result.message && (
+                        <div className="text-xs text-gray-500">{result.message}</div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // Generic JSON - 格式化显示未知工具的结果
+    if (result && typeof result === 'object') {
+        // 尝试友好地显示通用结果
+        if (result.ok !== undefined) {
+            return (
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
+                    <div className={cx(
+                        "flex items-center justify-center w-8 h-8 rounded-full",
+                        result.ok ? "bg-green-100" : "bg-red-100"
+                    )}>
+                        {result.ok ? (
+                            <Check className="w-4 h-4 text-green-600" />
+                        ) : (
+                            <XCircle className="w-4 h-4 text-red-600" />
+                        )}
+                    </div>
+                    <span className="text-sm text-gray-700">
+                        {result.message || (result.ok ? '操作成功' : (result.error || '操作失败'))}
+                    </span>
+                </div>
+            );
+        }
+        return <pre className="font-mono text-xs text-gray-600 whitespace-pre-wrap overflow-x-auto bg-gray-50 p-2 rounded-lg">{JSON.stringify(result, null, 2)}</pre>;
+    }
+    
+    // 最后的后备：显示原始文本
+    return <div className="font-mono text-xs text-gray-600 whitespace-pre-wrap break-all">{result_summary || '无返回数据'}</div>;
   };
 
   // Render Collapsed Summary
@@ -2221,11 +2384,26 @@ const ToolCallCard = ({
 
       if (function_name === 'update_cart') {
           const action = args?.action;
-          const msg = result?.message || (result?.ok ? "成功" : "");
+          const actionLabels = { add: '添加购物车', remove: '移除商品', update: '更新数量', clear: '清空购物车' };
+          const actionLabel = actionLabels[action] || '更新购物车';
+          const productNames = result?.product_names || [];
+          const hasErrors = result?.has_errors || result?.failed > 0;
+          const failed = result?.failed ?? 0;
+          
+          // 显示商品名称（最多2个）
+          let namesText = '';
+          if (productNames.length > 0) {
+              const displayNames = productNames.slice(0, 2).join('、');
+              const moreCount = productNames.length - 2;
+              namesText = moreCount > 0 ? `${displayNames}等${productNames.length}件` : displayNames;
+          }
+          
           return (
-              <div className="flex items-center gap-2 text-xs">
-                  <span className="font-medium text-gray-900">{action === 'add' ? '添加购物车' : '更新购物车'}</span>
-                  {msg && <span className="text-gray-500">- {msg}</span>}
+              <div className="flex items-center gap-2 text-xs overflow-hidden">
+                  <span className="font-medium text-gray-900 shrink-0">{actionLabel}</span>
+                  {namesText && <span className="text-gray-600 truncate max-w-[180px]">{namesText}</span>}
+                  {result?.ok === false && <span className="text-red-500 shrink-0">失败</span>}
+                  {result?.ok && hasErrors && <span className="text-yellow-600 shrink-0">({failed}项失败)</span>}
               </div>
           )
       }

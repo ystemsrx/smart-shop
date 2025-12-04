@@ -1131,162 +1131,169 @@ def get_category_impl(request: Optional[Request] = None) -> Dict[str, Any]:
         logger.error(f"获取分类失败: {e}")
         return {"ok": False, "error": f"获取分类失败: {str(e)}"}
 
-def update_cart_impl(user_id: str, action: str, product_id: Any = None, quantity: Any = None, variant_id: Any = None) -> Dict[str, Any]:
-    """更新购物车实现"""
+def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """更新购物车实现
+    
+    Args:
+        user_id: 用户ID
+        action: 操作类型 (add/remove/update/clear)
+        items_list: 商品列表，每个元素包含 product_id, variant_id(可选), quantity(可选)
+    """
     try:
         if action not in ("add", "update", "remove", "clear"):
             return {"ok": False, "error": "不支持的操作"}
         
         # 获取当前购物车
         cart_data = CartDB.get_cart(user_id)
-        items = cart_data.get("items", {}) if cart_data else {}
+        cart_items = cart_data.get("items", {}) if cart_data else {}
         
+        # 清空购物车
         if action == "clear":
-            items = {}
-            CartDB.update_cart(user_id, items)
+            cart_items = {}
+            CartDB.update_cart(user_id, cart_items)
             return {"ok": True, "message": "购物车已清空", "action": "clear"}
         
-        if not product_id:
-            return {"ok": False, "error": "需要提供商品ID"}
+        # 其他操作需要 items
+        if not items_list or not isinstance(items_list, list) or len(items_list) == 0:
+            return {"ok": False, "error": "需要提供商品信息"}
         
         # 验证商品是否存在
         all_products = ProductDB.get_all_products()
         product_dict = {p["id"]: p for p in all_products}
         
-        # 统一/扩展参数，支持：
-        # - 单个 product_id + 多个 variant_id（分别控制数量）
-        # - 多个 product_id + 对应的 variant_id 与数量（按位对齐）
-        # - 复合键（pid@@vid）
-        p_is_list = isinstance(product_id, list)
-        v_is_list = isinstance(variant_id, list)
-        q_is_list = isinstance(quantity, list)
-
-        # 校验 product_id
-        if not isinstance(product_id, (str, list)) or (isinstance(product_id, list) and not product_id):
-            return {"ok": False, "error": "商品ID格式错误"}
-
-        if p_is_list:
-            product_ids = product_id
-            N = len(product_ids)
-            # 处理 variant_id 对齐
-            if v_is_list:
-                if len(variant_id) == N:
-                    variant_ids = variant_id
-                elif len(variant_id) == 1:
-                    variant_ids = [variant_id[0]] * N
-                else:
-                    return {"ok": False, "error": "当 product_id 为数组时，variant_id 的长度必须与之相等或为单个值"}
-            else:
-                variant_ids = [variant_id] * N
-            # 处理 quantity 对齐
-            if q_is_list:
-                if len(quantity) == N:
-                    quantities = quantity
-                elif len(quantity) == 1:
-                    quantities = [quantity[0]] * N
-                else:
-                    return {"ok": False, "error": "当 product_id 为数组时，quantity 的长度必须与之相等或为单个值"}
-            else:
-                quantities = [quantity] * N
-        else:
-            # product_id 为单个值
-            if v_is_list:
-                N = len(variant_id)
-            elif q_is_list:
-                N = len(quantity)
-            else:
-                N = 1
-
-            product_ids = [product_id] * N
-            if v_is_list:
-                variant_ids = variant_id
-            else:
-                variant_ids = [variant_id] * N
-
-            if q_is_list:
-                if len(quantity) != N:
-                    return {"ok": False, "error": "当 product_id 为单个值时，quantity 数组长度必须与 variant_id 数组长度一致"}
-                quantities = quantity
-            else:
-                quantities = [quantity] * N
-        
         results = []
         success_count = 0
+        product_names = []
         
-        for i, raw_pid in enumerate(product_ids):
-            qty = quantities[i]
-            pid = raw_pid
-            vid = variant_ids[i] if i < len(variant_ids) else None
-            # 允许 pid 里自带复合键（pid@@vid）
-            if isinstance(pid, str) and '@@' in pid and not vid:
-                parts = pid.split('@@', 1)
-                if len(parts) == 2:
-                    pid, vid = parts[0], parts[1]
+        for item in items_list:
+            if not isinstance(item, dict):
+                results.append({"item": "未知", "success": False, "error": "无效的商品数据"})
+                continue
+            
+            pid = item.get("product_id")
+            vid = item.get("variant_id")
+            qty = item.get("quantity")
+            
+            if not pid:
+                results.append({"item": "未知", "success": False, "error": "缺少商品ID"})
+                continue
             
             if pid not in product_dict:
-                results.append(f"商品 {pid}: 商品不存在")
+                results.append({"item": f"ID:{pid}", "success": False, "error": "商品不存在"})
                 continue
             
             product = product_dict[pid]
+            product_name = product.get("name", "未知商品")
+            variant_name = ""
             
-            # 复合键（含规格）
+            # 构建购物车键（含规格时使用复合键）
             key = pid
             stock_limit = product.get("stock", 0)
+            
             if vid:
                 key = f"{pid}@@{vid}"
                 from database import VariantDB
                 v = VariantDB.get_by_id(vid)
                 if not v or v.get('product_id') != pid:
-                    results.append(f"商品 {pid}: 规格不存在")
+                    results.append({"item": product_name, "success": False, "error": "规格不存在"})
                     continue
                 stock_limit = int(v.get('stock', 0))
+                variant_name = v.get('name', '')
+            
+            # 构建显示名称
+            display_name = f"{product_name}({variant_name})" if variant_name else product_name
 
             if action == "remove":
-                items.pop(key, None)
-                results.append(f"商品 {pid}: 删除成功")
+                cart_items.pop(key, None)
+                results.append({"item": display_name, "success": True, "message": "已移除"})
+                product_names.append(display_name)
                 success_count += 1
-            elif action in ["add", "update"]:
-                if qty is None:
-                    qty = 1 if action == "add" else 0
                 
-                try:
-                    qty = int(qty)
-                except (ValueError, TypeError):
-                    results.append(f"商品 {pid}: 数量格式错误")
+            elif action == "add":
+                qty = 1 if qty is None else int(qty)
+                if qty <= 0:
+                    results.append({"item": display_name, "success": False, "error": "数量必须大于0"})
+                    continue
+                current_qty = cart_items.get(key, 0)
+                
+                # 库存检查
+                if stock_limit <= 0:
+                    results.append({"item": display_name, "success": False, "error": "库存不足，无法添加"})
                     continue
                 
-                if qty < 0:
-                    results.append(f"商品 {pid}: 数量不能为负数")
-                    continue
-
-                if qty > stock_limit:
-                    qty = stock_limit
-                
-                if action == "add":
-                    current_qty = items.get(key, 0)
-                    new_qty = min(current_qty + qty, stock_limit)
-                    items[key] = new_qty
-                    results.append(f"商品 {pid}: 添加成功，当前数量 {new_qty}")
-                else:  # update
-                    if qty == 0:
-                        items.pop(key, None)
-                        results.append(f"商品 {pid}: 数量设为0，已移除")
+                # 检查是否超过库存
+                requested_total = current_qty + qty
+                if requested_total > stock_limit:
+                    if current_qty >= stock_limit:
+                        # 购物车数量已达库存上限
+                        results.append({"item": display_name, "success": False, "error": f"库存不足，当前购物车已有 {current_qty} 件，库存上限 {stock_limit} 件"})
+                        continue
                     else:
-                        items[key] = qty
-                        results.append(f"商品 {pid}: 数量更新为 {qty}")
+                        # 部分添加成功
+                        actual_add = stock_limit - current_qty
+                        cart_items[key] = stock_limit
+                        results.append({"item": display_name, "success": False, "error": f"库存不足，请求添加 {qty} 件，实际只能添加 {actual_add} 件（库存上限 {stock_limit} 件）"})
+                        product_names.append(display_name)
+                        # 不计入 success_count，因为没有完全满足请求
+                        continue
                 
+                # 正常添加
+                cart_items[key] = requested_total
+                results.append({"item": display_name, "success": True, "message": f"已添加 {qty} 件，当前数量 {requested_total}"})
+                product_names.append(display_name)
+                success_count += 1
+                
+            elif action == "update":
+                if qty is None:
+                    results.append({"item": display_name, "success": False, "error": "缺少数量"})
+                    continue
+                qty = int(qty)
+                if qty < 0:
+                    results.append({"item": display_name, "success": False, "error": "数量不能为负"})
+                    continue
+                if qty == 0:
+                    cart_items.pop(key, None)
+                    results.append({"item": display_name, "success": True, "message": "已移除"})
+                else:
+                    # 库存检查
+                    if qty > stock_limit:
+                        if stock_limit <= 0:
+                            results.append({"item": display_name, "success": False, "error": "库存不足，无法设置数量"})
+                            continue
+                        else:
+                            # 超过库存，返回错误但仍设置为最大可用库存
+                            cart_items[key] = stock_limit
+                            results.append({"item": display_name, "success": False, "error": f"库存不足，请求设置 {qty} 件，但库存只有 {stock_limit} 件，已设置为 {stock_limit} 件"})
+                            product_names.append(display_name)
+                            continue
+                    cart_items[key] = qty
+                    results.append({"item": display_name, "success": True, "message": f"数量已更新为 {qty}"})
+                product_names.append(display_name)
                 success_count += 1
         
-        # 更新数据库（不再进行下架清理，这已由管理员操作统一处理）
-        CartDB.update_cart(user_id, items)
+        CartDB.update_cart(user_id, cart_items)
 
-        return {
-            "ok": success_count > 0,
+        # 统计失败的项目
+        failed_count = len([r for r in results if isinstance(r, dict) and not r.get("success", True)])
+        error_messages = [r.get("error") for r in results if isinstance(r, dict) and r.get("error")]
+        
+        # 构建返回结果
+        response = {
+            "ok": success_count > 0 or (len(items_list) > 0 and failed_count == 0),
             "action": action,
-            "processed": len(product_ids),
+            "processed": len(items_list),
             "successful": success_count,
+            "failed": failed_count,
+            "product_names": product_names,
             "details": results
         }
+        
+        # 如果有失败的项目，添加错误摘要
+        if error_messages:
+            response["has_errors"] = True
+            response["error_summary"] = "; ".join(error_messages)
+        
+        return response
         
     except Exception as e:
         logger.error(f"更新购物车失败: {e}")
@@ -1302,19 +1309,19 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_products",
-                "description": "Search for products in the store by keywords.",
+                "description": "Search products by keywords. Supports batch search with multiple keywords.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "array",
-                            "description": "Array of search keywords. For batch search, pass multiple keywords. For single search, pass one keyword.",
+                            "description": "Search keywords (one or more)",
                             "items": {"type": "string"},
                             "minItems": 1
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of products to return per keyword, default is 5",
+                            "description": "Max results per keyword",
                             "default": 5
                         }
                     },
@@ -1326,7 +1333,7 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_category",
-                "description": "Get all existing product categories without products name",
+                "description": "Get all product categories",
                 "parameters": {"type": "object", "properties": {}, "required": []}
             }
         }
@@ -1339,26 +1346,27 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
                 "type": "function",
                 "function": {
                     "name": "update_cart",
-                    "description": "Update the shopping cart: add/update/remove/clear items. Supports batching: you can pass a single product_id with an array of variant_id and an array of quantity (aligned by index) to operate on the same product with multiple variants. You can also pass arrays of product_id, variant_id, and quantity with the same length. Alternatively, you may embed variant as 'product_id@@variant_id' in product_id.",
+                    "description": "Update shopping cart. Actions: add (add items), remove (remove items), update (set quantity, 0 to remove), clear (empty cart)",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "action": {
                                 "type": "string",
-                                "enum": ["add", "update", "remove", "clear"],
-                                "description": "Type of operation"
+                                "enum": ["add", "remove", "update", "clear"],
+                                "description": "add=add items, remove=remove items, update=set quantity, clear=empty cart"
                             },
-                            "product_id": {
-                                "type": ["string", "array"],
-                                "description": "Product ID(s). Use a single product_id with variant_id as an array to batch different variants of the same product. You may also use composite key 'product_id@@variant_id'."
-                            },
-                            "quantity": {
-                                "type": ["integer", "array"],
-                                "description": "Quantity per item. If passing an array, it must align with product_id/variant_id arrays by index. If omitted for add, defaults to 1; for update, defaults to 0 (removes the item)."
-                            },
-                            "variant_id": {
-                                "type": ["string", "null", "array"],
-                                "description": "Variant ID(s). May be a single value or an array aligned with product_id/quantity."
+                            "items": {
+                                "type": "array",
+                                "description": "Items to operate on (not needed for 'clear')",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "product_id": {"type": "string", "description": "Product ID"},
+                                        "variant_id": {"type": "string", "description": "Variant ID (if product has variants)"},
+                                        "quantity": {"type": "integer", "description": "Quantity (default 1 for add)"}
+                                    },
+                                    "required": ["product_id"]
+                                }
                             }
                         },
                         "required": ["action"]
@@ -1369,7 +1377,7 @@ def get_available_tools(user_id: Optional[str]) -> List[Dict[str, Any]]:
                 "type": "function",
                 "function": {
                     "name": "get_cart",
-                    "description": "Retrieve all products and prices currently in the shopping cart",
+                    "description": "Get all items in the shopping cart with prices and quantities",
                     "parameters": {"type": "object", "properties": {}, "required": []}
                 }
             }
@@ -1393,9 +1401,7 @@ def execute_tool_locally(name: str, args: Dict[str, Any], user_id: Optional[str]
             return update_cart_impl(
                 user_id=user_id,
                 action=str(args.get("action", "")),
-                product_id=args.get("product_id", None),
-                quantity=args.get("quantity", None),
-                variant_id=args.get("variant_id", None)
+                items_list=args.get("items")
             )
         elif name == "get_cart":
             if not user_id:
