@@ -2083,7 +2083,11 @@ async def update_shop_settings(request: Request):
 
 @app.get("/admin/students/search")
 async def admin_search_students(request: Request, q: str = "", limit: int = 20):
-    """按学号模糊搜索，代理仅能看到负责地址内的用户"""
+    """
+    按学号、用户姓名、配送名模糊搜索
+    - 管理员可以搜索所有用户
+    - 代理只能搜索配送地址在其管辖区域内的用户
+    """
     staff = get_current_staff_required_from_cookie(request)
     try:
         like = f"%{q.strip()}%" if q else "%"
@@ -2094,10 +2098,13 @@ async def admin_search_students(request: Request, q: str = "", limit: int = 20):
         from database import get_db_connection
         with get_db_connection() as conn:
             cur = conn.cursor()
-            params: List[Any] = [like]
-            filters: List[str] = ["u.id LIKE ?"]
+            # 支持同时搜索：学号(u.id)、用户姓名(u.name)、配送名(up.name)
+            params: List[Any] = [like, like, like]
+            search_condition = "(u.id LIKE ? OR u.name LIKE ? OR up.name LIKE ?)"
+            filters: List[str] = [search_condition]
 
             if staff.get('type') == 'agent':
+                # 代理只能搜索其管辖区域内有配送地址的用户
                 if not address_ids and not building_ids:
                     return success_response("搜索成功", {"students": []})
                 coverage_parts: List[str] = []
@@ -2115,7 +2122,9 @@ async def admin_search_students(request: Request, q: str = "", limit: int = 20):
             query = f'''
                 SELECT DISTINCT
                     u.id AS student_id,
-                    COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(up.name), ''), u.id) AS student_name
+                    u.name AS user_name,
+                    up.name AS profile_name,
+                    COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(up.name), ''), u.id) AS display_name
                 FROM users u
                 LEFT JOIN user_profiles up
                   ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
@@ -2127,7 +2136,15 @@ async def admin_search_students(request: Request, q: str = "", limit: int = 20):
             cur.execute(query, tuple(params))
             rows = cur.fetchall() or []
 
-        items = [{"id": row["student_id"], "name": row["student_name"]} for row in rows]
+        # 返回时包含学号、用户姓名、配送名，便于前端展示
+        items = []
+        for row in rows:
+            items.append({
+                "id": row["student_id"],
+                "name": row["display_name"],
+                "user_name": row["user_name"],  # 用户姓名（注册时设置）
+                "profile_name": row["profile_name"]  # 配送名
+            })
         return success_response("搜索成功", {"students": items})
     except Exception as e:
         logger.error(f"搜索学号失败: {e}")
@@ -2137,9 +2154,25 @@ async def admin_search_students(request: Request, q: str = "", limit: int = 20):
 
 @app.get("/coupons/my")
 async def my_coupons(request: Request):
+    """
+    获取当前用户可用的优惠券列表
+    重要：只返回用户当前配送地址对应代理发放的优惠券
+    - 如果用户在代理1的区域，只能看到代理1发放的优惠券
+    - 如果用户切换到代理2的区域，则只能看到代理2发放的优惠券
+    - 同一代理管辖的不同区域之间，优惠券互通
+    """
     user = get_current_user_required_from_cookie(request)
     try:
-        coupons = CouponDB.get_active_for_student(user["id"]) or []
+        # 获取用户当前配送地址对应的代理
+        scope = resolve_shopping_scope(request)
+        owner_id = get_owner_id_from_scope(scope)
+        
+        # restrict_owner=True 确保只返回当前代理发放的优惠券
+        coupons = CouponDB.get_active_for_student(
+            user["id"],
+            owner_id=owner_id,
+            restrict_owner=True
+        ) or []
         return success_response("获取优惠券成功", {"coupons": coupons})
     except Exception as e:
         logger.error(f"获取优惠券失败: {e}")

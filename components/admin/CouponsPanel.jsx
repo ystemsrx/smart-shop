@@ -313,7 +313,7 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                 <input 
                   ref={inputRef}
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200" 
-                  placeholder="输入用户名搜索..." 
+                  placeholder="搜索用户..." 
                   value={q} 
                   onChange={(e) => {
                     setQ(e.target.value);
@@ -336,23 +336,42 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                   style={dropdownStyle}
                   className="z-40 bg-white border border-gray-100 rounded-xl shadow-xl overflow-y-auto custom-scrollbar"
                 >
-                  {suggests.map(s => (
-                    <div 
-                      key={s.id} 
-                      className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 transition-colors flex items-center justify-between group"
-                      onClick={() => {
-                        setSelected(s.id);
-                        setQ(s.id + (s.name ? ` · ${s.name}` : ''));
-                        setDropdownOpen(false);
-                      }}
-                    >
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 group-hover:text-black">{s.id}</div>
-                        {s.name && <div className="text-xs text-gray-500">{s.name}</div>}
+                  {suggests.map(s => {
+                    // 构建显示信息：学号 + 用户名 + 配送名
+                    const hasUserName = s.user_name && s.user_name.trim();
+                    const hasProfileName = s.profile_name && s.profile_name.trim();
+                    const displayName = s.name || s.id;
+                    
+                    return (
+                      <div 
+                        key={s.id} 
+                        className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 transition-colors flex items-center justify-between group"
+                        onClick={() => {
+                          setSelected(s.id);
+                          setQ(s.id + (displayName !== s.id ? ` · ${displayName}` : ''));
+                          setDropdownOpen(false);
+                        }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-900 group-hover:text-black font-mono">{s.id}</span>
+                            {hasUserName && (
+                              <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                                {s.user_name}
+                              </span>
+                            )}
+                          </div>
+                          {hasProfileName && hasProfileName !== (hasUserName ? s.user_name : '') && (
+                            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                              <i className="fas fa-truck text-gray-400 text-[10px]"></i>
+                              <span>配送名: {s.profile_name}</span>
+                            </div>
+                          )}
+                        </div>
+                        <i className="fas fa-plus text-gray-300 group-hover:text-black transition-colors ml-2"></i>
                       </div>
-                      <i className="fas fa-plus text-gray-300 group-hover:text-black transition-colors"></i>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>,
                 document.body
               )}

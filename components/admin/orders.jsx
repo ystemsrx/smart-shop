@@ -1361,7 +1361,7 @@ export const OrderTable = ({
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
                       <span className="text-sm text-gray-900 font-medium">{order.shipping_info?.name || order.customer_name || '未知'}</span>
-                      <span className="text-xs text-gray-500 mt-0.5">{order.shipping_info?.phone}</span>
+                      <span className="text-xs text-gray-500 mt-0.5">{order.student_id || '—'}</span>
                       <span className="text-xs text-gray-400 mt-0.5 truncate max-w-[150px]" title={order.shipping_info?.full_address}>
                         {order.shipping_info?.full_address}
                       </span>

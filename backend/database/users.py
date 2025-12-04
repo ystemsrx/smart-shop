@@ -420,3 +420,10 @@ class UserProfileDB:
             )
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    @staticmethod
+    def upsert_shipping(student_id: str, profile: Dict[str, Any]) -> bool:
+        """
+        保存/更新配送信息（向后兼容旧接口，包装 upsert_profile）。
+        """
+        return UserProfileDB.upsert_profile(student_id, profile)
