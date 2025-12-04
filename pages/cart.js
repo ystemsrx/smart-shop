@@ -42,13 +42,6 @@ const createDefaultValidation = () => ({
   should_force_reselect: false,
 });
 
-const createMissingValidation = () => ({
-  is_valid: false,
-  reason: 'missing_address',
-  message: '请选择配送地址',
-  should_force_reselect: true,
-});
-
 
 
 // 页面容器动效 - 更流畅的进入动画
@@ -880,7 +873,7 @@ export default function Cart() {
         setCoupons([]);
         setSelectedCouponId(null);
         setApplyCoupon(false);
-        setAddressValidation(createMissingValidation());
+        setAddressValidation(createDefaultValidation());
         setIsLoading(false);
         return;
       }

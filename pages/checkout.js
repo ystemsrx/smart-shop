@@ -38,13 +38,6 @@ const createDefaultValidation = () => ({
   should_force_reselect: false,
 });
 
-const createMissingValidation = () => ({
-  is_valid: false,
-  reason: 'missing_address',
-  message: '请选择配送地址',
-  should_force_reselect: true,
-});
-
 export default function Checkout() {
   const router = useRouter();
   const { user, isInitialized } = useAuth();
@@ -376,7 +369,7 @@ export default function Checkout() {
       setCoupons([]);
       setSelectedCouponId(null);
       setApplyCoupon(false);
-      setAddressValidation(createMissingValidation());
+      setAddressValidation(createDefaultValidation());
       return;
     }
 
