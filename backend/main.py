@@ -3949,6 +3949,15 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
         scope = build_staff_scope(staff)
         owner_ids, include_unassigned, normalized_filter = resolve_owner_filter_for_staff(staff, scope, owner_id)
 
+        # 复用仪表盘数据获取总订单/总销售额/净利润
+        dashboard_summary = OrderDB.get_dashboard_stats(
+            period='week',
+            agent_id=scope.get('agent_id') if normalized_filter != 'admin' else None,
+            address_ids=scope.get('address_ids'),
+            building_ids=scope.get('building_ids'),
+            filter_admin_orders=scope.get('filter_admin_orders', False)
+        )
+
         products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
         try:
             CategoryDB.cleanup_orphan_categories()
@@ -3958,7 +3967,8 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
             owner_ids=owner_ids,
             include_unassigned=include_unassigned
         )
-        users_count = compute_registered_user_count(owner_ids)
+        # 注册人数：管理员概览需要所有注册用户数量，不受区域过滤
+        users_count = compute_registered_user_count(None)
 
         for p in products:
             p['is_not_for_sale'] = is_non_sellable(p)
@@ -3978,6 +3988,9 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
             "total_stock": total_stock,
             "recent_products": products[:5],  # 最近5个商品
             "users_count": users_count,
+            "total_orders": dashboard_summary.get("total_orders", 0),
+            "total_revenue": dashboard_summary.get("total_revenue", 0.0),
+            "total_profit": dashboard_summary.get("profit_stats", {}).get("total_profit", 0.0),
             "scope": scope,
             "owner_filter": normalized_filter
         }
