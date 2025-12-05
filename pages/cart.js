@@ -946,10 +946,14 @@ export default function Cart() {
   }, [locationRevision, user, locationReady, displayLocation]);
 
   useEffect(() => {
-    if (user?.type === 'user' && !locationReady) {
+    // 只有当用户类型是 user、地址未准备好、且地址不在加载中时，才显示提示
+    if (user?.type === 'user' && !locationReady && !locationLoading) {
       setInfoMessage('请选择配送地址以查看购物车。');
+    } else if (user?.type === 'user' && locationReady) {
+      // 地址准备好后，清除之前可能设置的提示消息
+      setInfoMessage(prev => prev === '请选择配送地址以查看购物车。' ? '' : prev);
     }
-  }, [user, locationReady]);
+  }, [user, locationReady, locationLoading]);
 
   // 更新商品数量（乐观更新）
   const handleUpdateQuantity = async (productId, quantity, variantId = null) => {
