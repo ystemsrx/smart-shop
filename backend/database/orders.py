@@ -2,7 +2,7 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .config import logger
@@ -423,14 +423,13 @@ class OrderDB:
 
     @staticmethod
     def get_order_by_id(order_id: str) -> Optional[Dict]:
+        """根据ID获取订单"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT o.*, u.name as customer_name
-                FROM orders o
-                LEFT JOIN users u ON o.student_id = u.id
-                WHERE o.id = ?
-            ''', (order_id,))
+            cursor.execute(
+                'SELECT * FROM orders WHERE id = ?',
+                (order_id,)
+            )
             row = cursor.fetchone()
             if row:
                 order = dict(row)
@@ -670,9 +669,36 @@ class OrderDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM orders WHERE id = ?', (order_id,))
-            success = cursor.rowcount > 0
+            ok = cursor.rowcount > 0
             conn.commit()
-            return success
+            return ok
+
+    @staticmethod
+    def batch_delete_orders(order_ids: List[str]) -> Dict[str, Any]:
+        """批量删除订单"""
+        if not order_ids:
+            return {"success": False, "deleted_count": 0, "message": "没有提供要删除的订单ID"}
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                placeholders = ','.join('?' * len(order_ids))
+                cursor.execute(f'SELECT id FROM orders WHERE id IN ({placeholders})', order_ids)
+                existing_ids = [row[0] for row in cursor.fetchall()]
+                if not existing_ids:
+                    return {"success": False, "deleted_count": 0, "message": "没有找到要删除的订单"}
+                cursor.execute(f'DELETE FROM orders WHERE id IN ({placeholders})', existing_ids)
+                deleted_count = cursor.rowcount or 0
+                conn.commit()
+                return {
+                    "success": True,
+                    "deleted_count": deleted_count,
+                    "deleted_ids": existing_ids,
+                    "not_found_ids": list(set(order_ids) - set(existing_ids)),
+                    "message": f"成功删除 {deleted_count} 笔订单"
+                }
+            except Exception as exc:
+                conn.rollback()
+                return {"success": False, "deleted_count": 0, "message": f"批量删除失败: {str(exc)}"}
 
     @staticmethod
     def clear_all_orders() -> int:
@@ -762,52 +788,46 @@ class OrderDB:
 
     @staticmethod
     def purge_expired_unpaid_orders(expire_minutes: int = 15) -> int:
-        """
-        删除超时未付款订单，并解锁占用的优惠券。
-        """
-        try:
-            minutes = int(expire_minutes)
-        except Exception:
-            minutes = 15
-        minutes = max(1, minutes)
-        cutoff = datetime.utcnow() - timedelta(minutes=minutes)
-        cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
-
+        """删除超过指定分钟仍未支付(支付状态pending)的订单，返回删除数量"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                '''
-                SELECT id, coupon_id
-                FROM orders
-                WHERE (payment_status IS NULL OR payment_status NOT IN ('succeeded'))
-                  AND datetime(created_at) <= datetime(?)
-                ''',
-                (cutoff_str,)
-            )
-            rows = cursor.fetchall() or []
-            order_ids = [row['id'] if isinstance(row, sqlite3.Row) else row[0] for row in rows]
-            coupon_ids = [row['coupon_id'] if isinstance(row, sqlite3.Row) else row[1] for row in rows]
-
-            deleted = 0
-            if order_ids:
-                placeholders = ','.join('?' * len(order_ids))
-                cursor.execute(f'DELETE FROM orders WHERE id IN ({placeholders})', order_ids)
+            try:
+                # 先查询将要删除的订单（用于返还被锁定的优惠券）
+                cursor.execute('''
+                    SELECT id, coupon_id, discount_amount FROM orders
+                    WHERE payment_status IN ('pending','failed')
+                      AND datetime(created_at) <= datetime('now', ?)
+                ''', (f'-{int(expire_minutes)} minutes',))
+                rows = cursor.fetchall() or []
+                ids = [r[0] for r in rows]
+                # 执行删除
+                cursor.execute('''
+                    DELETE FROM orders
+                    WHERE payment_status IN ('pending','failed')
+                      AND datetime(created_at) <= datetime('now', ?)
+                ''', (f'-{int(expire_minutes)} minutes',))
                 deleted = cursor.rowcount or 0
-
+                conn.commit()
+                # 返还优惠券
                 try:
                     from .promotions import CouponDB
 
-                    for oid, cid in zip(order_ids, coupon_ids):
-                        if cid:
-                            try:
+                    for r in rows:
+                        try:
+                            oid = r[0]
+                            cid = r[1]
+                            damt = float(r[2] or 0)
+                            if cid and damt > 0:
                                 CouponDB.unlock_for_order(cid, oid)
-                            except Exception as exc:
-                                logger.warning("解锁优惠券失败(%s -> %s): %s", cid, oid, exc)
+                        except Exception:
+                            pass
                 except Exception as exc:
-                    logger.warning("删除过期未付订单时解锁优惠券出错: %s", exc)
-
-            conn.commit()
-            return deleted
+                    logger.warning("返还过期订单优惠券失败: %s", exc)
+                return deleted
+            except Exception as exc:
+                logger.error("清理过期未付款订单失败: %s", exc)
+                conn.rollback()
+                return 0
 
     @staticmethod
     def get_order_stats(
@@ -817,70 +837,75 @@ class OrderDB:
         exclude_address_ids: Optional[List[str]] = None,
         exclude_building_ids: Optional[List[str]] = None,
         filter_admin_orders: bool = False
-    ) -> Dict[str, Any]:
-        """
-        聚合订单状态和支付统计，兼容管理端筛选逻辑。
-        """
+    ) -> Dict:
+        """获取订单统计信息（管理员用）"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            where_parts: List[str] = []
-            params: List[Any] = []
+            def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias, filter_admin_orders=filter_admin_orders)
+                clauses: List[str] = []
+                params: List[Any] = []
+                if scope_clause:
+                    clauses.append(scope_clause)
+                    params.extend(scope_args)
+                excluded_buildings = [bid for bid in (exclude_building_ids or []) if bid]
+                excluded_addresses = [aid for aid in (exclude_address_ids or []) if aid]
+                if excluded_buildings:
+                    placeholders = ','.join('?' * len(excluded_buildings))
+                    clauses.append(f'({alias}.building_id IS NULL OR {alias}.building_id NOT IN ({placeholders}))')
+                    params.extend(excluded_buildings)
+                if excluded_addresses:
+                    placeholders = ','.join('?' * len(excluded_addresses))
+                    clauses.append(f'({alias}.address_id IS NULL OR {alias}.address_id NOT IN ({placeholders}))')
+                    params.extend(excluded_addresses)
+                if excluded_buildings or excluded_addresses:
+                    clauses.append(f'({alias}.agent_id IS NULL OR {alias}.agent_id = "")')
+                if extra_clause:
+                    clauses.append(extra_clause)
+                    if extra_params:
+                        params.extend(extra_params)
+                if not clauses:
+                    return '', params
+                return ' WHERE ' + ' AND '.join(clauses), params
 
-            scope_clause, scope_params = OrderDB._build_scope_filter(
-                agent_id=agent_id,
-                address_ids=address_ids,
-                building_ids=building_ids,
-                filter_admin_orders=filter_admin_orders
-            )
-            if scope_clause:
-                where_parts.append(scope_clause)
-                params.extend(scope_params)
+            # 总订单数
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT COUNT(*) FROM orders{where_clause}', params)
+            total_orders = cursor.fetchone()[0]
 
-            normalized_exclude_addresses = [aid for aid in (exclude_address_ids or []) if aid]
-            normalized_exclude_buildings = [bid for bid in (exclude_building_ids or []) if bid]
-
-            if normalized_exclude_buildings:
-                placeholders = ','.join('?' * len(normalized_exclude_buildings))
-                where_parts.append(f'(o.building_id IS NULL OR o.building_id NOT IN ({placeholders}))')
-                params.extend(normalized_exclude_buildings)
-            if normalized_exclude_addresses:
-                placeholders = ','.join('?' * len(normalized_exclude_addresses))
-                where_parts.append(f'(o.address_id IS NULL OR o.address_id NOT IN ({placeholders}))')
-                params.extend(normalized_exclude_addresses)
-            if normalized_exclude_addresses or normalized_exclude_buildings:
-                where_parts.append('(o.agent_id IS NULL OR o.agent_id = "")')
-
-            where_clause = 'WHERE ' + ' AND '.join(where_parts) if where_parts else ''
-
+            # 各状态订单数
+            where_clause, params = build_where(alias='orders')
             cursor.execute(f'''
-                SELECT
-                    COUNT(*) AS total_orders,
-                    SUM(CASE WHEN payment_status = 'succeeded' THEN 1 ELSE 0 END) AS paid_orders,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_orders,
-                    SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_orders,
-                    SUM(CASE WHEN status = 'shipped' THEN 1 ELSE 0 END) AS shipped_orders,
-                    SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered_orders,
-                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
-                    COALESCE(SUM(total_amount), 0) AS total_amount,
-                    COALESCE(SUM(CASE WHEN payment_status = 'succeeded' THEN total_amount ELSE 0 END), 0) AS paid_amount
-                FROM orders o
-                {where_clause}
+                SELECT status, COUNT(*) as count
+                FROM orders {where_clause}
+                GROUP BY status
             ''', params)
-            row = cursor.fetchone() or {}
-            total_amount_val = round(float(row["total_amount"] if "total_amount" in row else row[7] or 0), 2)
-            paid_amount_val = round(float(row["paid_amount"] if "paid_amount" in row else row[8] or 0), 2)
+            status_counts = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # 今日订单数
+            today_clause = "date(created_at, 'localtime') = date('now', 'localtime')"
+            where_clause, params = build_where(today_clause)
+            cursor.execute(f'''SELECT COUNT(*) FROM orders{where_clause}''', params)
+            today_orders = cursor.fetchone()[0]
+
+            # 总销售额
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT COALESCE(SUM(total_amount), 0) FROM orders{where_clause}', params)
+            total_revenue = cursor.fetchone()[0]
+
+            # 最早订单时间（用于导出报表时间范围选择）
+            where_clause, params = build_where()
+            cursor.execute(f'SELECT MIN(created_at) FROM orders{where_clause}', params)
+            earliest_row = cursor.fetchone()
+            earliest_order_time = earliest_row[0] if earliest_row and earliest_row[0] else None
+
             return {
-                "total_orders": row["total_orders"] if "total_orders" in row else row[0],
-                "paid_orders": row["paid_orders"] if "paid_orders" in row else row[1],
-                "pending_orders": row["pending_orders"] if "pending_orders" in row else row[2],
-                "confirmed_orders": row["confirmed_orders"] if "confirmed_orders" in row else row[3],
-                "shipped_orders": row["shipped_orders"] if "shipped_orders" in row else row[4],
-                "delivered_orders": row["delivered_orders"] if "delivered_orders" in row else row[5],
-                "cancelled_orders": row["cancelled_orders"] if "cancelled_orders" in row else row[6],
-                "total_amount": total_amount_val,
-                "total_revenue": total_amount_val,  # 兼容前端 OverviewPanel 使用的字段名
-                "paid_amount": paid_amount_val,
+                'total_orders': total_orders,
+                'status_counts': status_counts,
+                'today_orders': today_orders,
+                'total_revenue': round(total_revenue, 2),
+                'earliest_order_time': earliest_order_time
             }
 
     @staticmethod
@@ -1215,189 +1240,547 @@ class OrderDB:
         top_range_start: Optional[str] = None,
         top_range_end: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        仪表盘综合统计：销售、订单、用户增长、热门商品和收入Top区间。
-        """
-        period = period or 'week'
-        if period not in ('day', 'week', 'month'):
-            period = 'week'
-
-        # 主统计周期天数
-        if period == 'day':
-            days = 1
-        elif period == 'month':
-            days = 30
-        else:
-            days = 7
-
-        summary = OrderDB.get_profit_summary(
-            days=days,
-            agent_id=agent_id,
-            address_ids=address_ids,
-            building_ids=building_ids,
-            filter_admin_orders=filter_admin_orders
-        )
-
-        # 全量统计（不限制时间）
+        """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            filters: List[str] = ["o.payment_status = 'succeeded'"]
-            params: List[Any] = []
-            scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
-            if scope_clause:
-                filters.append(scope_clause)
-                params.extend(scope_params)
-            where_clause = 'WHERE ' + ' AND '.join(filters) if filters else ''
+            
+            # 基础统计
+            basic_stats = OrderDB.get_order_stats(agent_id=agent_id, address_ids=address_ids, building_ids=building_ids, filter_admin_orders=filter_admin_orders)
 
-            cursor.execute(f'''
-                SELECT
-                    COUNT(*) AS total_orders,
-                    COALESCE(SUM(o.total_amount), 0) AS total_amount,
-                    COALESCE(SUM(p.cost), 0) AS total_cost
-                FROM orders o
-                LEFT JOIN (
-                    SELECT op.order_id, SUM(COALESCE(prod.cost, 0) * (op.quantity)) as cost
-                    FROM (
-                        SELECT o.id as order_id, json_extract(value, '$.product_id') as product_id,
-                               json_extract(value, '$.quantity') * 1.0 as quantity
-                        FROM orders o, json_each(o.items)
-                    ) op
-                    LEFT JOIN products prod ON op.product_id = prod.id
-                    GROUP BY op.order_id
-                ) p ON o.id = p.order_id
-                {where_clause}
-            ''', params)
-            overall_row = cursor.fetchone() or {}
-            overall_orders = 0
-            overall_revenue = 0.0
-            overall_cost = 0.0
-            try:
-                overall_orders = overall_row["total_orders"] if "total_orders" in overall_row else overall_row[0]
-            except Exception:
-                overall_orders = overall_orders or 0
-            try:
-                overall_revenue = float(overall_row["total_amount"] if "total_amount" in overall_row else overall_row[1])
-            except Exception:
-                overall_revenue = overall_revenue or 0.0
-            try:
-                overall_cost = float(overall_row["total_cost"] if "total_cost" in overall_row else overall_row[2])
-            except Exception:
-                overall_cost = overall_cost or 0.0
-            overall_orders = overall_orders or 0
-            overall_revenue = overall_revenue or 0.0
-            overall_cost = overall_cost or 0.0
-            overall_profit = round(overall_revenue - overall_cost, 2)
-
-        summary['overall'] = {
-            'orders': overall_orders,
-            'revenue': round(overall_revenue, 2),
-            'profit': overall_profit
-        }
-        summary.setdefault('profit_stats', {})['total_profit_all'] = overall_profit
-        # 如果全量为空，则退回周期汇总，避免前端卡片显示0
-        fallback_orders = summary.get('period_totals', {}).get('orders', 0)
-        fallback_revenue = summary.get('period_totals', {}).get('revenue', 0.0)
-        fallback_profit = summary.get('period_totals', {}).get('profit', 0.0)
-        summary['profit_stats']['total_profit'] = overall_profit if (overall_orders or overall_revenue or overall_cost) else fallback_profit
-        summary['total_orders'] = overall_orders if (overall_orders or overall_revenue or overall_cost) else fallback_orders
-        summary['total_revenue'] = round(overall_revenue, 2) if (overall_orders or overall_revenue or overall_cost) else round(fallback_revenue, 2)
-        summary.setdefault('period_totals', {})
-        summary['period_totals'].setdefault('orders', 0)
-        summary['period_totals'].setdefault('revenue', 0.0)
-        summary['period_totals'].setdefault('profit', 0.0)
-        summary.setdefault('period_name', {'day': '今日', 'week': '本周', 'month': '本月'}.get(period, '本期'))
-
-        # 完整销售趋势（按天聚合全部记录，供前端分页/缩放）
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                filters_all: List[str] = ["o.payment_status = 'succeeded'"]
-                params_all: List[Any] = []
-                if scope_clause:
-                    filters_all.append(scope_clause)
-                    params_all.extend(scope_params)
-                where_all = 'WHERE ' + ' AND '.join(filters_all) if filters_all else ''
-                cursor.execute(f'''
-                    SELECT
-                        date(o.created_at) as date,
-                        COUNT(*) as order_count,
-                        SUM(o.total_amount) as total_amount,
-                        SUM(COALESCE(p.cost, 0)) as total_cost
-                    FROM orders o
-                    LEFT JOIN (
-                        SELECT op.order_id, SUM(COALESCE(prod.cost, 0) * (op.quantity)) as cost
-                        FROM (
-                            SELECT o.id as order_id, json_extract(value, '$.product_id') as product_id,
-                                   json_extract(value, '$.quantity') * 1.0 as quantity
-                            FROM orders o, json_each(o.items)
-                        ) op
-                        LEFT JOIN products prod ON op.product_id = prod.id
-                        GROUP BY op.order_id
-                    ) p ON o.id = p.order_id
-                    {where_all}
-                    GROUP BY date(o.created_at)
-                    ORDER BY date(o.created_at) ASC
-                ''', params_all)
-                full_chart = []
-                for r in cursor.fetchall() or []:
-                    try:
-                        date_val = r['date']
-                        rev = float(r['total_amount'] or 0.0)
-                        cost = float(r['total_cost'] or 0.0)
-                        full_chart.append({
-                            'date': date_val,
-                            'period': date_val,
-                            'revenue': round(rev, 2),
-                            'profit': round(rev - cost, 2),
-                            'orders': int(r['order_count'] or 0)
-                        })
-                    except Exception:
-                        continue
-                # 确保包含“今天”数据（即便为0）
-                today_str = datetime.now().strftime("%Y-%m-%d")
-                existing_dates = {entry['date'] for entry in full_chart}
-                if today_str not in existing_dates:
-                    full_chart.append({
-                        'date': today_str,
-                        'period': today_str,
-                        'revenue': 0.0,
-                        'profit': 0.0,
-                        'orders': 0
-                    })
-                full_chart.sort(key=lambda x: x['date'])
-                summary['chart_data'] = full_chart
-        except Exception:
-            pass
-
-        # Top区间用于前端图表的快速取样（如果传入区间，则覆盖默认周期）
-        if top_range_start and top_range_end:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
-                filters = ["payment_status = 'succeeded'"]
+            def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
+                scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias, filter_admin_orders=filter_admin_orders)
+                clauses: List[str] = []
                 params: List[Any] = []
                 if scope_clause:
-                    filters.append(scope_clause)
-                    params.extend(scope_params)
-                filters.append('datetime(created_at) BETWEEN datetime(?) AND datetime(?)')
-                params.extend([top_range_start, top_range_end])
-                where_clause = 'WHERE ' + ' AND '.join(filters)
+                    clauses.append(scope_clause)
+                    params.extend(scope_args)
+                if extra_clause:
+                    clauses.append(extra_clause)
+                    if extra_params:
+                        params.extend(extra_params)
+                if not clauses:
+                    return '', params
+                return ' WHERE ' + ' AND '.join(clauses), params
+            
+            # 按时间段统计销售额
+            if period == 'day':
+                time_filter = "date(created_at, 'localtime') = date('now', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') = date('now', '-1 day', 'localtime')"
+                group_by = "strftime('%Y-%m-%d %H:00:00', created_at, 'localtime')"
+                date_format = "今日各小时"
+            elif period == 'week':
+                time_filter = "date(created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-13 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-6 days', 'localtime')"
+                group_by = "date(created_at, 'localtime')"
+                date_format = "近7天"
+            else:  # month
+                time_filter = "date(created_at, 'localtime') >= date('now', '-30 days', 'localtime')"
+                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-60 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-30 days', 'localtime')"
+                group_by = "date(created_at, 'localtime')"
+                date_format = "近30天"
 
+            if period == 'day':
+                chart_time_filter = "1=1"
+                chart_window_config: Dict[str, Any] = {'window_size': 24, 'step': 24}
+            elif period == 'week':
+                # 增加到730天（约2年）的历史数据，支持往前翻约104次
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
+                chart_window_config = {'window_size': 7, 'step': 7}
+            else:
+                # 月视图也增加到730天，支持往前翻约24次
+                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
+                chart_window_config = {'window_size': 30, 'step': 30}
+
+            # 当前时间段销售额
+            where_clause, params = build_where(time_filter)
+            cursor.execute(f'''
+                SELECT {group_by} as period, 
+                       COALESCE(SUM(total_amount), 0) as revenue,
+                       COUNT(*) as orders
+                FROM orders 
+                {where_clause}
+                GROUP BY {group_by}
+                ORDER BY period
+            ''', params)
+            current_period_data = [
+                {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
+                for row in cursor.fetchall()
+            ]
+
+            chart_where, chart_params = build_where(chart_time_filter)
+            cursor.execute(f'''
+                SELECT {group_by} as period,
+                       COALESCE(SUM(total_amount), 0) as revenue,
+                       COUNT(*) as orders
+                FROM orders
+                {chart_where}
+                GROUP BY {group_by}
+                ORDER BY period
+            ''', chart_params)
+            chart_data = [
+                {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
+                for row in cursor.fetchall()
+            ]
+
+            # 计算净利润数据 - 使用新算法：订单总额减去成本总和
+            def calculate_profit_for_period(time_filter_clause: str) -> Tuple[float, Dict[str, float]]:
+                where_clause_profit, params_profit = build_where(
+                    f"({time_filter_clause})", alias='o'
+                )
+                extra_clause = "o.payment_status = 'succeeded'"
+                if where_clause_profit:
+                    where_clause_profit = where_clause_profit + ' AND ' + extra_clause
+                else:
+                    where_clause_profit = ' WHERE ' + extra_clause
                 cursor.execute(f'''
-                    SELECT date(created_at) as dt, SUM(total_amount) as total_amount
-                    FROM orders o
-                    {where_clause}
-                    GROUP BY dt
-                    ORDER BY dt ASC
-                ''', params)
-                top_range = [{'date': row['dt'], 'amount': float(row['total_amount'] or 0)} for row in cursor.fetchall()]
-        else:
-            top_range = []
+                    SELECT o.items, o.created_at, o.total_amount
+                    FROM orders o 
+                    {where_clause_profit}
+                ''', params_profit)
+                
+                total_profit = 0.0
+                profit_by_period: Dict[str, float] = {}
+                
+                for row in cursor.fetchall():
+                    try:
+                        items_json = json.loads(row[0])
+                        created_at = row[1]
+                        order_total_amount = float(row[2]) if row[2] else 0.0
+                        
+                        total_cost = 0.0  # 商品成本总和
+                        fallback_gift_count = 0    # 赠品数量（兼容旧数据）
 
-        summary['top_range'] = top_range
-        summary['period'] = period
-        summary['filter_admin_orders'] = filter_admin_orders
-        return summary
+                        for item in items_json:
+                            product_id = item.get('product_id')
+                            quantity = int(item.get('quantity', 0))
+                            is_lottery = item.get('is_lottery', False)
+                            is_auto_gift = item.get('is_auto_gift', False)
+
+                            if is_lottery:
+                                # 新逻辑：优先使用记录的抽奖奖品实际价值；兼容旧订单按1元计
+                                prize_unit_price = None
+                                try:
+                                    prize_unit_price = float(item.get('lottery_unit_price'))
+                                except Exception:
+                                    prize_unit_price = None
+                                if prize_unit_price is not None and prize_unit_price > 0:
+                                    total_cost += prize_unit_price * quantity
+                                else:
+                                    fallback_gift_count += quantity
+                                continue
+                                
+                            # 获取商品成本，如果没有设置成本则默认为0
+                            # 包括普通商品和满赠商品（is_auto_gift=True）都需要计算实际成本
+                            cursor.execute('SELECT cost FROM products WHERE id = ?', (product_id,))
+                            cost_row = cursor.fetchone()
+                            cost = 0.0
+                            if cost_row and cost_row[0] is not None and cost_row[0] != '':
+                                try:
+                                    cost = float(cost_row[0])
+                                except (ValueError, TypeError):
+                                    cost = 0.0
+                            
+                            # 累计商品成本：成本 × 数量
+                            # 满赠商品（is_auto_gift）和普通商品都按实际成本计算
+                            total_cost += cost * quantity
+                        
+                        # 新算法：净利润 = 订单总额 - 商品成本总和 - 赠品数量×1（兼容旧数据）
+                        final_order_profit = order_total_amount - total_cost - fallback_gift_count
+                        total_profit += final_order_profit
+                        
+                        # 按时间段分组，使用与销售额查询一致的SQLite本地时间转换
+                        if period == 'day':
+                            # 使用SQLite的localtime转换，确保与销售额查询的period格式一致
+                            created_at = row[1]
+                            if created_at:
+                                # 查询SQLite转换后的本地时间格式，与销售额查询保持一致
+                                cursor.execute('''
+                                    SELECT strftime('%Y-%m-%d %H:00:00', ?, 'localtime')
+                                ''', (created_at,))
+                                sqlite_result = cursor.fetchone()
+                                period_key = sqlite_result[0] if sqlite_result else ''
+                            else:
+                                period_key = ''
+                        else:
+                            # 对于周/月，使用SQLite的日期转换
+                            created_at = row[1]
+                            if created_at:
+                                cursor.execute('''
+                                    SELECT date(?, 'localtime')
+                                ''', (created_at,))
+                                sqlite_result = cursor.fetchone()
+                                period_key = sqlite_result[0] if sqlite_result else ''
+                            else:
+                                period_key = ''
+                        
+                        if period_key:
+                            profit_by_period[period_key] = profit_by_period.get(period_key, 0) + final_order_profit
+                            
+                    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        continue
+                
+                return total_profit, profit_by_period
+
+            # 计算当前时间段净利润
+            current_profit, current_profit_by_period = calculate_profit_for_period(time_filter)
+            # 计算图表所需的历史净利润数据
+            _, chart_profit_by_period = calculate_profit_for_period(chart_time_filter)
+            
+            # 为current_period_data添加净利润数据
+            for data_point in current_period_data:
+                period_value = data_point['period']
+
+                # 处理时间格式转换，确保与calculate_profit_for_period中的格式一致
+                if period == 'day':
+                    # period_value格式是 "YYYY-MM-DD HH:00:00"，直接使用完整格式匹配
+                    period_key = str(period_value)
+                else:
+                    # 对于日期数据，直接使用period值
+                    period_key = str(period_value)
+
+                data_point['profit'] = round(current_profit_by_period.get(period_key, 0), 2)
+
+            for data_point in chart_data:
+                period_value = data_point['period']
+
+                if period == 'day':
+                    period_key = str(period_value)
+                else:
+                    period_key = str(period_value)
+
+                data_point['profit'] = round(chart_profit_by_period.get(period_key, 0), 2)
+
+            chart_day_labels: List[str] = []
+            if period == 'day':
+                existing_points = {entry['period']: entry for entry in chart_data}
+                filled_chart: List[Dict[str, Any]] = []
+
+                today_local = datetime.now().date()
+                if existing_points:
+                    try:
+                        earliest_key = min(existing_points.keys())
+                        latest_key = max(existing_points.keys())
+                        earliest_date = datetime.strptime(earliest_key, '%Y-%m-%d %H:%M:%S').date()
+                        latest_date = datetime.strptime(latest_key, '%Y-%m-%d %H:%M:%S').date()
+                    except ValueError:
+                        earliest_date = today_local
+                        latest_date = today_local
+                else:
+                    earliest_date = today_local
+                    latest_date = today_local
+
+                if latest_date < today_local:
+                    latest_date = today_local
+
+                current_date = earliest_date
+                while current_date <= latest_date:
+                    day_str = current_date.strftime('%Y-%m-%d')
+                    chart_day_labels.append(day_str)
+                    for hour in range(24):
+                        period_key = f"{day_str} {hour:02d}:00:00"
+                        entry = existing_points.get(period_key)
+                        if entry is not None:
+                            filled_chart.append(entry)
+                        else:
+                            filled_chart.append({
+                                'period': period_key,
+                                'revenue': 0,
+                                'orders': 0,
+                                'profit': 0
+                            })
+                    current_date += timedelta(days=1)
+
+                chart_data = filled_chart
+                if chart_day_labels:
+                    chart_window_config['days'] = chart_day_labels
+                    today_str = today_local.strftime('%Y-%m-%d')
+                    if today_str in chart_day_labels:
+                        chart_window_config['today_index'] = chart_day_labels.index(today_str)
+                    else:
+                        chart_window_config['today_index'] = len(chart_day_labels) - 1
+            else:
+                today_date = datetime.now().date()
+                window_span = chart_window_config.get('window_size', 7)
+                existing_points = {entry['period']: entry for entry in chart_data}
+                parsed_dates: List[date] = []
+                for entry in chart_data:
+                    try:
+                        parsed_dates.append(datetime.strptime(entry['period'], '%Y-%m-%d').date())
+                    except (ValueError, TypeError):
+                        continue
+
+                if parsed_dates:
+                    earliest = min(parsed_dates)
+                    latest = max(parsed_dates)
+                    start_date = min(earliest, today_date - timedelta(days=max(window_span - 1, 0)))
+                    end_date = max(latest, today_date)
+                else:
+                    start_date = today_date - timedelta(days=max(window_span - 1, 0))
+                    end_date = today_date
+
+                filled_chart = []
+                current_date = start_date
+                while current_date <= end_date:
+                    period_key = current_date.strftime('%Y-%m-%d')
+                    entry = existing_points.get(period_key)
+                    if entry is not None:
+                        filled_chart.append(entry)
+                    else:
+                        filled_chart.append({
+                            'period': period_key,
+                            'revenue': 0,
+                            'orders': 0,
+                            'profit': 0
+                        })
+                    current_date += timedelta(days=1)
+
+                chart_data = filled_chart
+            
+            # 对比时间段销售额和净利润
+            prev_where, prev_params = build_where(prev_time_filter)
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
+                FROM orders 
+                {prev_where}
+            ''', prev_params)
+            prev_data = cursor.fetchone()
+            prev_revenue = round(prev_data[0], 2) if prev_data else 0
+            prev_orders = prev_data[1] if prev_data else 0
+            
+            # 计算对比时间段净利润
+            prev_profit, _ = calculate_profit_for_period(prev_time_filter)
+            
+            # 当前时间段总计
+            current_where, current_params = build_where(time_filter)
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
+                FROM orders 
+                {current_where}
+            ''', current_params)
+            current_data = cursor.fetchone()
+            current_revenue = round(current_data[0], 2) if current_data else 0
+            current_orders = current_data[1] if current_data else 0
+            
+            # 计算增长率
+            revenue_growth = 0.0
+            orders_growth = 0.0
+            profit_growth = 0.0
+            if prev_revenue > 0:
+                revenue_growth = round(((current_revenue - prev_revenue) / prev_revenue) * 100, 1)
+            if prev_orders > 0:
+                orders_growth = round(((current_orders - prev_orders) / prev_orders) * 100, 1)
+            if prev_profit > 0:
+                profit_growth = round(((current_profit - prev_profit) / prev_profit) * 100, 1)
+            
+            # 最热门商品统计（从订单JSON中解析）- 根据period参数动态调整时间范围，支持自定义范围
+            def parse_datetime_str(value: Optional[str]) -> Optional[datetime]:
+                if not value:
+                    return None
+                for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d']:
+                    try:
+                        return datetime.strptime(value, fmt)
+                    except ValueError:
+                        continue
+                try:
+                    return datetime.fromisoformat(value)
+                except Exception:
+                    return None
+
+            custom_top_start = parse_datetime_str(top_range_start)
+            custom_top_end = parse_datetime_str(top_range_end)
+            custom_top_params: List[Any] = []
+            custom_prev_params: List[Any] = []
+
+            if custom_top_start and custom_top_end and custom_top_start > custom_top_end:
+                custom_top_start, custom_top_end = custom_top_end, custom_top_start
+
+            # 允许自定义范围过滤热销榜单
+            top_time_clause = f'({time_filter})'
+            prev_top_time_clause = f'({prev_time_filter})'
+            if custom_top_start and custom_top_end:
+                start_str = custom_top_start.strftime('%Y-%m-%d %H:%M:%S')
+                end_str = custom_top_end.strftime('%Y-%m-%d %H:%M:%S')
+                # 直接使用本地时间字符串进行比较，避免重复 localtime 偏移导致跨日
+                top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
+                custom_top_params = [start_str, end_str]
+
+                range_delta = custom_top_end - custom_top_start
+                prev_end = custom_top_start - timedelta(seconds=1)
+                prev_start = prev_end - range_delta
+                prev_top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
+                custom_prev_params = [
+                    prev_start.strftime('%Y-%m-%d %H:%M:%S'),
+                    prev_end.strftime('%Y-%m-%d %H:%M:%S')
+                ]
+
+            # 当前期商品销量统计
+            where_clause_orders, params_orders = build_where(top_time_clause, custom_top_params, alias='o')
+            if where_clause_orders:
+                where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
+            else:
+                where_clause_orders = " WHERE o.payment_status = 'succeeded'"
+            cursor.execute(f'''
+                SELECT o.items, o.created_at
+                FROM orders o 
+                {where_clause_orders}
+            ''', params_orders)
+            
+            # 统计当前期商品销量
+            product_stats: Dict[str, Dict[str, Any]] = {}
+            for row in cursor.fetchall():
+                try:
+                    items_json = json.loads(row[0])
+                    for item in items_json:
+                        # 排除抽奖和赠品商品
+                        if item.get('is_lottery') or item.get('is_auto_gift'):
+                            continue
+                        
+                        product_id = item.get('product_id')
+                        product_name = item.get('name', '未知商品')
+                        quantity = int(item.get('quantity', 0))
+                        price = float(item.get('price', 0))
+                        
+                        if product_id not in product_stats:
+                            product_stats[product_id] = {
+                                'name': product_name,
+                                'sold': 0,
+                                'revenue': 0
+                            }
+                        
+                        product_stats[product_id]['sold'] += quantity
+                        product_stats[product_id]['revenue'] += quantity * price
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            
+            # 上一期商品销量统计
+            prev_where_clause_orders, prev_params_orders = build_where(prev_top_time_clause, custom_prev_params, alias='o')
+            if prev_where_clause_orders:
+                prev_where_clause_orders = prev_where_clause_orders + " AND o.payment_status = 'succeeded'"
+            else:
+                prev_where_clause_orders = " WHERE o.payment_status = 'succeeded'"
+            cursor.execute(f'''
+                SELECT o.items, o.created_at
+                FROM orders o 
+                {prev_where_clause_orders}
+            ''', prev_params_orders)
+            
+            # 统计上一期商品销量
+            prev_product_stats: Dict[str, int] = {}
+            for row in cursor.fetchall():
+                try:
+                    items_json = json.loads(row[0])
+                    for item in items_json:
+                        # 排除抽奖和赠品商品
+                        if item.get('is_lottery') or item.get('is_auto_gift'):
+                            continue
+                        
+                        product_id = item.get('product_id')
+                        quantity = int(item.get('quantity', 0))
+                        
+                        if product_id not in prev_product_stats:
+                            prev_product_stats[product_id] = 0
+                        
+                        prev_product_stats[product_id] += quantity
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            
+            # 按销量排序，取前10，并计算与上一期的对比
+            top_products = []
+            for product_id, stats in product_stats.items():
+                current_sold = stats['sold']
+                prev_sold = prev_product_stats.get(product_id, 0)
+                change = current_sold - prev_sold
+                
+                top_products.append({
+                    'name': stats['name'],
+                    'sold': current_sold,
+                    'revenue': round(stats['revenue'], 2),
+                    'change': change,
+                    'prev_sold': prev_sold
+                })
+            
+            top_products = sorted(top_products, key=lambda x: x['sold'], reverse=True)[:10]
+            
+            # 用户增长统计
+            customers_where, customers_params = build_where(alias='o')
+            if customers_where:
+                cursor.execute(f'''
+                    SELECT COUNT(DISTINCT o.student_id)
+                    FROM orders o
+                    {customers_where}
+                ''', customers_params)
+            else:
+                cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
+            total_users = cursor.fetchone()[0] or 0
+
+            recent_clause = "date(o.created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
+            recent_where, recent_params = build_where(recent_clause, alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {recent_where}
+            ''', recent_params)
+            new_users_week = cursor.fetchone()[0] or 0
+
+            # 计算当前统计周期与对比周期的消费用户变化
+            current_users_where, current_users_params = build_where(f'({time_filter})', alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {current_users_where}
+            ''', current_users_params)
+            current_period_users = cursor.fetchone()[0] or 0
+
+            prev_users_where, prev_users_params = build_where(f'({prev_time_filter})', alias='o')
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT o.student_id)
+                FROM orders o
+                {prev_users_where}
+            ''', prev_users_params)
+            prev_period_users = cursor.fetchone()[0] or 0
+
+            users_growth = 0.0
+            if prev_period_users > 0:
+                users_growth = round(((current_period_users - prev_period_users) / prev_period_users) * 100, 1)
+            
+            # 计算总净利润和今日净利润
+            total_profit, _ = calculate_profit_for_period("o.payment_status = 'succeeded'")
+            today_profit, _ = calculate_profit_for_period("date(created_at, 'localtime') = date('now', 'localtime') AND o.payment_status = 'succeeded'")
+            
+            return {
+                **basic_stats,
+                'period': period,
+                'period_name': date_format,
+                'chart_data': chart_data,
+                'chart_settings': chart_window_config,
+                'current_period': {
+                    'revenue': current_revenue,
+                    'orders': current_orders,
+                    'profit': round(current_profit, 2),
+                    'data': current_period_data
+                },
+                'comparison': {
+                    'prev_revenue': prev_revenue,
+                    'prev_orders': prev_orders,
+                    'prev_profit': round(prev_profit, 2),
+                    'revenue_growth': revenue_growth,
+                    'orders_growth': orders_growth,
+                    'profit_growth': profit_growth
+                },
+                'profit_stats': {
+                    'total_profit': round(total_profit, 2),
+                    'today_profit': round(today_profit, 2),
+                    'current_period_profit': round(current_profit, 2)
+                },
+                'top_products': top_products,
+                'users': {
+                    'total': total_users,
+                    'new_this_week': new_users_week,
+                    'current_period_new': current_period_users,
+                    'prev_period_new': prev_period_users,
+                    'growth': users_growth
+                }
+            }
 
     @staticmethod
     def get_customers_with_purchases(

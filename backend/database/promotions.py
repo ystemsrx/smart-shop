@@ -665,19 +665,19 @@ class RewardDB:
             return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
-    def create_reward(
+    def add_reward_from_order(
         user_identifier: Union[str, int],
-        source_order_id: str,
         prize_name: str,
-        quantity: int = 1,
+        prize_product_id: Optional[str],
+        quantity: int,
+        source_order_id: str,
         *,
         owner_id: Optional[str] = None,
-        prize_product_id: Optional[str] = None,
+        prize_group_id: Optional[str] = None,
         prize_product_name: Optional[str] = None,
         prize_variant_id: Optional[str] = None,
         prize_variant_name: Optional[str] = None,
-        prize_unit_price: Optional[float] = None,
-        prize_group_id: Optional[str] = None
+        prize_unit_price: Optional[float] = None
     ) -> Optional[str]:
         user_ref = RewardDB._resolve_user_identifier(user_identifier)
         if not user_ref:

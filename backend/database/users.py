@@ -240,6 +240,7 @@ class UserProfileDB:
         exclude_address_ids: Optional[List[str]] = None,
         exclude_building_ids: Optional[List[str]] = None
     ) -> int:
+        """统计指定范围内的注册用户数量，支持排除特定地址/楼栋"""
         normalized_addresses = [aid for aid in (address_ids or []) if aid]
         normalized_buildings = [bid for bid in (building_ids or []) if bid]
         normalized_exclude_addresses = [aid for aid in (exclude_address_ids or []) if aid]
@@ -289,14 +290,23 @@ class UserProfileDB:
                     SELECT COUNT(DISTINCT student_id) AS count
                     FROM user_profiles
                     {where_sql}
-                ''', params)
+                ''', tuple(params))
                 row = cursor.fetchone()
                 if not row:
-                    return 0
-                return int(row['count'])
+                    count = 0
+                elif hasattr(row, 'keys') and 'count' in row.keys():
+                    count = int(row['count'] or 0)
+                else:
+                    count = int(row[0] or 0)
             except Exception as exc:
-                logger.error("统计用户数量失败: %s", exc)
+                logger.error("统计用户配置数量失败: %s", exc)
                 return 0
+
+        # 回退到 users 表计数，确保兼容旧数据
+        if count == 0 and not agent_id and not normalized_addresses and not normalized_buildings and not normalized_exclude_addresses and not normalized_exclude_buildings:
+            return UserDB.count_users()
+
+        return count
 
     @staticmethod
     def get_user_profile(student_id: str) -> Optional[Dict]:
@@ -405,25 +415,96 @@ class UserProfileDB:
                 return []
 
     @staticmethod
-    def get_shipping(student_id: str) -> Optional[Dict[str, Any]]:
-        """获取用户配送信息（向后兼容旧接口）。"""
+    def get_shipping(user_identifier: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """获取用户配送信息。"""
+        user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            return None
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                '''
-                SELECT name, phone, dormitory, building, room, full_address,
-                       address_id, building_id, agent_id, updated_at
-                FROM user_profiles
-                WHERE student_id = ?
-                ''',
-                (student_id,)
-            )
+
+            # 优先使用user_id查询
+            cursor.execute('SELECT * FROM user_profiles WHERE user_id = ?', (user_ref['user_id'],))
             row = cursor.fetchone()
+
+            # 如果user_id查询没有结果，尝试用student_id查询（向后兼容）
+            if not row:
+                cursor.execute('SELECT * FROM user_profiles WHERE student_id = ?', (user_ref['student_id'],))
+                row = cursor.fetchone()
+
+                # 如果找到了基于student_id的记录，立即迁移到user_id
+                if row:
+                    try:
+                        cursor.execute(
+                            'UPDATE user_profiles SET user_id = ? WHERE student_id = ?',
+                            (user_ref['user_id'], user_ref['student_id'])
+                        )
+                        conn.commit()
+                        logger.info("自动迁移用户配置记录: student_id=%s, user_id=%s", user_ref['student_id'], user_ref['user_id'])
+                    except Exception as exc:
+                        logger.warning("迁移用户配置记录失败: %s", exc)
+                        conn.rollback()
+
             return dict(row) if row else None
 
     @staticmethod
-    def upsert_shipping(student_id: str, profile: Dict[str, Any]) -> bool:
-        """
-        保存/更新配送信息（向后兼容旧接口，包装 upsert_profile）。
-        """
-        return UserProfileDB.upsert_profile(student_id, profile)
+    def upsert_shipping(user_identifier: Union[str, int], shipping: Dict[str, Any]) -> bool:
+        """保存/更新配送信息。"""
+        name = shipping.get('name')
+        phone = shipping.get('phone')
+        dormitory = shipping.get('dormitory')
+        building = shipping.get('building')
+        room = shipping.get('room')
+        full_address = shipping.get('full_address')
+        address_id = shipping.get('address_id')
+        building_id = shipping.get('building_id')
+        agent_id = shipping.get('agent_id')
+        user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
+        if not user_ref:
+            logger.error("无法解析用户标识符: %s", user_identifier)
+            return False
+
+        user_id = user_ref['user_id']
+        student_id = user_ref['student_id']
+
+        # 验证必要的数据
+        if not user_id or not student_id:
+            logger.error("用户数据不完整: user_id=%s, student_id=%s", user_id, student_id)
+            return False
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # 优先检查user_id是否存在
+            cursor.execute('SELECT student_id FROM user_profiles WHERE user_id = ?', (user_id,))
+            exists = cursor.fetchone() is not None
+
+            # 如果user_id不存在，检查student_id是否存在（向后兼容）
+            if not exists:
+                cursor.execute('SELECT student_id FROM user_profiles WHERE student_id = ?', (student_id,))
+                exists = cursor.fetchone() is not None
+
+                if exists:
+                    # 如果找到基于student_id的记录，先更新为user_id
+                    cursor.execute('''
+                        UPDATE user_profiles
+                        SET user_id = ?, name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE student_id = ?
+                    ''', (user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, student_id))
+                else:
+                    # 创建新记录
+                    cursor.execute('''
+                        INSERT INTO user_profiles (student_id, user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (student_id, user_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id))
+            else:
+                # 使用user_id更新现有记录，同时确保student_id也被正确设置
+                cursor.execute('''
+                    UPDATE user_profiles
+                    SET student_id = ?, name = ?, phone = ?, dormitory = ?, building = ?, room = ?, full_address = ?, address_id = ?, building_id = ?, agent_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                ''', (student_id, name, phone, dormitory, building, room, full_address, address_id, building_id, agent_id, user_id))
+
+            conn.commit()
+            return True
