@@ -4196,11 +4196,13 @@ export default function ChatModern({ user, initialConversationId = null }) {
             {isSidebarOpen ? (
               <>
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <img 
-                    src="/logo.png" 
-                    alt={SHOP_NAME} 
-                    className="h-10 w-10 rounded-full object-cover flex-shrink-0 border-2 border-gray-200 shadow-sm"
-                  />
+                  <div className="h-10 w-10 flex-shrink-0 bg-white rounded-full p-[3px] shadow-sm border border-gray-300">
+                    <img 
+                      src="/logo.png" 
+                      alt={SHOP_NAME} 
+                      className="h-full w-full rounded-full object-contain"
+                    />
+                  </div>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-900 truncate">{SHOP_NAME}</div>
                     <div className="text-xs text-gray-500">AI Assistant</div>

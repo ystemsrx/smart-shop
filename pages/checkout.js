@@ -759,15 +759,8 @@ export default function Checkout() {
       </Head>
 
        <div className="min-h-screen" style={{
-         background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(236, 72, 153, 0.12) 25%, rgba(168, 85, 247, 0.1) 50%, rgba(6, 182, 212, 0.12) 75%, rgba(16, 185, 129, 0.15) 100%), #fafafa'
+         background: 'linear-gradient(135deg, rgba(147, 197, 253, 0.2) 0%, rgba(252, 231, 243, 0.25) 50%, rgba(191, 219, 254, 0.2) 100%), #fafafa'
        }}>
-        {/* 背景装饰 */}
-         <div className="absolute inset-0 overflow-hidden">
-           <div className="absolute -top-20 -left-20 w-80 h-80 rounded-full bg-orange-400/8 backdrop-blur-3xl animate-pulse"></div>
-           <div className="absolute top-40 -right-32 w-96 h-96 rounded-full bg-pink-400/6 backdrop-blur-3xl"></div>
-           <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 w-72 h-72 rounded-full bg-cyan-400/8 backdrop-blur-3xl"></div>
-           <div className="absolute bottom-32 right-1/4 w-56 h-56 rounded-full bg-emerald-400/6 backdrop-blur-3xl"></div>
-         </div>
 
         {/* 统一导航栏 */}
         <Nav active="checkout" />
