@@ -1297,7 +1297,7 @@ export const OrderTable = ({
         <table className="min-w-full divide-y divide-gray-100">
           <thead>
             <tr className="bg-gray-50/50">
-              <th className="px-6 py-4 text-left w-12">
+              <th className="px-6 py-4 text-center w-12">
                 <input
                   type="checkbox"
                   className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -1305,13 +1305,13 @@ export const OrderTable = ({
                   onChange={(e) => onSelectAllOrders(e.target.checked, allIds)}
                 />
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">订单信息</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">客户</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">商品</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">金额</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">时间</th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider"></th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">订单信息</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">客户</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">商品</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">金额</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">时间</th>
+              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">
@@ -1329,7 +1329,7 @@ export const OrderTable = ({
             ) : (
               orders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50/80 transition-colors group">
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap text-center">
                     <input
                       type="checkbox"
                       className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -1338,7 +1338,7 @@ export const OrderTable = ({
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 items-center">
                       <span className="text-sm font-medium text-gray-900 font-mono">{order.id}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
@@ -1359,7 +1359,7 @@ export const OrderTable = ({
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col items-center">
                       <span className="text-sm text-gray-900 font-medium">{order.shipping_info?.name || order.customer_name || '未知'}</span>
                       <span className="text-xs text-gray-500 mt-0.5">{order.student_id || '—'}</span>
                       <span className="text-xs text-gray-400 mt-0.5 truncate max-w-[150px]" title={order.shipping_info?.full_address}>
@@ -1367,20 +1367,20 @@ export const OrderTable = ({
                       </span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap text-center">
                     <span className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
                       {(order.items || []).reduce((sum, it) => sum + (parseInt(it.quantity) || 0), 0)} 件
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col items-center">
                       <span className="text-sm font-bold text-gray-900">¥{Number(order.total_amount).toFixed(2)}</span>
                       {order.discount_amount > 0 && (
                         <span className="text-xs text-pink-500">-¥{Number(order.discount_amount).toFixed(2)}</span>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap text-center">
                     <StatusSelectPopover 
                       currentStatus={getUnifiedStatus(order)}
                       onSelect={(newStatus) => onUpdateUnifiedStatus(order, newStatus)}
@@ -1388,12 +1388,12 @@ export const OrderTable = ({
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col text-xs text-gray-500">
+                    <div className="flex flex-col text-xs text-gray-500 items-center">
                       <span>{formatDate(order.created_at_timestamp ?? order.created_at).split(' ')[0]}</span>
                       <span className="text-gray-400">{formatDate(order.created_at_timestamp ?? order.created_at).split(' ')[1]}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                  <td className="px-6 py-4 whitespace-nowrap text-center">
                     <button
                       onClick={() => setViewingOrder(order)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 transition-all shadow-sm active:scale-95"

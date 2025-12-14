@@ -817,7 +817,8 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             <table className="w-full">
               <thead className="bg-gray-50/50 border-b border-gray-100">
                 <tr>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">奖项名称</th>
+                  <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-16"></th>
+                  <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">奖项名称</th>
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">状态</th>
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">权重</th>
                   <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">商品数</th>
@@ -841,20 +842,20 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   
                   return (
                     <tr key={prize.id} className="hover:bg-gray-50/50 transition-colors group">
-                      <td className="px-8 py-5">
-                        <div className="flex items-center gap-4">
-                          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs">
-                            {index + 1}
-                          </div>
-                          <div>
-                            <div className="font-bold text-gray-900">{prize.display_name}</div>
-                            {hasWarning && (
-                              <div className="flex items-center gap-1.5 text-xs text-red-500 mt-1 font-medium">
-                                <i className="fas fa-exclamation-triangle"></i>
-                                <span>无可用库存</span>
-                              </div>
-                            )}
-                          </div>
+                      <td className="px-4 py-5 text-center">
+                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs mx-auto">
+                          {index + 1}
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col items-center">
+                          <div className="font-bold text-gray-900">{prize.display_name}</div>
+                          {hasWarning && (
+                            <div className="flex items-center gap-1.5 text-xs text-red-500 mt-1 font-medium">
+                              <i className="fas fa-exclamation-triangle"></i>
+                              <span>无可用库存</span>
+                            </div>
+                          )}
                         </div>
                       </td>
                       

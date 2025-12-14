@@ -332,7 +332,7 @@ export const ProductTable = ({
     return (
       <button
         onClick={() => onSortClick && onSortClick(column)}
-        className={`flex items-center gap-1.5 transition-colors group ${isActive ? 'text-gray-900 font-semibold' : 'hover:text-gray-700'}`}
+        className={`flex items-center justify-center gap-1.5 transition-colors group mx-auto ${isActive ? 'text-gray-900 font-semibold' : 'hover:text-gray-700'}`}
       >
         <span>{label}</span>
         <div className="flex flex-col items-center">
@@ -454,7 +454,7 @@ export const ProductTable = ({
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50/50">
             <tr>
-              <th className="px-6 py-3 text-left w-12">
+              <th className="px-6 py-3 text-center w-12">
                 <input
                   type="checkbox"
                   checked={isAllSelected}
@@ -463,13 +463,13 @@ export const ProductTable = ({
                   className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">商品信息</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="category" label="分类" /></th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="price" label="价格" /></th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="stock" label="库存" /></th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32"><SortIndicator column="created_at" label="创建时间" /></th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">操作</th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">商品信息</th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="category" label="分类" /></th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="price" label="价格" /></th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider"><SortIndicator column="stock" label="库存" /></th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-32"><SortIndicator column="created_at" label="创建时间" /></th>
+              <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">操作</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-50">
@@ -481,7 +481,7 @@ export const ProductTable = ({
               
               return (
                 <tr key={product.id} className={`group transition-colors hover:bg-gray-50/80 ${isSelected ? 'bg-indigo-50/30' : ''}`}>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 text-center">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -490,7 +490,7 @@ export const ProductTable = ({
                     />
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 justify-center">
                       <div className="relative flex-shrink-0 w-12 h-12 rounded-lg border border-gray-100 bg-gray-50 overflow-hidden group-hover:shadow-sm transition-all">
                         {getProductImage(product) ? (
                           <RetryImage
@@ -526,13 +526,13 @@ export const ProductTable = ({
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 text-center">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
                       {product.category}
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 justify-center">
                       <button
                         onClick={() => onToggleActive(product)}
                         disabled={operatingProducts?.has(product.id)}
@@ -546,14 +546,14 @@ export const ProductTable = ({
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex flex-col">
+                    <div className="flex items-center justify-center">
                       {(() => {
                         const z = (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
                         const hasDiscount = z && z > 0 && z < 10;
                         const finalPrice = hasDiscount ? (Math.round(product.price * (z / 10) * 100) / 100) : product.price;
                         return (
                           <div className="flex items-center gap-3">
-                            <div className="flex flex-col items-start">
+                            <div className="flex flex-col items-end">
                               <span className="text-sm font-semibold text-gray-900">¥{finalPrice}</span>
                               {hasDiscount && <span className="text-xs text-gray-400 line-through">¥{product.price}</span>}
                             </div>
@@ -568,23 +568,25 @@ export const ProductTable = ({
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    {product.has_variants ? (
-                      <button
-                        onClick={() => onOpenVariantStock(product)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-colors"
-                      >
-                        <Layers size={12} />
-                        多规格
-                      </button>
-                    ) : (
-                      <StockControl product={product} onUpdateStock={onUpdateStock} />
-                    )}
+                    <div className="flex items-center justify-center">
+                      {product.has_variants ? (
+                        <button
+                          onClick={() => onOpenVariantStock(product)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-colors"
+                        >
+                          <Layers size={12} />
+                          多规格
+                        </button>
+                      ) : (
+                        <StockControl product={product} onUpdateStock={onUpdateStock} />
+                      )}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-xs text-gray-500 font-mono">
+                  <td className="px-6 py-4 text-center text-xs text-gray-500 font-mono">
                     {new Date(product.created_at.replace(' ', 'T') + 'Z').toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 text-left">
-                    <div className="flex items-center justify-start gap-2">
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={() => onEdit(product)}
                         className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all"
