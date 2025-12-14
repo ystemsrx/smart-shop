@@ -1982,7 +1982,7 @@ export default function Shop() {
                                             <span className="truncate">
                                               {parseFloat(c.amount).toFixed(2)}元优惠券
                                               <span className={`text-xs ml-2 ${selectedCouponId === c.id ? 'text-pink-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
-                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at).toLocaleDateString()}` : ''}
+                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : ''}
                                               </span>
                                             </span>
                                             {selectedCouponId === c.id && (

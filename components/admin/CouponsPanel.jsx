@@ -651,16 +651,24 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                                         </span>
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
-                                        {c.created_at ? new Date(c.created_at).toLocaleString('zh-CN', { 
-                                          year: 'numeric', month: '2-digit', day: '2-digit',
-                                          hour: '2-digit', minute: '2-digit'
-                                        }) : '—'}
+                                        {c.created_at ? (() => {
+                                          // SQLite返回的是UTC时间，需要明确处理为UTC后再转换为本地时间
+                                          const utcDate = new Date(c.created_at.replace(' ', 'T') + 'Z');
+                                          return utcDate.toLocaleString('zh-CN', { 
+                                            year: 'numeric', month: '2-digit', day: '2-digit',
+                                            hour: '2-digit', minute: '2-digit'
+                                          });
+                                        })() : '—'}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
-                                        {c.expires_at ? new Date(c.expires_at).toLocaleString('zh-CN', { 
-                                          year: 'numeric', month: '2-digit', day: '2-digit',
-                                          hour: '2-digit', minute: '2-digit'
-                                        }) : <span className="text-gray-400">永久有效</span>}
+                                        {c.expires_at ? (() => {
+                                          // 过期时间同样需要处理
+                                          const utcDate = new Date(c.expires_at.replace(' ', 'T') + 'Z');
+                                          return utcDate.toLocaleString('zh-CN', { 
+                                            year: 'numeric', month: '2-digit', day: '2-digit',
+                                            hour: '2-digit', minute: '2-digit'
+                                          });
+                                        })() : <span className="text-gray-400">永久有效</span>}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-center">
                                         {c.status === 'active' && !expired ? (

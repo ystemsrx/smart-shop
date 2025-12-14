@@ -205,7 +205,7 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
                   )}
                   <p className="text-xs text-gray-400 mt-1 font-mono flex items-center gap-1.5">
                     <i className="far fa-clock"></i>
-                    {new Date(qr.created_at).toLocaleDateString()}
+                    {new Date(qr.created_at.replace(' ', 'T') + 'Z').toLocaleDateString()}
                   </p>
                 </div>
 

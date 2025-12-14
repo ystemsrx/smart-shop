@@ -581,7 +581,7 @@ export const ProductTable = ({
                     )}
                   </td>
                   <td className="px-6 py-4 text-xs text-gray-500 font-mono">
-                    {new Date(product.created_at).toLocaleDateString()}
+                    {new Date(product.created_at.replace(' ', 'T') + 'Z').toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 text-left">
                     <div className="flex items-center justify-start gap-2">

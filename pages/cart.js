@@ -375,7 +375,7 @@ const CouponSelector = ({ coupons, selectedId, onSelect, disabled = false }) => 
               省 ¥{parseFloat(selectedCoupon?.amount || 0)}
             </span>
             <span className="text-xs text-slate-500 truncate w-full text-left">
-              {selectedCoupon?.expires_at ? `有效期至 ${new Date(selectedCoupon.expires_at).toLocaleDateString()}` : '永久有效'}
+              {selectedCoupon?.expires_at ? `有效期至 ${new Date(selectedCoupon.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
             </span>
           </div>
         </div>
@@ -417,7 +417,7 @@ const CouponSelector = ({ coupons, selectedId, onSelect, disabled = false }) => 
                         省 ¥{parseFloat(coupon.amount || 0)}
                       </div>
                       <div className="text-xs text-slate-500">
-                        {coupon.expires_at ? `截止 ${new Date(coupon.expires_at).toLocaleDateString()}` : '永久有效'}
+                        {coupon.expires_at ? `截止 ${new Date(coupon.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
                       </div>
                     </div>
                   </div>
@@ -1551,7 +1551,7 @@ export default function Cart() {
                                       <div className={`text-sm font-bold ${usable ? 'text-emerald-600' : 'text-slate-500'}`}>
                                         {usable ? '✓ 可用' : '✗ 不可用（需大于券额）'}
                                       </div>
-                                      <div className="text-xs text-slate-600 mt-1">{g.expires_at ? `到期：${new Date(g.expires_at).toLocaleString('zh-CN')}` : '永久有效'}</div>
+                                      <div className="text-xs text-slate-600 mt-1">{g.expires_at ? `到期：${new Date(g.expires_at.replace(' ', 'T') + 'Z').toLocaleString('zh-CN')}` : '永久有效'}</div>
                                       <div className="text-xs text-slate-500">满 ¥{g.amount} 可用</div>
                                     </div>
                                   </div>

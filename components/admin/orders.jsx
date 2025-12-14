@@ -1687,7 +1687,7 @@ export const OrdersPanel = ({
     
     // Fallback: use current page orders if stats not available
     if (orders && orders.length > 0) {
-      const timestamps = orders.map(o => o.created_at_timestamp ? o.created_at_timestamp * 1000 : new Date(o.created_at).getTime());
+      const timestamps = orders.map(o => o.created_at_timestamp ? o.created_at_timestamp * 1000 : new Date(o.created_at.replace(' ', 'T') + 'Z').getTime());
       const minTs = Math.min(...timestamps);
       if (minTs && !isNaN(minTs)) {
         return new Date(minTs);

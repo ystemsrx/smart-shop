@@ -915,8 +915,8 @@ export function useProductManagement({
           const bStock = getProductStock(b);
           orderResult = aStock - bStock;
         } else if (sortBy === 'created_at') {
-          const aTime = new Date(a.created_at).getTime();
-          const bTime = new Date(b.created_at).getTime();
+          const aTime = new Date(a.created_at.replace(' ', 'T') + 'Z').getTime();
+          const bTime = new Date(b.created_at.replace(' ', 'T') + 'Z').getTime();
           orderResult = aTime - bTime;
         }
 

@@ -1174,7 +1174,7 @@ export default function Checkout() {
                                   {selectedCouponId 
                                     ? (() => {
                                         const c = usableCoupons.find(c => c.id === selectedCouponId);
-                                        return c ? `${parseFloat(c.amount).toFixed(2)}元优惠券${c.expires_at ? ` (${new Date(c.expires_at).toLocaleDateString()})` : ''}` : '请选择优惠券';
+                                        return c ? `${parseFloat(c.amount).toFixed(2)}元优惠券${c.expires_at ? ` (${new Date(c.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()})` : ''}` : '请选择优惠券';
                                       })()
                                     : '请选择优惠券'}
                                 </span>
@@ -1213,7 +1213,7 @@ export default function Checkout() {
                                             <span className="truncate">
                                               {parseFloat(c.amount).toFixed(2)}元优惠券
                                               <span className={`text-xs ml-2 ${selectedCouponId === c.id ? 'text-pink-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
-                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at).toLocaleDateString()}` : '永久有效'}
+                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
                                               </span>
                                             </span>
                                             {selectedCouponId === c.id && (
