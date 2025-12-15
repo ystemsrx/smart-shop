@@ -585,7 +585,7 @@ async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Req
             normalized_items = []
             for item in items:
                 normalized_items.append({"product_id": item.product_id, "variant_id": item.variant_id, "quantity": item.quantity if hasattr(item, "quantity") else 1})
-            GiftThresholdDB.set_items(threshold_id, normalized_items)
+            GiftThresholdDB.add_items_to_threshold(threshold_id, owner_id, normalized_items)
 
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛创建成功", {"thresholds": thresholds})
@@ -626,7 +626,7 @@ async def agent_create_gift_threshold(payload: GiftThresholdCreate, request: Req
             normalized_items = []
             for item in items:
                 normalized_items.append({"product_id": item.product_id, "variant_id": item.variant_id, "quantity": item.quantity if hasattr(item, "quantity") else 1})
-            GiftThresholdDB.set_items(threshold_id, normalized_items)
+            GiftThresholdDB.add_items_to_threshold(threshold_id, owner_id, normalized_items)
 
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛创建成功", {"thresholds": thresholds})
@@ -640,7 +640,7 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
     admin = get_current_admin_required_from_cookie(request)
     owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
-        existing = GiftThresholdDB.get_threshold(threshold_id, owner_id)
+        existing = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not existing:
             return error_response("门槛不存在", 404)
 
@@ -668,7 +668,7 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             normalized_items = []
             for item in payload.items or []:
                 normalized_items.append({"product_id": item.product_id, "variant_id": item.variant_id, "quantity": item.quantity if hasattr(item, "quantity") else 1})
-            GiftThresholdDB.set_items(threshold_id, normalized_items)
+            GiftThresholdDB.add_items_to_threshold(threshold_id, owner_id, normalized_items)
 
         updated_thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛更新成功", {"thresholds": updated_thresholds})
@@ -682,7 +682,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
     agent, _ = require_agent_with_scope(request)
     owner_id = get_owner_id_for_staff(agent)
     try:
-        existing = GiftThresholdDB.get_threshold(threshold_id, owner_id)
+        existing = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not existing:
             return error_response("门槛不存在", 404)
 
@@ -710,7 +710,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             normalized_items = []
             for item in payload.items or []:
                 normalized_items.append({"product_id": item.product_id, "variant_id": item.variant_id, "quantity": item.quantity if hasattr(item, "quantity") else 1})
-            GiftThresholdDB.set_items(threshold_id, normalized_items)
+            GiftThresholdDB.add_items_to_threshold(threshold_id, owner_id, normalized_items)
 
         updated_thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛更新成功", {"thresholds": updated_thresholds})
