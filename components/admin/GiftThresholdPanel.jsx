@@ -173,12 +173,6 @@ const GiftItemsViewModal = ({ open, onClose, threshold }) => {
                     </span>
                   </span>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
-                >
-                  关闭
-                </button>
               </div>
             </div>
           </motion.div>
@@ -268,7 +262,7 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
         
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-6 py-2.5 bg-black text-white text-sm font-medium rounded-full hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
+          className="inline-flex items-center gap-2 px-6 py-2.5 bg-black text-white text-sm font-medium rounded-full hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 w-fit"
         >
           <i className="fas fa-plus text-sm"></i>
           添加门槛
@@ -296,14 +290,79 @@ export const GiftThresholdPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             {thresholds.map((threshold) => (
               <div 
                 key={threshold.id} 
-                className={`bg-white rounded-2xl border transition-all duration-300 group ${
+                className={`bg-white rounded-2xl border transition-all duration-300 group max-w-full overflow-hidden ${
                   threshold.is_active 
                     ? 'border-gray-200 shadow-sm hover:shadow-md' 
                     : 'border-gray-100 opacity-75 hover:opacity-100'
                 }`}
               >
                 <div className="p-6">
-                  <div className="flex items-start justify-between mb-6">
+                  {/* Mobile Header Layout */}
+                  <div className="md:hidden mb-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-3">
+                         <div className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${
+                            threshold.is_active 
+                              ? 'bg-black text-white' 
+                              : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            <i className="fas fa-coins text-sm"></i>
+                          </div>
+                          <h4 className="text-lg font-bold text-gray-900">
+                             满 {threshold.threshold_amount} 元
+                          </h4>
+                      </div>
+                      <span className="text-xs text-gray-500 font-medium bg-gray-50 px-2 py-1 rounded-lg">
+                           {threshold.gift_products && threshold.gift_coupon ? '商品+券' : 
+                            threshold.gift_products ? '仅商品' : 
+                            threshold.gift_coupon ? '仅优惠券' : '无赠品'}
+                      </span>
+                    </div>
+
+                    {/* 启用状态和切换按钮 - 居中平分 */}
+                    <div className="flex items-center justify-center gap-6 mb-3">
+                       <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                         threshold.is_active 
+                           ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                           : 'bg-gray-50 text-gray-500 border-gray-200'
+                       }`}>
+                         <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${threshold.is_active ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+                         {threshold.is_active ? '启用中' : '已停用'}
+                       </span>
+                       
+                       <button
+                         onClick={() => handleToggleActive(threshold)}
+                         className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                           threshold.is_active
+                             ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                             : 'bg-black text-white hover:bg-gray-800'
+                         }`}
+                       >
+                         {threshold.is_active ? '停用' : '启用'}
+                       </button>
+                    </div>
+                    
+                    {/* 编辑和删除按钮 - 居中显示 */}
+                    <div className="flex items-center justify-center gap-4">
+                       <button
+                         onClick={() => setEditingThreshold(threshold)}
+                         className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-blue-600 bg-blue-50 border border-blue-100 text-xs font-medium hover:bg-blue-100 transition-colors"
+                       >
+                         <i className="fas fa-edit text-xs"></i>
+                         编辑
+                       </button>
+                       <button
+                         onClick={() => handleDelete(threshold.id)}
+                         className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-red-600 bg-red-50 border border-red-100 text-xs font-medium hover:bg-red-100 transition-colors"
+                       >
+                         <i className="fas fa-trash text-xs"></i>
+                         删除
+                       </button>
+                    </div>
+                  </div>
+
+                  {/* Desktop Header Layout */}
+                  <div className="hidden md:flex items-start justify-between mb-6">
                     <div className="flex items-center gap-4">
                       <div className={`flex items-center justify-center w-12 h-12 rounded-2xl ${
                         threshold.is_active 
@@ -788,41 +847,49 @@ const GiftThresholdModal = ({ open, onClose, onSave, threshold, apiRequest, apiP
                 
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
                   {selectedItems.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-4">
+                    <div className="flex flex-col gap-2 mb-4">
                       {selectedItems.map((item, idx) => {
                         const isInactive = item.is_active === false || item.is_active === 0;
                         const isOutOfStock = !item.stock || item.stock <= 0;
                         const hasIssue = isInactive || isOutOfStock;
                         
                         return (
-                          <span 
+                          <div 
                             key={idx} 
-                            className={`inline-flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm font-medium shadow-sm ${
+                            className={`flex items-center justify-between p-3 border rounded-xl text-sm shadow-sm ${
                               hasIssue 
                                 ? 'bg-red-50 border-red-200 text-red-800' 
                                 : 'bg-white border-gray-200 text-gray-900'
                             }`}
                           >
-                            {isInactive && (
-                              <span className="text-red-500 text-xs">
-                                <i className="fas fa-pause-circle"></i>
-                              </span>
-                            )}
-                            <span>{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
-                            {isInactive && <span className="text-xs text-red-500">已下架</span>}
-                            {!isInactive && isOutOfStock && <span className="text-xs text-red-500">缺货</span>}
+                           <div className="flex-1 min-w-0 pr-2">
+                              <div className="flex items-center gap-2 mb-1">
+                                {isInactive && (
+                                  <span className="text-red-500 text-xs shrink-0">
+                                    <i className="fas fa-pause-circle"></i>
+                                  </span>
+                                )}
+                                <span className="font-medium truncate block w-full">{item.product_name}{item.variant_name ? ` (${item.variant_name})` : ''}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs opacity-80">
+                                 {isInactive && <span className="text-red-600 font-bold bg-white/50 px-1 rounded">已下架</span>}
+                                 {!isInactive && isOutOfStock && <span className="text-red-600 font-bold bg-white/50 px-1 rounded">缺货</span>}
+                                 {!hasIssue && <span>库存正常</span>}
+                              </div>
+                           </div>
+
                             <button
                               type="button"
                               onClick={() => handleItemToggle(item)}
-                              className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0 ${
                                 hasIssue 
                                   ? 'bg-red-100 hover:bg-red-200 text-red-600' 
                                   : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
                               }`}
                             >
-                              <i className="fas fa-times text-xs"></i>
+                              <i className="fas fa-times text-sm"></i>
                             </button>
-                          </span>
+                          </div>
                         );
                       })}
                     </div>

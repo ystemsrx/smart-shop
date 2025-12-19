@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatReservationCutoff } from './helpers';
 import { getApiBaseUrl } from '../../utils/runtimeConfig';
+import { User, Clock } from 'lucide-react';
 
 // 统一状态映射（显示）
 export const UNIFIED_STATUS_MAP = {
@@ -132,6 +133,7 @@ const ExportModal = ({
   const [startTime, setStartTime] = useState(null);
   const [endTime, setEndTime] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyPanelPosition, setHistoryPanelPosition] = useState({ top: 0, right: 8 });
   const historyButtonRef = useRef(null);
   const historyPanelRef = useRef(null);
 
@@ -521,7 +523,23 @@ const ExportModal = ({
                     <button
                       ref={historyButtonRef}
                       onClick={() => {
-                        if (!showHistory && onLoadHistory) void onLoadHistory();
+                        if (!showHistory) {
+                          if (onLoadHistory) void onLoadHistory();
+                          // 计算面板位置
+                          if (historyButtonRef.current) {
+                            const rect = historyButtonRef.current.getBoundingClientRect();
+                            const panelWidth = 320;
+                            // 确保面板左侧不会超出屏幕
+                            const rightPos = window.innerWidth - rect.right;
+                            const leftEdge = rect.right - panelWidth;
+                            // 如果左侧会超出屏幕，调整 right 值
+                            const adjustedRight = leftEdge < 8 ? window.innerWidth - panelWidth - 8 : rightPos;
+                            setHistoryPanelPosition({
+                              top: rect.bottom + 8,
+                              right: Math.max(8, adjustedRight)
+                            });
+                          }
+                        }
                         setShowHistory(prev => !prev);
                       }}
                       className={`h-10 w-10 rounded-2xl border flex items-center justify-center transition-all duration-200 ${
@@ -541,8 +559,12 @@ const ExportModal = ({
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.9, y: -10 }}
                           transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                          className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50"
-                          style={{ transformOrigin: 'top right' }}
+                          className="fixed w-80 max-w-[calc(100vw-16px)] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1000]"
+                          style={{ 
+                            top: historyPanelPosition.top,
+                            right: historyPanelPosition.right,
+                            transformOrigin: 'top right'
+                          }}
                         >
                           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                             <h4 className="text-sm font-bold text-gray-900">导出历史</h4>
@@ -847,20 +869,36 @@ const StatusSelectPopover = ({ currentStatus, onSelect, disabled }) => {
         // Place above
         top = rect.top - 8;
         transformOrigin = 'bottom left';
+        
+        let finalLeft = left;
+        // Check right overflow
+        if (finalLeft + 192 > window.innerWidth) { // 192px is roughly w-48
+           finalLeft = window.innerWidth - 192 - 10; // 10px padding
+           transformOrigin = 'bottom right';
+        }
+
         setPopoverStyle({
           position: 'fixed',
           top: 'auto',
           bottom: `${window.innerHeight - rect.top + 8}px`,
-          left: `${left}px`,
+          left: `${finalLeft}px`,
           transformOrigin
         });
       } else {
         // Place below
         top = rect.bottom + 8;
+        
+        let finalLeft = left;
+        // Check right overflow
+        if (finalLeft + 192 > window.innerWidth) {
+           finalLeft = window.innerWidth - 192 - 10;
+           transformOrigin = 'top right';
+        }
+        
         setPopoverStyle({
           position: 'fixed',
           top: `${top}px`,
-          left: `${left}px`,
+          left: `${finalLeft}px`,
           transformOrigin
         });
       }
@@ -1256,31 +1294,23 @@ export const OrderTable = ({
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 overflow-hidden flex flex-col">
       {/* Toolbar */}
-      <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4 bg-white">
-        <div className="flex items-center gap-4">
-          <h3 className="text-lg font-bold text-gray-900">订单列表</h3>
-          {selectedOrders.length > 0 && (
-            <div className="flex items-center gap-3 bg-red-50 px-3 py-1 rounded-lg border border-red-100 animate-fadeIn">
-              <span className="text-xs font-medium text-red-600">已选 {selectedOrders.length} 项</span>
-              <button
-                onClick={() => onBatchDeleteOrders(selectedOrders)}
-                className="text-xs bg-white text-red-600 px-2 py-0.5 rounded border border-red-200 hover:bg-red-50 transition-colors font-medium"
-              >
-                删除
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative group">
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
-            <input
-              type="text"
-              placeholder="搜索订单号、姓名、手机..."
-              value={searchValue}
-              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 focus:bg-white"
-            />
+      {/* Toolbar */}
+      <div className="px-6 py-4 border-b border-gray-100 bg-white">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-4">
+            <h3 className="text-lg font-bold text-gray-900">订单列表</h3>
+            {selectedOrders.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-lg border border-red-100 animate-fadeIn">
+                <span className="text-xs font-medium text-red-600">已选 {selectedOrders.length}</span>
+                <button
+                  onClick={() => onBatchDeleteOrders(selectedOrders)}
+                  className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                  title="批量删除"
+                >
+                  <i className="fas fa-trash-alt text-xs"></i>
+                </button>
+              </div>
+            )}
           </div>
           <button 
             onClick={onRefresh} 
@@ -1290,11 +1320,109 @@ export const OrderTable = ({
             <i className="fas fa-sync-alt text-sm"></i>
           </button>
         </div>
+        
+        <div className="flex justify-center">
+          <div className="relative group w-full max-w-md">
+            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
+            <input
+              type="text"
+              placeholder="搜索订单号、姓名、手机..."
+              value={searchValue}
+              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+              className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 focus:bg-white"
+            />
+          </div>
+        </div>
       </div>
       
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-100">
+      {/* Table and Mobile List */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile View */}
+        <div className="md:hidden flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
+          {orders.map((order) => {
+            const isSelected = selectedOrders.includes(order.id);
+            const status = getUnifiedStatus(order);
+            
+            return (
+              <div 
+                key={order.id}
+                onClick={() => setViewingOrder(order)}
+                className={`bg-white p-4 rounded-xl border transition-all active:scale-[0.98] ${
+                  isSelected ? 'border-blue-200 ring-1 ring-blue-500/20' : 'border-gray-100 shadow-sm'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex gap-3 items-start w-full"> 
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => onSelectOrder(order.id, e.target.checked)}
+                      className="w-5 h-5 text-black border-gray-300 rounded focus:ring-black shrink-0 mt-1" 
+                    />
+                    <div className="flex-1 min-w-0"> 
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-gray-400">#{order.id.slice(-8)}</span>
+                        {/* 代理信息仅在桌面端显示 */}
+                      </div>
+                      <div className="font-bold text-gray-900 mt-0.5 text-lg">
+                        ¥{order.total_amount?.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div onClick={(e) => e.stopPropagation()} className="shrink-0 ml-2">
+                    <StatusSelectPopover 
+                      currentStatus={status}
+                      onSelect={(newStatus) => onUpdateUnifiedStatus(order, newStatus)}
+                      disabled={isLoading}
+                    />
+                  </div>
+
+
+                </div>
+
+                <div className="space-y-2 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+                   <div className="flex justify-between items-start">
+                      <span className="text-gray-400 shrink-0">客户</span>
+                      <div className="text-right flex-1 pl-4 min-w-0">
+                         <span className="text-gray-700 font-medium break-all block w-full text-right">
+                             {order.shipping_info?.name || order.customer_name || order.user_name || order.customer_id}
+                         </span>
+                      </div>
+                   </div>
+                   <div className="flex justify-between items-start">
+                      <span className="text-gray-400 shrink-0">地址</span>
+                      <div className="text-right flex flex-col items-end flex-1 pl-4 min-w-0">
+                         <span className="text-gray-700 break-words text-right w-full">
+                             {(typeof order.address === 'string' && order.address) ? order.address : (order.shipping_info?.full_address || order.address || '—')}
+                         </span>
+                         {/* 代理信息仅在桌面端显示 */}
+                      </div>
+                   </div>
+                   <div className="flex justify-between">
+                      <span className="text-gray-400">时间</span>
+                      <span className="font-mono">{formatDate(order.created_at_timestamp || order.created_at)}</span>
+                   </div>
+                   {order.remark && (
+                     <div className="pt-2 border-t border-gray-100 mt-2">
+                       <span className="text-gray-400 block mb-1">备注</span>
+                       <span className="text-orange-600 font-medium">{order.remark}</span>
+                     </div>
+                   )}
+                </div>
+              </div>
+            );
+          })}
+          {orders.length === 0 && (
+            <div className="text-center py-10 text-gray-400">
+              <p>暂无订单数据</p>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-100">
           <thead>
             <tr className="bg-gray-50/50">
               <th className="px-6 py-4 text-center w-12">
@@ -1408,6 +1536,7 @@ export const OrderTable = ({
           </tbody>
         </table>
       </div>
+    </div>
 
       {/* Pagination */}
       <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/30">

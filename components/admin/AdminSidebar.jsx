@@ -18,21 +18,27 @@ const formatMenuName = (name) => {
 
 const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItemClick, isMobile }) => {
   const ref = useRef(null);
+  const isActive = activeTab === tab.id;
   
   const distance = useTransform(mouseY, (val) => {
     const bounds = ref.current?.getBoundingClientRect() ?? { y: 0, height: 0 };
     return val - bounds.y - bounds.height / 2;
   });
 
-  // Exaggerated scale effect for ICON only - disabled on mobile
-  const scaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
-  const scale = useSpring(scaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
+  // 折叠状态：大幅缩放 Dock 效果
+  const collapsedScaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
+  const collapsedScale = useSpring(collapsedScaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
   
-  // X offset to push the icon out slightly when scaled - disabled on mobile
+  // 展开状态：轻微缩放效果（悬停时放大到 1.15，选中项基础 1.05）
+  const baseScale = isActive ? 1.05 : 1;
+  const expandedScaleSync = useTransform(distance, [-80, 0, 80], [baseScale, isActive ? 1.2 : 1.15, baseScale]);
+  const expandedScale = useSpring(expandedScaleSync, { mass: 0.1, stiffness: 300, damping: 20 });
+  
+  // X offset to push the icon out slightly when scaled - only for collapsed mode
   const xSync = useTransform(distance, [-120, 0, 120], [0, 10, 0]);
   const x = useSpring(xSync, { mass: 0.1, stiffness: 200, damping: 15 });
 
-  // Label opacity based on distance - only visible when very close (hovered)
+  // Label opacity based on distance - only visible when very close (hovered) - for collapsed mode
   const labelOpacity = useTransform(distance, [-30, 0, 30], [0, 1, 0]);
   const labelX = useTransform(distance, [-30, 0, 30], [10, 20, 10]);
   const labelScale = useTransform(distance, [-30, 0, 30], [0.8, 1, 0.8]);
@@ -43,8 +49,18 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
     if (onItemClick) onItemClick();
   };
 
-  // 手机版不使用放大效果
-  const shouldScale = isCollapsed && !isMobile;
+  // 电脑版启用缩放效果
+  const isDesktop = !isMobile;
+  // 折叠状态使用大幅缩放，展开状态使用轻微缩放
+  const shouldUseCollapsedScale = isCollapsed && isDesktop;
+  const shouldUseExpandedScale = !isCollapsed && isDesktop;
+
+  // 计算实际使用的缩放值
+  const activeScale = shouldUseCollapsedScale 
+    ? collapsedScale 
+    : shouldUseExpandedScale 
+      ? expandedScale 
+      : baseScale;
 
   return (
     <motion.button
@@ -55,12 +71,12 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
       className={`w-full flex items-center p-2.5 rounded-lg transition-colors duration-200 group relative ${
         isCollapsed ? 'justify-center' : ''
       } ${
-        activeTab === tab.id 
+        isActive 
           ? 'text-blue-600' 
           : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
       }`}
     >
-      {activeTab === tab.id && (
+      {isActive && (
         <motion.div
           layoutId="activeTab"
           className="absolute inset-0 bg-blue-50 rounded-lg -z-10"
@@ -69,7 +85,7 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
       )}
 
       <motion.div 
-        style={{ scale: shouldScale ? scale : 1, x: shouldScale ? x : 0 }}
+        style={{ scale: activeScale }}
         className="relative flex-shrink-0 w-5 h-5 flex items-center justify-center origin-center"
       >
         {tab.icon}
@@ -83,18 +99,27 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
         )}
       </motion.div>
       
-      {/* Expanded Label */}
+      {/* Expanded Label - 展开时也有轻微缩放效果 */}
       <motion.span
         initial={false}
-        animate={{ opacity: isCollapsed ? 0 : 1, display: isCollapsed ? "none" : "block" }}
+        animate={{ 
+          opacity: isCollapsed ? 0 : 1, 
+          display: isCollapsed ? "none" : "block"
+        }}
+        style={{
+          scale: shouldUseExpandedScale ? expandedScale : 1,
+          originX: 0  // 从左侧开始缩放
+        }}
         transition={{ duration: 0.2 }}
-        className="ml-3 font-medium whitespace-nowrap overflow-hidden text-sm"
+        className={`ml-3 font-medium whitespace-nowrap overflow-hidden text-sm ${
+          isActive ? 'font-semibold' : ''
+        }`}
       >
         {tab.label}
       </motion.span>
 
       {/* Collapsed Floating Label */}
-      {shouldScale && (
+      {shouldUseCollapsedScale && (
         <motion.div
           style={{ 
             opacity: labelOpacity, 
@@ -147,9 +172,19 @@ export function AdminSidebar({
   };
 
   // 检测是否为移动设备
+  // 使用 pointer: coarse 媒体查询来检测主要输入设备是否为触摸屏
+  // 同时结合屏幕宽度，避免将触屏电脑误判为手机
   useEffect(() => {
     const checkMobile = () => {
-      const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
+      // 检测是否为真正的移动设备：
+      // 1. 屏幕宽度小于768px
+      // 2. 或者主要指针设备是粗略的（触摸屏手机/平板）且屏幕宽度小于1024px
+      const isNarrowScreen = window.innerWidth < 768;
+      const isCoarsePointerDevice = window.matchMedia('(pointer: coarse)').matches;
+      const isMediumScreen = window.innerWidth < 1024;
+      
+      // 真正的手机：窄屏幕，或者是触摸设备且不是大屏幕（排除触屏电脑）
+      const mobile = isNarrowScreen || (isCoarsePointerDevice && isMediumScreen);
       setIsMobile(mobile);
     };
     
@@ -379,8 +414,13 @@ const LogoutButton = ({ onLogout, isCollapsed, mouseY, onItemClick, isMobile }) 
     return val - bounds.y - bounds.height / 2;
   });
 
-  const scaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
-  const scale = useSpring(scaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
+  // 折叠状态：大幅缩放 Dock 效果
+  const collapsedScaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
+  const collapsedScale = useSpring(collapsedScaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
+  
+  // 展开状态：轻微缩放效果
+  const expandedScaleSync = useTransform(distance, [-80, 0, 80], [1, 1.15, 1]);
+  const expandedScale = useSpring(expandedScaleSync, { mass: 0.1, stiffness: 300, damping: 20 });
 
   const xSync = useTransform(distance, [-120, 0, 120], [0, 10, 0]);
   const x = useSpring(xSync, { mass: 0.1, stiffness: 200, damping: 15 });
@@ -390,8 +430,17 @@ const LogoutButton = ({ onLogout, isCollapsed, mouseY, onItemClick, isMobile }) 
     onLogout();
   };
 
-  // 手机版不使用放大效果
-  const shouldScale = isCollapsed && !isMobile;
+  // 电脑版启用缩放效果
+  const isDesktop = !isMobile;
+  const shouldUseCollapsedScale = isCollapsed && isDesktop;
+  const shouldUseExpandedScale = !isCollapsed && isDesktop;
+
+  // 计算实际使用的缩放值
+  const activeScale = shouldUseCollapsedScale 
+    ? collapsedScale 
+    : shouldUseExpandedScale 
+      ? expandedScale 
+      : 1;
 
   return (
     <motion.button 
@@ -402,14 +451,21 @@ const LogoutButton = ({ onLogout, isCollapsed, mouseY, onItemClick, isMobile }) 
       title="退出登录"
     >
       <motion.div 
-        style={{ scale: shouldScale ? scale : 1, x: shouldScale ? x : 0 }}
+        style={{ scale: activeScale }}
         className="w-5 h-5 flex-shrink-0 flex items-center justify-center origin-center"
       >
         <LogOut size={20} />
       </motion.div>
       <motion.span
         initial={false}
-        animate={{ opacity: isCollapsed ? 0 : 1, display: isCollapsed ? "none" : "block" }}
+        animate={{ 
+          opacity: isCollapsed ? 0 : 1, 
+          display: isCollapsed ? "none" : "block" 
+        }}
+        style={{
+          scale: shouldUseExpandedScale ? expandedScale : 1,
+          originX: 0
+        }}
         transition={{ duration: 0.2 }}
         className="ml-3 font-medium whitespace-nowrap overflow-hidden text-sm"
       >

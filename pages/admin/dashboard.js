@@ -1011,7 +1011,52 @@ const TimePeriodSelector = ({ period, onChange }) => (
 
 const AgentSelector = ({ selectedId, options, onChange, loading }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState({});
   const containerRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  // 计算下拉列表位置，确保不出界
+  const updateDropdownPosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const dropdownWidth = 208; // w-52 = 13rem = 208px
+    const dropdownHeight = 340; // 预估最大高度
+    const padding = 8;
+
+    // 计算水平位置
+    let left = 'auto';
+    let right = '0';
+    
+    // 检查右侧是否会出界
+    if (rect.left + dropdownWidth > window.innerWidth - padding) {
+      // 尝试右对齐
+      right = '0';
+      left = 'auto';
+    }
+    // 检查左侧是否会出界（当右对齐时）
+    const rightEdge = rect.right;
+    if (rightEdge - dropdownWidth < padding) {
+      // 使用固定左侧定位
+      left = `${Math.max(padding, rect.left)}px`;
+      right = 'auto';
+    }
+
+    // 计算垂直位置
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    let top = 'calc(100% + 8px)';
+    let bottom = 'auto';
+    let transformOrigin = 'top right';
+
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      // 在上方显示
+      top = 'auto';
+      bottom = 'calc(100% + 8px)';
+      transformOrigin = 'bottom right';
+    }
+
+    setDropdownStyle({ left, right, top, bottom, transformOrigin });
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1040,9 +1085,13 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
   return (
     <div className="relative z-40" ref={containerRef}>
       <motion.button
+        ref={buttonRef}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen) updateDropdownPosition();
+          setIsOpen(!isOpen);
+        }}
         className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-colors duration-200 group min-w-[160px]"
       >
         <div className="flex flex-col items-start text-left">
@@ -1066,11 +1115,12 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.8, filter: "blur(8px)" }}
-            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: -10, scale: 0.8, filter: "blur(8px)" }}
+            initial={{ opacity: 0, y: dropdownStyle.bottom !== 'auto' ? 10 : -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: dropdownStyle.bottom !== 'auto' ? 10 : -10, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 25, mass: 0.8 }}
-            className="absolute top-full right-0 mt-2 w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden origin-top-right"
+            className="absolute w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden"
+            style={dropdownStyle}
           >
             <div className="p-2 max-h-[320px] overflow-y-auto custom-scrollbar">
                 <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">选择视角</div>

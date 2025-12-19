@@ -344,43 +344,66 @@ export const ProductTable = ({
 
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 overflow-hidden flex flex-col">
-      <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-gray-50/30">
-        <div className="flex items-center gap-4">
-          <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-            <Layers size={18} className="text-indigo-500" />
-            商品列表
-          </h3>
-          {operatingProducts && operatingProducts.size > 0 && (
-            <div className="inline-flex items-center gap-2 text-xs font-medium text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
-              <Loader2 size={12} className="animate-spin" />
-              <span>处理中 {operatingProducts.size} 项...</span>
-            </div>
-          )}
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/30">
+        {/* Row 1: Title and Refresh */}
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-4">
+            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <Layers size={18} className="text-indigo-500" />
+              商品列表
+            </h3>
+            {operatingProducts && operatingProducts.size > 0 && (
+              <div className="inline-flex items-center gap-2 text-xs font-medium text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
+                <Loader2 size={12} className="animate-spin" />
+                <span>处理中 {operatingProducts.size} 项...</span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onRefresh}
+            className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+            title="刷新列表"
+          >
+            <RotateCcw size={16} />
+          </button>
         </div>
-        
-        <div className="flex items-center gap-3 h-9">
+
+        {/* Row 2: Filters and Batch Actions */}
+        <div className="h-9 flex items-center">
           {selectedProducts.length > 0 ? (
             <motion.div 
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-3 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100 h-full"
+              className="flex items-center justify-between gap-2 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100 h-full w-full"
             >
-              <span className="text-xs font-medium text-indigo-700 whitespace-nowrap">已选 {selectedProducts.length} 项</span>
+              <span className="text-xs font-medium text-indigo-700 whitespace-nowrap hidden sm:inline">已选 {selectedProducts.length} 项</span>
+              <span className="text-xs font-medium text-indigo-700 whitespace-nowrap sm:hidden">已选{selectedProducts.length}</span>
               
               <div className="h-4 w-px bg-indigo-200" />
               
-              <DiscountSelect
-                value={null}
-                onChange={(val) => {
-                  onBatchUpdateDiscount(selectedProducts, val);
-                }}
-                placeholder="批量折扣"
-              />
+              <div className="hidden sm:block">
+                  <DiscountSelect
+                    value={null}
+                    onChange={(val) => {
+                      onBatchUpdateDiscount(selectedProducts, val);
+                    }}
+                    placeholder="批量折扣"
+                  />
+              </div>
+              <div className="sm:hidden flex-1 flex justify-center">
+                  <DiscountSelect
+                    value={null}
+                    onChange={(val) => {
+                      onBatchUpdateDiscount(selectedProducts, val);
+                    }}
+                    placeholder="折"
+                  />
+              </div>
 
               <div className="h-4 w-px bg-indigo-200" />
 
               <div className="flex items-center gap-2 px-1">
-                 <span className="text-xs text-indigo-700 font-medium">上架</span>
+                 <span className="text-xs text-indigo-700 font-medium hidden sm:inline">上架</span>
                  {(() => {
                     const activeCount = selectedProducts.filter(id => {
                         const p = products.find(p => p.id === id);
@@ -439,19 +462,157 @@ export const ProductTable = ({
               </label>
             </div>
           )}
-          
-          <button
-            onClick={onRefresh}
-            className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-            title="刷新列表"
-          >
-            <RotateCcw size={16} />
-          </button>
         </div>
       </div>
       
-      <div className="overflow-x-auto flex-1">
-        <table className="min-w-full divide-y divide-gray-100">
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Mobile View */}
+        <div className="md:hidden flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
+          {products.map((product) => {
+            const isHot = Boolean(product.is_hot);
+            const isNonSellable = normalizeBooleanFlag(product.is_not_for_sale, false);
+            const isSelected = selectedProducts.includes(product.id);
+            const isActive = !(product.is_active === 0 || product.is_active === false);
+            const z = (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
+            const hasDiscount = z && z > 0 && z < 10;
+            const finalPrice = hasDiscount ? (Math.round(product.price * (z / 10) * 100) / 100) : product.price;
+
+            return (
+              <div 
+                key={product.id} 
+                className={`bg-white p-4 rounded-xl border transition-all ${
+                  isSelected ? 'border-indigo-200 shadow-md ring-1 ring-indigo-500/20' : 'border-gray-100 shadow-sm'
+                }`}
+              >
+                <div className="flex gap-4">
+                  {/* Selection & Image - Aligned Top-Left */}
+                  <div className="flex flex-col gap-3 items-start">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => onSelectProduct(product.id, e.target.checked)}
+                      className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 shrink-0 self-start"
+                    />
+                    <div className="w-16 h-16 rounded-lg border border-gray-100 bg-gray-50 overflow-hidden">
+                      {getProductImage(product) ? (
+                        <RetryImage
+                          className="w-full h-full object-cover"
+                          src={getProductImage(product)}
+                          alt={product.name}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <ImageIcon size={20} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col items-end">
+                    <div className="flex justify-end w-full">
+                      <h4 
+                        className={`text-sm font-bold truncate ${!isActive ? 'text-gray-400 line-through' : 'text-gray-900'}`}
+                      >
+                        {product.name}
+                      </h4>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 truncate mt-1 mb-2 text-right w-full">
+                      {product.description || '无描述'}
+                    </p>
+
+                    <div className="flex items-end justify-between w-full">
+                      <div>
+                         <span className="text-xs px-2 py-1 rounded bg-gray-100/80 text-gray-600">
+                           {product.category || '未分类'}
+                         </span>
+                      </div>
+                      
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          {hasDiscount && <span className="text-xs text-gray-400 line-through">¥{product.price}</span>}
+                          <span className="text-base font-bold text-gray-900">¥{finalPrice}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions Row */}
+                <div className="mt-4 pt-3 border-t border-gray-50 flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">状态</span>
+                      <button
+                        onClick={() => onToggleActive(product)}
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isActive ? 'bg-green-500' : 'bg-gray-200'
+                        }`}
+                      >
+                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-200" />
+
+                    {product.has_variants ? (
+                      <button
+                        onClick={() => onOpenVariantStock(product)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 text-indigo-600 text-xs font-medium"
+                      >
+                        <Layers size={12} />
+                        规格
+                      </button>
+                    ) : (
+                      <StockControl product={product} onUpdateStock={onUpdateStock} />
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                     <div className="w-1/2">
+                        <DiscountSelect 
+                          value={z}
+                          onChange={(val) => onUpdateDiscount(product.id, val)}
+                          disabled={operatingProducts?.has(product.id)}
+                        />
+                     </div>
+                     <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => onToggleHot(product, !isHot)}
+                          className={`p-2 rounded-lg transition-all ${isHot ? 'text-orange-500 bg-orange-50' : 'text-gray-400 hover:text-orange-500 hover:bg-orange-50'}`}
+                        >
+                          <Flame size={16} fill={isHot ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                          onClick={() => onEdit(product)}
+                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => onDelete(product)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                     </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {products.length === 0 && (
+             <div className="text-center py-10 text-gray-400">
+                <Package size={48} className="mx-auto mb-2 opacity-20" />
+                <p>暂无商品</p>
+             </div>
+          )}
+        </div>
+
+        {/* Desktop View */}
+        <div className="hidden md:block overflow-x-auto flex-1">
+          <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50/50">
             <tr>
               <th className="px-6 py-3 text-center w-12">
@@ -618,12 +779,13 @@ export const ProductTable = ({
       </div>
       
       {products.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 bg-gray-50/30">
+        <div className="hidden md:flex flex-col items-center justify-center py-16 text-gray-400 bg-gray-50/30">
           <Archive size={48} className="mb-4 opacity-20" />
           <p className="text-sm font-medium">暂无商品数据</p>
         </div>
       )}
     </div>
+  </div>
   );
 };
 

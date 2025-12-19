@@ -151,12 +151,6 @@ const LotteryItemsViewModal = ({ open, onClose, prize }) => {
                     </span>
                   </span>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 font-medium text-sm shadow-lg hover:shadow-xl"
-                >
-                  关闭
-                </button>
               </div>
             </div>
           </motion.div>
@@ -422,17 +416,17 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
                       >
                         <button
                           onClick={() => handleRemoveItem(item.product_id, item.variant_id)}
-                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center shadow-sm transition-all z-10"
+                          className="absolute top-2 right-2 w-6 h-6 rounded-full bg-gray-50 border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center shadow-sm transition-all z-10"
                         >
                           <i className="fas fa-times text-xs"></i>
                         </button>
                         
-                        <div className="pr-2">
+                        <div className="pr-8">
                           <div className="font-medium text-sm text-gray-900 mb-1 truncate" title={item.label}>
                             {item.label}
                           </div>
                           
-                          <div className="flex items-center justify-between text-xs text-gray-500">
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
                             <span>库存: {item.stock ?? '未知'}</span>
                             <span className="font-medium text-gray-900">¥{Number.isFinite(item.retail_price) ? Number(item.retail_price).toFixed(2) : '--'}</span>
                           </div>
@@ -813,7 +807,105 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
+          <div className="md:hidden space-y-4 px-4 pb-4">
+            {prizes.map((prize, index) => {
+              const itemList = prize.items || [];
+              const availableItems = itemList.filter(it => it.available);
+              const hasWarning = availableItems.length === 0 && itemList.length > 0;
+              const totalStock = itemList.reduce((sum, item) => {
+                const stock = Number.parseInt(item.stock, 10);
+                if (Number.isFinite(stock) && stock > 0) {
+                  return sum + stock;
+                }
+                return sum;
+              }, 0);
+
+              return (
+                <div key={prize.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 min-w-[2rem] min-h-[2rem] shrink-0 aspect-square rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-500">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <h4 className="font-bold text-gray-900">{prize.display_name}</h4>
+                        {hasWarning && (
+                           <span className="text-[10px] text-red-500 flex items-center gap-1 mt-0.5">
+                             <i className="fas fa-exclamation-triangle"></i> 无库存
+                           </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => handleToggleActive(prize, !prize.is_active)}
+                      className={`px-2 py-1 rounded text-xs font-medium border ${
+                        prize.is_active 
+                          ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                          : 'bg-gray-50 text-gray-500 border-gray-200'
+                      }`}
+                    >
+                      {prize.is_active ? '启用中' : '已停用'}
+                    </button>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-gray-50 rounded-lg p-2 mb-4">
+                     <div className="text-center flex-1 border-r border-gray-200 last:border-0">
+                        <div className="text-[10px] text-gray-400 mb-1">权重</div>
+                        <div className="font-mono font-bold text-sm text-gray-700">{prize.weight}</div>
+                     </div>
+                     <div className="text-center flex-1 border-r border-gray-200 last:border-0">
+                        <div className="text-[10px] text-gray-400 mb-1">可用/总数</div>
+                        <div className={`font-bold text-sm ${availableItems.length > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {availableItems.length}<span className="text-gray-400 text-xs">/{itemList.length}</span>
+                        </div>
+                     </div>
+                     <div className="text-center flex-1">
+                        <div className="text-[10px] text-gray-400 mb-1">总库存</div>
+                        <div className="font-bold text-sm text-gray-700">{totalStock}</div>
+                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-around border-t border-gray-50 pt-3">
+                     <button
+                        onClick={() => openItemsModal(prize)}
+                        className="w-10 h-10 flex items-center justify-center text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-xl shrink-0"
+                        title="查看商品"
+                     >
+                       <i className="fas fa-eye"></i>
+                     </button>
+                     <button
+                        onClick={() => handleToggleActive(prize, !prize.is_active)}
+                        className={`w-10 h-10 flex items-center justify-center rounded-xl shrink-0 ${
+                          prize.is_active 
+                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                        }`}
+                        title={prize.is_active ? '停用' : '启用'}
+                     >
+                       <i className={`fas ${prize.is_active ? 'fa-pause' : 'fa-play'}`}></i>
+                     </button>
+                     <button
+                        onClick={() => openModal(prize)}
+                        className="w-10 h-10 flex items-center justify-center text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl shrink-0"
+                        title="编辑"
+                     >
+                       <i className="fas fa-edit"></i>
+                     </button>
+                     <button
+                        onClick={() => handleDelete(prize)}
+                        className="w-10 h-10 flex items-center justify-center text-red-600 bg-red-50 hover:bg-red-100 rounded-xl shrink-0"
+                        title="删除"
+                     >
+                       <i className="fas fa-trash"></i>
+                     </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50/50 border-b border-gray-100">
                 <tr>
@@ -843,7 +935,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                   return (
                     <tr key={prize.id} className="hover:bg-gray-50/50 transition-colors group">
                       <td className="px-4 py-5 text-center">
-                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs mx-auto">
+                        <div className="w-8 h-8 min-w-[2rem] min-h-[2rem] shrink-0 aspect-square rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs mx-auto">
                           {index + 1}
                         </div>
                       </td>

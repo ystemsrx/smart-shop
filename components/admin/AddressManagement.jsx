@@ -94,18 +94,18 @@ export const AddressManagement = ({
       </div>
 
       {/* Quick Add Address */}
-      <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-200/60">
+      <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200/60">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-gray-900 text-white rounded-xl flex items-center justify-center shadow-md">
+          <div className="w-10 h-10 flex-shrink-0 bg-gray-900 text-white rounded-xl flex items-center justify-center shadow-md">
             <i className="fas fa-plus text-sm"></i>
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-lg font-bold text-gray-900">快速添加配送地址</h3>
             <p className="text-xs text-gray-500 mt-0.5">输入园区名称后，您可以为其添加具体楼栋</p>
           </div>
         </div>
-        <div className="flex items-start gap-4">
-          <div className="flex-1">
+        <div className="flex items-end gap-3 md:gap-4">
+          <div className="flex-1 min-w-0">
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
               地址名称 <span className="text-red-500">*</span>
             </label>
@@ -121,19 +121,16 @@ export const AddressManagement = ({
                   }
                 }}
                 placeholder="例如：东校区、西校区、南园等"
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm h-[46px]"
               />
             </div>
-            <p className="text-xs text-gray-400 mt-2 flex items-center gap-1.5">
-              <i className="fas fa-keyboard"></i>
-              按 Enter 键快速添加
-            </p>
           </div>
-          <div className="flex-shrink-0 pt-8">
+          <div className="flex-shrink-0">
+            {/* Desktop: Text button */}
             <button
               onClick={handleAddAddress}
               disabled={addrSubmitting || !newAddrName.trim()}
-              className="h-[46px] px-6 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-gray-200 flex items-center justify-center gap-2 whitespace-nowrap active:scale-95"
+              className="hidden md:flex h-[46px] px-6 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-gray-200 items-center justify-center gap-2 whitespace-nowrap active:scale-95"
             >
               {addrSubmitting ? (
                 <>
@@ -147,8 +144,24 @@ export const AddressManagement = ({
                 </>
               )}
             </button>
+            {/* Mobile: Circular plus icon */}
+            <button
+              onClick={handleAddAddress}
+              disabled={addrSubmitting || !newAddrName.trim()}
+              className="md:hidden w-[46px] h-[46px] flex-shrink-0 bg-gray-900 text-white rounded-full font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-gray-200 flex items-center justify-center active:scale-95"
+            >
+              {addrSubmitting ? (
+                <i className="fas fa-spinner animate-spin text-base"></i>
+              ) : (
+                <i className="fas fa-plus text-base"></i>
+              )}
+            </button>
           </div>
         </div>
+        <p className="text-xs text-gray-400 mt-2 items-center gap-1.5 hidden md:flex">
+          <i className="fas fa-keyboard"></i>
+          按 Enter 键快速添加
+        </p>
       </div>
 
       {/* Address List */}

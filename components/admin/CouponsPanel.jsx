@@ -223,7 +223,7 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
         </div>
         <button 
           onClick={loadList} 
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 shadow-sm"
+          className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 shadow-sm"
         >
           <i className="fas fa-sync-alt text-gray-400"></i>
           刷新数据
@@ -296,7 +296,7 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
       {/* 发放优惠券表单 */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-8 py-6 border-b border-gray-100 bg-gray-50/30 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center shadow-lg shadow-black/10">
+          <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center shadow-lg shadow-black/10 shrink-0">
             <i className="fas fa-gift text-lg"></i>
           </div>
           <div>
@@ -433,13 +433,14 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
             <button 
               onClick={handleIssue} 
               disabled={issuing} 
-              className="px-8 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2"
+              className="md:px-8 md:py-3 px-4 py-4 md:w-auto w-12 h-12 rounded-full bg-black text-white font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2"
             >
               {issuing ? (
-                <><i className="fas fa-spinner fa-spin"></i> 发放中...</>
+                <i className="fas fa-spinner fa-spin"></i> 
               ) : (
-                <><i className="fas fa-paper-plane"></i> 确认发放</>
+                <i className="fas fa-paper-plane"></i>
               )}
+              <span className="hidden md:inline">{issuing ? '发放中...' : '确认发放'}</span>
             </button>
           </div>
         </div>
@@ -450,7 +451,15 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
         {/* 工具栏 */}
         <div className="p-6 border-b border-gray-100">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h3 className="text-xl font-bold text-gray-900">优惠券列表</h3>
+            <div className="flex items-center justify-between gap-4 w-full sm:w-auto">
+               <h3 className="text-xl font-bold text-gray-900">优惠券列表</h3>
+               <button 
+                onClick={loadList} 
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-500 shadow-sm hover:bg-gray-50 active:scale-95 transition-all"
+              >
+                <i className="fas fa-sync-alt"></i>
+              </button>
+            </div>
             
             <div className="flex flex-col sm:flex-row gap-3">
               {/* 搜索框 */}
@@ -492,7 +501,7 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
         </div>
 
         {/* 列表内容 */}
-        <div className="p-6 bg-gray-50/30 min-h-[300px]">
+        <div className="p-4 md:p-6 bg-gray-50/30 min-h-[300px]">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-200 border-t-black mb-4"></div>
@@ -544,53 +553,55 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                     >
                       {/* 用户卡片头部 */}
                       <div 
-                        className={`px-6 py-4 cursor-pointer transition-colors flex items-center justify-between ${
+                        className={`px-5 md:px-6 py-4 cursor-pointer transition-colors flex items-center ${
                           isExpanded ? 'bg-gray-50/50' : 'bg-white hover:bg-gray-50/30'
                         }`}
                         onClick={() => toggleStudentExpanded(studentId)}
                       >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
-                            isExpanded ? 'bg-black text-white rotate-90' : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            <i className="fas fa-chevron-right text-xs"></i>
+                        {/* 左侧头像 */}
+                        <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center shadow-inner shrink-0">
+                          <i className="fas fa-user text-gray-500 text-lg"></i>
+                        </div>
+                        
+                        {/* 中间内容 - flex-1 自动分配剩余空间 */}
+                        <div className="flex-1 min-w-0 px-4">
+                          <div className="flex flex-col">
+                            {coupons[0]?.user_name ? (
+                              <span className="font-bold text-gray-900 text-lg truncate">
+                                {coupons[0].user_name}
+                                <span className="md:hidden text-gray-500 font-normal ml-1"> ({coupons.length})</span>
+                              </span>
+                            ) : (
+                               <span className="font-bold text-gray-900 text-lg truncate md:hidden">
+                                 {studentId}
+                                 <span className="text-gray-500 font-normal ml-1"> ({coupons.length})</span>
+                               </span>
+                            )}
+                            <span className="text-gray-500 text-sm bg-gray-100 px-2 py-0.5 rounded-md font-mono w-fit mt-0.5">
+                              {studentId}
+                            </span>
                           </div>
-                          
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center shadow-inner">
-                              <i className="fas fa-user text-gray-500 text-lg"></i>
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                {coupons[0]?.user_name && (
-                                  <span className="font-bold text-gray-900 text-lg">{coupons[0].user_name}</span>
-                                )}
-                                <span className="text-gray-500 text-sm bg-gray-100 px-2 py-0.5 rounded-md font-mono">
-                                  {studentId}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                {activeCoupons.length > 0 && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                    {activeCoupons.length} 张可用
-                                  </span>
-                                )}
-                                {usedCoupons.length > 0 && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
-                                    {usedCoupons.length} 张已用
-                                  </span>
-                                )}
-                                {(revokedCoupons.length > 0 || expiredCoupons.length > 0) && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-50 text-gray-600 border border-gray-100">
-                                    {revokedCoupons.length + expiredCoupons.length} 张无效
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {activeCoupons.length > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 whitespace-nowrap">
+                                可用{activeCoupons.length}
+                              </span>
+                            )}
+                            {usedCoupons.length > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 whitespace-nowrap">
+                                已用{usedCoupons.length}
+                              </span>
+                            )}
+                            {(revokedCoupons.length > 0 || expiredCoupons.length > 0) && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-50 text-gray-600 border border-gray-100 whitespace-nowrap">
+                                无效{revokedCoupons.length + expiredCoupons.length}
+                              </span>
+                            )}
                           </div>
                         </div>
                         
-                        <div className="text-right">
+                        {/* 桌面端: 总数量 - 移动端不显示 */}
+                        <div className="hidden md:block text-right shrink-0 ml-4">
                           <div className="text-2xl font-bold text-gray-900">{coupons.length}</div>
                           <div className="text-xs text-gray-500 font-medium uppercase tracking-wide">总数量</div>
                         </div>
@@ -599,7 +610,86 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                       {/* 优惠券详情表格 */}
                       {isExpanded && (
                         <div className="border-t border-gray-100 animate-fadeIn">
-                          <div className="overflow-x-auto">
+                          {/* Mobile View */}
+                          <div className="md:hidden space-y-3 p-4 bg-gray-50/50">
+                            {coupons.map(c => {
+                              const amt = parseFloat(c.amount) || 0;
+                              const expired = !!c.expired;
+                              let statusText, statusBadge;
+                              
+                              if (c.status === 'used') {
+                                statusText = '已使用';
+                                statusBadge = 'bg-purple-50 text-purple-700 border-purple-100';
+                              } else if (c.status === 'revoked') {
+                                statusText = '已撤回';
+                                statusBadge = 'bg-red-50 text-red-700 border-red-100';
+                              } else if (expired) {
+                                statusText = '已过期';
+                                statusBadge = 'bg-gray-100 text-gray-600 border-gray-200';
+                              } else {
+                                statusText = '可用';
+                                statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                              }
+
+                              return (
+                                <div key={c.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-lg font-bold text-gray-900">¥{amt.toFixed(2)}</span>
+                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusBadge}`}>
+                                        {statusText}
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      {c.status === 'active' && !expired ? (
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRevoke(c.id);
+                                          }} 
+                                          className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                          title="撤回"
+                                        >
+                                          <i className="fas fa-ban"></i>
+                                        </button>
+                                      ) : c.status === 'revoked' ? (
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(c.id);
+                                          }} 
+                                          className="p-1.5 text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 rounded-lg transition-colors"
+                                          title="删除"
+                                        >
+                                          <i className="fas fa-trash"></i>
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 font-mono bg-gray-50 p-2 rounded-lg">
+                                    <div>
+                                      <span className="text-gray-400 block text-[10px]">创建时间</span>
+                                      {c.created_at ? (() => {
+                                        const utcDate = new Date(c.created_at.replace(' ', 'T') + 'Z');
+                                        return utcDate.toLocaleDateString();
+                                      })() : '—'}
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400 block text-[10px]">有效期至</span>
+                                      {c.expires_at ? (() => {
+                                        const utcDate = new Date(c.expires_at.replace(' ', 'T') + 'Z');
+                                        return utcDate.toLocaleDateString();
+                                      })() : '永久有效'}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Desktop Table */}
+                          <div className="hidden md:block overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-100">
                               <thead className="bg-gray-50/50">
                                 <tr>
@@ -652,7 +742,6 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
                                         {c.created_at ? (() => {
-                                          // SQLite返回的是UTC时间，需要明确处理为UTC后再转换为本地时间
                                           const utcDate = new Date(c.created_at.replace(' ', 'T') + 'Z');
                                           return utcDate.toLocaleString('zh-CN', { 
                                             year: 'numeric', month: '2-digit', day: '2-digit',
@@ -662,7 +751,6 @@ export const CouponsPanel = ({ apiPrefix, apiRequest: injectedApiRequest }) => {
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
                                         {c.expires_at ? (() => {
-                                          // 过期时间同样需要处理
                                           const utcDate = new Date(c.expires_at.replace(' ', 'T') + 'Z');
                                           return utcDate.toLocaleString('zh-CN', { 
                                             year: 'numeric', month: '2-digit', day: '2-digit',
