@@ -718,7 +718,7 @@ export default function Checkout() {
         console.warn('获取配送费配置失败:', e);
       }
     })();
-  }, [user, locationRevision]);
+  }, [user, locationRevision, location?.address_id, location?.building_id]);
 
   useEffect(() => {
     if (location) {

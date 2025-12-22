@@ -2295,16 +2295,72 @@ const ToolCallCard = ({
               </div>
             );
         }
+
+        const formatMoney = (value) => {
+          if (value === undefined || value === null || value === '') return '¥0';
+          const num = Number(value);
+          if (Number.isNaN(num)) return `¥${value}`;
+          return `¥${num % 1 === 0 ? num.toFixed(0) : num.toFixed(2)}`;
+        };
+
+        const totalQuantity = result.total_quantity ?? 0;
+        const itemsSubtotal = result.items_subtotal ?? result.total_price ?? 0;
+        const shippingFee = result.shipping_fee ?? 0;
+        const totalPrice = result.total_price ?? 0;
+        const giftThresholds = Array.isArray(result.gift_thresholds) ? result.gift_thresholds : [];
+        const visibleGifts = giftThresholds.filter((threshold) => Array.isArray(threshold.items) && threshold.items.length > 0);
+
         return (
-            <div className="flex items-center gap-6 p-2 bg-white rounded-lg border border-gray-100">
-                <div>
-                    <div className="text-xs text-gray-500">总数量</div>
-                    <div className="text-lg font-semibold text-gray-900">{result.total_quantity}</div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg border border-gray-100 bg-white p-2 text-center">
+                  <div className="text-[11px] text-gray-500">总数量</div>
+                  <div className="text-lg font-semibold text-gray-900">{totalQuantity}</div>
                 </div>
-                <div>
-                    <div className="text-xs text-gray-500">总金额</div>
-                    <div className="text-lg font-semibold text-gray-900">¥{result.total_price}</div>
+                <div className="rounded-lg border border-gray-100 bg-white p-2 text-center">
+                  <div className="text-[11px] text-gray-500">商品小计</div>
+                  <div className="text-lg font-semibold text-gray-900">{formatMoney(itemsSubtotal)}</div>
                 </div>
+                <div className="rounded-lg border border-gray-100 bg-white p-2 text-center">
+                  <div className="text-[11px] text-gray-500">配送费</div>
+                  <div className="text-lg font-semibold text-gray-900">{formatMoney(shippingFee)}</div>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-white p-2 text-center">
+                  <div className="text-[11px] text-gray-500">应付金额</div>
+                  <div className="text-lg font-semibold text-gray-900">{formatMoney(totalPrice)}</div>
+                </div>
+              </div>
+
+              {visibleGifts.length > 0 && (
+                <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-700">
+                    <Package className="h-4 w-4" />
+                    <span>本单满额赠品</span>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {visibleGifts.map((threshold, idx) => (
+                      <div key={`${threshold.threshold_amount || idx}`} className="rounded-lg border border-amber-100 bg-white/80 p-2">
+                        <div className="flex items-center justify-between text-[11px] text-amber-700">
+                          <span>满 ¥{threshold.threshold_amount}</span>
+                          <span>随单配送</span>
+                        </div>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {threshold.items.map((gift, giftIdx) => (
+                            <div key={`${gift.name}-${giftIdx}`} className="flex items-start justify-between gap-3 rounded-md border border-gray-100 bg-white p-2">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-gray-900">{gift.name}</div>
+                                {gift.category && <div className="text-[11px] text-gray-500">{gift.category}</div>}
+                                {gift.description && <div className="mt-1 text-[11px] text-gray-500">{gift.description}</div>}
+                              </div>
+                              <div className="text-xs font-semibold text-gray-700 shrink-0">×{gift.quantity ?? 1}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
         )
     }
@@ -2887,6 +2943,17 @@ export default function ChatModern({ user, initialConversationId = null }) {
           // 根据结果特征推断工具名称
           if (resultJson.categories !== undefined) {
             toolName = "get_category";
+          } else if (
+            resultJson.total_price !== undefined ||
+            resultJson.total_quantity !== undefined ||
+            resultJson.items_subtotal !== undefined ||
+            resultJson.shipping_fee !== undefined ||
+            resultJson.payable_total !== undefined ||
+            resultJson.gift_thresholds !== undefined
+          ) {
+            toolName = "get_cart";
+          } else if (resultJson.action !== undefined || resultJson.details !== undefined) {
+            toolName = "update_cart";
           } else if (resultJson.items !== undefined || resultJson.multi_query !== undefined) {
             // search_products: 单查询有 items 字段，多查询有 multi_query 字段
             toolName = "search_products";
@@ -2897,10 +2964,6 @@ export default function ChatModern({ user, initialConversationId = null }) {
               // 单查询：提取 query
               toolArgs = JSON.stringify({ query: [resultJson.query] });
             }
-          } else if (resultJson.action !== undefined || resultJson.details !== undefined) {
-            toolName = "update_cart";
-          } else if (resultJson.total_price !== undefined || resultJson.total_quantity !== undefined) {
-            toolName = "get_cart";
           }
         } catch {
           // 非JSON结果，保持默认

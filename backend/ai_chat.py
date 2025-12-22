@@ -146,6 +146,12 @@ def _format_amount_str(value: Any) -> str:
     return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 
+def _get_available_gift_items(threshold: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """筛选满额门槛中可用的赠品项。"""
+    items = threshold.get("items") or []
+    return [item for item in items if item.get("available")]
+
+
 def _resolve_image_url(img_path: Any) -> str:
     """将商品图片路径规范化为可直接使用的URL。"""
     from urllib.parse import quote
@@ -370,10 +376,14 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
             for idx, threshold in enumerate(gift_thresholds):
                 amount = _format_amount(threshold.get('threshold_amount', 0))
                 amount_str = _format_amount_str(threshold.get('threshold_amount', 0))
-                gift_products = threshold.get('gift_products', 0) == 1
-                gift_coupon = threshold.get('gift_coupon', 0) == 1
+                gift_products = _is_truthy(threshold.get('gift_products', 0))
+                gift_coupon = _is_truthy(threshold.get('gift_coupon', 0))
                 coupon_amount = _format_amount(threshold.get('coupon_amount', 0))
                 per_order_limit = threshold.get('per_order_limit')
+
+                available_items = _get_available_gift_items(threshold) if gift_products else []
+                if gift_products and not available_items:
+                    continue
 
                 if gift_products:
                     tier_payload: Dict[str, Any] = {
@@ -382,18 +392,14 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
                     }
                     if per_order_limit:
                         tier_payload["per_order_limit"] = per_order_limit
-                    gift_items_payload: List[Dict[str, Any]] = []
-                    for item in threshold.get("items", []) or []:
+                    gift_items_payload: List[str] = []
+                    for item in available_items:
                         item_name = item.get("product_name") or item.get("name")
                         if not item_name:
                             continue
-                        item_payload: Dict[str, Any] = {"name": item_name}
                         variant_name = item.get("variant_name")
-                        if variant_name:
-                            item_payload["variant"] = variant_name
-                        if item.get("available") is not None:
-                            item_payload["available"] = bool(item.get("available"))
-                        gift_items_payload.append(item_payload)
+                        display_name = f"{item_name}（{variant_name}）" if variant_name else item_name
+                        gift_items_payload.append(display_name)
                     if gift_items_payload:
                         tier_payload["gift_items"] = gift_items_payload
                     gift_tiers.append(tier_payload)
@@ -420,7 +426,7 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
                     }
                 },
                 "reward": {
-                    "description": "Different free gift products are granted according to the order amount tier.",
+                    "description": "Different free gifts are randomly selected within each order amount tier.",
                     "usage": "Granted immediately and included in the current order.",
                     "tiers": gift_tiers
                 }
@@ -1211,7 +1217,8 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
                 "total_quantity": 0,
                 "items_subtotal": 0.0,
                 "shipping_fee": 0.0,
-                "total_price": 0.0
+                "total_price": 0.0,
+                "gift_thresholds": []
             }
 
         items = cart_data.get("items", {})
@@ -1260,13 +1267,77 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
         
         # 运费规则：购物车为空不收取，基础配送费或免配送费门槛任意一个为0则免费，否则达到门槛免费，否则收取基础配送费
         shipping_fee = 0.0 if total_quantity == 0 or delivery_config['delivery_fee'] == 0 or delivery_config['free_delivery_threshold'] == 0 or items_subtotal >= delivery_config['free_delivery_threshold'] else delivery_config['delivery_fee']
+
+        gift_thresholds: List[Dict[str, Any]] = []
+        try:
+            gift_scope = resolve_shopping_scope(request) if request else {}
+            gift_owner_id = get_owner_id_from_scope(gift_scope)
+            applicable_thresholds = (
+                GiftThresholdDB.get_applicable_thresholds(items_subtotal, gift_owner_id)
+                if items_subtotal > 0
+                else []
+            )
+            for threshold in applicable_thresholds:
+                if not _is_truthy(threshold.get("gift_products", 0)):
+                    continue
+                available_items = _get_available_gift_items(threshold)
+                if not available_items:
+                    continue
+                threshold_id = threshold.get("id")
+                if not threshold_id:
+                    continue
+                try:
+                    applicable_times = int(threshold.get("applicable_times") or 0)
+                except (TypeError, ValueError):
+                    applicable_times = 0
+                if applicable_times <= 0:
+                    continue
+                gifts = GiftThresholdDB.pick_gifts_for_threshold(
+                    threshold_id,
+                    gift_owner_id,
+                    applicable_times
+                )
+                if not gifts:
+                    continue
+
+                formatted_gifts = []
+                for gift in gifts:
+                    product_name = gift.get("product_name") or gift.get("display_name") or "满额赠品"
+                    variant_name = gift.get("variant_name")
+                    display_name = f"{product_name}（{variant_name}）" if variant_name else product_name
+                    product_info = product_dict.get(gift.get("product_id")) or {}
+                    description = (product_info.get("description") or "").strip()
+                    category = gift.get("category") or product_info.get("category") or ""
+                    try:
+                        quantity = int(gift.get("quantity") or 1)
+                    except (TypeError, ValueError):
+                        quantity = 1
+                    formatted_gifts.append(
+                        {
+                            "name": display_name,
+                            "quantity": quantity,
+                            "description": description,
+                            "category": category
+                        }
+                    )
+
+                if formatted_gifts:
+                    gift_thresholds.append(
+                        {
+                            "threshold_amount": threshold.get("threshold_amount", 0),
+                            "items": formatted_gifts
+                        }
+                    )
+        except Exception as e:
+            logger.warning(f"解析满额赠品失败: {e}")
         return {
             "ok": True,
             "items": cart_items,
             "total_quantity": total_quantity,
             "items_subtotal": round(items_subtotal, 2),
             "shipping_fee": round(shipping_fee, 2),
-            "total_price": round(items_subtotal + shipping_fee, 2)
+            "total_price": round(items_subtotal + shipping_fee, 2),
+            "gift_thresholds": gift_thresholds
         }
 
     except Exception as e:

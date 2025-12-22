@@ -311,9 +311,14 @@ async def public_get_gift_thresholds(request: Request):
 
         simplified_thresholds = []
         for threshold in thresholds:
+            gift_products = threshold.get("gift_products", 0) == 1
             available_items = [item for item in threshold.get("items", []) if item.get("available")]
+
+            if gift_products and not available_items:
+                continue
+
             selected_product_name = ""
-            if available_items:
+            if gift_products and available_items:
                 sorted_items = sorted(available_items, key=lambda x: x.get("stock", 0), reverse=True)
                 chosen_item = sorted_items[0]
                 name = chosen_item.get("product_name", "")
@@ -324,10 +329,10 @@ async def public_get_gift_thresholds(request: Request):
             simplified_thresholds.append(
                 {
                     "threshold_amount": threshold.get("threshold_amount"),
-                    "gift_products": threshold.get("gift_products", 0) == 1,
+                    "gift_products": gift_products,
                     "gift_coupon": threshold.get("gift_coupon", 0) == 1,
                     "coupon_amount": threshold.get("coupon_amount", 0),
-                    "products_count": len(available_items),
+                    "products_count": len(available_items) if gift_products else 0,
                     "selected_product_name": selected_product_name,
                 }
             )
