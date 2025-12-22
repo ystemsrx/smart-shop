@@ -1,4 +1,5 @@
 import uuid
+import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -193,9 +194,28 @@ class ChatLogDB:
         role: str,
         content: str,
         thread_id: Optional[str] = None,
-        tool_call_id: Optional[str] = None
+        tool_call_id: Optional[str] = None,
+        thinking_content: Optional[str] = None,
+        thinking_duration: Optional[float] = None,
+        is_thinking_stopped: bool = False
     ):
         user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
+
+        # 如果content是JSON格式且role是assistant，尝试提取thinking信息
+        actual_content = content
+        if role == "assistant" and content and content.strip():
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    # 提取thinking_content（如果存在且未单独传递）
+                    if not thinking_content and "thinking_content" in parsed:
+                        thinking_content = parsed.get("thinking_content", "")
+                    # 保持content只包含实际内容（向后兼容）
+                    if "content" in parsed:
+                        actual_content = parsed.get("content", "")
+            except (json.JSONDecodeError, ValueError):
+                # 不是JSON格式，保持原样
+                pass
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -207,15 +227,18 @@ class ChatLogDB:
                     raise ValueError("会话不存在或无权限访问")
 
             cursor.execute('''
-                INSERT INTO chat_logs (student_id, user_id, thread_id, tool_call_id, role, content)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_logs (student_id, user_id, thread_id, tool_call_id, role, content, thinking_content, thinking_duration, is_thinking_stopped)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_ref['student_id'] if user_ref else None,
                 user_ref['user_id'] if user_ref else None,
                 thread_id,
                 tool_call_id,
                 role,
-                content
+                actual_content,
+                thinking_content,
+                thinking_duration,
+                1 if is_thinking_stopped else 0
             ))
 
             if thread_id:

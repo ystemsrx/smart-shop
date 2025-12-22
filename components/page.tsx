@@ -223,7 +223,7 @@ function FeatureCard({ feature, index }: { feature: any, index: number }) {
             </button>
             {index === 0 && (
               <button 
-                onClick={() => router.push('/?chat=true')}
+                onClick={() => router.push('/c')}
                 className="px-6 py-3 bg-gray-900 text-white rounded-full hover:bg-gray-800 transition-colors inline-flex items-center gap-2"
               >
                 立即尝试
@@ -531,7 +531,7 @@ function Navigation({ shopName, user, logout }: { shopName: string; user?: any; 
                   </>
                 ) : (
                   <>
-                    <Link href="/?chat=true" className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ease-out flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-white/50">
+                    <Link href="/c" className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ease-out flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-white/50">
                       <i className="fas fa-comments"></i>
                       <span>商城助手</span>
                     </Link>
@@ -681,7 +681,7 @@ function Navigation({ shopName, user, logout }: { shopName: string; user?: any; 
                 </>
               ) : (
                 <>
-                  <Link href="/?chat=true" onClick={closeMenu} className="flex items-center gap-3 px-4 py-3 rounded-xl border text-gray-700 hover:bg-gray-50 border-transparent transition-all duration-200">
+                  <Link href="/c" onClick={closeMenu} className="flex items-center gap-3 px-4 py-3 rounded-xl border text-gray-700 hover:bg-gray-50 border-transparent transition-all duration-200">
                     <i className="fas fa-comments w-5"></i>
                     <span className="font-medium">商城助手</span>
                   </Link>

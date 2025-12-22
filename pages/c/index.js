@@ -10,10 +10,10 @@ import LandingPage from "../../components/page";
 
 const shopName = getShopName();
 
-export default function ChatPage() {
+export default function ChatIndexPage() {
   const { user, logout, isInitialized } = useAuth();
   const router = useRouter();
-  const { chatId, home } = router.query;
+  const { home } = router.query;
   const showHome = home === "true";
 
   useEffect(() => {
@@ -68,10 +68,7 @@ export default function ChatPage() {
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
       </Head>
       <Nav active="home" />
-      <ChatModern
-        user={user}
-        initialConversationId={chatId ? String(chatId) : null}
-      />
+      <ChatModern user={user} initialConversationId={null} />
       {!user && (
         <div className="fixed bottom-32 left-4 right-4 z-40">
           <div className="max-w-md mx-auto bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-sm">

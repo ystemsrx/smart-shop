@@ -39,7 +39,8 @@ export default function Login() {
       router.replace(redirectPath);
       return;
     }
-    router.replace('/');
+    // 普通用户登录后默认跳转到AI聊天界面
+    router.replace('/c');
   }, [user, isInitialized, router, getSafeRedirect]);
 
   // 检查注册功能是否启用
@@ -72,7 +73,8 @@ export default function Login() {
       } else if (redirectPath) {
         router.push(redirectPath);
       } else {
-        router.push('/');
+        // 普通用户登录后默认跳转到AI聊天界面
+        router.push('/c');
       }
     } catch (err) {
       // 错误处理在useAuth中完成

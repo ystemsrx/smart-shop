@@ -534,7 +534,10 @@ def auto_migrate_database(conn) -> None:
         },
         'chat_logs': {
             'thread_id': 'TEXT',
-            'tool_call_id': 'TEXT'
+            'tool_call_id': 'TEXT',
+            'thinking_content': 'TEXT',
+            'thinking_duration': 'REAL',
+            'is_thinking_stopped': 'INTEGER DEFAULT 0'
         },
         'chat_threads': {
             'title': 'TEXT',

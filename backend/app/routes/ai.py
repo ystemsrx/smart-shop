@@ -46,26 +46,34 @@ def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
         "tool_call_id": record.get("tool_call_id"),
     }
     if payload["role"] == "assistant":
-        payload["thinking_content"] = ""
-        if isinstance(content, str):
-            try:
-                parsed = json.loads(content)
-                if isinstance(parsed, dict):
-                    if "tool_calls" in parsed:
-                        payload["tool_calls"] = parsed.get("tool_calls")
-                    if "content" in parsed:
-                        payload["content"] = parsed.get("content") or ""
-                    elif "tool_calls" in parsed:
-                        payload["content"] = ""
-                    thinking_value = parsed.get("thinking_content")
-                    if thinking_value is None:
-                        thinking_value = ""
-                    if isinstance(thinking_value, str):
-                        payload["thinking_content"] = thinking_value
-                    else:
-                        payload["thinking_content"] = str(thinking_value)
-            except Exception:
-                pass
+        # 优先使用数据库中的thinking_content字段
+        thinking_content_from_db = record.get("thinking_content")
+        if thinking_content_from_db:
+            payload["thinking_content"] = thinking_content_from_db
+            payload["thinking_duration"] = record.get("thinking_duration")
+            payload["is_thinking_stopped"] = bool(record.get("is_thinking_stopped"))
+        else:
+            # 向后兼容：从JSON content中提取thinking_content
+            payload["thinking_content"] = ""
+            if isinstance(content, str):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        if "tool_calls" in parsed:
+                            payload["tool_calls"] = parsed.get("tool_calls")
+                        if "content" in parsed:
+                            payload["content"] = parsed.get("content") or ""
+                        elif "tool_calls" in parsed:
+                            payload["content"] = ""
+                        thinking_value = parsed.get("thinking_content")
+                        if thinking_value is None:
+                            thinking_value = ""
+                        if isinstance(thinking_value, str):
+                            payload["thinking_content"] = thinking_value
+                        else:
+                            payload["thinking_content"] = str(thinking_value)
+                except Exception:
+                    pass
     return payload
 
 

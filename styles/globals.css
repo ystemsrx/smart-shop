@@ -570,10 +570,81 @@ body {
 .block-math-body {
   flex: 1 1 100%;
   text-align: center;
+  max-width: 100%;
 }
 
+/* 桌面端：自动缩放过长的公式 */
 .block-math-body .katex {
   font-size: 1.05em;
+  max-width: 100%;
+}
+
+/* 桌面端：使用CSS scale来缩放过长的公式 */
+@media (min-width: 641px) {
+  .block-math-body .katex-display {
+    max-width: 100%;
+    overflow-x: visible;
+  }
+  
+  .block-math-body .katex-display > .katex {
+    max-width: 100%;
+    /* 使用inline-flex让公式自动换行或缩放 */
+  }
+  
+  /* 对于超宽公式，使用CSS scale自动缩放 */
+  .block-math-body .katex-html {
+    max-width: 100%;
+  }
+}
+
+/* 移动端：横向滚动，隐藏滚动条 */
+@media (max-width: 640px) {
+  .block-math-body {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* 隐藏滚动条 - WebKit */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+  }
+  
+  .block-math-body::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+  
+  .block-math-body .katex-display {
+    max-width: none;
+    overflow-x: visible;
+  }
+  
+  .block-math-body .katex {
+    font-size: 1em; /* 移动端不缩小字体 */
+  }
+}
+
+/* 行内公式样式 */
+.inline-math-placeholder {
+  display: inline;
+}
+
+.inline-math-placeholder .katex {
+  font-size: 1em;
+}
+
+/* 移动端行内公式：允许横向滚动 */
+@media (max-width: 640px) {
+  .inline-math-placeholder {
+    display: inline-block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    vertical-align: middle;
+  }
+  
+  .inline-math-placeholder::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .block-math-raw {
@@ -877,6 +948,33 @@ body {
   margin-bottom: 0;
 }
 
+/* 图片样式 - 限制最大尺寸 */
+.markdown-content img {
+  max-width: 40%;
+  height: auto;
+  border-radius: 8px;
+  margin: 0.8em auto;
+  display: block;
+}
+
+/* 行内图片 */
+.markdown-content p img {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.2em;
+  max-width: 40%;
+}
+
+/* 单独图片居中显示 */
+.markdown-content p:has(> img:only-child) {
+  text-align: center;
+}
+
+.markdown-content p:has(> img:only-child) img {
+  display: inline-block;
+  max-width: 40%;
+}
+
 /* 移动端优化 */
 @media (max-width: 640px) {
   /* 确保在小屏幕上有适当的间距 */
@@ -909,6 +1007,20 @@ body {
     max-width: calc(100vw - 2rem);
     border-bottom-left-radius: 12px;
     border-bottom-right-radius: 12px;
+  }
+  
+  /* 移动端图片优化 */
+  .markdown-content img {
+    max-width: 80%;
+    margin: 0.6em auto;
+  }
+  
+  .markdown-content p img {
+    max-width: 80%;
+  }
+  
+  .markdown-content p:has(> img:only-child) img {
+    max-width: 80%;
   }
   
   /* 工具卡片移动端优化 */

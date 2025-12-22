@@ -20,10 +20,10 @@ export default function Register() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
 
-  // 如果已登录，重定向到首页
+  // 如果已登录，重定向到AI聊天界面
   useEffect(() => {
     if (user) {
-      router.push('/');
+      router.push('/c');
     }
   }, [user, router]);
 
@@ -121,9 +121,9 @@ export default function Register() {
         // 刷新认证状态
         await checkAuth();
         
-        // 等待状态更新后跳转到首页
+        // 等待状态更新后跳转到AI聊天界面
         await new Promise(resolve => setTimeout(resolve, 200));
-        router.push('/');
+        router.push('/c');
       } else {
         setError(result.message || '注册失败，请稍后重试');
       }

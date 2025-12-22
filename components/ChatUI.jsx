@@ -604,6 +604,40 @@ const renderInlineMathSegments = (root, segments, cacheRef) => {
   });
 };
 
+// 检测是否为桌面端（宽度 > 640px）
+const isDesktopViewport = () => typeof window !== 'undefined' && window.innerWidth > 640;
+
+// 桌面端自动缩放公式的辅助函数
+const autoScaleMathFormula = (body) => {
+  if (!body || !isDesktopViewport()) return;
+  
+  const katexHtml = body.querySelector('.katex-html');
+  if (!katexHtml) return;
+  
+  // 重置之前的缩放
+  katexHtml.style.transform = '';
+  katexHtml.style.transformOrigin = '';
+  
+  // 等待一帧让浏览器计算布局
+  requestAnimationFrame(() => {
+    const containerWidth = body.offsetWidth;
+    const formulaWidth = katexHtml.scrollWidth;
+    
+    if (formulaWidth > containerWidth && containerWidth > 0) {
+      // 计算缩放比例，最小不低于0.5
+      const scale = Math.max(0.5, containerWidth / formulaWidth);
+      katexHtml.style.transform = `scale(${scale})`;
+      katexHtml.style.transformOrigin = 'center center';
+      // 调整容器高度以适应缩放后的公式
+      const katexDisplay = body.querySelector('.katex-display');
+      if (katexDisplay) {
+        katexDisplay.style.marginTop = '0.5em';
+        katexDisplay.style.marginBottom = '0.5em';
+      }
+    }
+  });
+};
+
 const renderBlockMathSegments = (root, segments, cacheRef) => {
   if (!root || !segments?.length) return;
   const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null;
@@ -664,6 +698,8 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
     if (htmlToUse) {
       if (body.innerHTML !== htmlToUse) {
         body.innerHTML = htmlToUse;
+        // 桌面端自动缩放公式
+        autoScaleMathFormula(body);
       }
     } else {
       body.textContent = segment.raw || '';
@@ -930,7 +966,38 @@ const MarkdownRenderer = ({ content }) => {
     }
 
     // 配置markdown-it
-    const md = window.markdownit({ html: true, linkify: true, typographer: false });
+    const md = window.markdownit({ 
+      html: true, 
+      linkify: true,  // 关闭自动链接识别，使用标准Markdown链接语法
+      typographer: false 
+    });
+    
+    // 自定义链接渲染规则，确保内部链接使用绝对路径
+    const defaultRender = md.renderer.rules.link_open || function(tokens, idx, options, env, self) {
+      return self.renderToken(tokens, idx, options);
+    };
+    
+    md.renderer.rules.link_open = function(tokens, idx, options, env, self) {
+      const token = tokens[idx];
+      const hrefIndex = token.attrIndex('href');
+      
+      if (hrefIndex >= 0) {
+        let href = token.attrs[hrefIndex][1];
+        
+        // 修复可能被错误处理的hash链接
+        if (href && href.startsWith('#/')) {
+          href = href.substring(1); // 移除开头的 #
+          token.attrs[hrefIndex][1] = href;
+        }
+        
+        // 标记内部链接
+        if (href && href.startsWith('/') && !href.startsWith('//')) {
+          token.attrPush(['data-internal-link', 'true']);
+        }
+      }
+      
+      return defaultRender(tokens, idx, options, env, self);
+    };
     
     if (window.markdownitFootnote) {
       md.use(window.markdownitFootnote);
@@ -994,6 +1061,40 @@ const MarkdownRenderer = ({ content }) => {
     
     // 设置 HTML
     containerRef.current.innerHTML = renderedHtml;
+    
+    // 处理Markdown中的链接，让它们使用Next.js路由而不是浏览器默认行为
+    const links = containerRef.current.querySelectorAll('a[href]');
+    links.forEach(link => {
+      let href = link.getAttribute('href');
+      
+      // 修复被错误渲染为hash链接的情况
+      if (href && href.startsWith('#/')) {
+        href = href.substring(1); // 移除开头的 #
+        link.setAttribute('href', href);
+      }
+      
+      // 处理内部链接（以 / 开头但不是 // 开头的）
+      if (href && href.startsWith('/') && !href.startsWith('//')) {
+        // 移除可能存在的旧事件监听器
+        const newLink = link.cloneNode(true);
+        link.parentNode.replaceChild(newLink, link);
+        
+        // 添加新的点击事件
+        newLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // 使用window.location进行导航（最可靠的方式）
+          if (typeof window !== 'undefined') {
+            window.location.href = href;
+          }
+        }, { capture: true });
+        
+        // 添加视觉反馈样式
+        newLink.style.cursor = 'pointer';
+        newLink.style.textDecoration = 'underline';
+      }
+    });
     
     // 在 DOM 中恢复受保护的 LaTeX 块（在后续的 replaceBlockMathWithPlaceholders 中处理）
     // 将 LaTeX 内容存储到 DOM 元素的 dataset 中
@@ -1808,13 +1909,19 @@ const Bubble = ({ role, children }) => {
   );
 };
 
-const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
+const ThinkingBubble = ({ content, isComplete = false, isStopped = false, thinkingDuration = null }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [startTime] = useState(Date.now());
-  const [elapsedTime, setElapsedTime] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(thinkingDuration || 0);
   
   // 计算思考时长
   useEffect(() => {
+    // 如果已经有预设的thinkingDuration（来自历史记录），直接使用
+    if (thinkingDuration !== null) {
+      setElapsedTime(thinkingDuration);
+      return;
+    }
+    
     if (isComplete || isStopped) {
       // 思考完成或被停止时记录最终时长
       setElapsedTime((Date.now() - startTime) / 1000);
@@ -1825,7 +1932,7 @@ const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
       }, 100);
       return () => clearInterval(timer);
     }
-  }, [isComplete, isStopped, startTime]);
+  }, [isComplete, isStopped, startTime, thinkingDuration]);
 
   const containerClassName = cx(
     "inline-flex max-w-[80%] flex-col items-start rounded-2xl border border-gray-100 bg-gray-50 text-sm leading-relaxed text-gray-500 shadow-sm transition-all",
@@ -1859,9 +1966,10 @@ const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
         <div
           onClick={handleHeaderClick}
           className={cx(
-            "inline-flex items-center gap-2 text-[11px] font-semibold tracking-wide text-gray-400 transition-colors w-full",
+            "inline-flex items-center gap-2 text-[11px] font-semibold tracking-wide text-gray-400 transition-colors w-full select-none",
             isExpanded ? "hover:text-gray-600 cursor-pointer" : ""
           )}
+          style={{ userSelect: 'none', WebkitUserSelect: 'none', MozUserSelect: 'none', msUserSelect: 'none' }}
         >
           {!isComplete && !isStopped && (
             <motion.div
@@ -1878,7 +1986,9 @@ const ThinkingBubble = ({ content, isComplete = false, isStopped = false }) => {
           <span className="normal-case">
             {isStopped 
               ? "Stopped thinking" 
-              : (isComplete ? `Thought for ${elapsedTime.toFixed(1)}s` : "Thinking")}
+              : (isComplete 
+                  ? (elapsedTime > 0 ? `Thought for ${elapsedTime.toFixed(1)}s` : "Thought") 
+                  : "Thinking")}
           </span>
           <motion.span
             animate={{ rotate: isExpanded ? 180 : 0 }}
@@ -2650,6 +2760,12 @@ export default function ChatModern({ user, initialConversationId = null }) {
     }
     return true;
   });
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [chatError, setChatError] = useState("");
@@ -2704,10 +2820,19 @@ export default function ChatModern({ user, initialConversationId = null }) {
       localStorage.setItem('ai_sidebar_open', String(isSidebarOpen));
     }
   }, [isSidebarOpen]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     // 判断是否是新对话URL
-    const isNewChatUrl = router?.query?.chat === 'true' && !router?.query?.chatId;
+    const isNewChatUrl = router?.pathname === '/c' && !router?.query?.chatId;
     
     // 如果是新对话URL，保持标志为true，防止activeChatId被derivedChatId覆盖
     if (isNewChatUrl) {
@@ -2849,6 +2974,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
               role: "assistant_thinking",
               content: thinkingText,
               isComplete: true,
+              isStopped: Boolean(entry.is_thinking_stopped),
+              thinkingDuration: entry.thinking_duration || null,
             });
           }
 
@@ -2990,9 +3117,8 @@ export default function ChatModern({ user, initialConversationId = null }) {
       const list = Array.isArray(data?.chats) ? data.chats : [];
       setChats(list);
       
-      // 判断是否是新对话状态：URL是/?chat=true（没有chatId参数）或者是根路径/
-      const isNewChatUrl = (router?.query?.chat === 'true' && !router?.query?.chatId) || 
-                           (router?.pathname === '/' && !router?.asPath?.startsWith('/c/'));
+      // 判断是否是新对话状态：URL是/c（没有chatId）
+      const isNewChatUrl = (router?.pathname === '/c' && !router?.query?.chatId);
       
       // 移除自动跳转到最近聊天的逻辑，让用户停留在新对话界面
       // 只有在不是正在创建新对话的情况下，才自动选择第一个对话
@@ -3245,7 +3371,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     
     // 跳转到聊天根目录
     if (router) {
-      router.push('/?chat=true');
+      router.push('/c');
     }
   }, [historyEnabled, activeChatId, msgs, router]);
 
@@ -4404,6 +4530,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                             content={m.content}
                             isComplete={m.isComplete}
                             isStopped={m.isStopped}
+                            thinkingDuration={m.thinkingDuration}
                           />
                         );
                       } else if (m.role === "tool_call") {
@@ -4487,11 +4614,16 @@ export default function ChatModern({ user, initialConversationId = null }) {
           </div>
         </main>
         {shouldShowChat && (
-          <div
+          <motion.div
             className="fixed bottom-0 z-30"
+            initial={false}
+            animate={{
+              opacity: isSidebarOpen && !isDesktop ? 0 : 1
+            }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
             style={
               historyEnabled
-                ? { left: sidebarWidth, right: 0 }
+                ? { left: isDesktop ? sidebarWidth : 0, right: 0 }
                 : { left: 0, right: 0 }
             }
           >
@@ -4507,7 +4639,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 />
               </motion.div>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>

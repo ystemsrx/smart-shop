@@ -93,7 +93,7 @@ export default function Nav({ active = 'home' }) {
                 ) : (
                   /* 普通用户导航 */
                   <>
-                    <Link href="/?chat=true" className={linkCls('home')}>
+                    <Link href="/c" className={linkCls('home')}>
                       <i className="fas fa-comments"></i>
                       <span>商城助手</span>
                     </Link>
@@ -282,7 +282,7 @@ export default function Nav({ active = 'home' }) {
               ) : (
                 /* 普通用户菜单 */
                 <>
-                  <Link href="/?chat=true" onClick={closeMenu} className={`${active === 'home' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
+                  <Link href="/c" onClick={closeMenu} className={`${active === 'home' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}>
                     <i className="fas fa-comments w-5"></i>
                     <span className="font-medium">商城助手</span>
                   </Link>
