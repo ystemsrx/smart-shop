@@ -973,6 +973,8 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
   const createdAtDisplay = order && typeof formatDate === 'function'
     ? formatDate(order.created_at_timestamp ?? order.created_at)
     : '';
+  const orderIdRaw = order?.id || '-';
+  const orderIdMobile = typeof orderIdRaw === 'string' ? orderIdRaw.replace(/^order_/, '') : orderIdRaw;
   const paymentMethod = order?.payment_method === 'wechat'
     ? '微信支付'
     : (order?.payment_method || '未知');
@@ -1016,7 +1018,8 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
               <div>
                 <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                   订单详情
-                  <span className="text-sm font-normal text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md border border-gray-100">#{order?.id || '-'}</span>
+                  <span className="text-sm font-normal text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md border border-gray-100 md:hidden">#{orderIdMobile}</span>
+                  <span className="text-sm font-normal text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md border border-gray-100 hidden md:inline">#{orderIdRaw}</span>
                 </h3>
                 <div className="flex items-center gap-4 mt-2">
                   {statusBadge}
@@ -1259,6 +1262,7 @@ export const OrderTable = ({
   showAgentInfo = false
 }) => {
   const [viewingOrder, setViewingOrder] = React.useState(null);
+  const [searchPlaceholder, setSearchPlaceholder] = React.useState('搜索订单号、姓名、手机...');
   
   const getStatusBadge = (status) => {
     const statusInfo = UNIFIED_STATUS_MAP[status] || { text: status, color: 'gray' };
@@ -1288,15 +1292,89 @@ export const OrderTable = ({
     return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN', { hour12: false });
   };
 
+  const getCustomerName = (order) => {
+    const raw = order?.shipping_info?.name || order?.customer_name || order?.user_name || order?.customer_id || '';
+    return typeof raw === 'string' ? raw.trim() : String(raw || '').trim();
+  };
+
+  const resolveOrderTimestampMs = (order) => {
+    if (typeof order?.created_at_timestamp === 'number' && isFinite(order.created_at_timestamp)) {
+      return order.created_at_timestamp * 1000;
+    }
+    if (order?.created_at) {
+      const direct = Date.parse(order.created_at);
+      if (!isNaN(direct)) return direct;
+      const normalized = Date.parse(order.created_at.replace(' ', 'T') + 'Z');
+      if (!isNaN(normalized)) return normalized;
+    }
+    return 0;
+  };
+
+  const fallbackOrderIndexMap = useMemo(() => {
+    const map = new Map();
+    const counters = new Map();
+    const enriched = (orders || []).map((order) => ({
+      order,
+      ts: resolveOrderTimestampMs(order)
+    }));
+    enriched.sort((a, b) => {
+      if (a.ts !== b.ts) return a.ts - b.ts;
+      return String(a.order?.id || '').localeCompare(String(b.order?.id || ''));
+    });
+    enriched.forEach(({ order }) => {
+      const key = order?.student_id || getCustomerName(order);
+      if (!key) return;
+      const next = (counters.get(key) || 0) + 1;
+      counters.set(key, next);
+      map.set(order.id, next);
+    });
+    return map;
+  }, [orders]);
+
+  const getCustomerOrderIndex = (order) => {
+    const idx = order?.customer_order_index;
+    if (typeof idx === 'number' && isFinite(idx)) return idx;
+    return fallbackOrderIndexMap.get(order?.id);
+  };
+
+  const renderCustomerLabel = (order) => {
+    const rawName = getCustomerName(order);
+    const displayName = rawName || '未知';
+    const orderIndex = getCustomerOrderIndex(order);
+    return (
+      <span>
+        {displayName}
+        {rawName && orderIndex ? (
+          <span className="text-gray-400"> ({orderIndex})</span>
+        ) : null}
+      </span>
+    );
+  };
+
   const allIds = orders.map(o => o.id);
   const isAllSelected = allIds.length > 0 && allIds.every(id => selectedOrders.includes(id));
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const updatePlaceholder = () => {
+      setSearchPlaceholder(mq.matches ? '搜索订单...' : '搜索订单号、姓名、手机...');
+    };
+    updatePlaceholder();
+    if (mq.addEventListener) {
+      mq.addEventListener('change', updatePlaceholder);
+      return () => mq.removeEventListener('change', updatePlaceholder);
+    }
+    mq.addListener(updatePlaceholder);
+    return () => mq.removeListener(updatePlaceholder);
+  }, []);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 overflow-hidden flex flex-col">
       {/* Toolbar */}
       {/* Toolbar */}
       <div className="px-6 py-4 border-b border-gray-100 bg-white">
-        <div className="flex justify-between items-center mb-3">
+        <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-bold text-gray-900">订单列表</h3>
             {selectedOrders.length > 0 && (
@@ -1312,25 +1390,24 @@ export const OrderTable = ({
               </div>
             )}
           </div>
-          <button 
-            onClick={onRefresh} 
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200 transition-all active:scale-95"
-            title="刷新列表"
-          >
-            <i className="fas fa-sync-alt text-sm"></i>
-          </button>
-        </div>
-        
-        <div className="flex justify-center">
-          <div className="relative group w-full max-w-md">
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
-            <input
-              type="text"
-              placeholder="搜索订单号、姓名、手机..."
-              value={searchValue}
-              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 focus:bg-white"
-            />
+          <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+            <div className="relative group w-full min-w-0 max-w-[320px]">
+              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
+              <input
+                type="text"
+                placeholder={searchPlaceholder}
+                value={searchValue}
+                onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+                className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 focus:bg-white"
+              />
+            </div>
+            <button 
+              onClick={onRefresh} 
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200 transition-all active:scale-95"
+              title="刷新列表"
+            >
+              <i className="fas fa-sync-alt text-sm"></i>
+            </button>
           </div>
         </div>
       </div>
@@ -1386,7 +1463,7 @@ export const OrderTable = ({
                       <span className="text-gray-400 shrink-0">客户</span>
                       <div className="text-right flex-1 pl-4 min-w-0">
                          <span className="text-gray-700 font-medium break-all block w-full text-right">
-                             {order.shipping_info?.name || order.customer_name || order.user_name || order.customer_id}
+                             {renderCustomerLabel(order)}
                          </span>
                       </div>
                    </div>
@@ -1488,7 +1565,7 @@ export const OrderTable = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col items-center">
-                      <span className="text-sm text-gray-900 font-medium">{order.shipping_info?.name || order.customer_name || '未知'}</span>
+                      <span className="text-sm text-gray-900 font-medium">{renderCustomerLabel(order)}</span>
                       <span className="text-xs text-gray-500 mt-0.5">{order.student_id || '—'}</span>
                       <span className="text-xs text-gray-400 mt-0.5 truncate max-w-[150px]" title={order.shipping_info?.full_address}>
                         {order.shipping_info?.full_address}

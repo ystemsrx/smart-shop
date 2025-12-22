@@ -578,7 +578,18 @@ class OrderDB:
             total = cursor.fetchone()[0] or 0
 
             query_sql = f'''
-                SELECT o.*, u.name as customer_name
+                SELECT 
+                    o.*, 
+                    u.name as customer_name,
+                    (
+                        SELECT COUNT(*)
+                        FROM orders o2
+                        WHERE o2.student_id = o.student_id
+                          AND (
+                            datetime(o2.created_at) < datetime(o.created_at)
+                            OR (datetime(o2.created_at) = datetime(o.created_at) AND o2.id <= o.id)
+                          )
+                    ) AS customer_order_index
                 FROM orders o
                 LEFT JOIN users u ON o.student_id = u.id
                 {where_clause}
@@ -612,7 +623,22 @@ class OrderDB:
             cursor = conn.cursor()
 
             cursor.execute(
-                'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
+                '''
+                    SELECT 
+                        o.*, 
+                        (
+                            SELECT COUNT(*)
+                            FROM orders o2
+                            WHERE o2.student_id = o.student_id
+                              AND (
+                                datetime(o2.created_at) < datetime(o.created_at)
+                                OR (datetime(o2.created_at) = datetime(o.created_at) AND o2.id <= o.id)
+                              )
+                        ) AS customer_order_index
+                    FROM orders o
+                    WHERE o.user_id = ?
+                    ORDER BY o.created_at DESC
+                ''',
                 (user_ref['user_id'],)
             )
             orders = [dict(row) for row in cursor.fetchall()]

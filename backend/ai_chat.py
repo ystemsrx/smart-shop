@@ -488,7 +488,7 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
         skills_lines.append("**Service Communication**: Recommend products, prompt login, communicate clearly")
         if checkout_hint:
             skills_lines.append(checkout_hint)
-        skills_text = "\n- ".join(skills_lines)
+        skills_text = "\n".join(f"- {skill}" for skill in skills_lines)
         
         system_prompt = f"""# Role
 
@@ -525,7 +525,7 @@ The business rules are provided within <business_rules></business_rules> XML tag
 
 ## Skills
 
-- {skills_text}
+{skills_text}
 """
         
         return system_prompt
