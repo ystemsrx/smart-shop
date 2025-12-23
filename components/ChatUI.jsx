@@ -126,33 +126,47 @@ const escapeHtml = (text) => {
 };
 
 const BUTTON_CONTENT = {
-  COPY: `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
-      <path d="M12.668 10.667C12.668 9.95614 12.668 9.46258 12.6367 9.0791C12.6137 8.79732 12.5758 8.60761 12.5244 8.46387L12.4688 8.33399C12.3148 8.03193 12.0803 7.77885 11.793 7.60254L11.666 7.53125C11.508 7.45087 11.2963 7.39395 10.9209 7.36328C10.5374 7.33197 10.0439 7.33203 9.33301 7.33203H6.5C5.78896 7.33203 5.29563 7.33195 4.91211 7.36328C4.63016 7.38632 4.44065 7.42413 4.29688 7.47559L4.16699 7.53125C3.86488 7.68518 3.61186 7.9196 3.43555 8.20703L3.36524 8.33399C3.28478 8.49198 3.22795 8.70352 3.19727 9.0791C3.16595 9.46259 3.16504 9.95611 3.16504 10.667V13.5C3.16504 14.211 3.16593 14.7044 3.19727 15.0879C3.22797 15.4636 3.28473 15.675 3.36524 15.833L3.43555 15.959C3.61186 16.2466 3.86474 16.4807 4.16699 16.6348L4.29688 16.6914C4.44063 16.7428 4.63025 16.7797 4.91211 16.8027C5.29563 16.8341 5.78896 16.835 6.5 16.835H9.33301C10.0439 16.835 10.5374 16.8341 10.9209 16.8027C11.2965 16.772 11.508 16.7152 11.666 16.6348L11.793 16.5645C12.0804 16.3881 12.3148 16.1351 12.4688 15.833L12.5244 15.7031C12.5759 15.5594 12.6137 15.3698 12.6367 15.0879C12.6681 14.7044 12.668 14.211 12.668 13.5V10.667ZM13.998 12.665C14.4528 12.6634 14.8011 12.6602 15.0879 12.6367C15.4635 12.606 15.675 12.5492 15.833 12.4688L15.959 12.3975C16.2466 12.2211 16.4808 11.9682 16.6348 11.666L16.6914 11.5361C16.7428 11.3924 16.7797 11.2026 16.8027 10.9209C16.8341 10.5374 16.835 10.0439 16.835 9.33301V6.5C16.835 5.78896 16.8341 5.29563 16.8027 4.91211C16.7797 4.63025 16.7428 4.44063 16.6914 4.29688L16.6348 4.16699C16.4807 3.86474 16.2466 3.61186 15.959 3.43555L15.833 3.36524C15.675 3.28473 15.4636 3.22797 15.0879 3.19727C14.7044 3.16593 14.211 3.16504 13.5 3.16504H10.667C9.9561 3.16504 9.46259 3.16595 9.0791 3.19727C8.79739 3.22028 8.6076 3.2572 8.46387 3.30859L8.33399 3.36524C8.03176 3.51923 7.77886 3.75343 7.60254 4.04102L7.53125 4.16699C7.4508 4.32498 7.39397 4.53655 7.36328 4.91211C7.33985 5.19893 7.33562 5.54719 7.33399 6.00195H9.33301C10.022 6.00195 10.5791 6.00131 11.0293 6.03809C11.4873 6.07551 11.8937 6.15471 12.2705 6.34668L12.4883 6.46875C12.984 6.7728 13.3878 7.20854 13.6533 7.72949L13.7197 7.87207C13.8642 8.20859 13.9292 8.56974 13.9619 8.9707C13.9987 9.42092 13.998 9.97799 13.998 10.667V12.665ZM18.165 9.33301C18.165 10.022 18.1657 10.5791 18.1289 11.0293C18.0961 11.4302 18.0311 11.7914 17.8867 12.1279L17.8203 12.2705C17.5549 12.7914 17.1509 13.2272 16.6553 13.5313L16.4365 13.6533C16.0599 13.8452 15.6541 13.9245 15.1963 13.9619C14.8593 13.9895 14.4624 13.9935 13.9951 13.9951C13.9935 14.4624 13.9895 14.8593 13.9619 15.1963C13.9292 15.597 13.864 15.9576 13.7197 16.2939L13.6533 16.4365C13.3878 16.9576 12.9841 17.3941 12.4883 17.6982L12.2705 17.8203C11.8937 18.0123 11.4873 18.0915 11.0293 18.1289C10.5791 18.1657 10.022 18.165 9.33301 18.165H6.5C5.81091 18.165 5.25395 18.1657 4.80371 18.1289C4.40306 18.0962 4.04235 18.031 3.70606 17.8867L3.56348 17.8203C3.04244 17.5548 2.60585 17.151 2.30176 16.6553L2.17969 16.4365C1.98788 16.0599 1.90851 15.6541 1.87109 15.1963C1.83431 14.746 1.83496 14.1891 1.83496 13.5V10.667C1.83496 9.978 1.83432 9.42091 1.87109 8.9707C1.90851 8.5127 1.98772 8.10625 2.17969 7.72949L2.30176 7.51172C2.60586 7.0159 3.04236 6.6122 3.56348 6.34668L3.70606 6.28027C4.04237 6.136 4.40303 6.07083 4.80371 6.03809C5.14051 6.01057 5.53708 6.00551 6.00391 6.00391C6.00551 5.53708 6.01057 5.14051 6.03809 4.80371C6.0755 4.34588 6.15483 3.94012 6.34668 3.56348L6.46875 3.34473C6.77282 2.84912 7.20856 2.44514 7.72949 2.17969L7.87207 2.11328C8.20855 1.96886 8.56979 1.90385 8.9707 1.87109C9.42091 1.83432 9.978 1.83496 10.667 1.83496H13.5C14.1891 1.83496 14.746 1.83431 15.1963 1.87109C15.6541 1.90851 16.0599 1.98788 16.4365 2.17969L16.6553 2.30176C17.151 2.60585 17.5548 3.04244 17.8203 3.56348L17.8867 3.70606C18.031 4.04235 18.0962 4.40306 18.1289 4.80371C18.1657 5.25395 18.165 5.81091 18.165 6.5V9.33301Z"></path>
-    </svg>
-    <span>Copy</span>
-  `,
-  COPIED: `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
-      <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
-    </svg>
-    <span>Copied!</span>
-  `,
-  PREVIEW_ON: `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
-      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-      <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
-    </svg>
-    <span>预览</span>
-  `,
-  PREVIEW_OFF: `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs">
-      <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"/>
-      <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/>
-    </svg>
-    <span>代码</span>
-  `,
+  COPY: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path d="M12.668 10.667C12.668 9.95614 12.668 9.46258 12.6367 9.0791C12.6137 8.79732 12.5758 8.60761 12.5244 8.46387L12.4688 8.33399C12.3148 8.03193 12.0803 7.77885 11.793 7.60254L11.666 7.53125C11.508 7.45087 11.2963 7.39395 10.9209 7.36328C10.5374 7.33197 10.0439 7.33203 9.33301 7.33203H6.5C5.78896 7.33203 5.29563 7.33195 4.91211 7.36328C4.63016 7.38632 4.44065 7.42413 4.29688 7.47559L4.16699 7.53125C3.86488 7.68518 3.61186 7.9196 3.43555 8.20703L3.36524 8.33399C3.28478 8.49198 3.22795 8.70352 3.19727 9.0791C3.16595 9.46259 3.16504 9.95611 3.16504 10.667V13.5C3.16504 14.211 3.16593 14.7044 3.19727 15.0879C3.22797 15.4636 3.28473 15.675 3.36524 15.833L3.43555 15.959C3.61186 16.2466 3.86474 16.4807 4.16699 16.6348L4.29688 16.6914C4.44063 16.7428 4.63025 16.7797 4.91211 16.8027C5.29563 16.8341 5.78896 16.835 6.5 16.835H9.33301C10.0439 16.835 10.5374 16.8341 10.9209 16.8027C11.2965 16.772 11.508 16.7152 11.666 16.6348L11.793 16.5645C12.0804 16.3881 12.3148 16.1351 12.4688 15.833L12.5244 15.7031C12.5759 15.5594 12.6137 15.3698 12.6367 15.0879C12.6681 14.7044 12.668 14.211 12.668 13.5V10.667ZM13.998 12.665C14.4528 12.6634 14.8011 12.6602 15.0879 12.6367C15.4635 12.606 15.675 12.5492 15.833 12.4688L15.959 12.3975C16.2466 12.2211 16.4808 11.9682 16.6348 11.666L16.6914 11.5361C16.7428 11.3924 16.7797 11.2026 16.8027 10.9209C16.8341 10.5374 16.835 10.0439 16.835 9.33301V6.5C16.835 5.78896 16.8341 5.29563 16.8027 4.91211C16.7797 4.63025 16.7428 4.44063 16.6914 4.29688L16.6348 4.16699C16.4807 3.86474 16.2466 3.61186 15.959 3.43555L15.833 3.36524C15.675 3.28473 15.4636 3.22797 15.0879 3.19727C14.7044 3.16593 14.211 3.16504 13.5 3.16504H10.667C9.9561 3.16504 9.46259 3.16595 9.0791 3.19727C8.79739 3.22028 8.6076 3.2572 8.46387 3.30859L8.33399 3.36524C8.03176 3.51923 7.77886 3.75343 7.60254 4.04102L7.53125 4.16699C7.4508 4.32498 7.39397 4.53655 7.36328 4.91211C7.33985 5.19893 7.33562 5.54719 7.33399 6.00195H9.33301C10.022 6.00195 10.5791 6.00131 11.0293 6.03809C11.4873 6.07551 11.8937 6.15471 12.2705 6.34668L12.4883 6.46875C12.984 6.7728 13.3878 7.20854 13.6533 7.72949L13.7197 7.87207C13.8642 8.20859 13.9292 8.56974 13.9619 8.9707C13.9987 9.42092 13.998 9.97799 13.998 10.667V12.665ZM18.165 9.33301C18.165 10.022 18.1657 10.5791 18.1289 11.0293C18.0961 11.4302 18.0311 11.7914 17.8867 12.1279L17.8203 12.2705C17.5549 12.7914 17.1509 13.2272 16.6553 13.5313L16.4365 13.6533C16.0599 13.8452 15.6541 13.9245 15.1963 13.9619C14.8593 13.9895 14.4624 13.9935 13.9951 13.9951C13.9935 14.4624 13.9895 14.8593 13.9619 15.1963C13.9292 15.597 13.864 15.9576 13.7197 16.2939L13.6533 16.4365C13.3878 16.9576 12.9841 17.3941 12.4883 17.6982L12.2705 17.8203C11.8937 18.0123 11.4873 18.0915 11.0293 18.1289C10.5791 18.1657 10.022 18.165 9.33301 18.165H6.5C5.81091 18.165 5.25395 18.1657 4.80371 18.1289C4.40306 18.0962 4.04235 18.031 3.70606 17.8867L3.56348 17.8203C3.04244 17.5548 2.60585 17.151 2.30176 16.6553L2.17969 16.4365C1.98788 16.0599 1.90851 15.6541 1.87109 15.1963C1.83431 14.746 1.83496 14.1891 1.83496 13.5V10.667C1.83496 9.978 1.83432 9.42091 1.87109 8.9707C1.90851 8.5127 1.98772 8.10625 2.17969 7.72949L2.30176 7.51172C2.60586 7.0159 3.04236 6.6122 3.56348 6.34668L3.70606 6.28027C4.04237 6.136 4.40303 6.07083 4.80371 6.03809C5.14051 6.01057 5.53708 6.00551 6.00391 6.00391C6.00551 5.53708 6.01057 5.14051 6.03809 4.80371C6.0755 4.34588 6.15483 3.94012 6.34668 3.56348L6.46875 3.34473C6.77282 2.84912 7.20856 2.44514 7.72949 2.17969L7.87207 2.11328C8.20855 1.96886 8.56979 1.90385 8.9707 1.87109C9.42091 1.83432 9.978 1.83496 10.667 1.83496H13.5C14.1891 1.83496 14.746 1.83431 15.1963 1.87109C15.6541 1.90851 16.0599 1.98788 16.4365 2.17969L16.6553 2.30176C17.151 2.60585 17.5548 3.04244 17.8203 3.56348L17.8867 3.70606C18.031 4.04235 18.0962 4.40306 18.1289 4.80371C18.1657 5.25395 18.165 5.81091 18.165 6.5V9.33301Z"></path></svg><span>Copy</span>`,
+  COPIED: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg><span>Copied!</span>`,
+  PREVIEW_ON: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg><span>预览</span>`,
+  PREVIEW_OFF: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"/><path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/></svg><span>代码</span>`,
+  RUN_ON: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg><span>运行</span>`,
+  RUN_OFF: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg><span>源码</span>`,
 };
+
+const CUSTOM_ALERT_HTML = `
+<!-- Custom Alert Implementation -->
+<style>
+  /* Force Reset to prevent unwanted scrolling */
+  html, body { margin: 0; padding: 0; }
+  /* Host wrapper should not take up space */
+  #custom-alert-host { position: absolute; width: 0; height: 0; overflow: hidden; }
+  #custom-alert-host * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+  .custom-alert-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; pointer-events: none; transition: opacity 0.2s; backdrop-filter: blur(2px); margin: 0; padding: 0; }
+  .custom-alert-overlay.show { opacity: 1; pointer-events: auto; }
+  .custom-alert-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); width: 280px; text-align: center; transform: scale(0.9); transition: transform 0.2s; min-width: 0; }
+  .custom-alert-overlay.show .custom-alert-box { transform: scale(1); }
+  .custom-alert-msg { margin-bottom: 20px; font-size: 15px; color: #374151; line-height: 1.5; word-break: break-word; }
+  .custom-alert-btn { background: #1f2937; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; -webkit-appearance: none; display: inline-block; margin: 0; }
+  .custom-alert-btn:hover { background: #111827; }
+</style>
+<div id="custom-alert-host">
+  <div id="custom-alert" class="custom-alert-overlay"><div class="custom-alert-box"><div id="custom-alert-msg" class="custom-alert-msg"></div><button onclick="window.closeAlert()" class="custom-alert-btn">OK</button></div></div>
+</div>
+<script>
+  window.alert = function(msg) {
+    const box = document.getElementById('custom-alert');
+    if(box) { 
+      document.getElementById('custom-alert-msg').textContent = String(msg);
+      box.classList.add('show');
+    }
+  };
+  window.closeAlert = function() {
+    const box = document.getElementById('custom-alert');
+    if(box) box.classList.remove('show');
+  };
+</script>
+`;
 
 const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
 const INLINE_MATH_PLACEHOLDER_CLASS = 'inline-math-placeholder';
@@ -860,20 +874,23 @@ const MarkdownRenderer = ({ content }) => {
   const mermaidStatesRef = useRef(new Map()); // key: mermaid块序号, value: {scale, translate}
   // 记录每个支持预览的代码块当前的展示模式（预览 or 代码），以便流式刷新时保持用户选择
   const previewViewModeRef = useRef(new Map()); // key: 代码块序号, value: 'preview' | 'code'
-  // 缓存每个Mermaid和SVG代码块最近一次成功渲染的快照，避免失效片段导致闪烁
+  // 缓存每个Mermaid、SVG和HTML代码块最近一次成功渲染的快照，避免失效片段导致闪烁
   const mermaidSnapshotRef = useRef(new Map()); // key: mermaid块序号, value: svg string
   const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: svg string
+  const htmlSnapshotRef = useRef(new Map()); // key: html块序号, value: html string
 
   const togglePreviewMode = useCallback((blockKey, forcedMode) => {
     if (!blockKey || !containerRef.current) return;
     const blockContainer = containerRef.current.querySelector(`.code-block-container[data-block-key="${blockKey}"]`);
     if (!blockContainer) return;
-    const previewContainer = blockContainer.querySelector('.mermaid-preview, .svg-preview');
+    const previewContainer = blockContainer.querySelector('.mermaid-preview, .svg-preview, .html-preview');
     if (!previewContainer) return;
-    const codeBlock = blockContainer.querySelector(`pre[data-code-block="${blockKey}"]`) ||
-      blockContainer.querySelector('pre');
-    if (!codeBlock) return;
+    // 获取代码包装器（包含行号和pre）
+    const codeWrapper = blockContainer.querySelector('.code-block-wrapper');
+    if (!codeWrapper) return;
     const toggleButton = blockContainer.querySelector(`[data-preview-toggle="${blockKey}"]`);
+    // 检查是否是HTML预览块，用于决定按钮内容
+    const isHtmlBlock = previewContainer.classList.contains('html-preview');
 
     const currentMode = previewContainer.dataset.viewMode === 'code' ? 'code'
       : (previewContainer.style.display === 'none' ? 'code' : 'preview');
@@ -883,11 +900,66 @@ const MarkdownRenderer = ({ content }) => {
 
     previewContainer.style.display = showPreview ? preferredDisplay : 'none';
     previewContainer.dataset.viewMode = nextMode;
-    codeBlock.style.display = showPreview ? 'none' : 'block';
+    // 控制整个代码包装器的显示/隐藏，而不只是pre
+    codeWrapper.style.display = showPreview ? 'none' : 'flex';
     previewViewModeRef.current.set(blockKey, nextMode);
 
+    // HTML块特殊处理：每次切换到预览时重新渲染，切换回代码时清空iframe
+    if (isHtmlBlock) {
+      const iframe = previewContainer.querySelector('iframe');
+      if (iframe) {
+        if (showPreview) {
+          // 切换到预览：重新渲染iframe内容
+          const codeElement = blockContainer.querySelector('pre code');
+          const codeContent = codeElement?.textContent || '';
+          if (codeContent.trim()) {
+            let htmlDoc = '';
+            if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
+              if (/<\/body>/i.test(codeContent)) {
+                htmlDoc = codeContent.replace(/<\/body>/i, CUSTOM_ALERT_HTML + '</body>');
+              } else {
+                htmlDoc = codeContent + CUSTOM_ALERT_HTML;
+              }
+            } else {
+              htmlDoc = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+${codeContent}
+${CUSTOM_ALERT_HTML}
+</body>
+</html>`;
+            }
+            iframe.srcdoc = htmlDoc;
+          }
+        } else {
+          // 切换回代码：清空iframe内容，停止执行
+          iframe.srcdoc = '';
+        }
+      }
+    }
+
     if (toggleButton) {
-      toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
+      // 按钮显示的是"点击后会发生什么"
+      // 当前显示预览 -> 按钮显示"代码"（点击后切换到代码）
+      // 当前显示代码 -> 按钮显示"预览"（点击后切换到预览）
+      if (isHtmlBlock) {
+        toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.RUN_OFF : BUTTON_CONTENT.RUN_ON;
+      } else {
+        toggleButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_OFF : BUTTON_CONTENT.PREVIEW_ON;
+      }
       toggleButton.setAttribute('data-mode', nextMode);
     }
   }, []);
@@ -1225,6 +1297,7 @@ const MarkdownRenderer = ({ content }) => {
     const activePreviewKeys = new Set();
     let mermaidBlockIndex = 0;
     let svgBlockIndex = 0;
+    let htmlBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
 
@@ -1235,13 +1308,16 @@ const MarkdownRenderer = ({ content }) => {
       const language = languageMatch ? languageMatch[1] : '';
       const isMermaid = language === 'mermaid';
       const isSvg = language === 'svg';
-      const supportsPreview = isMermaid || isSvg;
+      const isHtml = language === 'html' || language === 'htm';
+      const supportsPreview = isMermaid || isSvg || isHtml;
       let blockKey = null;
       if (isMermaid) {
         blockKey = `mermaid-${mermaidBlockIndex++}`;
         activeMermaidKeys.add(blockKey);
       } else if (isSvg) {
         blockKey = `svg-${svgBlockIndex++}`;
+      } else if (isHtml) {
+        blockKey = `html-${htmlBlockIndex++}`;
       }
       if (supportsPreview && blockKey) {
         activePreviewKeys.add(blockKey);
@@ -1273,31 +1349,45 @@ const MarkdownRenderer = ({ content }) => {
       
       // 为支持预览的代码块添加预览按钮
       let previewButton = null;
-      let showPreview = true; // 默认开启预览
+      // HTML默认不预览（需要手动点击运行），其他类型默认预览
+      let showPreview = isHtml ? false : true;
       
       if (supportsPreview && blockKey) {
         const savedViewMode = previewViewModeRef.current.get(blockKey);
-        showPreview = savedViewMode !== 'code';
+        // HTML只有明确保存为preview时才预览，其他类型只有明确保存为code时才显示代码
+        if (isHtml) {
+          showPreview = savedViewMode === 'preview';
+        } else {
+          showPreview = savedViewMode !== 'code';
+        }
 
         previewButton = document.createElement('button');
         previewButton.className = 'code-copy-button mermaid-preview-toggle';
-        previewButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_ON : BUTTON_CONTENT.PREVIEW_OFF;
-        previewButton.setAttribute('aria-label', 'Toggle Preview');
+        previewButton.style.cssText = 'display: inline-flex; align-items: center; gap: 3px;';
+        // 按钮显示的是"点击后会发生什么"
+        // 当前显示预览 -> 按钮显示"代码"（点击后切换到代码）
+        // 当前显示代码 -> 按钮显示"预览"（点击后切换到预览）
+        if (isHtml) {
+          previewButton.innerHTML = showPreview ? BUTTON_CONTENT.RUN_OFF : BUTTON_CONTENT.RUN_ON;
+        } else {
+          previewButton.innerHTML = showPreview ? BUTTON_CONTENT.PREVIEW_OFF : BUTTON_CONTENT.PREVIEW_ON;
+        }
+        previewButton.setAttribute('aria-label', isHtml ? 'Toggle Run' : 'Toggle Preview');
         previewButton.setAttribute('data-preview-toggle', blockKey);
         previewButton.setAttribute('data-mode', showPreview ? 'preview' : 'code');
       }
       
       const copyButton = document.createElement('button');
-      copyButton.className = 'code-copy-button';
+      copyButton.className = 'code-copy-button code-copy-btn';
+      copyButton.style.cssText = 'display: inline-flex; align-items: center; gap: 3px;';
       copyButton.innerHTML = BUTTON_CONTENT.COPY;
       copyButton.setAttribute('aria-label', 'Copy');
 
       // 创建Mermaid预览容器（仅对Mermaid图表）
       let mermaidContainer = null;
       if (isMermaid) {
-        // 计算代码块高度
-        let codeBlockHeight = pre.offsetHeight;
-        if (!codeBlockHeight || codeBlockHeight < 40) codeBlockHeight = 200;
+        // 固定预览高度为400px
+        const previewHeight = 400;
         
         // 创建Mermaid预览容器，直接作为内容显示
         mermaidContainer = document.createElement('div');
@@ -1315,9 +1405,7 @@ const MarkdownRenderer = ({ content }) => {
           cursor: grab;
           user-select: none;
           position: relative;
-          height: ${codeBlockHeight}px;
-          min-height: 120px;
-          max-height: 400px;
+          height: ${previewHeight}px;
           overflow: hidden;
         `;
         mermaidContainer.style.display = showPreview ? 'block' : 'none';
@@ -1562,9 +1650,8 @@ const MarkdownRenderer = ({ content }) => {
       // SVG 预览容器
       let svgContainer = null;
       if (isSvg && blockKey) {
-        let codeBlockHeight = pre.offsetHeight;
-        if (!codeBlockHeight || codeBlockHeight < 40) codeBlockHeight = 200;
-        const normalizedHeight = Math.min(Math.max(codeBlockHeight, 120), 400);
+        // 固定预览高度为400px
+        const previewHeight = 400;
 
         svgContainer = document.createElement('div');
         svgContainer.className = 'svg-preview';
@@ -1580,8 +1667,7 @@ const MarkdownRenderer = ({ content }) => {
           display: ${showPreview ? 'flex' : 'none'};
           align-items: center;
           justify-content: center;
-          min-height: ${normalizedHeight}px;
-          max-height: 400px;
+          height: ${previewHeight}px;
           overflow: auto;
         `;
 
@@ -1683,16 +1769,101 @@ const MarkdownRenderer = ({ content }) => {
 
         renderSvgPreview();
       }
-      if (supportsPreview && blockKey) {
-        preClone.style.display = showPreview ? 'none' : 'block';
+
+      // HTML 预览容器 - 使用沙箱iframe运行HTML代码
+      let htmlContainer = null;
+      if (isHtml && blockKey) {
+        // 固定预览高度为400px
+        const previewHeight = 400;
+
+        htmlContainer = document.createElement('div');
+        htmlContainer.className = 'html-preview';
+        htmlContainer.setAttribute('data-block-key', blockKey);
+        htmlContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
+        htmlContainer.dataset.previewDisplay = 'block';
+        previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
+        htmlContainer.style.cssText = `
+          background: white;
+          border-radius: 0 0 12px 12px;
+          display: ${showPreview ? 'block' : 'none'};
+          height: ${previewHeight}px;
+          overflow: hidden;
+          position: relative;
+        `;
+
+        // 创建沙箱iframe
+        const iframe = document.createElement('iframe');
+        iframe.className = 'html-preview-iframe';
+        iframe.style.cssText = `
+          width: 100%;
+          height: ${previewHeight}px;
+          border: none;
+          border-radius: 0 0 12px 12px;
+          background: white;
+          display: block;
+        `;
+        // sandbox属性允许脚本执行，但在隔离的环境中
+        // 注意：不包含allow-modals，阻止alert/confirm/prompt弹窗影响父页面
+        iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+        iframe.setAttribute('title', 'HTML Preview');
+
+        const renderHtmlPreview = () => {
+          if (!codeContent?.trim()) return;
+          
+          try {
+            // 将HTML内容注入到iframe中
+            // 添加一些基础样式确保内容正常显示
+            let htmlDoc = '';
+            if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
+              if (/<\/body>/i.test(codeContent)) {
+                htmlDoc = codeContent.replace(/<\/body>/i, CUSTOM_ALERT_HTML + '</body>');
+              } else {
+                htmlDoc = codeContent + CUSTOM_ALERT_HTML;
+              }
+            } else {
+              htmlDoc = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+${codeContent}
+${CUSTOM_ALERT_HTML}
+</body>
+</html>`;
+            }
+            
+            iframe.srcdoc = htmlDoc;
+            htmlSnapshotRef.current.set(blockKey, codeContent);
+            htmlContainer.setAttribute('data-render-success', 'true');
+          } catch (err) {
+            console.debug('HTML渲染等待中（代码可能未完整接收）:', err.message);
+          }
+        };
+
+        htmlContainer.appendChild(iframe);
+        // HTML默认不渲染，只有在showPreview为true时才渲染
+        if (showPreview) {
+          renderHtmlPreview();
+        }
       }
 
       // 组装结构
       header.appendChild(langSpan);
       
-      // 创建按钮容器
+      // 创建按钮容器 - 使用固定属性防止挤压
       const buttonContainer = document.createElement('div');
-      buttonContainer.style.cssText = 'display: flex; gap: 4px;';
+      buttonContainer.style.cssText = 'display: flex; gap: 4px; flex-shrink: 0;';
       
       if (previewButton) {
         buttonContainer.appendChild(previewButton);
@@ -1700,13 +1871,39 @@ const MarkdownRenderer = ({ content }) => {
       buttonContainer.appendChild(copyButton);
       header.appendChild(buttonContainer);
       
+      // 生成行号（非预览模式下显示）
+      const lineCount = (codeContent.match(/\n/g) || []).length + 1;
+      const lineNumbersDiv = document.createElement('div');
+      lineNumbersDiv.className = 'code-line-numbers';
+      for (let i = 1; i <= lineCount; i++) {
+        const lineNum = document.createElement('span');
+        lineNum.className = 'line-num';
+        lineNum.textContent = String(i);
+        lineNumbersDiv.appendChild(lineNum);
+      }
+      
+      // 创建包装器，让行号和代码并排显示
+      const codeWrapper = document.createElement('div');
+      codeWrapper.className = 'code-block-wrapper';
+      // 根据预览状态设置初始显示
+      if (supportsPreview && blockKey) {
+        codeWrapper.style.display = showPreview ? 'none' : 'flex';
+      }
+      codeWrapper.appendChild(lineNumbersDiv);
+      codeWrapper.appendChild(preClone);
+      
+      // 添加内容到容器
       if (mermaidContainer) {
         contentArea.appendChild(mermaidContainer);
       }
       if (svgContainer) {
         contentArea.appendChild(svgContainer);
       }
-      contentArea.appendChild(preClone);
+      if (htmlContainer) {
+        contentArea.appendChild(htmlContainer);
+      }
+      // 代码包装器（包含行号和pre）
+      contentArea.appendChild(codeWrapper);
       container.appendChild(header);
       container.appendChild(contentArea);
 
@@ -1755,6 +1952,11 @@ const MarkdownRenderer = ({ content }) => {
     svgSnapshotRef.current.forEach((_, key) => {
       if (!activePreviewKeys.has(key)) {
         svgSnapshotRef.current.delete(key);
+      }
+    });
+    htmlSnapshotRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        htmlSnapshotRef.current.delete(key);
       }
     });
 
