@@ -95,17 +95,8 @@ def apply_cors(app: FastAPI) -> Tuple[List[str], bool]:
 
 
 def mount_static(app: FastAPI, allow_origins: List[str], allow_credentials: bool) -> None:
-    static_app = CachedStaticFiles(directory=ITEMS_DIR, max_age=STATIC_CACHE_MAX_AGE)
-    static_cors = CORSMiddleware(
-        static_app,
-        allow_origins=allow_origins,
-        allow_methods=["GET", "OPTIONS"],
-        allow_headers=["*"],
-        allow_credentials=allow_credentials,
-        expose_headers=["Content-Length", "Content-Type"],
-    )
-    app.mount("/items", static_cors, name="items")
-
+    # Note: /items is handled by images_router for hash-based paths
+    # Public static files for assets
     public_static = CachedStaticFiles(directory=PUBLIC_DIR, max_age=STATIC_CACHE_MAX_AGE)
     public_cors = CORSMiddleware(
         public_static,

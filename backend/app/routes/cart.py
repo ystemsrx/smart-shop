@@ -6,7 +6,7 @@ from ..context import logger
 from ..dependencies import check_address_and_building, get_owner_id_from_scope, resolve_shopping_scope
 from ..schemas import CartUpdateRequest
 from ..services.products import normalize_reservation_cutoff
-from ..utils import is_non_sellable
+from ..utils import is_non_sellable, resolve_image_url
 
 
 router = APIRouter()
@@ -84,6 +84,7 @@ async def get_cart(request: Request):
                     "stock": product["stock"] if not non_sellable else "∞",
                     "category": product.get("category", ""),
                     "img_path": product.get("img_path", ""),
+                    "image_url": resolve_image_url(product.get("img_path", "")),
                     "is_active": is_active,
                     "is_not_for_sale": non_sellable,
                 }

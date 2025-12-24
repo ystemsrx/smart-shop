@@ -89,6 +89,46 @@ def build_export_filename(start_ms: Optional[float], end_ms: Optional[float]) ->
     return f"orders_{start_part}-{end_part}_{timestamp_part}.xlsx"
 
 
+def resolve_image_url(img_path: Optional[str]) -> str:
+    """
+    将商品图片路径转换为可直接使用的 URL。
+    
+    新格式: 12字符哈希 -> /items/{hash}.webp
+    旧格式: 完整路径 -> /items/{path} (URL编码)
+    """
+    if not img_path:
+        return ""
+    path = str(img_path).strip()
+    if not path:
+        return ""
+    # 如果已经是完整URL，直接返回
+    if path.startswith(("http://", "https://", "//")):
+        return path
+    # 如果已经是以 /items/ 开头，直接返回
+    if path.startswith("/items/"):
+        return path
+    # 新格式: 12字符哈希值（纯字母数字）
+    if len(path) == 12 and path.isalnum():
+        return f"/items/{path}.webp"
+    # 旧格式: 完整路径
+    from urllib.parse import quote
+    # 去掉 items/ 前缀（如果有）
+    if path.startswith("items/"):
+        path = path[6:]
+    encoded_path = quote(path, safe='/:@!$&\'()*+,;=')
+    return f"/items/{encoded_path}"
+
+
+def enrich_product_image_url(product: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    给商品字典添加 image_url 字段，基于 img_path 转换。
+    """
+    if isinstance(product, dict):
+        img_path = product.get("img_path", "")
+        product["image_url"] = resolve_image_url(img_path)
+    return product
+
+
 __all__ = [
     "is_truthy",
     "is_non_sellable",
@@ -96,5 +136,7 @@ __all__ = [
     "format_device_time_ms",
     "format_export_range_label",
     "build_export_filename",
+    "resolve_image_url",
+    "enrich_product_image_url",
     "logger",
 ]

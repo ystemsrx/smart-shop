@@ -8,6 +8,8 @@ from .migrations import (
     migrate_user_profile_addresses,
     migrate_chat_threads,
     migrate_passwords_to_hash,
+    migrate_image_paths,
+    ImageLookupDB,
 )
 from .connection import get_db_connection, safe_execute_with_migration
 from .bootstrap import init_database
@@ -43,6 +45,8 @@ __all__ = [
     "migrate_user_profile_addresses",
     "migrate_chat_threads",
     "migrate_passwords_to_hash",
+    "migrate_image_paths",
+    "ImageLookupDB",
     "get_db_connection",
     "safe_execute_with_migration",
     "init_database",

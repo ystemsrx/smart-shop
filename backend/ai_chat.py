@@ -154,22 +154,29 @@ def _get_available_gift_items(threshold: Dict[str, Any]) -> List[Dict[str, Any]]
 
 
 def _resolve_image_url(img_path: Any) -> str:
-    """将商品图片路径规范化为可直接使用的URL。"""
-    from urllib.parse import quote
+    """将商品图片路径规范化为可直接使用的URL。
+    
+    新格式: 数据库中存储的是12字符哈希值，返回 /items/{hash12}.webp
+    旧格式: 数据库中存储的是完整路径，进行URL编码后返回
+    """
     if not img_path:
         return ""
     path = str(img_path).strip()
     if not path:
         return ""
-    # 如果已经是完整URL,直接对路径部分进行编码
+    # 如果已经是完整URL，直接返回
     if path.startswith(("http://", "https://", "//")):
         return path
-    # 对路径进行URL编码,保留路径分隔符/
-    # safe参数指定不需要编码的字符,这里保留/以及常见的URL安全字符
+    # 新格式: 12字符哈希值（纯字母数字，无特殊字符）
+    if len(path) == 12 and path.isalnum():
+        return f"/items/{path}.webp"
+    # 旧格式: 完整路径，需要URL编码
+    from urllib.parse import quote
     encoded_path = quote(path, safe='/:@!$&\'()*+,;=')
     if encoded_path.startswith("/"):
         return encoded_path
     return f"/{encoded_path}"
+
 
 
 def _build_assistant_log_content(

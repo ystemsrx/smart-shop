@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 from datetime import datetime
@@ -7,10 +8,10 @@ from fastapi import HTTPException, UploadFile
 from PIL import Image
 
 from auth import error_response, is_super_admin_role, success_response
-from database import AdminDB, CartDB, ProductDB, VariantDB
+from database import AdminDB, CartDB, ImageLookupDB, ProductDB, VariantDB
 from ..context import ITEMS_DIR, logger
 from ..dependencies import build_staff_scope, get_owner_id_for_staff, staff_can_access_product
-from ..utils import is_non_sellable
+from ..utils import enrich_product_image_url, is_non_sellable
 
 
 def resolve_owner_id_for_staff(staff: Dict[str, Any], requested_owner_id: Optional[str]) -> Optional[str]:
@@ -38,18 +39,129 @@ def ensure_product_accessible(staff: Dict[str, Any], product_id: str) -> Dict[st
     return product
 
 
-async def store_product_image(category: str, base_name: str, image: UploadFile) -> Tuple[str, str]:
+def _compute_content_hash(content: bytes, length: int = 12) -> str:
+    """计算内容的 SHA256 哈希值，返回指定长度的十六进制字符串。"""
+    return hashlib.sha256(content).hexdigest()[:length]
+
+
+def delete_product_image(product_id: str, img_path: Optional[str] = None) -> bool:
+    """
+    删除商品图片及其 lookup 记录，并清理空目录。
+    
+    Args:
+        product_id: 商品 ID
+        img_path: 可选的图片路径/哈希，如果不提供则从数据库查询
+        
+    Returns:
+        bool: 是否成功删除图片
+    """
+    if not img_path:
+        # 从数据库获取 img_path
+        product = ProductDB.get_product_by_id(product_id)
+        if not product:
+            return False
+        img_path = product.get("img_path", "")
+    
+    if not img_path or not str(img_path).strip():
+        return True  # 没有图片，视为成功
+    
+    img_path = str(img_path).strip()
+    deleted = False
+    
+    # 尝试通过 image_lookup 删除（新格式）
+    if len(img_path) == 12 and img_path.isalnum():
+        lookup = ImageLookupDB.get_by_hash(img_path)
+        if lookup:
+            physical_path = os.path.normpath(os.path.join(ITEMS_DIR, lookup["physical_path"]))
+            items_root = os.path.normpath(ITEMS_DIR)
+            
+            # 安全检查
+            if physical_path.startswith(items_root) and os.path.exists(physical_path):
+                try:
+                    os.remove(physical_path)
+                    deleted = True
+                    logger.info(f"删除商品图片: {physical_path}")
+                    
+                    # 清理空的产品目录
+                    product_dir = os.path.dirname(physical_path)
+                    if os.path.isdir(product_dir) and not os.listdir(product_dir):
+                        os.rmdir(product_dir)
+                        logger.info(f"删除空产品目录: {product_dir}")
+                        
+                        # 清理空的 owner 目录
+                        owner_dir = os.path.dirname(product_dir)
+                        if os.path.isdir(owner_dir) and not os.listdir(owner_dir):
+                            os.rmdir(owner_dir)
+                            logger.info(f"删除空归属目录: {owner_dir}")
+                except Exception as exc:
+                    logger.warning(f"删除图片文件失败 {physical_path}: {exc}")
+            
+            # 删除 lookup 记录
+            ImageLookupDB.delete_by_hash(img_path)
+        return deleted or True  # lookup 记录不存在也视为成功
+    
+    # 旧格式路径
+    rel_path = img_path.lstrip("/\\")
+    if rel_path.startswith("items/"):
+        rel_path = rel_path.split("items/", 1)[-1]
+    
+    file_path = os.path.normpath(os.path.join(ITEMS_DIR, rel_path))
+    items_root = os.path.normpath(ITEMS_DIR)
+    
+    if file_path.startswith(items_root) and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            deleted = True
+            logger.info(f"删除商品图片(旧格式): {file_path}")
+        except Exception as exc:
+            logger.warning(f"删除图片文件失败(旧格式) {file_path}: {exc}")
+    
+    return deleted
+
+
+def delete_products_images(product_ids: List[str]) -> int:
+    """
+    批量删除多个商品的图片。
+    
+    Args:
+        product_ids: 商品 ID 列表
+        
+    Returns:
+        int: 成功删除的图片数量
+    """
+    deleted_count = 0
+    for pid in product_ids:
+        product = ProductDB.get_product_by_id(pid)
+        if product and product.get("img_path"):
+            if delete_product_image(pid, product.get("img_path")):
+                deleted_count += 1
+    return deleted_count
+
+
+async def store_product_image(
+    owner_id: str,
+    product_id: str,
+    image: UploadFile
+) -> Tuple[str, str]:
+    """
+    存储商品图片，使用新的哈希路径格式。
+    
+    Args:
+        owner_id: 归属 ID（admin 或 agent_id）
+        product_id: 商品 ID
+        image: 上传的图片文件
+
+    Returns:
+        Tuple[str, str]: (hash12, 物理文件路径)
+        - hash12 用于存储到 products.img_path
+        - 物理文件路径用于回滚清理
+    """
     if not image:
         raise HTTPException(status_code=400, detail="未上传图片")
-    safe_category = (category or "misc").strip() or "misc"
-    category_dir = os.path.join(ITEMS_DIR, safe_category)
-    os.makedirs(category_dir, exist_ok=True)
-
-    timestamp = int(datetime.now().timestamp())
-    filename = f"{base_name}_{timestamp}.webp"
-    file_path = os.path.join(category_dir, filename)
 
     content = await image.read()
+    
+    # 处理图片并转换为 WEBP
     try:
         img = Image.open(io.BytesIO(content))
 
@@ -62,14 +174,44 @@ async def store_product_image(category: str, base_name: str, image: UploadFile) 
         elif img.mode != "RGB":
             img = img.convert("RGB")
 
-        img.save(file_path, "WEBP", quality=40, method=6, optimize=True)
+        # 将处理后的图片保存到内存以计算哈希
+        output_buffer = io.BytesIO()
+        img.save(output_buffer, "WEBP", quality=40, method=6, optimize=True)
+        processed_content = output_buffer.getvalue()
 
     except Exception as exc:
         logger.error(f"图片处理失败: {exc}")
         raise HTTPException(status_code=400, detail=f"图片处理失败: {str(exc)}")
 
-    relative_path = f"items/{safe_category}/{filename}"
-    return relative_path, file_path
+    # 计算内容哈希
+    file_hash = _compute_content_hash(processed_content, 12)
+
+    # 检查是否已存在相同哈希（相同图片内容）
+    existing = ImageLookupDB.get_by_hash(file_hash)
+    if existing:
+        # 返回现有哈希，物理路径为空表示无需清理
+        physical_path = os.path.join(ITEMS_DIR, existing["physical_path"])
+        return file_hash, physical_path
+
+    # 构建新路径: {owner_id}/{product_id}/{hash}.webp
+    rel_path = f"{owner_id}/{product_id}/{file_hash}.webp"
+    file_path = os.path.normpath(os.path.join(ITEMS_DIR, rel_path))
+
+    # 创建目录
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    # 保存文件
+    try:
+        with open(file_path, "wb") as f:
+            f.write(processed_content)
+    except Exception as exc:
+        logger.error(f"保存图片失败: {exc}")
+        raise HTTPException(status_code=500, detail=f"保存图片失败")
+
+    # 插入 image_lookup 记录
+    ImageLookupDB.insert(file_hash, rel_path, product_id)
+
+    return file_hash, file_path
 
 
 def normalize_reservation_cutoff(value: Optional[str]) -> Optional[str]:
@@ -108,11 +250,9 @@ async def handle_product_creation(
     reservation_note: Optional[str] = None,
 ) -> Dict[str, Any]:
     new_file_path: Optional[str] = None
+    product_id: Optional[str] = None
     try:
-        assigned_owner_id = resolve_owner_id_for_staff(staff, owner_id)
-        img_path = ""
-        if image:
-            img_path, new_file_path = await store_product_image(category, name, image)
+        assigned_owner_id = resolve_owner_id_for_staff(staff, owner_id) or "admin"
 
         discount_value = 10.0
         if discount is not None:
@@ -123,6 +263,7 @@ async def handle_product_creation(
             except Exception:
                 return error_response("无效的折扣", 400)
 
+        # 先创建商品（不含图片），获取 product_id
         product_data = {
             "name": name,
             "category": category,
@@ -130,7 +271,7 @@ async def handle_product_creation(
             "stock": stock,
             "discount": discount_value,
             "description": description,
-            "img_path": img_path,
+            "img_path": "",  # 稍后更新
             "cost": cost,
             "owner_id": assigned_owner_id,
             "is_hot": 1 if is_hot else 0,
@@ -141,6 +282,11 @@ async def handle_product_creation(
         }
 
         product_id = ProductDB.create_product(product_data)
+
+        # 有图片则上传并更新
+        if image:
+            img_hash, new_file_path = await store_product_image(assigned_owner_id, product_id, image)
+            ProductDB.update_image_path(product_id, img_hash)
 
         if variants:
             try:
@@ -169,6 +315,7 @@ async def handle_product_creation(
 
         created_product = ProductDB.get_product_by_id(product_id)
         return success_response("商品创建成功", {"product_id": product_id, "product": created_product})
+
 
     except HTTPException as exc:
         if new_file_path:
@@ -275,46 +422,55 @@ async def handle_product_image_update(staff: Dict[str, Any], product_id: str, im
     if not image:
         return error_response("未上传图片", 400)
 
-    old_img_path = existing.get("img_path", "")
-    category = existing.get("category", "misc") or "misc"
-    base_name = existing.get("name", "prod") or "prod"
+    old_img_hash = existing.get("img_path", "")
+    owner_id = existing.get("owner_id", "admin") or "admin"
 
     try:
-        img_path, new_file_path = await store_product_image(category, base_name, image)
+        img_hash, new_file_path = await store_product_image(owner_id, product_id, image)
     except HTTPException as exc:
         return error_response(exc.detail, exc.status_code)
 
     try:
-        ok = ProductDB.update_image_path(product_id, img_path)
+        ok = ProductDB.update_image_path(product_id, img_hash)
     except Exception as exc:
         ok = False
         logger.error(f"商品图片数据库更新失败: {exc}")
 
     if not ok:
+        # 回滚：删除新上传的图片
         try:
             os.remove(new_file_path)
+            ImageLookupDB.delete_by_hash(img_hash)
         except Exception:
             pass
         return error_response("更新图片失败", 500)
 
-    if old_img_path and str(old_img_path).strip():
+    # 删除旧图片（如果存在且与新图片不同）
+    if old_img_hash and old_img_hash != img_hash:
         try:
-            rel_path = str(old_img_path).lstrip("/\\")
-            if rel_path.startswith("items/"):
-                rel_path = rel_path.split("items/", 1)[-1]
-            old_file_path = os.path.normpath(os.path.join(ITEMS_DIR, rel_path))
-            items_root = os.path.normpath(ITEMS_DIR)
-            if old_file_path.startswith(items_root) and os.path.exists(old_file_path):
-                os.remove(old_file_path)
-                logger.info(f"成功删除原图片: {old_file_path}")
+            old_lookup = ImageLookupDB.get_by_hash(old_img_hash)
+            if old_lookup:
+                old_physical_path = os.path.join(ITEMS_DIR, old_lookup["physical_path"])
+                if os.path.exists(old_physical_path):
+                    os.remove(old_physical_path)
+                    logger.info(f"成功删除原图片: {old_physical_path}")
+                ImageLookupDB.delete_by_hash(old_img_hash)
             else:
-                logger.warning(f"跳过删除原图片（路径不安全或不存在）: {old_img_path} -> {old_file_path}")
+                # 兼容旧格式路径
+                rel_path = str(old_img_hash).lstrip("/\\")
+                if rel_path.startswith("items/"):
+                    rel_path = rel_path.split("items/", 1)[-1]
+                old_file_path = os.path.normpath(os.path.join(ITEMS_DIR, rel_path))
+                items_root = os.path.normpath(ITEMS_DIR)
+                if old_file_path.startswith(items_root) and os.path.exists(old_file_path):
+                    os.remove(old_file_path)
+                    logger.info(f"成功删除原图片(旧格式): {old_file_path}")
         except Exception as exc:
-            logger.warning(f"删除原图片失败 {old_img_path}: {exc}")
+            logger.warning(f"删除原图片失败 {old_img_hash}: {exc}")
 
     return success_response(
         "图片更新成功",
-        {"img_path": img_path, "image_url": f"/items/{img_path.split('items/')[-1]}" if img_path else ""},
+        {"img_path": img_hash, "image_url": f"/items/{img_hash}.webp"},
     )
 
 
@@ -351,6 +507,7 @@ def build_product_listing_for_staff(
     product_ids = [p["id"] for p in products if p.get("id")]
     variant_map = VariantDB.get_for_products(product_ids)
     for p in products:
+        enrich_product_image_url(p)  # Add image_url field
         variants = variant_map.get(p.get("id"), [])
         p["variants"] = variants
         p["has_variants"] = len(variants) > 0
@@ -443,6 +600,8 @@ __all__ = [
     "resolve_owner_id_for_staff",
     "ensure_product_accessible",
     "store_product_image",
+    "delete_product_image",
+    "delete_products_images",
     "normalize_reservation_cutoff",
     "handle_product_creation",
     "handle_product_update",

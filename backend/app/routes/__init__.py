@@ -4,6 +4,7 @@ from .auth import router as auth_router
 from .cart import router as cart_router
 from .catalog import router as catalog_router
 from .coupons import router as coupons_router
+from .images import router as images_router
 from .locations import router as locations_router
 from .lottery import router as lottery_router
 from .orders import router as orders_router
@@ -19,6 +20,7 @@ __all__ = [
     "cart_router",
     "catalog_router",
     "coupons_router",
+    "images_router",
     "locations_router",
     "lottery_router",
     "orders_router",

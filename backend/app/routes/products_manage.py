@@ -25,13 +25,15 @@ from ..services.admin import compute_registered_user_count
 from ..services.orders import resolve_staff_order_scope
 from ..services.products import (
     build_product_listing_for_staff,
+    delete_product_image,
+    delete_products_images,
     handle_product_creation,
     handle_product_image_update,
     handle_product_stock_update,
     handle_product_update,
     resolve_owner_filter_for_staff,
 )
-from ..utils import is_non_sellable, is_truthy
+from ..utils import enrich_product_image_url, is_non_sellable, is_truthy
 
 
 router = APIRouter()
@@ -375,6 +377,7 @@ async def get_product_details(product_id: str, request: Request):
         if not staff_can_access_product(staff, product):
             return error_response("无权访问该商品", 403)
 
+        enrich_product_image_url(product)  # Add image_url field
         variants = VariantDB.get_by_product(product_id)
         product["variants"] = variants
         product["has_variants"] = len(variants) > 0
@@ -382,6 +385,7 @@ async def get_product_details(product_id: str, request: Request):
             product["total_variant_stock"] = sum(v.get("stock", 0) for v in variants)
 
         return success_response("获取商品详情成功", {"product": product})
+
 
     except Exception as exc:
         logger.error(f"获取商品详情失败: {exc}")
@@ -479,12 +483,18 @@ async def delete_products(product_id: str, request: Request, delete_request: Opt
                 return error_response("无权删除指定商品", 403)
 
             logger.info(f"工作人员 {staff['id']} 请求批量删除商品: {allowed_ids}")
+            # 先删除图片
+            delete_products_images(allowed_ids)
+            # 再删除数据库记录
             result = ProductDB.batch_delete_products(allowed_ids)
             return success_response("批量删除完成", {"deleted": result.get("deleted_count", 0), "not_found": result.get("not_found", [])})
         else:
             product = ProductDB.get_product_by_id(product_id)
             if not product or not staff_can_access_product(staff, product):
                 return error_response("无权删除该商品", 403)
+            # 先删除图片
+            delete_product_image(product_id, product.get("img_path"))
+            # 再删除数据库记录
             success = ProductDB.delete_product(product_id)
             if success:
                 return success_response("删除成功")
@@ -503,6 +513,9 @@ async def agent_delete_products(product_id: str, request: Request, delete_reques
         filtered_ids = [pid for pid in delete_request.product_ids if ProductDB.is_owned_by_agent(pid, agent["id"])]
         if not filtered_ids:
             return error_response("无权删除指定商品", 403)
+        # 先删除图片
+        delete_products_images(filtered_ids)
+        # 再删除数据库记录
         result = ProductDB.batch_delete_products(filtered_ids)
         return success_response("删除成功", {"deleted": result.get("deleted_count", 0)})
     else:
@@ -510,6 +523,9 @@ async def agent_delete_products(product_id: str, request: Request, delete_reques
         if not product or product.get("owner_id") != agent["id"]:
             return error_response("无权删除该商品", 403)
 
+        # 先删除图片
+        delete_product_image(product_id, product.get("img_path"))
+        # 再删除数据库记录
         success = ProductDB.delete_product(product_id)
         if success:
             return success_response("删除成功")

@@ -1,7 +1,10 @@
+import hashlib
+import os
+import shutil
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .config import logger, settings
 from .connection import get_db_connection
@@ -687,3 +690,217 @@ def migrate_passwords_to_hash():
             conn.rollback()
 
     logger.info("密码迁移检查完成")
+
+
+def _compute_file_hash(file_path: str, length: int = 12) -> str:
+    """计算文件内容的 SHA256 哈希值，返回指定长度的十六进制字符串。"""
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            sha256.update(chunk)
+    return sha256.hexdigest()[:length]
+
+
+def migrate_image_paths(items_dir: str) -> None:
+    """
+    迁移商品图片路径：
+    1. 旧格式: items/{category}/{name}_{timestamp}.webp
+    2. 新格式: items/{owner_id}/{product_id}/{hash12}.webp
+       - 数据库 img_path 只存储 hash12
+       - image_lookup 表存储 hash → 物理路径映射
+    """
+    logger.info("开始检查并迁移商品图片路径...")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 检查是否有需要迁移的图片
+        cursor.execute("""
+            SELECT p.id, p.img_path, p.owner_id 
+            FROM products p 
+            WHERE p.img_path IS NOT NULL 
+              AND TRIM(p.img_path) != ''
+              AND p.img_path LIKE 'items/%/%'
+        """)
+        products_to_migrate = cursor.fetchall()
+
+        if not products_to_migrate:
+            logger.info("没有发现需要迁移的商品图片")
+            return
+
+        migrated_count = 0
+        skipped_count = 0
+        failed_count = 0
+
+        for row in products_to_migrate:
+            product_id = row[0]
+            old_img_path = row[1]
+            owner_id = row[2] or "admin"
+
+            # 检查是否已经是新格式（只有 hash）
+            if old_img_path and not old_img_path.startswith("items/") and len(old_img_path) == 12:
+                skipped_count += 1
+                continue
+
+            # 检查 image_lookup 表是否已有该路径的映射
+            # 此处用老路径的文件名部分作查询条件
+            cursor.execute("SELECT hash FROM image_lookup WHERE physical_path LIKE ?", (f"%{old_img_path.split('/')[-1]}%",))
+            existing = cursor.fetchone()
+            if existing:
+                # 已迁移，更新 img_path 为 hash
+                cursor.execute("UPDATE products SET img_path = ? WHERE id = ?", (existing[0], product_id))
+                skipped_count += 1
+                continue
+
+            try:
+                # 构建旧文件的完整路径
+                # old_img_path 可能是 "items/分类/xxx.webp" 或 "/items/分类/xxx.webp"
+                rel_path = old_img_path.lstrip("/\\")
+                if rel_path.startswith("items/"):
+                    rel_path = rel_path[6:]  # 去掉 "items/" 前缀
+
+                old_file_path = os.path.normpath(os.path.join(items_dir, rel_path))
+
+                if not os.path.exists(old_file_path):
+                    logger.warning("图片文件不存在，跳过迁移: %s -> %s", old_img_path, old_file_path)
+                    failed_count += 1
+                    continue
+
+                # 验证路径安全性
+                items_root = os.path.normpath(items_dir)
+                if not old_file_path.startswith(items_root):
+                    logger.warning("图片路径不安全，跳过迁移: %s", old_file_path)
+                    failed_count += 1
+                    continue
+
+                # 计算文件内容哈希
+                file_hash = _compute_file_hash(old_file_path, 12)
+
+                # 检查是否存在哈希冲突
+                cursor.execute("SELECT physical_path FROM image_lookup WHERE hash = ?", (file_hash,))
+                hash_conflict = cursor.fetchone()
+                if hash_conflict:
+                    # 哈希冲突，直接使用现有映射
+                    cursor.execute("UPDATE products SET img_path = ? WHERE id = ?", (file_hash, product_id))
+                    skipped_count += 1
+                    continue
+
+                # 构建新路径: {owner_id}/{product_id}/{hash}.webp
+                new_rel_path = f"{owner_id}/{product_id}/{file_hash}.webp"
+                new_file_path = os.path.normpath(os.path.join(items_dir, new_rel_path))
+
+                # 创建目标目录
+                new_dir = os.path.dirname(new_file_path)
+                os.makedirs(new_dir, exist_ok=True)
+
+                # 移动文件
+                if old_file_path != new_file_path:
+                    shutil.move(old_file_path, new_file_path)
+                    logger.debug("移动图片: %s -> %s", old_file_path, new_file_path)
+
+                # 插入 image_lookup 记录
+                cursor.execute("""
+                    INSERT INTO image_lookup (hash, physical_path, product_id, created_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_hash, new_rel_path, product_id))
+
+                # 更新产品的 img_path 为 hash
+                cursor.execute("UPDATE products SET img_path = ? WHERE id = ?", (file_hash, product_id))
+
+                migrated_count += 1
+                logger.debug("迁移商品 %s 图片: %s -> %s", product_id, old_img_path, file_hash)
+
+            except Exception as exc:
+                logger.error("迁移商品 %s 的图片失败: %s", product_id, exc)
+                failed_count += 1
+                continue
+
+        conn.commit()
+
+        # 清理已迁移图片的空分类目录
+        try:
+            _cleanup_empty_category_dirs(items_dir)
+        except Exception as exc:
+            logger.warning("清理空分类目录失败: %s", exc)
+
+        logger.info(
+            "商品图片路径迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
+            migrated_count, skipped_count, failed_count
+        )
+
+
+def _cleanup_empty_category_dirs(items_dir: str) -> None:
+    """清理 items 目录下的空分类目录。"""
+    items_root = os.path.normpath(items_dir)
+    for entry in os.listdir(items_dir):
+        entry_path = os.path.join(items_dir, entry)
+        if os.path.isdir(entry_path):
+            # 跳过新格式的目录（owner_id 目录）
+            if entry in ("admin",) or entry.startswith("agent_"):
+                continue
+            # 递归检查是否为空
+            try:
+                if not os.listdir(entry_path):
+                    os.rmdir(entry_path)
+                    logger.debug("删除空分类目录: %s", entry_path)
+            except Exception:
+                pass
+
+
+class ImageLookupDB:
+    """图片哈希查找表的数据库操作。"""
+
+    @staticmethod
+    def get_by_hash(hash_value: str) -> Optional[Dict]:
+        """根据哈希值查找图片物理路径。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT hash, physical_path, product_id, created_at FROM image_lookup WHERE hash = ?",
+                (hash_value,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "hash": row[0],
+                    "physical_path": row[1],
+                    "product_id": row[2],
+                    "created_at": row[3]
+                }
+            return None
+
+    @staticmethod
+    def insert(hash_value: str, physical_path: str, product_id: Optional[str] = None) -> bool:
+        """插入新的图片映射记录。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO image_lookup (hash, physical_path, product_id, created_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (hash_value, physical_path, product_id))
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                # 哈希冲突，记录已存在
+                return False
+
+    @staticmethod
+    def delete_by_hash(hash_value: str) -> bool:
+        """删除图片映射记录。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM image_lookup WHERE hash = ?", (hash_value,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            return deleted
+
+    @staticmethod
+    def delete_by_product(product_id: str) -> int:
+        """删除指定商品的所有图片映射记录。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM image_lookup WHERE product_id = ?", (product_id,))
+            count = cursor.rowcount
+            conn.commit()
+            return count

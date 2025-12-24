@@ -14,8 +14,9 @@ from database import (
     cleanup_old_chat_logs,
     get_db_connection,
     init_database,
+    migrate_image_paths,
 )
-from .context import EXPORTS_DIR, logger
+from .context import EXPORTS_DIR, ITEMS_DIR, logger
 
 
 settings = get_settings()
@@ -256,6 +257,11 @@ async def run_startup_tasks() -> List[asyncio.Task]:
         fix_legacy_config_ownership()
     except Exception as exc:
         logger.warning(f"修复旧配置数据归属失败: {exc}")
+
+    try:
+        migrate_image_paths(ITEMS_DIR)
+    except Exception as exc:
+        logger.warning(f"迁移商品图片路径失败: {exc}")
 
     maintenance_tasks: List[asyncio.Task] = []
     maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))

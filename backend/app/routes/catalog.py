@@ -5,7 +5,7 @@ from auth import error_response, success_response
 from database import CategoryDB, ProductDB, SettingsDB, VariantDB
 from ..context import logger
 from ..dependencies import resolve_shopping_scope
-from ..utils import is_non_sellable, is_truthy
+from ..utils import enrich_product_image_url, is_non_sellable, is_truthy
 
 
 router = APIRouter()
@@ -35,6 +35,7 @@ async def get_products(request: Request, category: Optional[str] = None, address
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
         for p in products:
+            enrich_product_image_url(p)  # Add image_url field
             vts = variants_map.get(p["id"], [])
             p["variants"] = vts
             p["has_variants"] = len(vts) > 0
@@ -68,6 +69,7 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
         product_ids = [p["id"] for p in products]
         variants_map = VariantDB.get_for_products(product_ids)
         for p in products:
+            enrich_product_image_url(p)  # Add image_url field
             vts = variants_map.get(p["id"], [])
             p["variants"] = vts
             p["has_variants"] = len(vts) > 0
@@ -77,6 +79,7 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
             if p["is_not_for_sale"]:
                 p["stock_display"] = "∞"
         return success_response("搜索成功", {"products": products, "query": q, "scope": scope})
+
 
     except Exception as exc:
         logger.error(f"搜索商品失败: {exc}")

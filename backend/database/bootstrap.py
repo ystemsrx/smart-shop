@@ -278,6 +278,16 @@ def init_database():
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS image_lookup (
+                hash TEXT PRIMARY KEY,
+                physical_path TEXT NOT NULL,
+                product_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_image_lookup_product ON image_lookup(product_id)')
+
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_carts_student_id ON carts(student_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_student_id ON chat_logs(student_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_timestamp ON chat_logs(timestamp)')

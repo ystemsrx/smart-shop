@@ -9,6 +9,7 @@ from .routes import (
     cart_router,
     catalog_router,
     coupons_router,
+    images_router,
     locations_router,
     lottery_router,
     orders_router,
@@ -23,6 +24,7 @@ def build_app() -> FastAPI:
     app = create_app(lifespan=app_lifespan)
     app.include_router(auth_router)
     app.include_router(coupons_router)
+    app.include_router(images_router)  # Hash-based image serving
     app.include_router(locations_router)
     app.include_router(orders_router)
     app.include_router(lottery_router)
