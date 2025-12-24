@@ -40,7 +40,6 @@ def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
         "id": record.get("id"),
         "role": record.get("role"),
         "content": content,
-        "raw_content": content,
         "timestamp": record.get("timestamp"),
         "thread_id": record.get("thread_id"),
         "tool_call_id": record.get("tool_call_id"),

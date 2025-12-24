@@ -57,6 +57,10 @@
   --shadow-large: 0 10px 40px rgba(0, 0, 0, 0.15);
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -636,40 +640,85 @@ body {
 }
 
 /* 表格 */
+/* 表格样式优化 - 横线风格 */
 .markdown-content table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1em 0;
+  margin: 1.5em 0;
   font-size: 0.95em;
+  table-layout: auto;
 }
 
-.markdown-content table th,
+.markdown-content table th {
+  border: none;
+  border-bottom: 1.5px solid #9ca3af;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: transparent;
+  white-space: nowrap;
+}
+
 .markdown-content table td {
-  border: 1px solid #ccc;
-  padding: 8px 12px;
-  text-align: center;
-  vertical-align: middle;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 16px;
+  text-align: left;
+  vertical-align: top;
+  color: #374151;
+  word-break: break-word;
+  /* 优化流式输出 */
+  line-height: 1.6;
 }
 
 .markdown-content table thead {
-  background: #f2f2f2;
+  background: transparent;
 }
 
 .markdown-content table tbody tr:nth-child(even) {
-  background: #f9f9f9;
+  background: transparent;
 }
 
 .markdown-content table tbody tr:hover {
-  background: #f1f7ff;
+  background: #f9fafb;
 }
 
-/* 引用 */
+/* 兼容Markdown对齐语法 */
+.markdown-content table th[align="center"],
+.markdown-content table td[align="center"] {
+  text-align: center;
+}
+
+.markdown-content table th[align="right"],
+.markdown-content table td[align="right"] {
+  text-align: right;
+}
+
+/* 引用样式 - 简洁风格 */
 .markdown-content blockquote {
-  border-left: 4px solid #ccc;
-  padding-left: 1em;
-  margin: 0 0 1em 0;
-  color: #555;
-  background: #f3f3f3;
+  margin: 1em 0;
+  padding: 0.5em 0 0.5em 1em;
+  color: #6b7280;
+  background: transparent;
+  border-left: 3px solid #d1d5db;
+}
+
+.markdown-content blockquote blockquote {
+  margin: 0.5em 0;
+  border-left-color: #e5e7eb;
+}
+
+.markdown-content blockquote p {
+  margin: 0.25em 0;
+}
+
+.markdown-content blockquote p:first-child {
+  margin-top: 0;
+}
+
+.markdown-content blockquote p:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-content .block-math-placeholder {

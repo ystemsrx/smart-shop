@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
+import httpx
 
 # 导入数据库和认证模块
 from database import ProductDB, CartDB, ChatLogDB, CategoryDB, DeliverySettingsDB, GiftThresholdDB, UserProfileDB, AgentAssignmentDB, get_db_connection, LotteryConfigDB
@@ -490,7 +491,7 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
         if hot_products_hint:
             skills_lines.append(hot_products_hint)
         skills_lines.append("**Shopping Cart Operations**: Add, update, remove, clear, view")
-        skills_lines.append("**Product Display**: Display product images using Markdown format `![product name](image_url)` when showing product details or recommendations if needed.")
+        skills_lines.append("- **Product Display**: When presenting product details or recommendations, render product images in Markdown format `![product name](image_path)` if needed. Use only the image path provided by the tool; do not include the full URL")
         skills_lines.append("**Service Communication**: Recommend products, prompt login, communicate clearly")
         if checkout_hint:
             skills_lines.append(checkout_hint)
@@ -532,6 +533,8 @@ The business rules are provided within <business_rules></business_rules> XML tag
 ## Skills
 
 {skills_text}
+
+Current date: {time.strftime('%Y-%m-%d')}.
 """
         
         return system_prompt
@@ -552,31 +555,27 @@ async def stream_model_response(
     partial_state: Optional[Dict[str, str]] = None
 ) -> Tuple[str, Dict[int, Dict[str, Any]], Optional[str], str, Optional[float]]:
     """
-    使用指定模型执行流式对话，边读取OpenAI SDK的流式结果边透传给前端。
+    使用 httpx 直接发起流式 HTTP 请求，在中断时立即关闭连接以节省 token。
     返回助手的完整文本、工具调用缓冲、结束原因以及思维链内容。
     
     Args:
-        client_disconnected: 用于检测客户端断开连接的事件，如果设置则立即停止生成
+        client_disconnected: 用于检测客户端断开连接的事件，如果设置则立即停止生成并关闭HTTP连接
         partial_state: 用于实时更新已生成的部分内容，以便在中断时保存
     """
-    payload: Dict[str, Any] = {
+    # 构建请求 payload
+    request_payload: Dict[str, Any] = {
         "model": model_config.name,
         "messages": messages,
         "stream": True,
     }
     if tools:
-        payload["tools"] = tools
+        request_payload["tools"] = tools
     
-    # 只有在支持思维链时才添加 extra_body 参数
+    # 只有在支持思维链时才添加 reasoning 参数
     if model_config.supports_thinking:
-        payload["extra_body"] = {"reasoning": {"effort": "low"}}
+        request_payload["reasoning"] = {"effort": "low"}
 
     logger.info(f"调用模型: {model_config.name} ({model_config.label})")
-
-    try:
-        stream = await ai_client.chat.completions.create(**payload)
-    except Exception as exc:
-        raise RuntimeError(f"{exc}") from exc
 
     tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
     assistant_text_parts: List[str] = []
@@ -619,7 +618,7 @@ async def stream_model_response(
         
         # 当开始生成content时，立即计算thinking时长（如果之前有thinking）
         if thinking_start_time is not None and thinking_duration is None:
-            thinking_duration = time.time() - thinking_start_time
+            thinking_duration = round(time.time() - thinking_start_time, 2)
             if partial_state is not None:
                 partial_state["thinking_duration"] = thinking_duration
 
@@ -729,123 +728,161 @@ async def stream_model_response(
                 content_buffer = ""
                 break
 
-    async def _aclose_stream():
-        try:
-            if hasattr(stream, "aclose"):
-                await stream.aclose()
-            elif hasattr(stream, "close"):
-                close_res = stream.close()
-                if asyncio.iscoroutine(close_res):
-                    await close_res
-        except Exception:
-            pass
+    # 使用 httpx 直接发起流式请求，以便在中断时可以立即关闭 HTTP 连接
+    response: Optional[httpx.Response] = None
+    
+    async def _close_response():
+        """关闭 HTTP 响应，立即断开连接以节省 token"""
+        nonlocal response
+        if response is not None:
+            try:
+                await response.aclose()
+            except Exception:
+                pass
 
     try:
-        async for chunk in stream:
-            # 检查客户端是否断开连接
-            if client_disconnected and client_disconnected.is_set():
-                logger.info("检测到客户端断开，立即停止生成")
-                await _aclose_stream()
-                # 返回已生成的内容
-                return (
-                    "".join(assistant_text_parts),
-                    tool_calls_buffer,
-                    "interrupted",
-                    "".join(reasoning_text_parts)
-                )
+        # 使用 httpx.AsyncClient 发起流式请求
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+            response = await client.send(
+                client.build_request(
+                    "POST",
+                    settings.api_url.rstrip("/") + "/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "text/event-stream",
+                    },
+                    json=request_payload,
+                ),
+                stream=True,
+            )
             
-            chunk_dict = chunk if isinstance(chunk, dict) else _coerce_to_dict(chunk)
-            if not chunk_dict:
-                continue
+            if response.status_code != 200:
+                error_text = await response.aread()
+                raise RuntimeError(f"API请求失败 (HTTP {response.status_code}): {error_text.decode('utf-8', errors='ignore')}")
 
-            if "error" in chunk_dict and chunk_dict["error"]:
-                error_detail = chunk_dict["error"]
-                if isinstance(error_detail, dict):
-                    message = error_detail.get("message") or json.dumps(error_detail, ensure_ascii=False)
-                else:
-                    message = str(error_detail)
-                # 计算thinking_duration
-                err_thinking_duration = thinking_duration
-                if thinking_start_time is not None and err_thinking_duration is None:
-                    err_thinking_duration = time.time() - thinking_start_time
-                raise StreamResponseError(
-                    message,
-                    partial_text="".join(assistant_text_parts),
-                    partial_reasoning="".join(reasoning_text_parts),
-                    tool_calls=tool_calls_buffer,
-                    finish_reason=finish_reason,
-                    retryable=True,
-                    thinking_duration=err_thinking_duration
-                )
+            # 逐行读取 SSE 流
+            async for line in response.aiter_lines():
+                # 检查客户端是否断开连接 - 立即关闭 HTTP 连接以节省 token
+                if client_disconnected and client_disconnected.is_set():
+                    logger.info("检测到客户端断开，立即关闭HTTP连接停止生成")
+                    await _close_response()
+                    # 计算 thinking_duration
+                    interrupted_thinking_duration = thinking_duration
+                    if thinking_start_time is not None and interrupted_thinking_duration is None:
+                        interrupted_thinking_duration = round(time.time() - thinking_start_time, 2)
+                    # 返回已生成的内容
+                    return (
+                        "".join(assistant_text_parts),
+                        tool_calls_buffer,
+                        "interrupted",
+                        "".join(reasoning_text_parts),
+                        interrupted_thinking_duration
+                    )
+                
+                # 跳过空行和非数据行
+                if not line or not line.startswith("data: "):
+                    continue
+                
+                data_str = line[6:]  # 移除 "data: " 前缀
+                if data_str == "[DONE]":
+                    break
+                
+                try:
+                    chunk_dict = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
-            choices = chunk_dict.get("choices") or []
-            for choice in choices:
-                choice_dict = choice if isinstance(choice, dict) else _coerce_to_dict(choice)
-                delta_dict = _coerce_to_dict(choice_dict.get("delta"))
+                if "error" in chunk_dict and chunk_dict["error"]:
+                    error_detail = chunk_dict["error"]
+                    if isinstance(error_detail, dict):
+                        message = error_detail.get("message") or json.dumps(error_detail, ensure_ascii=False)
+                    else:
+                        message = str(error_detail)
+                    # 计算thinking_duration
+                    err_thinking_duration = thinking_duration
+                    if thinking_start_time is not None and err_thinking_duration is None:
+                        err_thinking_duration = round(time.time() - thinking_start_time, 2)
+                    raise StreamResponseError(
+                        message,
+                        partial_text="".join(assistant_text_parts),
+                        partial_reasoning="".join(reasoning_text_parts),
+                        tool_calls=tool_calls_buffer,
+                        finish_reason=finish_reason,
+                        retryable=True,
+                        thinking_duration=err_thinking_duration
+                    )
 
-                reasoning_piece = delta_dict.get("reasoning")
-                reasoning_text = _extract_text(reasoning_piece)
-                if reasoning_text:
-                    await emit_reasoning_chunk(reasoning_text)
+                choices = chunk_dict.get("choices") or []
+                for choice in choices:
+                    choice_dict = choice if isinstance(choice, dict) else _coerce_to_dict(choice)
+                    delta_dict = _coerce_to_dict(choice_dict.get("delta"))
 
-                content_piece = delta_dict.get("content")
-                content_text = _extract_text(content_piece)
-                if content_text:
-                    await handle_content_delta(content_text)
+                    # 处理 reasoning（思维链）内容
+                    reasoning_piece = delta_dict.get("reasoning")
+                    reasoning_text = _extract_text(reasoning_piece)
+                    if reasoning_text:
+                        await emit_reasoning_chunk(reasoning_text)
 
-                tool_parts = delta_dict.get("tool_calls") or []
-                for tool_part in tool_parts:
-                    tool_dict = tool_part if isinstance(tool_part, dict) else _coerce_to_dict(tool_part)
-                    index = tool_dict.get("index", 0)
-                    try:
-                        index = int(index)
-                    except Exception:
-                        index = 0
+                    # 处理 content 内容
+                    content_piece = delta_dict.get("content")
+                    content_text = _extract_text(content_piece)
+                    if content_text:
+                        await handle_content_delta(content_text)
 
-                    if index not in tool_calls_buffer:
-                        tool_calls_buffer[index] = {
-                            "id": "",
-                            "type": tool_dict.get("type") or "function",
-                            "function": {"name": "", "arguments": "{}"}
-                        }
+                    # 处理 tool_calls
+                    tool_parts = delta_dict.get("tool_calls") or []
+                    for tool_part in tool_parts:
+                        tool_dict = tool_part if isinstance(tool_part, dict) else _coerce_to_dict(tool_part)
+                        index = tool_dict.get("index", 0)
+                        try:
+                            index = int(index)
+                        except Exception:
+                            index = 0
 
-                    if tool_dict.get("id"):
-                        tool_calls_buffer[index]["id"] = tool_dict["id"]
+                        if index not in tool_calls_buffer:
+                            tool_calls_buffer[index] = {
+                                "id": "",
+                                "type": tool_dict.get("type") or "function",
+                                "function": {"name": "", "arguments": "{}"}
+                            }
 
-                    func_dict = _coerce_to_dict(tool_dict.get("function"))
-                    if func_dict.get("name"):
-                        tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
+                        if tool_dict.get("id"):
+                            tool_calls_buffer[index]["id"] = tool_dict["id"]
 
-                    arguments_value = func_dict.get("arguments")
-                    if arguments_value is not None:
-                        if isinstance(arguments_value, str):
-                            arg_text = arguments_value
-                        else:
-                            try:
-                                arg_text = json.dumps(arguments_value, ensure_ascii=False)
-                            except TypeError:
-                                arg_text = str(arguments_value)
-                        normalized = arg_text.strip()
-                        if normalized in ("", "{}"):
-                            continue
-                        existing = tool_calls_buffer[index]["function"]["arguments"]
-                        if existing.strip() in ("", "{}"):
-                            tool_calls_buffer[index]["function"]["arguments"] = arg_text
-                        else:
-                            tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
+                        func_dict = _coerce_to_dict(tool_dict.get("function"))
+                        if func_dict.get("name"):
+                            tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
 
-                finish_reason_value = choice_dict.get("finish_reason")
-                if not finish_reason_value and hasattr(choice, "finish_reason"):
-                    finish_reason_value = getattr(choice, "finish_reason")
-                if finish_reason_value:
-                    finish_reason = finish_reason_value
+                        arguments_value = func_dict.get("arguments")
+                        if arguments_value is not None:
+                            if isinstance(arguments_value, str):
+                                arg_text = arguments_value
+                            else:
+                                try:
+                                    arg_text = json.dumps(arguments_value, ensure_ascii=False)
+                                except TypeError:
+                                    arg_text = str(arguments_value)
+                            normalized = arg_text.strip()
+                            if normalized in ("", "{}"):
+                                continue
+                            existing = tool_calls_buffer[index]["function"]["arguments"]
+                            if existing.strip() in ("", "{}"):
+                                tool_calls_buffer[index]["function"]["arguments"] = arg_text
+                            else:
+                                tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
+
+                    # 处理 finish_reason
+                    finish_reason_value = choice_dict.get("finish_reason")
+                    if finish_reason_value:
+                        finish_reason = finish_reason_value
 
     except asyncio.CancelledError as exc:
-        await _aclose_stream()
+        await _close_response()
         # 计算thinking_duration
         cancel_thinking_duration = thinking_duration
         if thinking_start_time is not None and cancel_thinking_duration is None:
-            cancel_thinking_duration = time.time() - thinking_start_time
+            cancel_thinking_duration = round(time.time() - thinking_start_time, 2)
         raise StreamResponseError(
             "模型响应被取消",
             partial_text="".join(assistant_text_parts),
@@ -856,14 +893,14 @@ async def stream_model_response(
             thinking_duration=cancel_thinking_duration
         ) from exc
     except StreamResponseError:
-        await _aclose_stream()
+        await _close_response()
         raise
     except Exception as exc:
-        await _aclose_stream()
+        await _close_response()
         # 计算thinking_duration
         exc_thinking_duration = thinking_duration
         if thinking_start_time is not None and exc_thinking_duration is None:
-            exc_thinking_duration = time.time() - thinking_start_time
+            exc_thinking_duration = round(time.time() - thinking_start_time, 2)
         raise StreamResponseError(
             f"响应失败: {exc}",
             partial_text="".join(assistant_text_parts),
@@ -874,12 +911,10 @@ async def stream_model_response(
             thinking_duration=exc_thinking_duration
         ) from exc
 
-    await _aclose_stream()
-    
     # 确保thinking时长被计算（如果有thinking但还没算duration，比如中断时）
     final_thinking_duration = thinking_duration
     if thinking_start_time is not None and final_thinking_duration is None:
-        final_thinking_duration = time.time() - thinking_start_time
+        final_thinking_duration = round(time.time() - thinking_start_time, 2)
         if partial_state is not None:
             partial_state["thinking_duration"] = final_thinking_duration
     
@@ -922,8 +957,10 @@ Smart Shopping Assistant for **{shop_name}**
 ## Skills
 
 - **Product Operations**: Search products, browse categories
-- **Product Display**: Display product images using Markdown format `![product name](image_url)` when showing product details or recommendations if needed.
+- **Product Display**: When presenting product details or recommendations, render product images in Markdown format `![product name](image_path)` if needed. Use only the image path provided by the tool; do not include the full URL
 - **Service Communication**: Recommend products, prompt login, communicate clearly
+
+Current date: {time.strftime('%Y-%m-%d')}.
 """
 
 
@@ -1073,7 +1110,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                         ]
                         rel = _relevance_score(product, q_str, discount_label)
                         img_path = product.get("img_path", "")
-                        image_url = _resolve_image_url(img_path)
+                        image_path_val = _resolve_image_url(img_path)
                         
                         # 根据是否有规格来决定库存信息的返回方式
                         has_variants = len(variants) > 0
@@ -1087,7 +1124,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                             "is_hot": bool(product.get("is_hot", 0)),
                             "relevance_score": rel,
                             "description": product.get("description", ""),
-                            "image_url": image_url,
+                            "image_path": image_path_val,
                             "variants": variants,
                             "has_variants": has_variants,
                         }
@@ -1170,7 +1207,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                 ]
                 rel = _relevance_score(product, q, discount_label)
                 img_path = product.get("img_path", "")
-                image_url = _resolve_image_url(img_path)
+                image_path_val = _resolve_image_url(img_path)
                 
                 # 根据是否有规格来决定库存信息的返回方式
                 has_variants = len(variants) > 0
@@ -1184,7 +1221,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
                     "is_hot": bool(product.get("is_hot", 0)),
                     "relevance_score": rel,
                     "description": product.get("description", ""),
-                    "image_url": image_url,
+                    "image_path": image_path_val,
                     "variants": variants,
                     "has_variants": has_variants,
                 }
@@ -2200,7 +2237,11 @@ async def handle_tool_calls_and_continue(
                 await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
             break
         except StreamResponseError as e:
-            logger.warning(f"工具调用后继续对话异常 (尝试 {attempt+1}/{retries+1}): {e}")
+            # 区分用户主动中断和真正的异常
+            if e.finish_reason == "cancelled" or not e.retryable:
+                logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
+            else:
+                logger.warning(f"工具调用后继续对话异常 (尝试 {attempt+1}/{retries+1}): {e}")
             # 始终保存助手消息（即使内容为空）
             # 只有在thinking阶段被中断时才标记stopped（有reasoning但没有assistant text）
             is_thinking_stopped = (
@@ -2377,7 +2418,11 @@ async def stream_chat(
                         await send(_sse("completed", {"type": "completed", "finish_reason": finish_reason or "stop"}))
                     break
                 except StreamResponseError as e:
-                    logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
+                    # 区分用户主动中断和真正的异常
+                    if e.finish_reason == "cancelled" or not e.retryable:
+                        logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
+                    else:
+                        logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
                     # 始终保存用户消息（即使没有部分内容）
                     if user_id and user_messages_to_log and not partial_state["user_messages_logged"]:
                         for content in user_messages_to_log:

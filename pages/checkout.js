@@ -990,7 +990,7 @@ export default function Checkout() {
                   </div>
                   
                   {/* 商品列表 */}
-                  <div className="space-y-4 mb-6">
+                  <div className="space-y-4 mb-6 max-h-60 overflow-y-auto custom-scrollbar pr-1">
                     {cart.items && cart.items
                       .sort((a, b) => {
                         // 非卖品排到最后

@@ -1689,7 +1689,14 @@ export default function Cart() {
                           />
                           <span className={`text-sm font-semibold ${titleTextClass}`}>满额门槛</span>
                         </motion.div>
-                        <div className="grid gap-2">
+                        <motion.div 
+                          className="grid gap-2"
+                          initial="hidden"
+                          animate="visible"
+                          variants={{
+                            visible: { transition: { staggerChildren: 0.08 } }
+                          }}
+                        >
                           {autoGifts.map((threshold, index) => {
                             const thresholdAmount = threshold.threshold_amount || 0;
                             const unlocked = cartTotal >= thresholdAmount;
@@ -1711,15 +1718,18 @@ export default function Cart() {
                               <motion.div
                                 key={threshold.threshold_amount || index}
                                 className={`text-xs rounded-md px-3 py-2 border ${cardClass}`}
-                                initial={{ opacity: 0, x: -15, scale: 0.95 }}
-                                animate={{ opacity: 1, x: 0, scale: 1 }}
-                                transition={{ 
-                                  type: "spring", 
-                                  stiffness: 400, 
-                                  damping: 25, 
-                                  delay: 0.35 + index * 0.08 
+                                variants={{
+                                  hidden: { opacity: 0, x: -15, scale: 0.95 },
+                                  visible: { 
+                                    opacity: 1, x: 0, scale: 1,
+                                    transition: { type: "spring", stiffness: 400, damping: 25 }
+                                  }
                                 }}
-                                whileHover={{ scale: 1.02, x: 3 }}
+                                whileHover={{ 
+                                  scale: 1.02, 
+                                  x: 3,
+                                  transition: { duration: 0.2, ease: "easeOut" }
+                                }}
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="min-w-0 flex-1">
@@ -1737,7 +1747,7 @@ export default function Cart() {
                               </motion.div>
                             );
                           })}
-                        </div>
+                        </motion.div>
                       </motion.div>
                     );
                   })()}

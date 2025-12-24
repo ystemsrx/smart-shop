@@ -4,6 +4,7 @@ import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
 import TextType from './TextType';
 import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { updateDomSmartly } from './dom_utils';
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -165,6 +166,83 @@ const CUSTOM_ALERT_HTML = `
     const box = document.getElementById('custom-alert');
     if(box) box.classList.remove('show');
   };
+</script>
+
+<!-- Error Display Implementation -->
+<style>
+  .preview-error-box {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(220, 38, 38, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 80%;
+    z-index: 2147483647;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .preview-error-box.show {
+    display: block;
+    animation: slideIn 0.3s ease-out;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+<div id="preview-error-box" class="preview-error-box"></div>
+<script>
+  (function() {
+    const errorBox = document.getElementById('preview-error-box');
+    let errorTimer;
+
+    function showError(msg) {
+      if (!errorBox) return;
+      errorBox.textContent = msg;
+      errorBox.classList.add('show');
+      
+      // Auto hide after 8 seconds
+      clearTimeout(errorTimer);
+      errorTimer = setTimeout(() => {
+        errorBox.classList.remove('show');
+      }, 8000);
+    }
+
+    // Capture console.error
+    const originalConsoleError = console.error;
+    console.error = function(...args) {
+      originalConsoleError.apply(console, args);
+      const msg = args.map(arg => {
+        if (arg instanceof Error) return arg.message;
+        if (typeof arg === 'object') {
+          try {
+            return JSON.stringify(arg);
+          } catch(e) {
+            return String(arg);
+          }
+        }
+        return String(arg);
+      }).join(' ');
+      showError(msg);
+    };
+
+    // Capture unhandled errors
+    window.addEventListener('error', function(event) {
+      showError(event.message || 'Unknown Error');
+    });
+
+    // Capture unhandled promise rejections
+    window.addEventListener('unhandledrejection', function(event) {
+      showError('Unhandled Rejection: ' + (event.reason?.message || event.reason || 'Unknown'));
+    });
+  })();
 </script>
 `;
 
@@ -724,7 +802,7 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
 const STREAM_FADE_DURATION = 600;
 
 // Markdown渲染器组件 - 带高度缓冲的包裹层
-const MarkdownRendererWrapper = ({ content }) => {
+const MarkdownRendererWrapper = ({ content, isStreaming }) => {
   const wrapperRef = useRef(null);
   const maxHeightRef = useRef(0);
   
@@ -770,18 +848,103 @@ const MarkdownRendererWrapper = ({ content }) => {
         contain: 'layout'
       }}
     >
-      <MarkdownRenderer content={content} />
+      <MarkdownRenderer content={content} isStreaming={isStreaming} />
     </div>
   );
 };
 
+const ICON_MAPPING = {
+  'js': 'javascript',
+  'javascript': 'javascript',
+  'jsx': 'javascript-react',
+  'ts': 'typescript',
+  'typescript': 'typescript',
+  'tsx': 'typescript-react',
+  'py': 'python',
+  'python': 'python', 
+  'java': 'java',
+  'c': 'c',
+  'cpp': 'cpp',
+  'c++': 'cpp',
+  'cs': 'csharp',
+  'csharp': 'csharp',
+  'c#': 'csharp',
+  'go': 'go',
+  'rust': 'rust',
+  'php': 'php',
+  'ruby': 'ruby',
+  'swift': 'swift',
+  'kotlin': 'kotlin',
+  'dart': 'dart',
+  'r': 'r',
+  'lua': 'lua',
+  'perl': 'perl',
+  'sql': 'sql',
+  'html': 'html',
+  'css': 'css',
+  'scss': 'sass',
+  'sass': 'sass',
+  'less': 'css',
+  'json': 'json',
+  'yaml': 'yaml',
+  'yml': 'yaml',
+  'xml': 'xml',
+  'md': 'markdown',
+  'markdown': 'markdown',
+  'sh': 'shell',
+  'bash': 'shell', 
+  'zsh': 'shell',
+  'shell': 'shell',
+  'dockerfile': 'docker',
+  'docker': 'docker', 
+  'mermaid': 'mermaid',
+  'svg': 'svg',
+  'vue': 'vue',
+  'svelte': 'svelte', // Not in list but good to have mapping if added
+  'angular': 'angular',
+  'react': 'javascript-react',
+  'vb': 'vbnet',
+  'vbnet': 'vbnet',
+  'matlab': 'matlab',
+  'assembly': 'assembly',
+  'asm': 'assembly',
+  'clojure': 'clojure',
+  'cobol': 'cobol',
+  'crystal': 'crystal',
+  'd': 'dlang',
+  'elixir': 'elixir',
+  'erlang': 'erlang',
+  'fortran': 'fortran',
+  'groovy': 'groovy',
+  'haskell': 'haskell', 
+  'hs': 'haskell',
+  'julia': 'julia',
+  'lisp': 'lisp',
+  'nim': 'nim',
+  'objc': 'objectivec',
+  'objectivec': 'objectivec',
+  'ocaml': 'ocaml',
+  'prolog': 'prolog',
+  'solidity': 'solidity',
+  'sol': 'solidity',
+  'terraform': 'terraform',
+  'tf': 'terraform',
+};
+
 // Markdown渲染器组件（内部实现）
-const MarkdownRenderer = ({ content }) => {
+const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const containerRef = useRef(null);
   const lastTextLengthRef = useRef(0);
   const chunkMetaRef = useRef([]);
   const blockMathCacheRef = useRef(new Map());
   const inlineMathCacheRef = useRef(new Map());
+  const iconLoadCacheRef = useRef(new Set());
+  
+  // Keep track of streaming state in a ref for async access
+  const isStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const finalizeFadeSpan = useCallback((span) => {
     if (!span?.isConnected) return;
@@ -997,10 +1160,12 @@ ${CUSTOM_ALERT_HTML}
       previewViewModeRef.current.clear();
       mermaidSnapshotRef.current.clear();
       svgSnapshotRef.current.clear();
+      iconLoadCacheRef.current.clear();
       return;
     }
     
-    // 在重新渲染前，保存所有预览容器的当前状态
+    // Capture scroll positions before re-render - REMOVED
+
     const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview');
     existingPreviews.forEach(preview => {
       const blockKey = preview.getAttribute('data-block-key');
@@ -1029,6 +1194,8 @@ ${CUSTOM_ALERT_HTML}
       }
     });
 
+    const replacements = new Map();
+
     // 配置Prism自动加载器
     if (window.Prism?.plugins?.autoloader) {
       window.Prism.plugins.autoloader.languages_path =
@@ -1039,9 +1206,53 @@ ${CUSTOM_ALERT_HTML}
 
     // 配置markdown-it
     const md = window.markdownit({ 
-      html: true, 
-      linkify: true,  // 关闭自动链接识别，使用标准Markdown链接语法
+      html: false, // 禁用 HTML，确保安全性并让 linkify 在默认模式下工作
+      linkify: true,  
       typographer: false 
+    });
+
+    // 自定义插件：在 html: false 模式下，手动识别并恢复允许的标签 (<p>, <br>)
+    // 这比使用 sanitize_html 更安全且不干扰 linkify
+    md.core.ruler.push('enable_specific_tags', (state) => {
+      state.tokens.forEach((token) => {
+        if (token.type === 'inline' && token.children) {
+          const newChildren = [];
+          token.children.forEach((child) => {
+            if (child.type === 'text') {
+              // 正则匹配 <p>, </p>, <br>, <br/> (忽略大小写)
+              const tagRegex = /<(\/?)(p|br)([^>]*)>/gi;
+              let lastIndex = 0;
+              let match;
+              
+              while ((match = tagRegex.exec(child.content)) !== null) {
+                // 添加标签前的文本
+                if (match.index > lastIndex) {
+                  const textToken = new state.Token('text', '', 0);
+                  textToken.content = child.content.slice(lastIndex, match.index);
+                  newChildren.push(textToken);
+                }
+                
+                // 添加 HTML 标签 token
+                const htmlToken = new state.Token('html_inline', '', 0);
+                htmlToken.content = match[0]; // 直接使用匹配到的标签内容
+                newChildren.push(htmlToken);
+                
+                lastIndex = tagRegex.lastIndex;
+              }
+              
+              // 添加剩余文本
+              if (lastIndex < child.content.length) {
+                const textToken = new state.Token('text', '', 0);
+                textToken.content = child.content.slice(lastIndex);
+                newChildren.push(textToken);
+              }
+            } else {
+              newChildren.push(child);
+            }
+          });
+          token.children = newChildren;
+        }
+      });
     });
     
     // 自定义链接渲染规则，确保内部链接使用绝对路径
@@ -1104,8 +1315,11 @@ ${CUSTOM_ALERT_HTML}
         const id = `latex-block-${blockIndex}`;
         protectedBlocks.push({ id, latex: latex.trim(), type: 'block' });
         blockIndex++;
-        // 使用 HTML 注释 + 特殊 div，Markdown 会原样保留
-        return `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`;
+        
+        // 使用 %% 而不是 __，避免被识别为粗体
+        const placeholder = `%%LATEX_PROTECT_BLOCK_${id}%%`;
+        replacements.set(placeholder, `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`);
+        return placeholder;
       });
       
       // 保护 \[ ... \] 块
@@ -1113,10 +1327,151 @@ ${CUSTOM_ALERT_HTML}
         const id = `latex-block-${blockIndex}`;
         protectedBlocks.push({ id, latex: latex.trim(), type: 'block' });
         blockIndex++;
-        return `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`;
+        
+        const placeholder = `%%LATEX_PROTECT_BLOCK_${id}%%`;
+        replacements.set(placeholder, `<!-- ${id} --><div class="latex-block-protected" data-latex-id="${id}"></div><!-- /${id} -->`);
+        return placeholder;
       });
       
       return { text: result, protectedBlocks };
+    };
+
+    // 保护流式渲染中不完整的表格，避免渲染混乱
+    // 核心策略：根据表头行确定列数，对后续行进行列数补齐
+    const protectIncompleteTables = (text) => {
+      const lines = text.split('\n');
+      let result = [];
+      let tableBuffer = [];
+      let inTable = false;
+      let hasSeparator = false;
+      let headerColumnCount = 0; // 表头确定的列数
+      let inCodeBlock = false;   // 标记是否在代码块中
+
+      const isTableRow = (line) => {
+        if (inCodeBlock) return false;
+        const trimmed = line.trim();
+        // 表格行特征：包含 | 且不是代码块
+        return trimmed.includes('|') && !trimmed.startsWith('```');
+      };
+      
+      const isSeparatorRow = (line) => {
+        const trimmed = line.trim();
+        // 分隔行特征：只包含 |、-、: 和空格
+        return /^\|?[\s\-:|]+\|?$/.test(trimmed) && trimmed.includes('-');
+      };
+      
+      // 计算行的列数（基于 | 分隔符）
+      const getColumnCount = (line) => {
+        const trimmed = line.trim();
+        // 移除首尾的 |，然后按 | 分割
+        let content = trimmed;
+        if (content.startsWith('|')) content = content.slice(1);
+        if (content.endsWith('|')) content = content.slice(0, -1);
+        return content.split('|').length;
+      };
+      
+      // 补齐行到指定列数
+      const padRowToColumns = (line, targetColumns) => {
+        const trimmed = line.trim();
+        const currentColumns = getColumnCount(line);
+        
+        if (currentColumns >= targetColumns) {
+          return line; // 已经足够，无需补齐
+        }
+        
+        // 需要补齐的列数
+        const missingColumns = targetColumns - currentColumns;
+        
+        // 判断原始行的格式（是否以 | 结尾）
+        const endsWithPipe = trimmed.endsWith('|');
+        // const startsWithPipe = trimmed.startsWith('|'); // unused
+        
+        // 构建补齐的空单元格
+        const padding = ' |'.repeat(missingColumns);
+        
+        if (endsWithPipe) {
+          // 如果已经以 | 结尾，在结尾 | 之前插入空单元格
+          return line.slice(0, -1) + padding + '|';
+        } else {
+          // 如果没有以 | 结尾，直接追加
+          return line + padding;
+        }
+      };
+      
+      const flushTable = () => {
+        if (tableBuffer.length === 0) return;
+        
+        // 检查表格是否完整（至少有表头行、分隔行）
+        const isComplete = hasSeparator && tableBuffer.length >= 2;
+        
+        if (isComplete && headerColumnCount > 0) {
+          // 完整表格，对每一行进行列数补齐后输出
+          const paddedTable = tableBuffer.map(row => {
+            if (isSeparatorRow(row)) {
+              // 分隔行也需要补齐
+              return padRowToColumns(row, headerColumnCount);
+            }
+            return padRowToColumns(row, headerColumnCount);
+          });
+          result.push(...paddedTable);
+        } else {
+          // 不完整表格，包装成占位符
+          const placeholderKey = `%%TABLE_PLACEHOLDER_${replacements.size}%%`;
+          // 对表格内容进行HTML转义，防止内部字符被解析
+          const safeContent = tableBuffer.join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const placeholderHtml = `<div class="streaming-table-placeholder" style="font-family: monospace; background: #f9fafb; padding: 0.75em 1em; border-radius: 6px; border: 1px dashed #d1d5db; color: #6b7280; white-space: pre-wrap; margin: 0.5em 0;">${safeContent}</div>`;
+          replacements.set(placeholderKey, placeholderHtml);
+          result.push(placeholderKey);
+        }
+        
+        tableBuffer = [];
+        hasSeparator = false;
+        inTable = false;
+        headerColumnCount = 0;
+      };
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // 代码块检测：如果遇到代码块围栏，切换状态
+        const fenceMatch = line.trim().match(/^(`{3,}|~{3,})/);
+        if (fenceMatch) {
+            if (inTable) flushTable(); // 代码块开始会打断表格
+            inCodeBlock = !inCodeBlock;
+            result.push(line);
+            continue;
+        }
+
+        if (inCodeBlock) {
+            result.push(line);
+            continue;
+        }
+
+        if (isTableRow(line)) {
+          if (!inTable) {
+            inTable = true;
+            // 第一行是表头，确定列数
+            headerColumnCount = getColumnCount(line);
+          }
+          if (isSeparatorRow(line)) {
+            hasSeparator = true;
+          }
+          tableBuffer.push(line);
+        } else {
+          if (inTable) {
+            // 表格结束
+            flushTable();
+          }
+          result.push(line);
+        }
+      }
+      
+      // 处理文末的表格
+      if (tableBuffer.length > 0) {
+        flushTable();
+      }
+      
+      return result.join('\n');
     };
 
     // 渲染Markdown（先保护 LaTeX）
@@ -1128,14 +1483,32 @@ ${CUSTOM_ALERT_HTML}
     // 保护 LaTeX 块
     const { text: protectedContent, protectedBlocks } = protectLatexBlocks(dedentedContent);
     
-    // 渲染 Markdown
-    const renderedHtml = md.render(protectedContent);
+    // 保护不完整的表格（流式渲染优化）
+    const tableProtectedContent = protectIncompleteTables(protectedContent);
     
+    // 渲染 Markdown
+    const renderedHtml = md.render(tableProtectedContent);
+    
+    // 恢复受保护的内容（LaTeX块、不完整表格等）
+    let finalHtml = renderedHtml;
+    replacements.forEach((html, placeholder) => {
+      // 尝试匹配被<p>包裹的情况（Markdown常见行为），移除多余的<p>
+      // 复杂的正则用于匹配 <p>placeholder</p>，允许空白字符
+      const wrappedRegex = new RegExp(`<p>\\s*${placeholder}\\s*</p>`, 'g');
+      if (wrappedRegex.test(finalHtml)) {
+        finalHtml = finalHtml.replace(wrappedRegex, html);
+      } else {
+        finalHtml = finalHtml.replace(placeholder, html);
+      }
+    });
+
     // 设置 HTML
-    containerRef.current.innerHTML = renderedHtml;
+    const tempDiv = document.createElement('div');
+    tempDiv.className = 'markdown-content';
+    tempDiv.innerHTML = finalHtml;
     
     // 处理Markdown中的链接，让它们使用Next.js路由而不是浏览器默认行为
-    const links = containerRef.current.querySelectorAll('a[href]');
+    const links = tempDiv.querySelectorAll('a[href]');
     links.forEach(link => {
       let href = link.getAttribute('href');
       
@@ -1171,7 +1544,7 @@ ${CUSTOM_ALERT_HTML}
     // 在 DOM 中恢复受保护的 LaTeX 块（在后续的 replaceBlockMathWithPlaceholders 中处理）
     // 将 LaTeX 内容存储到 DOM 元素的 dataset 中
     protectedBlocks.forEach(({ id, latex }) => {
-      const element = containerRef.current.querySelector(`[data-latex-id="${id}"]`);
+      const element = tempDiv.querySelector(`[data-latex-id="${id}"]`);
       if (element) {
         // 直接设置 textContent 为完整的 LaTeX 表达式，包含定界符
         element.textContent = `$$${latex}$$`;
@@ -1272,7 +1645,7 @@ ${CUSTOM_ALERT_HTML}
 
     // 将原始编号写入渲染后的 DOM
     try {
-      const ols = Array.from(containerRef.current.querySelectorAll('ol'));
+      const ols = Array.from(tempDiv.querySelectorAll('ol'));
       let k = 0;
       for (const ol of ols) {
         const spec = orderedLists[k++];
@@ -1292,7 +1665,7 @@ ${CUSTOM_ALERT_HTML}
     }
 
     // 代码高亮和DOM操作
-    const pres = Array.from(containerRef.current.querySelectorAll('pre'));
+    const pres = Array.from(tempDiv.querySelectorAll('pre'));
     const activeMermaidKeys = new Set();
     const activePreviewKeys = new Set();
     let mermaidBlockIndex = 0;
@@ -1326,7 +1699,12 @@ ${CUSTOM_ALERT_HTML}
       // 克隆 pre 元素
       const preClone = pre.cloneNode(true);
       const codeClone = preClone.querySelector('code');
-      const codeContent = codeClone?.textContent || '';
+      // 移除末尾的换行符
+      const codeContent = (codeClone?.textContent || '').replace(/\n$/, '');
+      if (codeClone) {
+        codeClone.textContent = codeContent;
+      }
+
       if (blockKey) {
         preClone.setAttribute('data-code-block', blockKey);
       }
@@ -1342,7 +1720,77 @@ ${CUSTOM_ALERT_HTML}
       header.className = 'code-block-header';
 
       const langSpan = document.createElement('span');
-      langSpan.textContent = language || 'code';
+      langSpan.style.display = 'flex';
+      langSpan.style.alignItems = 'center';
+      langSpan.style.gap = '6px';
+      
+      if (language) {
+        const lowerLang = language.toLowerCase();
+        // 使用映射查找文件名，如果没有映射则直接尝试使用小写名称
+        const iconName = ICON_MAPPING[lowerLang] || lowerLang;
+        
+        const iconImg = document.createElement('img');
+        // 使用本地图标路径
+        const src = `/icons/${iconName}.svg`;
+        iconImg.dataset.src = src;
+        
+        // 先设置为空，避免加载失败时显示占位符
+        iconImg.alt = ''; 
+        iconImg.style.width = '14px';
+        iconImg.style.height = '14px';
+        iconImg.style.marginRight = '2px';
+        // 移除之前的 filter，因为本地 SVG 图标通常已经有颜色，或者我们希望保持原色
+        // 如果原本是纯黑SVG且需要变白，可以保留 filter，但 Usually icons are colored or we should use CSS to style them.
+        // User requested to use icons from components/icon (now public/icons). Assuming they are standard colored SVGs.
+        // Let's keep a subtle filter or remove if they are colored.
+        // Looking at file list (apple.svg, python.svg), they are likely colored brands.
+        // Let's remove the heavy inversion filter effectively unless dark mode requires it.
+        // But the previous filter was specific. 
+        // Let's try without filter first as "original" icons are usually best.
+        // iconImg.style.filter = ''; 
+        
+        // Set src to trigger load
+        
+        if (iconLoadCacheRef.current.has(src)) {
+            // If cached, show immediately
+            iconImg.style.display = 'inline-block';
+            iconImg.src = src;
+        } else {
+            // If not cached, hide initially and wait for load
+            iconImg.style.display = 'none';
+            iconImg.onload = () => {
+              iconImg.style.display = 'inline-block';
+              iconLoadCacheRef.current.add(src);
+            };
+            iconImg.onerror = () => {
+              // Load fallback icon
+              const fallbackSrc = '/icons/square-code.svg';
+              if (iconImg.src.endsWith(fallbackSrc)) {
+                  // Avoid infinite loop if fallback fails
+                  iconImg.style.display = 'none';
+                  return;
+              }
+              iconImg.src = fallbackSrc;
+              iconImg.style.display = 'inline-block';
+            };
+            iconImg.src = src;
+        }
+        
+        langSpan.appendChild(iconImg);
+      } else {
+        // No language specified, show default icon
+        const iconImg = document.createElement('img');
+        const src = '/icons/square-code.svg';
+        iconImg.alt = '';
+        iconImg.style.width = '14px';
+        iconImg.style.height = '14px';
+        iconImg.style.marginRight = '2px';
+        iconImg.style.display = 'inline-block';
+        iconImg.src = src;
+        langSpan.appendChild(iconImg);
+      }
+
+      langSpan.appendChild(document.createTextNode(language || 'code'));
       
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
@@ -1470,6 +1918,7 @@ ${CUSTOM_ALERT_HTML}
           svgElement.style.height = 'auto';
           svgElement.style.maxHeight = '100%';
           svgElement.style.display = 'block';
+          svgElement.style.margin = '0 auto';
           svgElement.style.transformOrigin = 'center center';
           const existingSvg = mermaidContainer.querySelector('svg');
           const controlsNode = mermaidContainer.querySelector('.mermaid-zoom-controls');
@@ -1585,13 +2034,93 @@ ${CUSTOM_ALERT_HTML}
             }
           };
           
+        // Helper to show error
+        const showError = (msg) => {
+            let errorBox = mermaidContainer.querySelector('.preview-error-box');
+            if (!errorBox) {
+                errorBox = document.createElement('div');
+                errorBox.className = 'preview-error-box';
+                errorBox.style.cssText = `
+                    position: absolute;
+                    bottom: 10px;
+                    left: 10px;
+                    background: rgba(220, 38, 38, 0.9);
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    max-width: 80%;
+                    z-index: 20;
+                    pointer-events: none;
+                `;
+                mermaidContainer.appendChild(errorBox);
+            }
+            errorBox.textContent = msg;
+        };
+
+        const hideError = () => {
+            const errorBox = mermaidContainer.querySelector('.preview-error-box');
+            if (errorBox) errorBox.remove();
+        };
+
           // 异步渲染函数
           const renderChart = async () => {
+            // Helper function to try rendering with partial content (removing lines from end)
+            const tryRenderRefine = async (content) => {
+                const lines = content.split('\n');
+                // Try removing last line iteratively until success or empty
+                // Limit retries to reasonable amount (e.g., 20 lines) to avoid hanging
+                const maxRetries = Math.min(lines.length, 20); 
+                
+                for (let i = 0; i <= maxRetries; i++) {
+                    const currentLines = lines.slice(0, lines.length - i);
+                    if (currentLines.length === 0) break;
+                    
+                    const partialContent = currentLines.join('\n');
+                    try {
+                         const result = await window.mermaid.render(mermaidId + '-svg', partialContent);
+                         if (result && result.svg) {
+                             return { success: true, svg: result.svg, error: i === 0 ? null : `Displaying partial content (syntax error at line ${lines.length - i + 1})` };
+                         }
+                    } catch (e) {
+                        // Continue to next iteration
+                        if (i === 0) {
+                            // Save first error to return if everything fails
+                             var firstError = e;
+                        }
+                    }
+                }
+                return { success: false, error: firstError };
+            };
+
             try {
               // 渲染前清理一次
               cleanupErrors();
               
-              const result = await window.mermaid.render(mermaidId + '-svg', codeContent);
+              // First attempt full render
+              let result;
+              try {
+                  result = await window.mermaid.render(mermaidId + '-svg', codeContent);
+                  hideError(); // Clear error if success
+              } catch (fullRenderErr) {
+                  // If full render fails, try refinement
+                  const refined = await tryRenderRefine(codeContent);
+                  if (refined.success) {
+                      result = { svg: refined.svg };
+                      // Only show warning if we are actually displaying partial content
+                      // And generally we want to show this "Partial Success" message even during streaming? 
+                      // Maybe suppress it too until done to be super clean? 
+                      // User said "don't show ERROR", this is a warning. 
+                      // Let's hide it during streaming to be safe and clean.
+                      if (!isStreamingRef.current) {
+                          showError(`Rendering Partial: Syntax error detected. Displaying valid part.`);
+                      } else {
+                          hideError();
+                      }
+                  } else {
+                      throw refined.error || fullRenderErr;
+                  }
+              }
               
               // 渲染后立即清理
               setTimeout(cleanupErrors, 50);
@@ -1618,12 +2147,24 @@ ${CUSTOM_ALERT_HTML}
               // 如果已经有成功渲染的内容，保持不变，避免闪烁
               const hasSuccessRender = mermaidContainer.getAttribute('data-render-success') === 'true';
               
+              if (!isStreamingRef.current) {
+                   showError(`Syntax Error: ${err.message || 'Invalid syntax'}`);
+              } else {
+                   hideError();
+              }
+              
               if (!hasSuccessRender) {
                 // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
                 // 只在控制台输出调试信息
                 console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
+                // Don't show UI error yet, wait for completion or valid partial
+                hideError(); 
               } else {
                 applyMermaidSnapshot();
+                // If we have a snapshot, we are "good" for now, don't flash error
+                // unless we want to warn the user that the *new* content is broken
+                // For now, suppress to avoid flickering
+                hideError();
               }
               
               // 错误时也清理DOM中的错误信息
@@ -1933,6 +2474,10 @@ ${CUSTOM_ALERT_HTML}
       }
     });
 
+
+
+    // Restore scroll positions - REMOVED (Handled by updateDomSmartly)
+
     // 清理已经不存在的Mermaid状态，避免ref无限增长
     mermaidStatesRef.current.forEach((_, key) => {
       if (!activeMermaidKeys.has(key)) {
@@ -1961,8 +2506,8 @@ ${CUSTOM_ALERT_HTML}
     });
 
     // 流式块级公式渲染（先替换占位，再手动渲染，防止未闭合内容闪烁）
-    const blockMathSegments = replaceBlockMathWithPlaceholders(containerRef.current);
-    renderBlockMathSegments(containerRef.current, blockMathSegments, blockMathCacheRef);
+    const blockMathSegments = replaceBlockMathWithPlaceholders(tempDiv);
+    renderBlockMathSegments(tempDiv, blockMathSegments, blockMathCacheRef);
     const activeBlockKeys = new Set(blockMathSegments.map((segment) => segment.key));
     blockMathCacheRef.current.forEach((_, key) => {
       if (!activeBlockKeys.has(key)) {
@@ -1970,8 +2515,9 @@ ${CUSTOM_ALERT_HTML}
       }
     });
 
-    const inlineMathSegments = replaceInlineMathWithPlaceholders(containerRef.current);
-    renderInlineMathSegments(containerRef.current, inlineMathSegments, inlineMathCacheRef);
+    const argsInline = tempDiv; // Rename for clarity or direct usage
+    const inlineMathSegments = replaceInlineMathWithPlaceholders(tempDiv);
+    renderInlineMathSegments(tempDiv, inlineMathSegments, inlineMathCacheRef);
     const activeInlineKeys = new Set(inlineMathSegments.map((segment) => segment.key));
     inlineMathCacheRef.current.forEach((_, key) => {
       if (!activeInlineKeys.has(key)) {
@@ -1980,8 +2526,41 @@ ${CUSTOM_ALERT_HTML}
     });
 
     // 引号统一为英文格式，避免中英文混排导致的符号跳变
-    normalizeQuotesInElement(containerRef.current);
+    normalizeQuotesInElement(tempDiv);
 
+    // Apply Smart DOM Update
+    updateDomSmartly(containerRef.current, tempDiv);
+
+    // Clean up caches for removed items (Need to check based on what's active in tempDiv or final result)
+    // We already tracked active keys based on tempDiv processing above.
+    
+    // 清理已经不存在的Mermaid状态，避免ref无限增长 - MOVED HERE
+    mermaidStatesRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidStatesRef.current.delete(key);
+      }
+    });
+    mermaidSnapshotRef.current.forEach((_, key) => {
+      if (!activeMermaidKeys.has(key)) {
+        mermaidSnapshotRef.current.delete(key);
+      }
+    });
+    previewViewModeRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        previewViewModeRef.current.delete(key);
+      }
+    });
+    svgSnapshotRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        svgSnapshotRef.current.delete(key);
+      }
+    });
+    htmlSnapshotRef.current.forEach((_, key) => {
+      if (!activePreviewKeys.has(key)) {
+        htmlSnapshotRef.current.delete(key);
+      }
+    });
+    
     // 简化的Mermaid错误清理
     const simpleCleanup = () => {
       // 只清理body直接子元素中的错误信息
@@ -2210,7 +2789,7 @@ const ThinkingBubble = ({ content, isComplete = false, isStopped = false, thinki
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="overflow-hidden"
             >
-              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-500">{(content || "").replace(/^\n+/, '') || "…"}</div>
+              <div className="mt-2 whitespace-pre-wrap break-all text-sm text-gray-500">{(content || "").replace(/^\n+/, '') || "…"}</div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -4788,7 +5367,9 @@ export default function ChatModern({ user, initialConversationId = null }) {
                         if (isEmpty && m.tool_calls) {
                           return null;
                         }
-                        content = <MarkdownRendererWrapper content={m.content} />;
+                        const isLastMessage = index === msgs.length - 1;
+                        const isStreaming = isLoading && isLastMessage;
+                        content = <MarkdownRendererWrapper content={m.content} isStreaming={isStreaming} />;
                       } else if (m.role === "assistant_thinking") {
                         content = (
                           <ThinkingBubble
