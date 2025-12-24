@@ -13,7 +13,7 @@ import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getProductImage } from '../utils/urls';
-import { getShopName } from '../utils/runtimeConfig';
+import { getShopName, getLogo } from '../utils/runtimeConfig';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -207,21 +207,15 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
       <div className="flex items-start gap-4">
         {/* 商品图片 */}
         <div className="flex-shrink-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 transition-transform duration-300 group-hover:scale-105">
-          {item.img_path ? (
-            <RetryImage
-              src={getProductImage(item)}
-              alt={item.name}
-              className="h-full w-full object-cover object-center"
-              maxRetries={3}
-              onFinalError={() => {
-                console.log(`购物车商品图片最终加载失败: ${item.name}`);
-              }}
-            />
-          ) : (
-            <div className="h-full w-full flex items-center justify-center">
-              <span className="text-slate-400 text-xs">暂无图片</span>
-            </div>
-          )}
+          <RetryImage
+            src={getProductImage(item) || getLogo()}
+            alt={item.name}
+            className="h-full w-full object-cover object-center"
+            maxRetries={3}
+            onFinalError={() => {
+              console.log(`购物车商品图片最终加载失败: ${item.name}`);
+            }}
+          />
         </div>
         
         {/* 商品信息 */}

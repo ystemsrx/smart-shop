@@ -10,7 +10,7 @@ import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
 import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
-import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
+import { getShopName, getApiBaseUrl, getLogo } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
 import ProductDetailModal from '../components/ProductDetailModal';
 import Toast from '../components/Toast';
@@ -157,7 +157,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   // 是否下架/缺货
   const isDown = isProductDown(product);
   const isOutOfStock = isProductOutOfStock(product);
-  const imageSrc = getProductImage(product);
+  const imageSrc = getProductImage(product) || getLogo();
   const { discountZhe, hasDiscount, finalPrice } = getPricingMeta(product);
   const requiresReservation = Boolean(product.reservation_required);
   const reservationCutoff = product.reservation_cutoff;
@@ -699,7 +699,7 @@ export default function Shop() {
     }
     const visibleProducts = products.filter(product => !product.is_not_for_sale);
     return visibleProducts.map(product => {
-      const productImage = getProductImage(product) || '/logo.png';
+      const productImage = getProductImage(product) || getLogo();
       const subtitle = buildSphereSubtitle(product);
       const rawDescription = product.description || product.short_description || product.tagline || '';
       const fallbackDescription = product.category ? `分类：${product.category}` : '精选好物';

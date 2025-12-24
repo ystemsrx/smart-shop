@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
-import { getApiBaseUrl, getShopName } from "../utils/runtimeConfig";
+import { getApiBaseUrl, getShopName, getHeaderLogo } from "../utils/runtimeConfig";
 import TextType from './TextType';
 import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
@@ -18,6 +18,7 @@ import { updateDomSmartly } from './dom_utils';
 
 const cx = (...xs) => xs.filter(Boolean).join(" ");
 const SHOP_NAME = getShopName();
+const HEADER_LOGO = getHeaderLogo();
 const SIDEBAR_EXPANDED_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const buildPreview = (text = "") =>
@@ -5168,7 +5169,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <div className="h-10 w-10 flex-shrink-0 bg-white rounded-full p-[3px] shadow-sm border border-gray-300">
                     <img 
-                      src="/logo.png" 
+                      src={HEADER_LOGO} 
                       alt={SHOP_NAME} 
                       className="h-full w-full rounded-full object-contain"
                     />

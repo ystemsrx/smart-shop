@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
-import { getShopName } from '../utils/runtimeConfig';
+import { getShopName, getHeaderLogo } from '../utils/runtimeConfig';
 import CircularMenuButton from './CircularMenuButton';
 
 // 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders' | 'staff-shop' | 'staff-dashboard' | 'staff-backend'
@@ -11,6 +11,7 @@ export default function Nav({ active = 'home' }) {
   const { location, openLocationModal } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const shopName = getShopName();
+  const headerLogo = getHeaderLogo();
   const closeMenu = () => setMobileOpen(false);
 
   const isAdmin = user?.type === 'admin';
@@ -65,7 +66,7 @@ export default function Nav({ active = 'home' }) {
                 {/* Logo图片 */}
                 <Link href="/?home=true" className="flex items-center group">
                   <img 
-                    src="/logo.png" 
+                    src={headerLogo} 
                     alt={shopName} 
                     className="h-10 w-auto object-contain"
                   />

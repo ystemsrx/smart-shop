@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import RetryImage from './RetryImage';
 import { getProductImage } from '../utils/urls';
+import { getLogo } from '../utils/runtimeConfig';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -84,7 +85,7 @@ const ProductDetailModal = ({
     ? ((product.total_variant_stock || 0) === 0) 
     : (product.stock === 0));
   
-  const imageSrc = getProductImage(product);
+  const imageSrc = getProductImage(product) || getLogo();
   const discountZhe = typeof product.discount === 'number' 
     ? product.discount 
     : (product.discount ? parseFloat(product.discount) : 10);
@@ -199,24 +200,16 @@ const ProductDetailModal = ({
               )}
 
               {/* 商品图片 */}
-              {imageSrc && !imageError ? (
-                <RetryImage
-                  src={imageSrc}
-                  alt={product.name}
-                  className={`h-full w-full object-cover object-center ${
-                    (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
-                  }`}
-                  maxRetries={3}
-                  onFinalError={() => setImageError(true)}
-                />
-              ) : (
-                <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                  <div className="text-center">
-                    <i className="fas fa-image text-gray-400 text-6xl mb-4"></i>
-                    <span className="text-gray-400 text-lg">暂无图片</span>
-                  </div>
-                </div>
-              )}
+              {/* 商品图片 */}
+              <RetryImage
+                src={imageSrc}
+                alt={product.name}
+                className={`h-full w-full object-cover object-center ${
+                  (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
+                }`}
+                maxRetries={3}
+                onFinalError={() => setImageError(true)}
+              />
 
               {/* 缺货/下架遮罩 */}
               {(isOutOfStock || isDown) && (

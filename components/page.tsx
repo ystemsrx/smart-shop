@@ -4,7 +4,7 @@ import { motion, useScroll, useTransform, useInView } from 'framer-motion'
 import { useRef, useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
-import { getShopName } from '../utils/runtimeConfig'
+import { getShopName, getHeaderLogo } from '../utils/runtimeConfig'
 import CircularMenuButton from './CircularMenuButton'
 
 // Hero Section Component
@@ -469,6 +469,7 @@ function Footer({ shopName }: { shopName: string }) {
 function Navigation({ shopName, user, logout }: { shopName: string; user?: any; logout?: () => void }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const closeMenu = () => setMobileOpen(false)
+  const headerLogo = getHeaderLogo()
 
   const isAdmin = user?.type === 'admin'
   const isAgent = user?.type === 'agent'
@@ -505,7 +506,7 @@ function Navigation({ shopName, user, logout }: { shopName: string; user?: any; 
                 {/* Logo图片 */}
                 <Link href="/?home=true" className="flex items-center group">
                   <img 
-                    src="/logo.png" 
+                    src={headerLogo} 
                     alt={shopName} 
                     className="h-10 w-auto object-contain"
                   />

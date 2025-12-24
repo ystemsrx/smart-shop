@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getLogo } from '../utils/runtimeConfig';
 
 const RetryImage = ({ 
   src, 
@@ -8,90 +9,83 @@ const RetryImage = ({
   onFinalError,
   ...props 
 }) => {
-  const [retryCount, setRetryCount] = useState(0);
-  const [currentSrc, setCurrentSrc] = useState(src);
-  const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  // 当前显示的图片源（可能是原图，也可能是Logo）
+  const [displaySrc, setDisplaySrc] = useState(src);
+  // 是否正在显示fallback Logo
+  const [isFallback, setIsFallback] = useState(false);
   
-  // 使用 ref 来跟踪当前的重试次数，避免闭包问题
+  // 引用变量，用于在后台逻辑中跟踪
   const retryCountRef = useRef(0);
+  const isMountedRef = useRef(true);
 
-  const handleError = () => {
-    retryCountRef.current += 1;
-    setRetryCount(retryCountRef.current);
-    
-    console.log(`图片加载失败，重试第 ${retryCountRef.current} 次:`, currentSrc);
-    
-    if (retryCountRef.current < maxRetries) {
-      // 重试原始图片
-      setTimeout(() => {
-        setCurrentSrc(src + '?retry=' + retryCountRef.current);
-      }, 1000); // 延迟1秒后重试
-    } else {
-      // 达到最大重试次数，停止重试
-      console.log(`图片加载失败，已达到最大重试次数 ${maxRetries}，停止重试:`, src);
-      setHasError(true);
-      setIsLoading(false);
-      
-      if (onFinalError) {
-        onFinalError();
-      }
-    }
-  };
-
-  const handleLoad = () => {
-    setIsLoading(false);
-    setHasError(false);
-    // 重置重试计数
-    retryCountRef.current = 0;
-    setRetryCount(0);
-  };
-
-  // 当外部传入的 src 变化时，重置内部状态并使用新的地址
+  // 组件卸载清理
   useEffect(() => {
-    setCurrentSrc(src);
-    setHasError(false);
-    setIsLoading(true);
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // 当外部 src 变化时重置
+  useEffect(() => {
+    setDisplaySrc(src);
+    setIsFallback(false);
     retryCountRef.current = 0;
-    setRetryCount(0);
   }, [src]);
 
-  // 如果最终失败，显示默认占位符
-  if (hasError) {
-    return (
-      <div 
-        className={`bg-gray-100 flex items-center justify-center text-gray-400 text-sm ${className}`}
-        {...props}
-      >
-        <div className="text-center">
-          <div className="text-2xl mb-1">📷</div>
-          <div>暂无图片</div>
-        </div>
-      </div>
-    );
-  }
+  // 后台静默重试逻辑
+  const attemptRetry = (attempt) => {
+    if (!isMountedRef.current) return;
+    if (attempt > maxRetries) {
+      if (onFinalError) onFinalError();
+      return;
+    }
+
+    const nextSrc = `${src}${src.includes('?') ? '&' : '?'}retry=${attempt}`;
+    const img = new Image();
+    
+    img.onload = () => {
+      if (!isMountedRef.current) return;
+      // 重试成功！切回原图（带参数版本以防缓存问题）
+      setDisplaySrc(nextSrc);
+      setIsFallback(false);
+    };
+
+    img.onerror = () => {
+      if (!isMountedRef.current) return;
+      // 失败了，延迟后继续下一次
+      setTimeout(() => {
+        attemptRetry(attempt + 1);
+      }, 1500 + attempt * 500); // 渐进式延迟
+    };
+
+    img.src = nextSrc;
+  };
+
+  const handleError = () => {
+    // 防止 Logo 也加载失败导致的死循环
+    if (isFallback) return;
+
+    // 第一次失败，立刻换上 Logo
+    setDisplaySrc(getLogo());
+    setIsFallback(true);
+    
+    // 开始后台静默重试 (从第1次开始)
+    retryCountRef.current = 1;
+    // 稍微延迟一点开始重试，给网络一点喘息时间
+    setTimeout(() => {
+      attemptRetry(1);
+    }, 1000);
+  };
 
   return (
-    <div className="relative">
-      <img
-        src={currentSrc}
-        alt={alt}
-        className={className}
-        onError={handleError}
-        onLoad={handleLoad}
-        {...props}
-      />
-      
-      {/* 加载指示器 */}
-      {isLoading && retryCount > 0 && (
-        <div className="absolute inset-0 bg-gray-100 bg-opacity-75 flex items-center justify-center">
-          <div className="text-center text-gray-500 text-xs">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500 mx-auto mb-1"></div>
-            <div>重试中 ({retryCount}/{maxRetries})</div>
-          </div>
-        </div>
-      )}
-    </div>
+    <img
+      src={displaySrc}
+      alt={alt}
+      className={`${className} ${isFallback ? 'object-contain p-2 bg-gray-50' : ''}`}
+      onError={handleError}
+      {...props}
+    />
   );
 };
 

@@ -28,10 +28,20 @@ const getShopName = () => {
   return (process.env.SHOP_NAME || '').trim()
 }
 
+const getHeaderLogo = () => {
+  return (process.env.HEADER_LOGO || 'logo.png').trim()
+}
+
+const getLogo = () => {
+  return (process.env.LOGO || 'logo.png').trim()
+}
+
 const resolvedApiUrl = getApiUrl()
 const resolvedImageBaseUrl = getImageBaseUrl()
 const resolvedFileBaseUrl = getFileBaseUrl()
 const resolvedShopName = getShopName()
+const resolvedHeaderLogo = getHeaderLogo()
+const resolvedLogo = getLogo()
 
 // 生产环境检查必需的环境变量
 if (!isDevEnv) {
@@ -64,6 +74,8 @@ const nextConfig = {
     NEXT_PUBLIC_IMAGE_BASE_URL: resolvedImageBaseUrl,
     NEXT_PUBLIC_FILE_BASE_URL: resolvedFileBaseUrl,
     SHOP_NAME: resolvedShopName,
+    HEADER_LOGO: resolvedHeaderLogo,
+    LOGO: resolvedLogo,
   },
   // 允许外部CDN资源
   images: {

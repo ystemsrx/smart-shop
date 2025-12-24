@@ -145,8 +145,8 @@
 git clone https://github.com/ystemsrx/smart-shop.git
 cd smart-shop
 
-# 创建必要文件夹并放置商店logo图片
-msdir public
+# 创建必要文件夹并放置商店logo图片（可选，默认为 logo.png）
+mkdir public
 cp /path/to/your/logo.png public/logo.png
 ```
 
@@ -198,7 +198,7 @@ chmod +x run.sh
 
 参考 [配置](#-配置) 部分
 
-修改 `.env` 文件并将商店 logo 图片（logo.png）放进public文件夹后：
+修改 `.env` 文件并配置好 logo 图片后：
 
 ```bash
 # 构建并启动
@@ -269,6 +269,12 @@ ALLOWED_ORIGINS=https://your-frontend-domain.com,http://localhost:3000
 
 # 静态文件缓存配置 (秒)
 STATIC_CACHE_MAX_AGE=2592000
+
+# Logo 配置（图片文件需放在 public 目录下）
+# 网页顶部导航栏 logo 图片文件名
+HEADER_LOGO=logo.png
+# 通用占位 logo（用于商品图片加载失败等情况）
+LOGO=logo.png
 
 # 开发环境配置（仅开发时使用，即 ENV=development 时生效）
 DEV_NEXT_PUBLIC_API_URL=http://localhost:9099
