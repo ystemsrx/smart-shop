@@ -136,37 +136,326 @@ const BUTTON_CONTENT = {
   RUN_OFF: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg><span>源码</span>`,
 };
 
+// Transform synchronous confirm/prompt/alert code patterns to async/await
+// This function transforms JavaScript code so that confirm(), prompt() and alert() work correctly
+// by making functions async and adding await before these calls
+const transformSyncDialogsToAsync = (htmlContent) => {
+  if (!htmlContent) return htmlContent;
+  
+  // Check if the code contains confirm, prompt or alert calls that need transformation
+  if (!/\b(confirm|prompt|alert)\s*\(/.test(htmlContent)) {
+    return htmlContent;
+  }
+  
+  let result = htmlContent;
+  
+  // Transform inline onclick handlers: onclick="functionName()" -> onclick="(async()=>{await functionName()})()"
+  // This ensures async functions called from onclick are properly awaited
+  result = result.replace(
+    /onclick\s*=\s*"([^"]+)"/gi,
+    (match, handler) => {
+      // If the handler already contains await or async, leave it alone
+      if (/\bawait\b|\basync\b/.test(handler)) return match;
+      // Wrap the handler in an async IIFE and await any function call
+      // Add await before the function call if it looks like a function invocation
+      let awaitedHandler = handler.trim();
+      // If it's a simple function call like "functionName()" or "functionName(args)"
+      if (/^\w+\s*\([^)]*\)\s*;?\s*$/.test(awaitedHandler)) {
+        awaitedHandler = 'await ' + awaitedHandler;
+      }
+      return `onclick="(async()=>{${awaitedHandler}})()"`;
+    }
+  );
+  result = result.replace(
+    /onclick\s*=\s*'([^']+)'/gi,
+    (match, handler) => {
+      if (/\bawait\b|\basync\b/.test(handler)) return match;
+      let awaitedHandler = handler.trim();
+      if (/^\w+\s*\([^)]*\)\s*;?\s*$/.test(awaitedHandler)) {
+        awaitedHandler = 'await ' + awaitedHandler;
+      }
+      return `onclick="(async()=>{${awaitedHandler}})()"`;
+    }
+  );
+  
+  // Transform script content: function declarations and confirm/prompt/alert calls
+  result = result.replace(
+    /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi,
+    (match, openTag, scriptContent, closeTag) => {
+      if (!scriptContent.trim()) return match;
+      
+      let transformed = scriptContent;
+      
+      // Transform function declarations to async
+      // Pattern: function name(...) { ... }
+      transformed = transformed.replace(
+        /function\s+(\w+)\s*\(([^)]*)\)\s*\{/g,
+        (funcMatch, funcName, params) => {
+          return `async function ${funcName}(${params}) {`;
+        }
+      );
+      
+      // Transform arrow functions assigned to variables
+      // const/let/var name = (...) => { ... } -> const/let/var name = async (...) => { ... }
+      transformed = transformed.replace(
+        /(const|let|var)\s+(\w+)\s*=\s*(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>\s*\{/g,
+        (arrowMatch, keyword, name, params) => {
+          return `${keyword} ${name} = async ${params} => {`;
+        }
+      );
+      
+      // Transform arrow function callbacks in setTimeout, setInterval, etc.
+      // setTimeout(() => { -> setTimeout(async () => {
+      // setTimeout(function() { -> setTimeout(async function() {
+      transformed = transformed.replace(
+        /(setTimeout|setInterval|requestAnimationFrame)\s*\(\s*\(\s*\)\s*=>\s*\{/g,
+        '$1(async () => {'
+      );
+      transformed = transformed.replace(
+        /(setTimeout|setInterval|requestAnimationFrame)\s*\(\s*\(([^)]*)\)\s*=>\s*\{/g,
+        '$1(async ($2) => {'
+      );
+      transformed = transformed.replace(
+        /(setTimeout|setInterval|requestAnimationFrame)\s*\(\s*function\s*\(\s*\)\s*\{/g,
+        '$1(async function() {'
+      );
+      transformed = transformed.replace(
+        /(setTimeout|setInterval|requestAnimationFrame)\s*\(\s*function\s*\(([^)]*)\)\s*\{/g,
+        '$1(async function($2) {'
+      );
+      
+      // Transform .then() callbacks
+      // .then(() => { -> .then(async () => {
+      transformed = transformed.replace(
+        /\.then\s*\(\s*\(\s*\)\s*=>\s*\{/g,
+        '.then(async () => {'
+      );
+      transformed = transformed.replace(
+        /\.then\s*\(\s*\(([^)]*)\)\s*=>\s*\{/g,
+        '.then(async ($1) => {'
+      );
+      transformed = transformed.replace(
+        /\.then\s*\(\s*function\s*\(\s*\)\s*\{/g,
+        '.then(async function() {'
+      );
+      transformed = transformed.replace(
+        /\.then\s*\(\s*function\s*\(([^)]*)\)\s*\{/g,
+        '.then(async function($1) {'
+      );
+      
+      // Add await before alert(), confirm() and prompt() calls
+      // Match patterns like: = alert( or var x = confirm( or (prompt(
+      // But not: window.alert = or function alert or .alert( or await alert
+      transformed = transformed.replace(
+        /([=\s(,!;])(?!await\s)(alert|confirm|prompt)\s*\(/g,
+        '$1await $2('
+      );
+      
+      // Handle cases at the start of a statement (beginning of line)
+      transformed = transformed.replace(
+        /^(\s*)(?!await\s)(alert|confirm|prompt)\s*\(/gm,
+        '$1await $2('
+      );
+      
+      // Handle if(confirm(...)) or if(prompt(...)) pattern
+      transformed = transformed.replace(
+        /if\s*\(\s*(?!await\s)(confirm|prompt)\s*\(/g,
+        'if (await $1('
+      );
+      
+      // Handle negation: if(!confirm(...)) or if(!prompt(...))
+      transformed = transformed.replace(
+        /if\s*\(\s*!\s*(?!await\s)(confirm|prompt)\s*\(/g,
+        'if (!await $1('
+      );
+      
+      return openTag + transformed + closeTag;
+    }
+  );
+  
+  return result;
+};
+
 const CUSTOM_ALERT_HTML = `
-<!-- Custom Alert Implementation -->
+<!-- Custom Dialog Implementation (Alert, Confirm, Prompt) -->
 <style>
   /* Force Reset to prevent unwanted scrolling */
   html, body { margin: 0; padding: 0; }
   /* Host wrapper should not take up space */
-  #custom-alert-host { position: absolute; width: 0; height: 0; overflow: hidden; }
-  #custom-alert-host * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-  .custom-alert-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; pointer-events: none; transition: opacity 0.2s; backdrop-filter: blur(2px); margin: 0; padding: 0; }
-  .custom-alert-overlay.show { opacity: 1; pointer-events: auto; }
-  .custom-alert-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); width: 280px; text-align: center; transform: scale(0.9); transition: transform 0.2s; min-width: 0; }
-  .custom-alert-overlay.show .custom-alert-box { transform: scale(1); }
-  .custom-alert-msg { margin-bottom: 20px; font-size: 15px; color: #374151; line-height: 1.5; word-break: break-word; }
-  .custom-alert-btn { background: #1f2937; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; -webkit-appearance: none; display: inline-block; margin: 0; }
-  .custom-alert-btn:hover { background: #111827; }
+  #custom-dialog-host { position: absolute; width: 0; height: 0; overflow: hidden; }
+  #custom-dialog-host * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+  .custom-dialog-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; pointer-events: none; transition: opacity 0.2s; backdrop-filter: blur(2px); margin: 0; padding: 0; }
+  .custom-dialog-overlay.show { opacity: 1; pointer-events: auto; }
+  .custom-dialog-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15), 0 10px 20px -5px rgba(0,0,0,0.1); width: 300px; text-align: center; transform: scale(0.9) translateY(-10px); transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); min-width: 0; }
+  .custom-dialog-overlay.show .custom-dialog-box { transform: scale(1) translateY(0); }
+  .custom-dialog-title { margin-bottom: 8px; font-size: 16px; font-weight: 600; color: #111827; }
+  .custom-dialog-msg { margin-bottom: 20px; font-size: 14px; color: #4b5563; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+  .custom-dialog-input { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; margin-bottom: 16px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+  .custom-dialog-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+  .custom-dialog-buttons { display: flex; gap: 10px; justify-content: center; }
+  .custom-dialog-btn { flex: 1; padding: 10px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; -webkit-appearance: none; border: none; }
+  .custom-dialog-btn-primary { background: linear-gradient(135deg, #1f2937 0%, #374151 100%); color: white; }
+  .custom-dialog-btn-primary:hover { background: linear-gradient(135deg, #111827 0%, #1f2937 100%); transform: translateY(-1px); }
+  .custom-dialog-btn-primary:active { transform: translateY(0); }
+  .custom-dialog-btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+  .custom-dialog-btn-secondary:hover { background: #e5e7eb; }
+  .custom-dialog-icon { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .custom-dialog-icon-alert { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #d97706; }
+  .custom-dialog-icon-confirm { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
+  .custom-dialog-icon-prompt { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); color: #4f46e5; }
 </style>
-<div id="custom-alert-host">
-  <div id="custom-alert" class="custom-alert-overlay"><div class="custom-alert-box"><div id="custom-alert-msg" class="custom-alert-msg"></div><button onclick="window.closeAlert()" class="custom-alert-btn">OK</button></div></div>
+<div id="custom-dialog-host">
+  <div id="custom-dialog" class="custom-dialog-overlay">
+    <div class="custom-dialog-box">
+      <div id="custom-dialog-icon" class="custom-dialog-icon custom-dialog-icon-alert">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      </div>
+      <div id="custom-dialog-title" class="custom-dialog-title"></div>
+      <div id="custom-dialog-msg" class="custom-dialog-msg"></div>
+      <input type="text" id="custom-dialog-input" class="custom-dialog-input" style="display: none;" />
+      <div class="custom-dialog-buttons">
+        <button id="custom-dialog-cancel" class="custom-dialog-btn custom-dialog-btn-secondary" style="display: none;">取消</button>
+        <button id="custom-dialog-ok" class="custom-dialog-btn custom-dialog-btn-primary">确定</button>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
-  window.alert = function(msg) {
-    const box = document.getElementById('custom-alert');
-    if(box) { 
-      document.getElementById('custom-alert-msg').textContent = String(msg);
-      box.classList.add('show');
+(function() {
+  // Dialog queue system to prevent overlapping dialogs
+  const dialogQueue = [];
+  let isDialogOpen = false;
+  let currentDialogResolve = null;
+  let currentType = 'alert';
+  
+  const overlay = document.getElementById('custom-dialog');
+  const iconEl = document.getElementById('custom-dialog-icon');
+  const titleEl = document.getElementById('custom-dialog-title');
+  const msgEl = document.getElementById('custom-dialog-msg');
+  const inputEl = document.getElementById('custom-dialog-input');
+  const okBtn = document.getElementById('custom-dialog-ok');
+  const cancelBtn = document.getElementById('custom-dialog-cancel');
+  
+  const icons = {
+    alert: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
+    confirm: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+    prompt: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>'
+  };
+  
+  function processQueue() {
+    if (isDialogOpen || dialogQueue.length === 0) return;
+    
+    const { type, message, defaultValue, resolve } = dialogQueue.shift();
+    isDialogOpen = true;
+    currentDialogResolve = resolve;
+    currentType = type;
+    
+    // Update icon
+    iconEl.innerHTML = icons[type];
+    iconEl.className = 'custom-dialog-icon custom-dialog-icon-' + type;
+    
+    // Update title
+    const titles = { alert: '提示', confirm: '确认', prompt: '输入' };
+    titleEl.textContent = titles[type];
+    
+    // Update message
+    msgEl.textContent = String(message);
+    
+    // Handle input field
+    if (type === 'prompt') {
+      inputEl.style.display = 'block';
+      inputEl.value = defaultValue !== undefined ? String(defaultValue) : '';
+      setTimeout(() => inputEl.focus(), 100);
+    } else {
+      inputEl.style.display = 'none';
     }
+    
+    // Handle cancel button
+    cancelBtn.style.display = (type === 'alert') ? 'none' : 'block';
+    
+    // Show dialog
+    overlay.classList.add('show');
+  }
+  
+  function queueDialog(type, message, defaultValue) {
+    return new Promise((resolve) => {
+      dialogQueue.push({ type, message, defaultValue, resolve });
+      processQueue();
+    });
+  }
+  
+  function closeDialog(result) {
+    overlay.classList.remove('show');
+    isDialogOpen = false;
+    
+    if (currentDialogResolve) {
+      currentDialogResolve(result);
+      currentDialogResolve = null;
+    }
+    
+    // Process next dialog in queue after a brief delay for animation
+    setTimeout(processQueue, 250);
+  }
+  
+  okBtn.addEventListener('click', function() {
+    if (currentType === 'prompt') {
+      closeDialog(inputEl.value);
+    } else if (currentType === 'confirm') {
+      closeDialog(true);
+    } else {
+      closeDialog(undefined);
+    }
+  });
+  
+  cancelBtn.addEventListener('click', function() {
+    if (currentType === 'prompt') {
+      closeDialog(null);
+    } else {
+      closeDialog(false);
+    }
+  });
+  
+  // Handle Enter key for prompt
+  inputEl.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      okBtn.click();
+    } else if (e.key === 'Escape') {
+      cancelBtn.click();
+    }
+  });
+  
+  // Handle keyboard for confirm/alert
+  document.addEventListener('keydown', function(e) {
+    if (!overlay.classList.contains('show')) return;
+    if (e.key === 'Escape' && currentType !== 'alert') {
+      cancelBtn.click();
+    } else if (e.key === 'Enter' && currentType !== 'prompt') {
+      okBtn.click();
+    }
+  });
+  
+  // Override native dialogs with queue-aware implementations
+  // All dialogs go through the queue to prevent overlap
+  
+  window.alert = function(msg) {
+    // Return a promise so that await alert() properly waits
+    return queueDialog('alert', msg);
   };
-  window.closeAlert = function() {
-    const box = document.getElementById('custom-alert');
-    if(box) box.classList.remove('show');
+  
+  window.confirm = function(msg) {
+    // Return a promise that will resolve with the user's choice
+    return queueDialog('confirm', msg);
   };
+  
+  window.prompt = function(msg, defaultValue) {
+    // Return a promise that will resolve with the user's input or null
+    return queueDialog('prompt', msg, defaultValue);
+  };
+})();
 </script>
 
 <!-- Error Display Implementation -->
@@ -1106,6 +1395,8 @@ ${CUSTOM_ALERT_HTML}
 </body>
 </html>`;
             }
+            // Transform synchronous confirm/prompt patterns to async/await
+            htmlDoc = transformSyncDialogsToAsync(htmlDoc);
             iframe.srcdoc = htmlDoc;
           }
         } else {
@@ -1212,7 +1503,15 @@ ${CUSTOM_ALERT_HTML}
       typographer: false 
     });
 
-    // 自定义插件：在 html: false 模式下，手动识别并恢复允许的标签 (<p>, <br>)
+    // 自定义表格渲染规则：添加滚动容器
+    md.renderer.rules.table_open = function(tokens, idx, options, env, self) {
+      return '<div class="table-wrapper"><table>';
+    };
+    md.renderer.rules.table_close = function(tokens, idx, options, env, self) {
+      return '</table></div>';
+    };
+
+    // 自定义插件：在 html: false 模式下，手动识别并恢复允许的标签 (<p>, <br>, <ul>, <ol>, <li>)
     // 这比使用 sanitize_html 更安全且不干扰 linkify
     md.core.ruler.push('enable_specific_tags', (state) => {
       state.tokens.forEach((token) => {
@@ -1220,8 +1519,8 @@ ${CUSTOM_ALERT_HTML}
           const newChildren = [];
           token.children.forEach((child) => {
             if (child.type === 'text') {
-              // 正则匹配 <p>, </p>, <br>, <br/> (忽略大小写)
-              const tagRegex = /<(\/?)(p|br)([^>]*)>/gi;
+              // 正则匹配允许的HTML标签 (忽略大小写)
+              const tagRegex = /<(\/?)(p|br|ul|ol|li|strong|em|b|i|u|s|del|sub|sup|mark|code|pre|kbd|blockquote|hr|a|span|details|summary|h[1-6]|table|thead|tbody|tr|th|td)([^>]*)>/gi;
               let lastIndex = 0;
               let match;
               
@@ -2384,6 +2683,9 @@ ${CUSTOM_ALERT_HTML}
 </body>
 </html>`;
             }
+            
+            // Transform synchronous confirm/prompt patterns to async/await
+            htmlDoc = transformSyncDialogsToAsync(htmlDoc);
             
             iframe.srcdoc = htmlDoc;
             htmlSnapshotRef.current.set(blockKey, codeContent);
@@ -5156,9 +5458,11 @@ export default function ChatModern({ user, initialConversationId = null }) {
               "lg:relative",
               "fixed left-0 top-[120px] lg:top-0 transition-transform duration-300",
               "h-[calc(100vh-120px)] lg:h-full",
-              isSidebarOpen ? "translate-x-0 z-[35] lg:z-20" : "-translate-x-full lg:translate-x-0 z-20"
+              isSidebarOpen ? "translate-x-0 z-[35] lg:z-20" : "-translate-x-full lg:translate-x-0 z-20",
+              "overflow-hidden"
             )}
           >
+          <div className="flex h-full flex-col" style={{ minWidth: isSidebarOpen ? SIDEBAR_EXPANDED_WIDTH : 'auto' }}>
           <div className={cx(
             "flex items-center gap-2",
             "pt-6 lg:pt-20",
@@ -5289,6 +5593,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                 </div>
               )}
             </div>
+          </div>
           </div>
         </motion.aside>
         </>

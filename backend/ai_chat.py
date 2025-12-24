@@ -393,14 +393,41 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
                     }
                     if per_order_limit:
                         tier_payload["per_order_limit"] = per_order_limit
-                    gift_items_payload: List[str] = []
+                    
+                    # 合并同商品的变体，例如"可乐（青柠/无糖）"而不是分开显示
+                    # 使用字典按商品名分组：{ 商品名: { "variants": [变体名列表], "image_path": 图片路径 } }
+                    product_variants_map: Dict[str, Dict[str, Any]] = {}
                     for item in available_items:
                         item_name = item.get("product_name") or item.get("name")
                         if not item_name:
                             continue
                         variant_name = item.get("variant_name")
-                        display_name = f"{item_name}（{variant_name}）" if variant_name else item_name
-                        gift_items_payload.append(display_name)
+                        gift_img_path = item.get("img_path", "")
+                        gift_image_url = _resolve_image_url(gift_img_path)
+                        
+                        if item_name not in product_variants_map:
+                            product_variants_map[item_name] = {
+                                "variants": [],
+                                "image_path": gift_image_url  # 同商品的变体图片路径相同
+                            }
+                        if variant_name:
+                            product_variants_map[item_name]["variants"].append(variant_name)
+                    
+                    # 构建合并后的赠品列表
+                    gift_items_payload: List[Dict[str, Any]] = []
+                    for product_name, info in product_variants_map.items():
+                        variants = info["variants"]
+                        if variants:
+                            # 有变体时，合并显示：商品名（变体1/变体2/...）
+                            display_name = f"{product_name}（{'/'.join(variants)}）"
+                        else:
+                            # 无变体时，只显示商品名
+                            display_name = product_name
+                        gift_items_payload.append({
+                            "name": display_name,
+                            "image_path": info["image_path"]
+                        })
+                    
                     if gift_items_payload:
                         tier_payload["gift_items"] = gift_items_payload
                     gift_tiers.append(tier_payload)
@@ -476,23 +503,23 @@ def generate_dynamic_system_prompt(request: Request, user_id: Optional[str] = No
         # 根据是否存在热销商品，动态添加热销商品搜索提示
         hot_products_hint = ""
         if has_hot_products:
-            hot_products_hint = "**Hot Products**: You can search for \"热销\" to retrieve all hot-selling products"
+            hot_products_hint = "**Hot Products**: You can search for \"热销\" to retrieve all hot-selling products."
         
         # 根据用户登录状态生成不同的 Goals
         goals_section = get_goals_section(user_id)
 
         checkout_hint = ""
         if user_id:
-            checkout_hint = "**Checkout Guidance**: When appropriate and aligned with the conversation context, you may guide the user to click [this link](/checkout) to proceed to checkout"
+            checkout_hint = "**Checkout Guidance**: When appropriate and aligned with the conversation context, you may guide the user to click [this link](/checkout) to proceed to checkout."
 
         skills_lines = [
-            "**Product Operations**: Search products, browse categories",
+            "**Product Operations**: Search products, browse categories.",
         ]
         if hot_products_hint:
             skills_lines.append(hot_products_hint)
-        skills_lines.append("**Shopping Cart Operations**: Add, update, remove, clear, view")
-        skills_lines.append("- **Product Display**: When presenting product details or recommendations, render product images in Markdown format `![product name](image_path)` if needed. Use only the image path provided by the tool; do not include the full URL")
-        skills_lines.append("**Service Communication**: Recommend products, prompt login, communicate clearly")
+        skills_lines.append("**Shopping Cart Operations**: Add, update, remove, clear, view.")
+        skills_lines.append("**Product Display**: When presenting product details or recommendations, **render product images in Markdown format `![product name](image_path)` when appropriate and when an image is explicitly available**.\n  - Use **only** the image path provided by the tool; do **not** include full URLs.\n  - **Do not guess, fabricate, or assume the existence of images**. If no image path is provided, or if the context does not warrant an image, rely solely on textual description.\n  - Image usage should be **context-aware and conditional**, based strictly on actual data and real presentation needs, never on inference or speculation.")
+        skills_lines.append("**Service Communication**: Recommend products, prompt login, communicate clearly.")
         if checkout_hint:
             skills_lines.append(checkout_hint)
         skills_text = "\n".join(f"- {skill}" for skill in skills_lines)
@@ -520,7 +547,7 @@ Smart Shopping Assistant for **{shop_name}**
 - Discounts may be mentioned only when a product actually has one.
   - If a product is sold at full price, do not reference discounts in any form.
 - Firmly refuse to add out-of-stock items to the shopping cart.
-- Use `mermaid` and `svg` when they improve clarity; they render automatically.
+- Use `mermaid`, `svg` or `html` when they enhance clarity, as they render automatically on the page.
 
 ## Business Rules
 
@@ -952,13 +979,16 @@ Smart Shopping Assistant for **{shop_name}**
 - Discounts may be mentioned only when a product actually has one.
   - If a product is sold at full price, do not reference discounts in any form.
 - Firmly refuse to add out-of-stock items to the shopping cart.
-- Use `mermaid` and `svg` when they improve clarity; they render automatically.
+- Use `mermaid`, `svg` or `html` when they enhance clarity, as they render automatically on the page.
 
 ## Skills
 
-- **Product Operations**: Search products, browse categories
-- **Product Display**: When presenting product details or recommendations, render product images in Markdown format `![product name](image_path)` if needed. Use only the image path provided by the tool; do not include the full URL
-- **Service Communication**: Recommend products, prompt login, communicate clearly
+- **Product Operations**: Search products, browse categories.
+- **Product Display**: When presenting product details or recommendations, **render product images in Markdown format `![product name](image_path)` when appropriate and when an image is explicitly available**.  
+  - Use **only** the image path provided by the tool; do **not** include full URLs.  
+  - **Do not guess, fabricate, or assume the existence of images**. If no image path is provided, or if the context does not warrant an image, rely solely on textual description.  
+  - Image usage should be **context-aware and conditional**, based strictly on actual data and real presentation needs, never on inference or speculation.
+- **Service Communication**: Recommend products, prompt login, communicate clearly.
 
 Current date: {time.strftime('%Y-%m-%d')}.
 """
@@ -1281,12 +1311,17 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
                 subtotal = unit_price * quantity
                 total_quantity += quantity
                 items_subtotal += subtotal
+                # 获取商品图片路径
+                img_path = product.get("img_path", "")
+                image_path_val = _resolve_image_url(img_path)
+                
                 item = {
                     "product_id": product_id,
                     "name": product["name"],
                     "unit_price": unit_price,
                     "quantity": int(quantity),
-                    "subtotal": round(subtotal, 2)
+                    "subtotal": round(subtotal, 2),
+                    "image_path": image_path_val
                 }
                 if variant_id:
                     from database import VariantDB
@@ -1345,6 +1380,9 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
                     product_info = product_dict.get(gift.get("product_id")) or {}
                     description = (product_info.get("description") or "").strip()
                     category = gift.get("category") or product_info.get("category") or ""
+                    # 获取赠品图片路径
+                    gift_img_path = gift.get("img_path") or product_info.get("img_path", "")
+                    gift_image_url = _resolve_image_url(gift_img_path)
                     try:
                         quantity = int(gift.get("quantity") or 1)
                     except (TypeError, ValueError):
@@ -1354,7 +1392,8 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
                             "name": display_name,
                             "quantity": quantity,
                             "description": description,
-                            "category": category
+                            "category": category,
+                            "image_path": gift_image_url
                         }
                     )
 

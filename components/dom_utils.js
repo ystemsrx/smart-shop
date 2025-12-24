@@ -122,6 +122,21 @@ export const updateDomSmartly = (container, newContentDiv) => {
       continue; 
     }
 
+    // 检查是否为表格容器 (fix: preserve scroll position by recycling wrapper)
+    const isOldTable = oldNode.classList.contains('table-wrapper');
+    const isNewTable = newNode.classList.contains('table-wrapper');
+
+    if (isOldTable && isNewTable) {
+      // 策略：复用外壳，只更新表格内容
+      const oldTable = oldNode.querySelector('table');
+      const newTable = newNode.querySelector('table');
+      
+      if (oldTable && newTable && oldTable.innerHTML !== newTable.innerHTML) {
+        oldTable.innerHTML = newTable.innerHTML;
+      }
+      continue;
+    }
+
     // 对于非代码块，或者类型不匹配，直接替换
     if (!oldNode.isEqualNode(newNode)) {
       container.replaceChild(newNode, oldNode);

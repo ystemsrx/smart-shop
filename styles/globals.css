@@ -641,12 +641,38 @@ body {
 
 /* 表格 */
 /* 表格样式优化 - 横线风格 */
+/* 添加滚动容器支持 */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1.5em 0;
+  -webkit-overflow-scrolling: touch;
+  /* smooth scrolling on iOS */
+}
+
+/* 移动端隐藏滚动条 */
+@media (max-width: 768px) {
+  .table-wrapper {
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
+  }
+
+  .table-wrapper::-webkit-scrollbar {
+    display: none;
+    /* Chrome/Safari */
+  }
+}
+
 .markdown-content table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1.5em 0;
+  margin: 0;
+  /* Margin moved to wrapper */
   font-size: 0.95em;
   table-layout: auto;
+  max-width: 100%;
 }
 
 .markdown-content table th {
