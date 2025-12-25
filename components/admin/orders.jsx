@@ -1372,25 +1372,60 @@ export const OrderTable = ({
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 overflow-hidden flex flex-col">
       {/* Toolbar */}
-      {/* Toolbar */}
       <div className="px-6 py-4 border-b border-gray-100 bg-white">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-bold text-gray-900">订单列表</h3>
+            {/* 桌面端选中徽章：保持在标题旁边 */}
             {selectedOrders.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-lg border border-red-100 animate-fadeIn">
-                <span className="text-xs font-medium text-red-600">已选 {selectedOrders.length}</span>
+              <div className="hidden md:flex h-7 items-center gap-1.5 bg-red-50 px-3 rounded-lg border border-red-100 animate-fadeIn transition-all">
+                <span className="text-sm font-medium text-red-600">已选 {selectedOrders.length}</span>
                 <button
                   onClick={() => onBatchDeleteOrders(selectedOrders)}
-                  className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                  className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors flex items-center justify-center"
                   title="批量删除"
                 >
-                  <i className="fas fa-trash-alt text-xs"></i>
+                  <i className="fas fa-trash-alt text-sm"></i>
                 </button>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+          {/* 手机端：选中时隐藏搜索框和刷新按钮，显示靠右的选中徽章 */}
+          {selectedOrders.length > 0 ? (
+            <div className="flex md:hidden items-center gap-1.5 bg-red-50 px-2 rounded-lg border border-red-100 animate-fadeIn h-7">
+              <span className="text-xs font-medium text-red-600">已选 {selectedOrders.length}</span>
+              <button
+                onClick={() => onBatchDeleteOrders(selectedOrders)}
+                className="p-0.5 text-red-600 hover:bg-red-100 rounded transition-colors flex items-center justify-center"
+                title="批量删除"
+              >
+                <i className="fas fa-trash-alt text-xs"></i>
+              </button>
+            </div>
+          ) : (
+            /* 手机端：未选中时显示搜索框和刷新按钮 */
+            <div className="flex md:hidden items-center gap-3 flex-1 min-w-0 justify-end">
+              <div className="relative group w-full min-w-0 max-w-[320px]">
+                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
+                <input
+                  type="text"
+                  placeholder={searchPlaceholder}
+                  value={searchValue}
+                  onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+                  className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 focus:bg-white"
+                />
+              </div>
+              <button 
+                onClick={onRefresh} 
+                className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200 transition-all active:scale-95"
+                title="刷新列表"
+              >
+                <i className="fas fa-sync-alt text-sm"></i>
+              </button>
+            </div>
+          )}
+          {/* 桌面端：始终显示搜索框和刷新按钮 */}
+          <div className="hidden md:flex items-center gap-3 flex-1 min-w-0 justify-end">
             <div className="relative group w-full min-w-0 max-w-[320px]">
               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
               <input

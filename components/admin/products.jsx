@@ -162,7 +162,7 @@ export const StockControl = ({ product, onUpdateStock }) => {
 };
 
 // 折扣选择下拉框组件
-const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', fullWidth = false, inModal = false }) => {
+const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', fullWidth = false, inModal = false, size = 'xs' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0, isAbove: false });
   const buttonRef = useRef(null);
@@ -228,7 +228,7 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', 
         onClick={toggleOpen}
         disabled={disabled}
         className={`flex items-center justify-between gap-1.5 font-medium rounded-xl transition-all border shadow-sm active:scale-95 ${
-          fullWidth ? 'w-full px-3 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'
+          fullWidth ? 'w-full px-3 py-2.5 text-sm' : (size === 'md' ? 'px-3 py-2 text-sm' : 'px-3 py-1.5 text-xs')
         } ${
           disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'
         } ${
@@ -237,7 +237,7 @@ const DiscountSelect = ({ value, onChange, disabled, placeholder = '无折扣', 
             : (value && value < 10 ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-gray-600 bg-white border-gray-200')
         }`}
       >
-        <span>{currentLabel}</span>
+        <span className="whitespace-nowrap">{currentLabel}</span>
         <ChevronDown size={fullWidth ? 14 : 12} className={`transition-transform duration-300 text-gray-400 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -369,73 +369,9 @@ export const ProductTable = ({
         </div>
 
         {/* Row 2: Filters and Batch Actions */}
-        <div className="h-9 flex items-center">
-          {selectedProducts.length > 0 ? (
-            <motion.div 
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center justify-between gap-2 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100 h-full w-full"
-            >
-              <span className="text-xs font-medium text-indigo-700 whitespace-nowrap hidden sm:inline">已选 {selectedProducts.length} 项</span>
-              <span className="text-xs font-medium text-indigo-700 whitespace-nowrap sm:hidden">已选{selectedProducts.length}</span>
-              
-              <div className="h-4 w-px bg-indigo-200" />
-              
-              <div className="hidden sm:block">
-                  <DiscountSelect
-                    value={null}
-                    onChange={(val) => {
-                      onBatchUpdateDiscount(selectedProducts, val);
-                    }}
-                    placeholder="批量折扣"
-                  />
-              </div>
-              <div className="sm:hidden flex-1 flex justify-center">
-                  <DiscountSelect
-                    value={null}
-                    onChange={(val) => {
-                      onBatchUpdateDiscount(selectedProducts, val);
-                    }}
-                    placeholder="折"
-                  />
-              </div>
-
-              <div className="h-4 w-px bg-indigo-200" />
-
-              <div className="flex items-center gap-2 px-1">
-                 <span className="text-xs text-indigo-700 font-medium hidden sm:inline">上架</span>
-                 {(() => {
-                    const activeCount = selectedProducts.filter(id => {
-                        const p = products.find(p => p.id === id);
-                        return p && (p.is_active === 1 || p.is_active === true);
-                    }).length;
-                    const isBatchActive = activeCount > selectedProducts.length / 2;
-                    
-                    return (
-                        <button
-                            onClick={() => onBatchToggleActive && onBatchToggleActive(selectedProducts, isBatchActive ? 0 : 1)}
-                            className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            isBatchActive ? 'bg-green-500' : 'bg-gray-200'
-                            }`}
-                        >
-                            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isBatchActive ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                    );
-                 })()}
-              </div>
-              
-              <div className="h-4 w-px bg-indigo-200" />
-              
-              <button
-                onClick={() => onBatchDelete(selectedProducts)}
-                className="p-1.5 text-red-600 hover:bg-red-100 rounded transition-colors"
-                title="批量删除"
-              >
-                <Trash2 size={14} />
-              </button>
-            </motion.div>
-          ) : (
-            <div className="flex items-center gap-3 h-full">
+        <div className="h-9 md:h-12 flex items-center">
+          {/* Filters - Always visible on desktop, hidden on mobile if selection active */}
+          <div className={`items-center gap-3 h-full ${selectedProducts.length > 0 ? 'hidden md:flex mr-4' : 'flex'}`}>
               <label className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer hover:text-gray-900 transition-colors">
                 <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showOnlyOutOfStock ? 'bg-orange-500 border-orange-500' : 'border-gray-300 bg-white'}`}>
                   {showOnlyOutOfStock && <Check size={10} className="text-white" />}
@@ -460,8 +396,84 @@ export const ProductTable = ({
                 />
                 <span>仅下架</span>
               </label>
-            </div>
-          )}
+          </div>
+
+          {/* Batch Actions Toolbar */}
+          <AnimatePresence>
+            {selectedProducts.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, x: 20, width: 0 }}
+                animate={{ opacity: 1, x: 0, width: 'auto' }}
+                exit={{ opacity: 0, x: 20, width: 0 }}
+                className="flex-1 md:flex-none bg-indigo-50 rounded-lg border border-indigo-100 h-full w-full md:w-auto overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-2 px-3 py-1 h-full w-full md:w-max">
+                  <span className="text-xs md:text-sm font-medium text-indigo-700 whitespace-nowrap hidden md:inline">已选 {selectedProducts.length}</span>
+                  <span className="text-xs font-medium text-indigo-700 whitespace-nowrap md:hidden">已选{selectedProducts.length}</span>
+                  
+                  <div className="h-4 w-px bg-indigo-200" />
+                  
+                  <div className="hidden md:block">
+                      <DiscountSelect
+                        value={null}
+                        onChange={(val) => {
+                          onBatchUpdateDiscount(selectedProducts, val);
+                        }}
+                        placeholder="批量折扣"
+                        size="md"
+                      />
+                  </div>
+                  <div className="md:hidden flex-1 flex justify-center">
+                      <DiscountSelect
+                        value={null}
+                        onChange={(val) => {
+                          onBatchUpdateDiscount(selectedProducts, val);
+                        }}
+                        placeholder="折"
+                      />
+                  </div>
+
+                  <div className="h-4 w-px bg-indigo-200" />
+
+                  <div className="flex items-center gap-2 px-1">
+                     {(() => {
+                        const activeCount = selectedProducts.filter(id => {
+                            const p = products.find(p => p.id === id);
+                            return p && (p.is_active === 1 || p.is_active === true);
+                        }).length;
+                        const isBatchActive = activeCount > selectedProducts.length / 2;
+                        
+                        return (
+                          <>
+                            <span className="text-xs md:text-sm text-indigo-700 font-medium hidden md:inline whitespace-nowrap">
+                              {isBatchActive ? '上架' : '下架'}
+                            </span>
+                            <button
+                                onClick={() => onBatchToggleActive && onBatchToggleActive(selectedProducts, isBatchActive ? 0 : 1)}
+                                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                isBatchActive ? 'bg-green-500' : 'bg-gray-200'
+                                }`}
+                            >
+                                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isBatchActive ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </button>
+                          </>
+                        );
+                     })()}
+                  </div>
+                  
+                  <div className="h-4 w-px bg-indigo-200" />
+                  
+                  <button
+                    onClick={() => onBatchDelete(selectedProducts)}
+                    className="p-1.5 text-red-600 hover:bg-red-100 rounded transition-colors"
+                    title="批量删除"
+                  >
+                    <Trash2 size={14} className="md:w-4 md:h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
       
