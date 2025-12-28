@@ -325,6 +325,23 @@ export const ProductTable = ({
   const isPartiallySelected = selectedProducts.length > 0 && selectedProducts.length < products.length;
   const [bulkZhe, setBulkZhe] = useState('');
   
+  // 判断商品是否缺货（对于有规格的商品，需要所有规格都为0才算缺货）
+  const isProductOutOfStock = (product) => {
+    if (product.has_variants) {
+      // 有规格：检查是否所有规格的库存都 <= 0
+      if (Array.isArray(product.variants) && product.variants.length > 0) {
+        return product.variants.every(variant => (variant.stock || 0) <= 0);
+      }
+      // 如果没有规格数据，检查总库存
+      if (typeof product.total_variant_stock === 'number') {
+        return product.total_variant_stock <= 0;
+      }
+      return false;
+    }
+    // 无规格：直接检查商品库存
+    return (product.stock || 0) <= 0;
+  };
+  
   const SortIndicator = ({ column, label }) => {
     const isActive = sortBy === column;
     const isAsc = sortOrder === 'asc';
@@ -485,6 +502,7 @@ export const ProductTable = ({
             const isNonSellable = normalizeBooleanFlag(product.is_not_for_sale, false);
             const isSelected = selectedProducts.includes(product.id);
             const isActive = !(product.is_active === 0 || product.is_active === false);
+            const isOutOfStock = isProductOutOfStock(product);
             const z = (typeof product.discount === 'number' && product.discount) ? product.discount : (product.discount ? parseFloat(product.discount) : 10);
             const hasDiscount = z && z > 0 && z < 10;
             const finalPrice = hasDiscount ? (Math.round(product.price * (z / 10) * 100) / 100) : product.price;
@@ -524,7 +542,15 @@ export const ProductTable = ({
                   <div className="flex-1 min-w-0 flex flex-col items-end">
                     <div className="flex justify-end w-full">
                       <h4 
-                        className={`text-sm font-bold truncate ${!isActive ? 'text-gray-400 line-through' : 'text-gray-900'}`}
+                        className={`text-sm font-bold truncate ${
+                          !isActive 
+                            ? 'text-gray-400 line-through' 
+                            : isNonSellable 
+                              ? 'text-purple-600' 
+                              : isOutOfStock
+                                ? 'text-red-600'
+                                : 'text-gray-900'
+                        }`}
                       >
                         {product.name}
                       </h4>
@@ -651,6 +677,7 @@ export const ProductTable = ({
               const isNonSellable = normalizeBooleanFlag(product.is_not_for_sale, false);
               const isSelected = selectedProducts.includes(product.id);
               const isActive = !(product.is_active === 0 || product.is_active === false);
+              const isOutOfStock = isProductOutOfStock(product);
               
               return (
                 <tr key={product.id} className={`group transition-colors hover:bg-gray-50/80 ${isSelected ? 'bg-indigo-50/30' : ''}`}>
@@ -685,7 +712,7 @@ export const ProductTable = ({
                                 ? 'text-gray-400 line-through' 
                                 : isNonSellable 
                                   ? 'text-purple-600' 
-                                  : (!product.has_variants && product.stock <= 0)
+                                  : isOutOfStock
                                     ? 'text-red-600'
                                     : 'text-gray-900'
                             }`} 
