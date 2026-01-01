@@ -13,6 +13,7 @@ from .routes import (
     locations_router,
     lottery_router,
     orders_router,
+    sales_cycles_router,
     profile_router,
     products_manage_router,
     settings_router,
@@ -27,6 +28,7 @@ def build_app() -> FastAPI:
     app.include_router(images_router)  # Hash-based image serving
     app.include_router(locations_router)
     app.include_router(orders_router)
+    app.include_router(sales_cycles_router)
     app.include_router(lottery_router)
     app.include_router(agents_router)
     app.include_router(catalog_router)

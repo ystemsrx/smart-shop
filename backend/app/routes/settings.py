@@ -8,7 +8,7 @@ from auth import (
     get_current_agent_from_cookie,
     success_response,
 )
-from database import AgentStatusDB, SettingsDB
+from database import AgentStatusDB, SalesCycleDB, SettingsDB
 from ..context import logger
 from ..dependencies import resolve_shopping_scope
 from ..schemas import AgentStatusUpdateRequest, ShopStatusUpdate
@@ -51,9 +51,15 @@ async def get_shop_status():
         is_open = SettingsDB.get("shop_is_open", "1") != "0"
         note = SettingsDB.get("shop_closed_note", "")
         allow_reservation = SettingsDB.get("shop_reservation_enabled", "false") == "true"
+        cycle_locked = SalesCycleDB.is_locked("admin", "admin")
         return success_response(
             "获取店铺状态成功",
-            {"is_open": is_open, "note": note, "allow_reservation": allow_reservation},
+            {
+                "is_open": is_open,
+                "note": note,
+                "allow_reservation": allow_reservation,
+                "cycle_locked": cycle_locked,
+            },
         )
     except Exception as exc:
         logger.error(f"获取店铺状态失败: {exc}")
@@ -65,6 +71,8 @@ async def update_shop_status(payload: ShopStatusUpdate, request: Request):
     """更新店铺开关（管理员）。"""
     _admin = get_current_admin_required_from_cookie(request)
     try:
+        if SalesCycleDB.is_locked("admin", "admin"):
+            return error_response("当前周期已结束，请取消结束或开启新周期后再切换营业状态", 400)
         SettingsDB.set("shop_is_open", "1" if payload.is_open else "0")
         if payload.note is not None:
             SettingsDB.set("shop_closed_note", payload.note)
@@ -83,12 +91,14 @@ async def get_agent_status(request: Request):
 
     try:
         status = AgentStatusDB.get_agent_status(agent["id"])
+        cycle_locked = SalesCycleDB.is_locked("agent", agent["id"])
         return success_response(
             "获取代理状态成功",
             {
                 "is_open": bool(status.get("is_open", 1)),
                 "closed_note": status.get("closed_note", ""),
                 "allow_reservation": bool(status.get("allow_reservation", 0)),
+                "cycle_locked": cycle_locked,
             },
         )
     except Exception as exc:
@@ -104,6 +114,8 @@ async def update_agent_status(payload: AgentStatusUpdateRequest, request: Reques
         return error_response("需要代理权限", 403)
 
     try:
+        if SalesCycleDB.is_locked("agent", agent["id"]):
+            return error_response("当前周期已结束，请取消结束或开启新周期后再切换营业状态", 400)
         success = AgentStatusDB.update_agent_status(
             agent["id"], payload.is_open, payload.closed_note or "", bool(payload.allow_reservation)
         )

@@ -10,6 +10,7 @@ from .lottery import router as lottery_router
 from .orders import router as orders_router
 from .profile import router as profile_router
 from .products_manage import router as products_manage_router
+from .sales_cycles import router as sales_cycles_router
 from .settings import router as settings_router
 from .system import router as system_router
 
@@ -26,6 +27,7 @@ __all__ = [
     "orders_router",
     "profile_router",
     "products_manage_router",
+    "sales_cycles_router",
     "settings_router",
     "system_router",
 ]

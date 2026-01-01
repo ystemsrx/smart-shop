@@ -41,6 +41,10 @@ export function useOrderManagement({
   const [orderAgentFilter, setOrderAgentFilter] = useState('self');
   const [orderAgentOptions, setOrderAgentOptions] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
+  const [orderCycles, setOrderCycles] = useState([]);
+  const [orderCycleId, setOrderCycleId] = useState('all');
+  const [orderCycleLoading, setOrderCycleLoading] = useState(false);
+  const [orderCycleLocked, setOrderCycleLocked] = useState(false);
 
   const loadOrdersRef = useRef(null);
   const previousOrderSearchRef = useRef(orderSearch);
@@ -51,12 +55,74 @@ export function useOrderManagement({
     agentFilterChangeHandlerRef.current = onAgentFilterChange;
   }, [onAgentFilterChange]);
 
+  const resolveCycleOwner = useCallback((agentFilterValue = orderAgentFilter) => {
+    if (!isAdmin) {
+      return { ownerType: 'agent', ownerId: user?.id || '', disabled: false };
+    }
+    const raw = (agentFilterValue ?? orderAgentFilter).toString().trim().toLowerCase();
+    if (raw === 'all') {
+      return { ownerType: 'all', ownerId: '', disabled: true };
+    }
+    if (!raw || raw === 'self' || raw === 'admin') {
+      return { ownerType: 'admin', ownerId: 'admin', disabled: false };
+    }
+    return { ownerType: 'agent', ownerId: agentFilterValue, disabled: false };
+  }, [isAdmin, orderAgentFilter, user]);
+
+  const loadOrderCycles = useCallback(async (agentFilterValue = orderAgentFilter) => {
+    const owner = resolveCycleOwner(agentFilterValue);
+    if (owner.disabled) {
+      setOrderCycles([]);
+      setOrderCycleLocked(false);
+      setOrderCycleId('all');
+      return;
+    }
+    if (!owner.ownerId) return;
+    setOrderCycleLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (isAdmin && owner.ownerType === 'agent') {
+        params.set('agent_id', owner.ownerId);
+      }
+      const suffix = params.toString();
+      const res = await apiRequest(`${staffPrefix}/sales-cycles${suffix ? `?${suffix}` : ''}`);
+      if (res?.success) {
+        const cycles = Array.isArray(res.data?.cycles) ? res.data.cycles : [];
+        setOrderCycles(cycles);
+        setOrderCycleLocked(!!res.data?.locked);
+        setOrderCycleId((prev) => {
+          if (prev === 'all') {
+            return 'all';
+          }
+          if (prev && cycles.some((cycle) => cycle.id === prev)) {
+            return prev;
+          }
+          return res.data?.active_cycle_id || res.data?.latest_cycle_id || (cycles[cycles.length - 1]?.id ?? 'all');
+        });
+      } else {
+        setOrderCycles([]);
+        setOrderCycleId('all');
+      }
+    } catch (err) {
+      console.error('加载周期失败', err);
+      setOrderCycles([]);
+      setOrderCycleId('all');
+    } finally {
+      setOrderCycleLoading(false);
+    }
+  }, [apiRequest, isAdmin, orderAgentFilter, resolveCycleOwner, staffPrefix]);
+
   useEffect(() => () => {
     if (exportEventSourceRef.current) {
       exportEventSourceRef.current.close();
       exportEventSourceRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    loadOrderCycles(orderAgentFilter);
+  }, [user, orderAgentFilter, loadOrderCycles]);
 
   const buildOrdersQueryParams = useCallback(({
     limit = 20,
@@ -87,8 +153,12 @@ export function useOrderManagement({
       }
     }
 
+    if (orderCycleId && orderCycleId !== 'all') {
+      params.set('cycle_id', orderCycleId);
+    }
+
     return `${staffPrefix}/orders?${params.toString()}`;
-  }, [orderAgentFilter, isAdmin, staffPrefix]);
+  }, [orderAgentFilter, isAdmin, staffPrefix, orderCycleId]);
 
   const buildOrdersQuery = useCallback((page = 0, search = '', agentFilterValue = orderAgentFilter) => {
     const limit = 20;
@@ -132,6 +202,11 @@ export function useOrderManagement({
     previousOrderSearchRef.current = orderSearch;
     loadOrdersRef.current?.(0, orderSearch, orderAgentFilter);
   }, [orderSearch, orderAgentFilter]);
+
+  useEffect(() => {
+    if (!orderCycleId) return;
+    loadOrdersRef.current?.(0, orderSearch, orderAgentFilter);
+  }, [orderCycleId, orderAgentFilter, orderSearch]);
 
   const handleOrderRefresh = useCallback(async () => {
     await loadOrders(orderPage, orderSearch, orderAgentFilter);
@@ -199,7 +274,8 @@ export function useOrderManagement({
       status_filter: statusFilter && statusFilter !== '全部' ? statusFilter : null,
       keyword: keyword || '',
       agent_filter: isAdmin ? orderAgentFilter : undefined,
-      timezone_offset_minutes: timezoneOffset
+      timezone_offset_minutes: timezoneOffset,
+      cycle_id: orderCycleId && orderCycleId !== 'all' ? orderCycleId : null
     };
     setOrderExporting(true);
     setExportState((prev) => ({
@@ -293,7 +369,7 @@ export function useOrderManagement({
       stopExportStream();
       return null;
     }
-  }, [apiRequest, staffPrefix, isAdmin, orderAgentFilter, orderExporting, orderStatusFilter, orderSearch, stopExportStream, showToast]);
+  }, [apiRequest, staffPrefix, isAdmin, orderAgentFilter, orderCycleId, orderExporting, orderStatusFilter, orderSearch, stopExportStream, showToast]);
 
   const handlePrevPage = useCallback(async () => {
     const next = Math.max(0, (orderPage || 0) - 1);
@@ -311,11 +387,12 @@ export function useOrderManagement({
     setOrderAgentFilter(normalized);
     setOrderStatusFilter('全部');
     const refreshOrdersPromise = loadOrders(0, orderSearch, normalized);
+    const refreshCyclesPromise = loadOrderCycles(normalized);
     const agentFilterChangePromise = agentFilterChangeHandlerRef.current
       ? agentFilterChangeHandlerRef.current(normalized)
       : Promise.resolve();
-    await Promise.all([refreshOrdersPromise, agentFilterChangePromise]);
-  }, [loadOrders, orderSearch]);
+    await Promise.all([refreshOrdersPromise, refreshCyclesPromise, agentFilterChangePromise]);
+  }, [loadOrderCycles, loadOrders, orderSearch]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -455,6 +532,11 @@ export function useOrderManagement({
     setOrderAgentOptions,
     orderAgentFilterLabel,
     orderAgentNameMap,
+    orderCycles,
+    orderCycleId,
+    setOrderCycleId,
+    orderCycleLoading,
+    orderCycleLocked,
     selectedOrders,
     handleOrderRefresh,
     handleExportOrders,

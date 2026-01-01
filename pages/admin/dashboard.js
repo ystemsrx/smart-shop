@@ -3,6 +3,8 @@ import Head from 'next/head';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Nav from '../../components/Nav';
+import Toast from '../../components/Toast';
+import { useToast } from '../../hooks/useToast';
 import { getApiBaseUrl, getShopName } from '../../utils/runtimeConfig';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -42,7 +44,15 @@ const parsePeriodValueToDate = (value) => {
   }
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    const candidates = [trimmed, trimmed.replace(' ', 'T'), trimmed.replace(/-/g, '/')];
+    const dateOnlyMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    const candidates = normalized.includes(':')
+      ? [`${normalized}Z`, normalized, trimmed]
+      : [normalized, trimmed, trimmed.replace(/-/g, '/')];
     for (const candidate of candidates) {
       const parsed = new Date(candidate);
       if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -63,6 +73,58 @@ const formatDateTimeLocal = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
   const pad = (v) => String(v).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+/**
+ * 解析周期日期字符串为 Date 对象
+ * 后端存储的是 UTC 时间，格式为 "YYYY-MM-DD HH:MM:SS"
+ * 解析时明确作为 UTC 处理，以便后续正确转换到本地时区
+ */
+const parseCycleDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    // 仅日期格式：作为本地时间的午夜处理
+    const dateOnlyMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    // 包含时间的格式：后端存储的是 UTC，明确解析为 UTC
+    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    // 如果没有时区标识，添加 Z 表示 UTC
+    const utcString = normalized.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(normalized)
+      ? normalized
+      : `${normalized}Z`;
+    const parsed = new Date(utcString);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    // 回退尝试
+    const fallback = new Date(trimmed);
+    if (!Number.isNaN(fallback.getTime())) return fallback;
+  }
+  return null;
+};
+
+/**
+ * 格式化周期日期为本地时区显示
+ * 使用设备本地时区将 Date 对象转换为 YYYY-MM-DD 格式
+ */
+const formatCycleDate = (value) => {
+  const parsed = parseCycleDate(value);
+  if (!parsed) return '';
+  // 使用本地时区的年月日
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+};
+
+const buildCycleRangeLabel = (cycle) => {
+  if (!cycle) return '';
+  const startLabel = formatCycleDate(cycle.start_time);
+  const endLabel = cycle.end_time ? formatCycleDate(cycle.end_time) : '至今';
+  if (!startLabel && !endLabel) return '';
+  return `${startLabel || '未知'} ~ ${endLabel}`;
 };
 
 // --- Components ---
@@ -991,6 +1053,177 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
   );
 };
 
+const CycleSelector = ({ cycles = [], selectedId, onChange, disabled, selectedCycle, cycleMode, onCycleModeChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const buttonRef = useRef(null);
+  
+  const total = cycles.length;
+  const selectedIndex = useMemo(() => {
+    const idx = cycles.findIndex((cycle) => cycle.id === selectedId);
+    return idx >= 0 ? idx : 0;
+  }, [cycles, selectedId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleStep = (direction) => {
+    if (!cycles.length || !cycleMode) return;
+    const nextIndex = Math.max(0, Math.min(total - 1, selectedIndex + direction));
+    const cycle = cycles[nextIndex];
+    if (cycle) {
+      onChange?.(cycle.id);
+      // 确保切换周期时开启周期模式
+      if (!cycleMode) onCycleModeChange?.(true);
+    }
+  };
+
+  const handleSelectAll = () => {
+    onCycleModeChange?.(false);
+    setIsOpen(false);
+  };
+
+  const handleSelectCycle = (cycleId) => {
+    onChange?.(cycleId);
+    onCycleModeChange?.(true);
+    setIsOpen(false);
+  };
+
+  if (!cycles.length) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-slate-400">
+        <Calendar size={14} className="opacity-50" />
+        <span>暂无周期</span>
+      </div>
+    );
+  }
+
+  const currentLabel = !cycleMode 
+    ? '全部周期'
+    : selectedCycle 
+      ? `第${selectedCycle.sequence || selectedIndex + 1}周期`
+      : `第${selectedIndex + 1}周期`;
+
+  const showStepButtons = cycleMode && total > 1;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div className="flex items-center gap-0.5">
+        {showStepButtons && (
+          <button
+            type="button"
+            onClick={() => handleStep(-1)}
+            disabled={disabled || selectedIndex <= 0}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        )}
+        
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={disabled}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+            cycleMode 
+              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
+              : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+          }`}
+        >
+          <span>{currentLabel}</span>
+          <ChevronDown size={12} className={`opacity-50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        
+        {showStepButtons && (
+          <button
+            type="button"
+            onClick={() => handleStep(1)}
+            disabled={disabled || selectedIndex >= total - 1}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <ChevronRight size={14} />
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-full left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-40"
+          >
+            <div className="max-h-72 overflow-y-auto py-1 custom-scrollbar">
+              {/* 全部选项 */}
+              <button
+                onClick={handleSelectAll}
+                className={`w-full px-3 py-2.5 text-left text-sm flex items-center justify-between transition-colors border-b border-slate-100 ${
+                  !cycleMode 
+                    ? 'bg-blue-50 text-blue-700' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <span className="font-medium">全部周期</span>
+                </div>
+                {!cycleMode && <Check size={14} className="text-blue-500" />}
+              </button>
+              
+              {/* 周期列表 */}
+              {cycles.map((cycle, index) => {
+                const isSelected = cycleMode && cycle.id === selectedId;
+                const cycleLabel = `第${cycle.sequence || index + 1}周期`;
+                const isActive = !cycle.end_time;
+                const cycleRange = buildCycleRangeLabel(cycle);
+                
+                return (
+                  <button
+                    key={cycle.id}
+                    onClick={() => handleSelectCycle(cycle.id)}
+                    className={`w-full px-3 py-2 text-left transition-colors ${
+                      isSelected 
+                        ? 'bg-slate-50' 
+                        : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isActive ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                        )}
+                        <span className={`text-sm font-medium ${isSelected ? 'text-slate-900' : 'text-slate-600'}`}>{cycleLabel}</span>
+                      </div>
+                      {isSelected && <Check size={14} className="text-slate-500 shrink-0" />}
+                    </div>
+                    {cycleRange && (
+                      <div className="mt-0.5 ml-[14px] text-[10px] text-slate-400 truncate">
+                        {cycleRange}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 const TimePeriodSelector = ({ period, onChange }) => (
   <div className="flex bg-slate-100 p-1 rounded-xl">
       {['day', 'week', 'month'].map((p) => (
@@ -1083,7 +1316,7 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
     : truncateNameForButton(options.find(a => a.id === selectedId)?.name || selectedId);
 
   return (
-    <div className="relative z-40" ref={containerRef}>
+    <div className="relative z-20" ref={containerRef}>
       <motion.button
         ref={buttonRef}
         whileHover={{ scale: 1.02 }}
@@ -1119,7 +1352,7 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: dropdownStyle.bottom !== 'auto' ? 10 : -10, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 25, mass: 0.8 }}
-            className="absolute w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden"
+            className="absolute w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden z-30"
             style={dropdownStyle}
           >
             <div className="p-2 max-h-[320px] overflow-y-auto custom-scrollbar">
@@ -1189,6 +1422,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     basicStats: {}
   });
   const dashboardRequestIdRef = useRef(0);
+  const dashboardLoadedRef = useRef(false);
   const [selectedAgentId, setSelectedAgentId] = useState('admin');
   const [agentOptions, setAgentOptions] = useState([]);
   const [agentLoading, setAgentLoading] = useState(false);
@@ -1200,6 +1434,13 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const [timePeriod, setTimePeriod] = useState('week');
   const [customersData, setCustomersData] = useState({ customers: [], total: 0, currentPage: 0, hasMore: false });
   const [customersLoading, setCustomersLoading] = useState(false);
+  const [cycleData, setCycleData] = useState({ cycles: [], active_cycle_id: null, latest_cycle_id: null, locked: false });
+  const [cycleLoading, setCycleLoading] = useState(false);
+  const [cycleActionLoading, setCycleActionLoading] = useState(false);
+  const [selectedCycleId, setSelectedCycleId] = useState(null);
+  const [cycleMode, setCycleMode] = useState(true);
+  const cycleRequestIdRef = useRef(0);
+  const { toast, showToast, hideToast } = useToast();
 
   const expectedRole = role === 'agent' ? 'agent' : 'admin';
   const isAdmin = expectedRole === 'admin';
@@ -1248,6 +1489,53 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     }
   }, [isAdmin]);
 
+  const applyCyclePayload = useCallback((payload) => {
+    const cycles = Array.isArray(payload?.cycles) ? payload.cycles : [];
+    setCycleData({
+      cycles,
+      active_cycle_id: payload?.active_cycle_id || null,
+      latest_cycle_id: payload?.latest_cycle_id || null,
+      locked: !!payload?.locked
+    });
+    setSelectedCycleId((prev) => {
+      if (prev && cycles.some((cycle) => cycle.id === prev)) {
+        return prev;
+      }
+      return payload?.active_cycle_id || payload?.latest_cycle_id || (cycles[cycles.length - 1]?.id ?? null);
+    });
+  }, []);
+
+  const loadCycleData = useCallback(async () => {
+    if (!user || user.type !== expectedRole) return;
+    const requestId = cycleRequestIdRef.current + 1;
+    cycleRequestIdRef.current = requestId;
+    setCycleLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedAgentParam) {
+        params.append('agent_id', selectedAgentParam);
+      }
+      const url = `${API_BASE}${staffPrefix}/sales-cycles${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url, { credentials: 'include' });
+      const json = await res.json();
+      if (cycleRequestIdRef.current !== requestId) return;
+      if (json.success) {
+        applyCyclePayload(json.data);
+      } else {
+        setCycleData({ cycles: [], active_cycle_id: null, latest_cycle_id: null, locked: false });
+      }
+    } catch (error) {
+      if (cycleRequestIdRef.current === requestId) {
+        setCycleData({ cycles: [], active_cycle_id: null, latest_cycle_id: null, locked: false });
+      }
+      console.error('Cycle data load error:', error);
+    } finally {
+      if (cycleRequestIdRef.current === requestId) {
+        setCycleLoading(false);
+      }
+    }
+  }, [applyCyclePayload, expectedRole, selectedAgentParam, staffPrefix, user]);
+
   useEffect(() => {
     if (!isAdmin || !isInitialized || !user) return;
     loadAgentOptions();
@@ -1255,24 +1543,35 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
 
   useEffect(() => {
     if (!user || user.type !== expectedRole) return;
+    loadCycleData();
+  }, [expectedRole, loadCycleData, selectedAgentParam, user]);
+
+  useEffect(() => {
+    if (!user || user.type !== expectedRole) return;
     loadDashboardData();
-  }, [timePeriod, selectedAgentParam, user, expectedRole]);
+  }, [timePeriod, selectedAgentParam, cycleMode, selectedCycleId, user, expectedRole]);
 
   useEffect(() => {
     if (!user || user.type !== expectedRole) return;
     loadCustomersData(0);
-  }, [selectedAgentParam, user, expectedRole]);
+  }, [selectedAgentParam, cycleMode, selectedCycleId, user, expectedRole]);
 
   const loadDashboardData = async () => {
     const requestId = dashboardRequestIdRef.current + 1;
     dashboardRequestIdRef.current = requestId;
-    setLoading(true);
+    const shouldBlock = !dashboardLoadedRef.current;
+    if (shouldBlock) {
+      setLoading(true);
+    }
     try {
       const dashboardParams = new URLSearchParams({ period: timePeriod });
       const statsParams = new URLSearchParams();
       if (selectedAgentParam) {
         dashboardParams.append('agent_id', selectedAgentParam);
         statsParams.append('owner_id', selectedAgentParam);
+      }
+      if (cycleMode && selectedCycleId) {
+        dashboardParams.append('cycle_id', selectedCycleId);
       }
       const dashboardUrl = `${API_BASE}${staffPrefix}/dashboard-stats?${dashboardParams.toString()}`;
       const statsUrl = `${API_BASE}/admin/stats${statsParams.toString() ? `?${statsParams.toString()}` : ''}`;
@@ -1292,7 +1591,10 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       console.error('Dashboard data error:', error);
     } finally {
       if (dashboardRequestIdRef.current === requestId) {
-        setLoading(false);
+        if (shouldBlock) {
+          setLoading(false);
+        }
+        dashboardLoadedRef.current = true;
       }
     }
   };
@@ -1307,6 +1609,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       });
       if (selectedAgentParam) {
         params.append('agent_id', selectedAgentParam);
+      }
+      if (cycleMode && selectedCycleId) {
+        params.append('cycle_id', selectedCycleId);
       }
       const res = await fetch(`${API_BASE}/admin/customers?${params.toString()}`, { credentials: 'include' });
       const json = await res.json();
@@ -1325,7 +1630,70 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   }
   };
 
+  const handleCycleSelect = useCallback((cycleId) => {
+    setSelectedCycleId(cycleId);
+    if (!cycleMode && cycleId) {
+      setCycleMode(true);
+    }
+  }, [cycleMode]);
+
+  const executeCycleAction = useCallback(async (action, confirmMessage) => {
+    if (cycleActionLoading) return;
+    if (confirmMessage && typeof window !== 'undefined') {
+      const confirmed = window.confirm(confirmMessage);
+      if (!confirmed) return;
+    }
+    setCycleActionLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedAgentParam) {
+        params.append('agent_id', selectedAgentParam);
+      }
+      const url = `${API_BASE}${staffPrefix}/sales-cycles/${action}${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url, { method: 'POST', credentials: 'include' });
+      const json = await res.json();
+      if (json.success) {
+        applyCyclePayload(json.data);
+        if (action === 'start') {
+          setCycleMode(true);
+          const nextCycleId = json.data?.active_cycle_id || json.data?.latest_cycle_id || null;
+          if (nextCycleId) {
+            setSelectedCycleId(nextCycleId);
+          }
+        }
+      } else {
+        showToast(json.message || '周期操作失败');
+      }
+    } catch (error) {
+      console.error('Cycle action error:', error);
+      showToast('周期操作失败');
+    } finally {
+      setCycleActionLoading(false);
+    }
+  }, [applyCyclePayload, cycleActionLoading, selectedAgentParam, showToast, staffPrefix]);
+
+  const handleEndCycle = useCallback(() => {
+    executeCycleAction('end');
+  }, [executeCycleAction]);
+
+  const handleCancelEnd = useCallback(() => {
+    executeCycleAction('cancel-end');
+  }, [executeCycleAction]);
+
+  const handleStartNewCycle = useCallback(() => {
+    executeCycleAction('start', '确认开启新周期？当前周期数据将进入历史周期。');
+  }, [executeCycleAction]);
+
   const { dashboardStats, basicStats } = dashboardData;
+  const cycles = Array.isArray(cycleData?.cycles) ? cycleData.cycles : [];
+  const selectedCycle = useMemo(() => cycles.find((cycle) => cycle.id === selectedCycleId) || null, [cycles, selectedCycleId]);
+  const selectedCycleTitle = selectedCycle
+    ? `第${selectedCycle.sequence || cycles.indexOf(selectedCycle) + 1}周期`
+    : '未选择周期';
+  const selectedCycleRange = selectedCycle ? buildCycleRangeLabel(selectedCycle) : '';
+  const selectedCycleStatus = selectedCycle?.end_time ? '已结束' : '进行中';
+  const hasActiveCycle = !!cycleData.active_cycle_id;
+  const cycleActionDisabled = cycleLoading || cycleActionLoading;
   const pageTitle = isAdmin ? `管理仪表盘 - ${SHOP_NAME}` : `代理仪表盘 - ${SHOP_NAME}`;
 
   // Helper for growth
@@ -1379,6 +1747,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       if (selectedAgentParam) {
         params.append('agent_id', selectedAgentParam);
       }
+      if (cycleMode && selectedCycleId) {
+        params.append('cycle_id', selectedCycleId);
+      }
       const res = await fetch(`${API_BASE}${staffPrefix}/dashboard-stats?${params.toString()}`, { credentials: 'include' });
       const json = await res.json();
       if (topProductsRequestIdRef.current !== requestId) return;
@@ -1393,10 +1764,10 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   };
 
   useEffect(() => {
-    // 切换时间段时重置趋势范围
+    // 切换时间段或周期时重置趋势范围
     setTrendRange(null);
     setTopProductsLoading(false);
-  }, [timePeriod, selectedAgentParam]);
+  }, [timePeriod, selectedAgentParam, cycleMode, selectedCycleId]);
 
   useEffect(() => {
     // 只在有效范围时加载窗口数据
@@ -1436,7 +1807,195 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
         animate={{ opacity: 1 }}
         className="min-h-screen bg-slate-50/50 pt-20 pb-20"
       >
+        <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Sales Cycle - Compact Design */}
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 relative z-30"
+          >
+            {/* 桌面端布局 */}
+            <div className="hidden sm:flex items-center gap-4 py-2.5 px-4 bg-white/80 backdrop-blur-sm rounded-xl border border-slate-100/80 shadow-sm overflow-visible">
+              {/* 左侧：周期选择器 */}
+              <div className="flex items-center gap-2 shrink-0">
+                <Calendar size={15} className="text-slate-400" />
+                <CycleSelector
+                  cycles={cycles}
+                  selectedId={selectedCycleId}
+                  selectedCycle={selectedCycle}
+                  onChange={handleCycleSelect}
+                  cycleMode={cycleMode}
+                  onCycleModeChange={setCycleMode}
+                  disabled={cycleLoading}
+                />
+                
+                {/* 状态标签 */}
+                {cycleMode && selectedCycle && (
+                  <div className={`flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded ${
+                    selectedCycle.end_time 
+                      ? 'bg-slate-100 text-slate-500' 
+                      : 'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {!selectedCycle.end_time && (
+                      <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                    )}
+                    {selectedCycleStatus}
+                  </div>
+                )}
+                
+                {cycleData.locked && !hasActiveCycle && (
+                  <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
+                    待开启
+                  </span>
+                )}
+              </div>
+
+              {/* 分隔线 */}
+              <div className="w-px h-5 bg-slate-200 shrink-0" />
+
+              {/* 中间：左侧时间 + 右侧数据 */}
+              <div className="flex-1 flex items-center justify-between px-3">
+                {/* 左侧：日期范围 */}
+                <div className="flex items-center">
+                  {cycleMode && selectedCycleRange ? (
+                    <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
+                      <Calendar size={12} className="opacity-50" />
+                      <span>{selectedCycleRange}</span>
+                    </div>
+                  ) : (
+                    <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
+                      <Calendar size={12} className="opacity-50" />
+                      <span>全部时间</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* 右侧：统计数据 */}
+                <div className="flex items-center gap-4 lg:gap-5 xl:gap-6">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    <span className="text-xs text-slate-400">订单</span>
+                    <span className="text-sm font-bold text-slate-700">{dashboardStats.total_orders || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                    <span className="text-xs text-slate-400">销售额</span>
+                    <span className="text-sm font-bold text-slate-700">¥{formatNumber(dashboardStats.total_revenue || 0)}</span>
+                  </div>
+                  <div className="hidden md:flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span className="text-xs text-slate-400">利润</span>
+                    <span className="text-sm font-bold text-emerald-600">¥{formatNumber(dashboardStats.profit_stats?.total_profit || 0)}</span>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span className="text-xs text-slate-400">用户</span>
+                    <span className="text-sm font-bold text-slate-700">{dashboardStats.users?.total || 0}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 分隔线 */}
+              <div className="w-px h-5 bg-slate-200 shrink-0" />
+                
+              {/* 右侧：操作按钮 */}
+              <div className="flex items-center gap-2 shrink-0">
+                {hasActiveCycle ? (
+                  <button
+                    type="button"
+                    onClick={handleEndCycle}
+                    disabled={cycleActionDisabled}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {cycleActionLoading && (
+                      <div className="w-3 h-3 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                    )}
+                    结束周期
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleCancelEnd}
+                      disabled={cycleActionDisabled}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      撤销
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStartNewCycle}
+                      disabled={cycleActionDisabled}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-slate-800 hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      {cycleActionLoading && (
+                        <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                      )}
+                      新周期
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 移动端布局 */}
+            <div className="sm:hidden">
+              <div className="flex items-center justify-between gap-3 py-2.5 px-3 bg-white/80 backdrop-blur-sm rounded-xl border border-slate-100/80 shadow-sm overflow-visible">
+                {/* 周期选择器 */}
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-slate-400" />
+                  <CycleSelector
+                    cycles={cycles}
+                    selectedId={selectedCycleId}
+                    selectedCycle={selectedCycle}
+                    onChange={handleCycleSelect}
+                    cycleMode={cycleMode}
+                    onCycleModeChange={setCycleMode}
+                    disabled={cycleLoading}
+                  />
+                  
+                  {/* 状态标签 */}
+                  {cycleMode && selectedCycle && !selectedCycle.end_time && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center gap-1.5">
+                  {hasActiveCycle ? (
+                    <button
+                      type="button"
+                      onClick={handleEndCycle}
+                      disabled={cycleActionDisabled}
+                      className="px-2 py-1 rounded-md text-[11px] font-medium text-rose-600 bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      结束周期
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleCancelEnd}
+                        disabled={cycleActionDisabled}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        撤销
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartNewCycle}
+                        disabled={cycleActionDisabled}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-white bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        新周期
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
              <div>

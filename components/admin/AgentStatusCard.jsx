@@ -1,23 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { useAgentStatus } from '../../hooks/useAuth';
-import { motion } from 'framer-motion';
+import React, { useEffect, useState } from "react";
+import { useAgentStatus } from "../../hooks/useAuth";
+import { motion } from "framer-motion";
 
 export const AgentStatusCard = () => {
   const { getStatus, updateStatus } = useAgentStatus();
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
-  const [closedNote, setClosedNote] = useState('');
+  const [closedNote, setClosedNote] = useState("");
   const [allowReservation, setAllowReservation] = useState(false);
+  const [cycleLocked, setCycleLocked] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const s = await getStatus();
         setIsOpen(!!s.data?.is_open);
-        setClosedNote(s.data?.closed_note || '');
+        setClosedNote(s.data?.closed_note || "");
         setAllowReservation(!!s.data?.allow_reservation);
+        setCycleLocked(!!s.data?.cycle_locked);
       } catch (e) {
-        console.error('获取代理状态失败:', e);
+        console.error("获取代理状态失败:", e);
       } finally {
         setLoading(false);
       }
@@ -25,21 +27,22 @@ export const AgentStatusCard = () => {
   }, []);
 
   const toggle = async () => {
+    if (cycleLocked) return;
     const next = !isOpen;
     setIsOpen(next);
-    try { 
-      await updateStatus(next, closedNote, allowReservation); 
+    try {
+      await updateStatus(next, closedNote, allowReservation);
     } catch (e) {
-      console.error('更新代理状态失败:', e);
+      console.error("更新代理状态失败:", e);
       setIsOpen(!next);
     }
   };
 
   const saveNote = async () => {
-    try { 
-      await updateStatus(isOpen, closedNote, allowReservation); 
+    try {
+      await updateStatus(isOpen, closedNote, allowReservation);
     } catch (e) {
-      console.error('保存提示失败:', e);
+      console.error("保存提示失败:", e);
     }
   };
 
@@ -49,7 +52,7 @@ export const AgentStatusCard = () => {
     try {
       await updateStatus(isOpen, closedNote, next);
     } catch (e) {
-      console.error('更新预约状态失败:', e);
+      console.error("更新预约状态失败:", e);
       setAllowReservation(!next);
     }
   };
@@ -76,7 +79,7 @@ export const AgentStatusCard = () => {
   return (
     <>
       {/* 店铺状态卡片 - 与ShopStatusCard样式完全一致 */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 p-6 h-full flex flex-col justify-between"
@@ -85,28 +88,40 @@ export const AgentStatusCard = () => {
           {/* 左侧：状态和按钮 */}
           <div className="flex-shrink-0 flex flex-col justify-between min-w-[140px]">
             <div>
-              <div className="text-sm font-medium text-gray-500 mb-1">代理状态</div>
-              <div className={`text-2xl font-bold tracking-tight mb-4 ${isOpen ? 'text-green-600' : 'text-red-600'}`}>
-                {isOpen ? '营业中' : '打烊中'}
+              <div className="text-sm font-medium text-gray-500 mb-1">
+                代理状态
+              </div>
+              <div
+                className={`text-2xl font-bold tracking-tight mb-4 ${isOpen ? "text-green-600" : "text-red-600"}`}
+              >
+                {isOpen ? "营业中" : "打烊中"}
               </div>
             </div>
             <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={cycleLocked ? undefined : { scale: 1.02 }}
+              whileTap={cycleLocked ? undefined : { scale: 0.98 }}
               onClick={toggle}
-              className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
-                isOpen 
-                  ? 'bg-red-500 hover:bg-red-600 shadow-red-200' 
-                  : 'bg-green-500 hover:bg-green-600 shadow-green-200'
+              disabled={cycleLocked}
+              className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                isOpen
+                  ? "bg-red-500 hover:bg-red-600 shadow-red-200"
+                  : "bg-green-500 hover:bg-green-600 shadow-green-200"
               }`}
             >
-              {isOpen ? '设为打烊' : '设为营业'}
+              {isOpen ? "设为打烊" : "设为营业"}
             </motion.button>
+            {cycleLocked && (
+              <div className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                当前周期已结束，请先在仪表盘撤销或开启新周期。
+              </div>
+            )}
           </div>
-          
+
           {/* 右侧：打烊提示语输入框 */}
           <div className="flex-1 flex flex-col">
-            <div className="text-sm font-medium text-gray-500 mb-2">打烊提示语</div>
+            <div className="text-sm font-medium text-gray-500 mb-2">
+              打烊提示语
+            </div>
             <textarea
               placeholder="可输入打烊时显示给顾客的提示信息..."
               value={closedNote}
@@ -119,7 +134,7 @@ export const AgentStatusCard = () => {
       </motion.div>
 
       {/* 预约下单卡片 - 与RegistrationSettingsCard样式完全一致 */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -129,11 +144,15 @@ export const AgentStatusCard = () => {
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-medium text-gray-500">预约下单</div>
-              <div className={`text-sm font-bold px-2 py-0.5 rounded-full ${allowReservation ? 'bg-teal-50 text-teal-600' : 'bg-gray-100 text-gray-500'}`}>
-                {allowReservation ? '已开启' : '未开启'}
+              <div
+                className={`text-sm font-bold px-2 py-0.5 rounded-full ${allowReservation ? "bg-teal-50 text-teal-600" : "bg-gray-100 text-gray-500"}`}
+              >
+                {allowReservation ? "已开启" : "未开启"}
               </div>
             </div>
-            <p className="text-xs text-gray-400 mb-4 leading-relaxed">开启后，店铺打烊时用户仍可提交预约订单。</p>
+            <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+              开启后，店铺打烊时用户仍可提交预约订单。
+            </p>
           </div>
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -141,11 +160,11 @@ export const AgentStatusCard = () => {
             onClick={toggleReservation}
             className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
               allowReservation
-                ? 'bg-slate-500 hover:bg-slate-600 shadow-slate-200'
-                : 'bg-teal-500 hover:bg-teal-600 shadow-teal-200'
+                ? "bg-slate-500 hover:bg-slate-600 shadow-slate-200"
+                : "bg-teal-500 hover:bg-teal-600 shadow-teal-200"
             }`}
           >
-            {allowReservation ? '关闭预约' : '开启预约'}
+            {allowReservation ? "关闭预约" : "开启预约"}
           </motion.button>
         </div>
       </motion.div>

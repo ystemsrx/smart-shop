@@ -139,6 +139,7 @@ class OrderExportRequest(BaseModel):
     keyword: Optional[str] = None
     agent_filter: Optional[str] = None
     timezone_offset_minutes: Optional[int] = None
+    cycle_id: Optional[str] = None
 
 
 class AddressCreateRequest(BaseModel):

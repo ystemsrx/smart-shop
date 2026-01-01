@@ -92,7 +92,7 @@ class OrderDB:
         if not user_ref:
             raise ValueError(f"无法解析用户标识符: {user_identifier}")
 
-        order_id = f"order_{int(datetime.now().timestamp())}"
+        order_id = f"order_{int(datetime.now().timestamp()*1000)}"
         user_id = user_ref['user_id']
         student_id = user_ref['student_id']
 
@@ -469,6 +469,8 @@ class OrderDB:
         exclude_building_ids: Optional[List[str]] = None,
         start_time_ms: Optional[float] = None,
         end_time_ms: Optional[float] = None,
+        cycle_start: Optional[str] = None,
+        cycle_end: Optional[str] = None,
         unified_status: Optional[str] = None,
         filter_admin_orders: bool = False,
         allow_large_limit: bool = False
@@ -553,6 +555,13 @@ class OrderDB:
                 end_dt = datetime.utcfromtimestamp(normalized_end)
                 where_sql.append('datetime(o.created_at) <= datetime(?)')
                 params.append(end_dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+            if cycle_start:
+                where_sql.append('datetime(o.created_at) >= datetime(?)')
+                params.append(cycle_start)
+            if cycle_end:
+                where_sql.append('datetime(o.created_at) <= datetime(?)')
+                params.append(cycle_end)
 
             if unified_status:
                 where_sql.append(
@@ -862,6 +871,8 @@ class OrderDB:
         building_ids: Optional[List[str]] = None,
         exclude_address_ids: Optional[List[str]] = None,
         exclude_building_ids: Optional[List[str]] = None,
+        cycle_start: Optional[str] = None,
+        cycle_end: Optional[str] = None,
         filter_admin_orders: bool = False
     ) -> Dict:
         """获取订单统计信息（管理员用）"""
@@ -887,6 +898,12 @@ class OrderDB:
                     params.extend(excluded_addresses)
                 if excluded_buildings or excluded_addresses:
                     clauses.append(f'({alias}.agent_id IS NULL OR {alias}.agent_id = "")')
+                if cycle_start:
+                    clauses.append(f'datetime({alias}.created_at) >= datetime(?)')
+                    params.append(cycle_start)
+                if cycle_end:
+                    clauses.append(f'datetime({alias}.created_at) <= datetime(?)')
+                    params.append(cycle_end)
                 if extra_clause:
                     clauses.append(extra_clause)
                     if extra_params:
@@ -1264,14 +1281,36 @@ class OrderDB:
         building_ids: Optional[List[str]] = None,
         filter_admin_orders: bool = False,
         top_range_start: Optional[str] = None,
-        top_range_end: Optional[str] = None
+        top_range_end: Optional[str] = None,
+        cycle_start: Optional[str] = None,
+        cycle_end: Optional[str] = None
     ) -> Dict[str, Any]:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
+            def parse_cycle_datetime(value: Optional[str]) -> Optional[datetime]:
+                if not value:
+                    return None
+                try:
+                    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    return None
+
+            cycle_start_dt = parse_cycle_datetime(cycle_start)
+            cycle_end_dt = parse_cycle_datetime(cycle_end)
+            reference_end_dt = cycle_end_dt or datetime.now()
+            reference_end_str = reference_end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
             # 基础统计
-            basic_stats = OrderDB.get_order_stats(agent_id=agent_id, address_ids=address_ids, building_ids=building_ids, filter_admin_orders=filter_admin_orders)
+            basic_stats = OrderDB.get_order_stats(
+                agent_id=agent_id,
+                address_ids=address_ids,
+                building_ids=building_ids,
+                filter_admin_orders=filter_admin_orders,
+                cycle_start=cycle_start,
+                cycle_end=cycle_end,
+            )
 
             def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
                 scope_clause, scope_args = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias=alias, filter_admin_orders=filter_admin_orders)
@@ -1280,6 +1319,12 @@ class OrderDB:
                 if scope_clause:
                     clauses.append(scope_clause)
                     params.extend(scope_args)
+                if cycle_start:
+                    clauses.append(f'datetime({alias}.created_at) >= datetime(?)')
+                    params.append(cycle_start)
+                if cycle_end:
+                    clauses.append(f'datetime({alias}.created_at) <= datetime(?)')
+                    params.append(cycle_end)
                 if extra_clause:
                     clauses.append(extra_clause)
                     if extra_params:
@@ -1288,22 +1333,36 @@ class OrderDB:
                     return '', params
                 return ' WHERE ' + ' AND '.join(clauses), params
             
+            cycle_view_enabled = bool(cycle_start or cycle_end)
+
             # 按时间段统计销售额
             if period == 'day':
-                time_filter = "date(created_at, 'localtime') = date('now', 'localtime')"
-                prev_time_filter = "date(created_at, 'localtime') = date('now', '-1 day', 'localtime')"
+                time_filter = f"date(created_at, 'localtime') = date('{reference_end_str}', 'localtime')"
+                prev_time_filter = f"date(created_at, 'localtime') = date('{reference_end_str}', '-1 day', 'localtime')"
                 group_by = "strftime('%Y-%m-%d %H:00:00', created_at, 'localtime')"
-                date_format = "今日各小时"
+                date_format = "周期内当日" if cycle_view_enabled else "今日各小时"
             elif period == 'week':
-                time_filter = "date(created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
-                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-13 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-6 days', 'localtime')"
+                time_filter = (
+                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-6 days', 'localtime') "
+                    f"AND date(created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
+                )
+                prev_time_filter = (
+                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-13 days', 'localtime') "
+                    f"AND date(created_at, 'localtime') < date('{reference_end_str}', '-6 days', 'localtime')"
+                )
                 group_by = "date(created_at, 'localtime')"
-                date_format = "近7天"
+                date_format = "周期内7天" if cycle_view_enabled else "近7天"
             else:  # month
-                time_filter = "date(created_at, 'localtime') >= date('now', '-30 days', 'localtime')"
-                prev_time_filter = "date(created_at, 'localtime') >= date('now', '-60 days', 'localtime') AND date(created_at, 'localtime') < date('now', '-30 days', 'localtime')"
+                time_filter = (
+                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-30 days', 'localtime') "
+                    f"AND date(created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
+                )
+                prev_time_filter = (
+                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-60 days', 'localtime') "
+                    f"AND date(created_at, 'localtime') < date('{reference_end_str}', '-30 days', 'localtime')"
+                )
                 group_by = "date(created_at, 'localtime')"
-                date_format = "近30天"
+                date_format = "周期内30天" if cycle_view_enabled else "近30天"
 
             if period == 'day':
                 chart_time_filter = "1=1"
@@ -1481,7 +1540,8 @@ class OrderDB:
                 existing_points = {entry['period']: entry for entry in chart_data}
                 filled_chart: List[Dict[str, Any]] = []
 
-                today_local = datetime.now().date()
+                reference_end_date = reference_end_dt.date()
+                cycle_start_date = cycle_start_dt.date() if cycle_start_dt else None
                 if existing_points:
                     try:
                         earliest_key = min(existing_points.keys())
@@ -1489,14 +1549,16 @@ class OrderDB:
                         earliest_date = datetime.strptime(earliest_key, '%Y-%m-%d %H:%M:%S').date()
                         latest_date = datetime.strptime(latest_key, '%Y-%m-%d %H:%M:%S').date()
                     except ValueError:
-                        earliest_date = today_local
-                        latest_date = today_local
+                        earliest_date = cycle_start_date or reference_end_date
+                        latest_date = reference_end_date
                 else:
-                    earliest_date = today_local
-                    latest_date = today_local
+                    earliest_date = cycle_start_date or reference_end_date
+                    latest_date = reference_end_date
 
-                if latest_date < today_local:
-                    latest_date = today_local
+                if latest_date < reference_end_date:
+                    latest_date = reference_end_date
+                if cycle_start_date and earliest_date < cycle_start_date:
+                    earliest_date = cycle_start_date
 
                 current_date = earliest_date
                 while current_date <= latest_date:
@@ -1519,13 +1581,14 @@ class OrderDB:
                 chart_data = filled_chart
                 if chart_day_labels:
                     chart_window_config['days'] = chart_day_labels
-                    today_str = today_local.strftime('%Y-%m-%d')
-                    if today_str in chart_day_labels:
-                        chart_window_config['today_index'] = chart_day_labels.index(today_str)
+                    anchor_str = reference_end_date.strftime('%Y-%m-%d')
+                    if anchor_str in chart_day_labels:
+                        chart_window_config['today_index'] = chart_day_labels.index(anchor_str)
                     else:
                         chart_window_config['today_index'] = len(chart_day_labels) - 1
             else:
-                today_date = datetime.now().date()
+                reference_end_date = reference_end_dt.date()
+                cycle_start_date = cycle_start_dt.date() if cycle_start_dt else None
                 window_span = chart_window_config.get('window_size', 7)
                 existing_points = {entry['period']: entry for entry in chart_data}
                 parsed_dates: List[date] = []
@@ -1538,11 +1601,15 @@ class OrderDB:
                 if parsed_dates:
                     earliest = min(parsed_dates)
                     latest = max(parsed_dates)
-                    start_date = min(earliest, today_date - timedelta(days=max(window_span - 1, 0)))
-                    end_date = max(latest, today_date)
+                    start_date = min(earliest, reference_end_date - timedelta(days=max(window_span - 1, 0)))
+                    end_date = max(latest, reference_end_date)
                 else:
-                    start_date = today_date - timedelta(days=max(window_span - 1, 0))
-                    end_date = today_date
+                    start_date = reference_end_date - timedelta(days=max(window_span - 1, 0))
+                    end_date = reference_end_date
+                if cycle_start_date and start_date < cycle_start_date:
+                    start_date = cycle_start_date
+                if cycle_start_date and end_date < cycle_start_date:
+                    end_date = cycle_start_date
 
                 filled_chart = []
                 current_date = start_date
@@ -1739,7 +1806,10 @@ class OrderDB:
                 cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
             total_users = cursor.fetchone()[0] or 0
 
-            recent_clause = "date(o.created_at, 'localtime') >= date('now', '-6 days', 'localtime')"
+            recent_clause = (
+                f"date(o.created_at, 'localtime') >= date('{reference_end_str}', '-6 days', 'localtime') "
+                f"AND date(o.created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
+            )
             recent_where, recent_params = build_where(recent_clause, alias='o')
             cursor.execute(f'''
                 SELECT COUNT(DISTINCT o.student_id)
@@ -1771,7 +1841,11 @@ class OrderDB:
             
             # 计算总净利润和今日净利润
             total_profit, _ = calculate_profit_for_period("o.payment_status = 'succeeded'")
-            today_profit, _ = calculate_profit_for_period("date(created_at, 'localtime') = date('now', 'localtime') AND o.payment_status = 'succeeded'")
+            today_clause = (
+                f"date(created_at, 'localtime') = date('{reference_end_str}', 'localtime') "
+                "AND o.payment_status = 'succeeded'"
+            )
+            today_profit, _ = calculate_profit_for_period(today_clause)
             
             return {
                 **basic_stats,
@@ -1815,6 +1889,8 @@ class OrderDB:
         agent_id: Optional[str] = None,
         address_ids: Optional[List[str]] = None,
         building_ids: Optional[List[str]] = None,
+        cycle_start: Optional[str] = None,
+        cycle_end: Optional[str] = None,
         filter_admin_orders: bool = False
     ) -> Dict[str, Any]:
         with get_db_connection() as conn:
@@ -1825,6 +1901,12 @@ class OrderDB:
             params: List[Any] = list(scope_params)
             if scope_clause:
                 where_parts.append(scope_clause)
+            if cycle_start:
+                where_parts.append("datetime(o.created_at) >= datetime(?)")
+                params.append(cycle_start)
+            if cycle_end:
+                where_parts.append("datetime(o.created_at) <= datetime(?)")
+                params.append(cycle_end)
             where_sql = ' WHERE ' + ' AND '.join(where_parts)
 
             cursor.execute(f'''

@@ -7,6 +7,7 @@ export const ShopStatusCard = () => {
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
   const [note, setNote] = useState('');
+  const [cycleLocked, setCycleLocked] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -14,6 +15,7 @@ export const ShopStatusCard = () => {
         const s = await getStatus();
         setIsOpen(!!s.data?.is_open);
         setNote(s.data?.note || '');
+        setCycleLocked(!!s.data?.cycle_locked);
       } finally {
         setLoading(false);
       }
@@ -21,6 +23,7 @@ export const ShopStatusCard = () => {
   }, []);
 
   const toggle = async () => {
+    if (cycleLocked) return;
     const next = !isOpen;
     setIsOpen(next);
     try { await updateStatus(next, note); } catch (e) {}
@@ -61,10 +64,11 @@ export const ShopStatusCard = () => {
             </div>
           </div>
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={cycleLocked ? undefined : { scale: 1.02 }}
+            whileTap={cycleLocked ? undefined : { scale: 0.98 }}
             onClick={toggle}
-            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
+            disabled={cycleLocked}
+            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
               isOpen 
                 ? 'bg-red-500 hover:bg-red-600 shadow-red-200' 
                 : 'bg-green-500 hover:bg-green-600 shadow-green-200'
@@ -72,6 +76,11 @@ export const ShopStatusCard = () => {
           >
             {isOpen ? '设为打烊' : '设为营业'}
           </motion.button>
+          {cycleLocked && (
+            <div className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              当前周期已结束，请先在仪表盘撤销或开启新周期。
+            </div>
+          )}
         </div>
         
         {/* 右侧：打烊提示语输入框 */}

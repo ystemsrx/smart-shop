@@ -20,6 +20,7 @@ from .cart import CartDB
 from .locations import AddressDB, BuildingDB
 from .admins import AdminDB, AgentAssignmentDB, AgentDeletionDB, AgentStatusDB, PaymentQrDB
 from .settings_db import SettingsDB
+from .sales_cycles import SalesCycleDB
 from .orders import OrderDB, OrderExportDB
 from .promotions import (
     LotteryConfigDB,
@@ -58,6 +59,7 @@ __all__ = [
     "VariantDB",
     "CategoryDB",
     "SettingsDB",
+    "SalesCycleDB",
     "CartDB",
     "AddressDB",
     "BuildingDB",

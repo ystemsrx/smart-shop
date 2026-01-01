@@ -279,6 +279,19 @@ def init_database():
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sales_cycles (
+                id TEXT PRIMARY KEY,
+                owner_type TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP,
+                pre_end_is_open INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS image_lookup (
                 hash TEXT PRIMARY KEY,
                 physical_path TEXT NOT NULL,
@@ -309,6 +322,7 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_deletions_replaced ON agent_deletions(replaced_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_agent ON agent_status(agent_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_is_open ON agent_status(is_open)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_cycles_owner ON sales_cycles(owner_type, owner_id, start_time)')
 
         try:
             cursor.execute('ALTER TABLE admins ADD COLUMN payment_qr_path TEXT')

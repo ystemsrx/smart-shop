@@ -123,6 +123,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setOrderAgentOptions,
     orderAgentFilterLabel,
     orderAgentNameMap,
+    orderCycles,
+    orderCycleId,
+    setOrderCycleId,
+    orderCycleLoading,
+    orderCycleLocked,
     selectedOrders,
     handleOrderRefresh,
     handleExportOrders,
@@ -468,6 +473,11 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     orderAgentFilter={orderAgentFilter}
                     orderAgentOptions={orderAgentOptions}
                     orderAgentFilterLabel={orderAgentFilterLabel}
+                    orderCycles={orderCycles}
+                    orderCycleId={orderCycleId}
+                    onOrderCycleChange={setOrderCycleId}
+                    orderCycleLoading={orderCycleLoading}
+                    orderCycleLocked={orderCycleLocked}
                     orderLoading={orderLoading}
                     orders={orders}
                     orderStatusFilter={orderStatusFilter}

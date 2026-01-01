@@ -14,6 +14,60 @@ export const UNIFIED_STATUS_MAP = {
   '已完成': { text: '已完成', color: 'emerald', bg: 'bg-emerald-100', textCol: 'text-emerald-700', ring: 'ring-emerald-200', hoverBg: 'hover:bg-emerald-200' }
 };
 
+/**
+ * 解析周期日期字符串为 Date 对象
+ * 后端存储的是 UTC 时间，格式为 "YYYY-MM-DD HH:MM:SS"
+ * 解析时明确作为 UTC 处理，以便后续正确转换到本地时区
+ */
+const parseCycleDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    // 仅日期格式：作为本地时间的午夜处理
+    const dateOnlyMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    // 包含时间的格式：后端存储的是 UTC，明确解析为 UTC
+    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    // 如果没有时区标识，添加 Z 表示 UTC
+    const utcString = normalized.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(normalized)
+      ? normalized
+      : `${normalized}Z`;
+    const parsed = new Date(utcString);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    // 回退尝试
+    const fallback = new Date(trimmed);
+    if (!Number.isNaN(fallback.getTime())) return fallback;
+  }
+  return null;
+};
+
+/**
+ * 格式化周期日期为本地时区显示
+ * 使用设备本地时区将 Date 对象转换为 YYYY-MM-DD 格式
+ */
+const formatCycleDate = (value) => {
+  const parsed = parseCycleDate(value);
+  if (!parsed) return '';
+  // 使用本地时区的年月日
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatCycleRange = (cycle) => {
+  if (!cycle) return '';
+  const startLabel = formatCycleDate(cycle.start_time);
+  const endLabel = cycle.end_time ? formatCycleDate(cycle.end_time) : '至今';
+  if (!startLabel && !endLabel) return '';
+  return `${startLabel || '未知'} ~ ${endLabel}`;
+};
+
 
 // Double Handle Time Slider Component
 const DualTimeSlider = ({ startTime, endTime, onChange, minDate, maxDate }) => {
@@ -1288,8 +1342,8 @@ export const OrderTable = ({
     if (typeof val === 'number' && isFinite(val)) {
       return new Date(val * 1000).toLocaleString('zh-CN', { hour12: false });
     }
-    const t = Date.parse(val);
-    return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN', { hour12: false });
+    const parsed = parseCycleDate(val);
+    return parsed ? parsed.toLocaleString('zh-CN', { hour12: false }) : '';
   };
 
   const getCustomerName = (order) => {
@@ -1302,10 +1356,8 @@ export const OrderTable = ({
       return order.created_at_timestamp * 1000;
     }
     if (order?.created_at) {
-      const direct = Date.parse(order.created_at);
-      if (!isNaN(direct)) return direct;
-      const normalized = Date.parse(order.created_at.replace(' ', 'T') + 'Z');
-      if (!isNaN(normalized)) return normalized;
+      const parsed = parseCycleDate(order.created_at);
+      if (parsed) return parsed.getTime();
     }
     return 0;
   };
@@ -1872,12 +1924,208 @@ const ScopeSelectPopover = ({
   );
 };
 
+const CycleSelectPopover = ({ value, onChange, cycles = [], disabled, loading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState({});
+  const buttonRef = useRef(null);
+  const popoverRef = useRef(null);
+
+  const selectedCycle = cycles.find((cycle) => cycle.id === value);
+  const displayLabel = value === 'all'
+    ? '全部周期'
+    : selectedCycle
+      ? `第${selectedCycle.sequence || cycles.indexOf(selectedCycle) + 1}周期`
+      : '选择周期';
+  const rangeLabel = value === 'all'
+    ? '显示全部订单'
+    : (selectedCycle ? formatCycleRange(selectedCycle) : '未选择周期');
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(event.target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleScroll = (event) => {
+      if (popoverRef.current && popoverRef.current.contains(event.target)) {
+        return;
+      }
+      if (isOpen) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScroll, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [isOpen]);
+
+  const handleToggle = (event) => {
+    if (disabled || loading) return;
+    event.stopPropagation();
+
+    if (!isOpen) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const popoverHeight = 320;
+      const spaceBelow = window.innerHeight - rect.bottom;
+
+      let left = rect.left;
+      let transformOrigin = 'top left';
+
+      if (left + rect.width > window.innerWidth) {
+        left = rect.right - rect.width;
+        transformOrigin = 'top right';
+      }
+
+      if (spaceBelow < popoverHeight) {
+        setPopoverStyle({
+          position: 'fixed',
+          top: 'auto',
+          bottom: `${window.innerHeight - rect.top + 8}px`,
+          left: `${left}px`,
+          width: `${rect.width}px`,
+          transformOrigin: transformOrigin.replace('top', 'bottom')
+        });
+      } else {
+        setPopoverStyle({
+          position: 'fixed',
+          top: `${rect.bottom + 8}px`,
+          left: `${left}px`,
+          width: `${rect.width}px`,
+          transformOrigin
+        });
+      }
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  };
+
+  const handleSelect = (cycleId) => {
+    if (disabled || loading) return;
+    onChange?.(cycleId);
+    setIsOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        disabled={disabled || loading}
+        className={`
+          group relative flex items-center justify-between gap-3 px-4 py-2 
+          bg-gray-50 hover:bg-gray-100 active:bg-gray-200 
+          border border-gray-200 rounded-xl transition-all duration-200 
+          text-sm text-gray-700 font-medium min-w-[200px]
+          ${isOpen ? 'ring-2 ring-blue-500/20 border-blue-500' : ''}
+          ${disabled || loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        <div className="flex flex-col items-start truncate">
+          <span className="text-xs font-semibold text-slate-400">{displayLabel}</span>
+          <span className="text-sm font-medium text-slate-800 truncate max-w-[160px]">{rangeLabel}</span>
+        </div>
+        {loading ? (
+          <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <i className={`fas fa-chevron-down text-xs text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180 text-blue-500' : ''}`}></i>
+        )}
+      </button>
+
+      {createPortal(
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              ref={popoverRef}
+              style={{ ...popoverStyle, zIndex: 9999 }}
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              transition={{
+                type: "spring",
+                stiffness: 400,
+                damping: 25,
+                mass: 0.8
+              }}
+              className="flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden"
+            >
+              <div className="p-2 space-y-1 max-h-[320px] overflow-y-auto custom-scrollbar">
+                <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">周期选择</div>
+                <button
+                  onClick={() => handleSelect('all')}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${
+                    value === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>全部周期</span>
+                  {value === 'all' && <i className="fas fa-check text-blue-500"></i>}
+                </button>
+
+                {cycles.length > 0 && (
+                  <>
+                    <div className="my-1 border-t border-gray-100"></div>
+                    {cycles.map((cycle) => {
+                      const isActive = cycle.end_time == null;
+                      return (
+                        <button
+                          key={cycle.id}
+                          onClick={() => handleSelect(cycle.id)}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${
+                            value === cycle.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex flex-col w-full">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">第{cycle.sequence || 1}周期</span>
+                              <div className="flex items-center gap-2">
+                                {isActive ? (
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                ) : (
+                                  <i className="fas fa-archive text-slate-400 text-xs"></i>
+                                )}
+                                {value === cycle.id && <i className="fas fa-check text-blue-500 text-xs"></i>}
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-400">{formatCycleRange(cycle)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
+  );
+};
+
 // 订单管理面板
 export const OrdersPanel = ({
   isAdmin,
   orderAgentFilter,
   orderAgentOptions,
   orderAgentFilterLabel,
+  orderCycles,
+  orderCycleId,
+  onOrderCycleChange,
+  orderCycleLoading,
+  orderCycleLocked,
   orderLoading,
   orders,
   orderStatusFilter,
@@ -1943,6 +2191,8 @@ export const OrdersPanel = ({
     setExportModalOpen(false);
     if (onResetExportState) onResetExportState();
   };
+  const cycleSelectDisabled = isAdmin && (orderAgentFilter || '').toString().toLowerCase() === 'all';
+  const normalizedCycles = Array.isArray(orderCycles) ? orderCycles : [];
 
   return (
     <div className="space-y-6">
@@ -1971,19 +2221,31 @@ export const OrdersPanel = ({
         <h2 className="text-2xl font-bold text-gray-900 tracking-tight">订单管理</h2>
         <p className="text-sm text-gray-500 mt-1">查看和管理所有用户订单，处理发货与售后</p>
       </div>
-      
-      {isAdmin && (
+
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        {isAdmin && (
+          <div className="flex items-center gap-3 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
+            <span className="text-xs font-medium text-gray-500 pl-3">查看范围</span>
+            <ScopeSelectPopover
+              value={orderAgentFilter}
+              onChange={onOrderAgentFilterChange}
+              options={orderAgentOptions}
+              currentUserLabel={currentUserLabel}
+              disabled={orderLoading}
+            />
+          </div>
+        )}
         <div className="flex items-center gap-3 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
-          <span className="text-xs font-medium text-gray-500 pl-3">查看范围</span>
-          <ScopeSelectPopover
-            value={orderAgentFilter}
-            onChange={onOrderAgentFilterChange}
-            options={orderAgentOptions}
-            currentUserLabel={currentUserLabel}
-            disabled={orderLoading}
+          <span className="text-xs font-medium text-gray-500 pl-3">查看周期</span>
+          <CycleSelectPopover
+            value={orderCycleId}
+            onChange={onOrderCycleChange}
+            cycles={normalizedCycles}
+            disabled={orderLoading || cycleSelectDisabled}
+            loading={orderCycleLoading}
           />
         </div>
-      )}
+      </div>
     </div>
 
     {/* Stats Cards */}

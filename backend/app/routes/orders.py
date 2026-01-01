@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.responses import FileResponse
 
 from auth import error_response, get_current_staff_required_from_cookie, get_current_user_required_from_cookie, success_response
-from database import AgentStatusDB, CartDB, CouponDB, DeliverySettingsDB, GiftThresholdDB, LotteryConfigDB, LotteryDB, OrderDB, OrderExportDB, ProductDB, RewardDB, SettingsDB, UserProfileDB, VariantDB
+from database import AgentStatusDB, CartDB, CouponDB, DeliverySettingsDB, GiftThresholdDB, LotteryConfigDB, LotteryDB, OrderDB, OrderExportDB, ProductDB, RewardDB, SalesCycleDB, SettingsDB, UserProfileDB, VariantDB
 from ..context import EXPORTS_DIR, logger
 from ..dependencies import build_staff_scope, check_address_and_building, get_owner_id_for_staff, get_owner_id_from_scope, require_agent_with_scope, resolve_shopping_scope, staff_can_access_order
 from ..schemas import OrderCreateRequest, OrderDeleteRequest, OrderExportRequest, OrderStatusUpdateRequest, PaymentStatusUpdateRequest
@@ -461,6 +461,7 @@ async def get_all_orders(
     order_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     keyword: Optional[str] = None,
+    cycle_id: Optional[str] = None,
 ):
     staff = get_current_staff_required_from_cookie(request)
 
@@ -490,6 +491,19 @@ async def get_all_orders(
             selected_filter,
         ) = resolve_staff_order_scope(staff, scope, agent_id)
 
+        cycle_start = None
+        cycle_end = None
+        if cycle_id:
+            if (selected_filter or "").lower() == "all":
+                return error_response("全部订单不支持周期筛选", 400)
+            owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
+            owner_id = selected_agent_id if owner_type == "agent" else "admin"
+            cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
+            if not cycle_range:
+                return error_response("周期不存在", 404)
+            cycle_start = cycle_range.get("start_time")
+            cycle_end = cycle_range.get("end_time")
+
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
             keyword=keyword,
@@ -500,6 +514,8 @@ async def get_all_orders(
             building_ids=selected_building_ids,
             exclude_address_ids=exclude_address_ids,
             exclude_building_ids=exclude_building_ids,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
         orders = page_data.get("orders", [])
         total = int(page_data.get("total", 0))
@@ -514,6 +530,8 @@ async def get_all_orders(
             building_ids=selected_building_ids,
             exclude_address_ids=exclude_address_ids,
             exclude_building_ids=exclude_building_ids,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
         has_more = (offset_val + len(orders)) < total
         return success_response(
@@ -537,7 +555,14 @@ async def get_all_orders(
 
 
 @router.get("/agent/orders")
-async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: Optional[int] = 0, order_id: Optional[str] = None, keyword: Optional[str] = None):
+async def get_agent_orders(
+    request: Request,
+    limit: Optional[int] = 20,
+    offset: Optional[int] = 0,
+    order_id: Optional[str] = None,
+    keyword: Optional[str] = None,
+    cycle_id: Optional[str] = None,
+):
     _agent, scope = require_agent_with_scope(request)
 
     try:
@@ -557,6 +582,15 @@ async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: 
         if offset_val < 0:
             offset_val = 0
 
+        cycle_start = None
+        cycle_end = None
+        if cycle_id:
+            cycle_range = SalesCycleDB.resolve_cycle_range("agent", scope.get("agent_id"), cycle_id)
+            if not cycle_range:
+                return error_response("周期不存在", 404)
+            cycle_start = cycle_range.get("start_time")
+            cycle_end = cycle_range.get("end_time")
+
         page_data = OrderDB.get_orders_paginated(
             order_id=order_id,
             keyword=keyword,
@@ -565,6 +599,8 @@ async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: 
             agent_id=scope.get("agent_id"),
             address_ids=scope.get("address_ids"),
             building_ids=scope.get("building_ids"),
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
 
         orders = page_data.get("orders", [])
@@ -574,7 +610,13 @@ async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: 
             if order.get("created_at"):
                 order["created_at_timestamp"] = convert_sqlite_timestamp_to_unix(order["created_at"], order["id"])
 
-        stats = OrderDB.get_order_stats(agent_id=scope.get("agent_id"), address_ids=scope.get("address_ids"), building_ids=scope.get("building_ids"))
+        stats = OrderDB.get_order_stats(
+            agent_id=scope.get("agent_id"),
+            address_ids=scope.get("address_ids"),
+            building_ids=scope.get("building_ids"),
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
+        )
 
         has_more = (offset_val + len(orders)) < total
 
@@ -592,12 +634,11 @@ async def get_agent_orders(request: Request, limit: Optional[int] = 20, offset: 
 async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExportRequest, staff_prefix: str):
     start_ms = payload.start_time_ms
     end_ms = payload.end_time_ms
-    if start_ms is not None and end_ms is not None and start_ms > end_ms:
-        start_ms, end_ms = end_ms, start_ms
     tz_offset = payload.timezone_offset_minutes
     keyword = (payload.keyword or "").strip() or None
     status_filter = (payload.status_filter or "").strip()
     unified_status = status_filter if status_filter and status_filter != "全部" else None
+    cycle_id = payload.cycle_id
 
     (
         selected_agent_id,
@@ -608,6 +649,40 @@ async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExpor
         selected_filter,
         filter_admin_orders,
     ) = prepare_export_scope(staff, payload.agent_filter if staff.get("type") == "admin" else "self")
+
+    if cycle_id:
+        owner_type = "agent" if staff.get("type") == "agent" else "admin"
+        owner_id = staff.get("id") if staff.get("type") == "agent" else "admin"
+        if staff.get("type") == "admin":
+            filter_value = (selected_filter or "").lower()
+            if filter_value == "all":
+                return error_response("全部订单不支持周期筛选", 400)
+            if filter_value not in ("", "self", "admin"):
+                owner_type = "agent"
+                owner_id = selected_agent_id or selected_filter
+        cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
+        if not cycle_range:
+            return error_response("周期不存在", 404)
+
+        def cycle_to_ms(value: Optional[str]) -> Optional[int]:
+            if not value:
+                return None
+            try:
+                dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                return int(dt.timestamp() * 1000)
+            except Exception:
+                return None
+
+        cycle_start_ms = cycle_to_ms(cycle_range.get("start_time"))
+        cycle_end_ms = cycle_to_ms(cycle_range.get("end_time"))
+
+        if cycle_start_ms is not None:
+            start_ms = cycle_start_ms if start_ms is None else max(start_ms, cycle_start_ms)
+        if cycle_end_ms is not None:
+            end_ms = cycle_end_ms if end_ms is None else min(end_ms, cycle_end_ms)
+
+    if start_ms is not None and end_ms is not None and start_ms > end_ms:
+        start_ms, end_ms = end_ms, start_ms
 
     page_data = OrderDB.get_orders_paginated(
         keyword=keyword,
@@ -1050,7 +1125,14 @@ async def get_order_statistics(request: Request, agent_id: Optional[str] = None)
 
 
 @router.get("/admin/dashboard-stats")
-async def get_dashboard_statistics(request: Request, period: str = "week", range_start: Optional[str] = None, range_end: Optional[str] = None, agent_id: Optional[str] = None):
+async def get_dashboard_statistics(
+    request: Request,
+    period: str = "week",
+    range_start: Optional[str] = None,
+    range_end: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    cycle_id: Optional[str] = None,
+):
     """获取仪表盘详细统计信息（管理员）。"""
     staff = get_current_staff_required_from_cookie(request)
     try:
@@ -1063,6 +1145,20 @@ async def get_dashboard_statistics(request: Request, period: str = "week", range
         if selected_filter and selected_filter != "self":
             filter_admin_orders = False
 
+        cycle_start = None
+        cycle_end = None
+        if cycle_id:
+            if (selected_filter or "").lower() != "all":
+                owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
+                owner_id = selected_agent_id if owner_type == "agent" else "admin"
+                cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
+                if not cycle_range:
+                    return error_response("周期不存在", 404)
+                cycle_start = cycle_range.get("start_time")
+                cycle_end = cycle_range.get("end_time")
+            else:
+                return error_response("全部订单不支持周期筛选", 400)
+
         stats = OrderDB.get_dashboard_stats(
             period,
             agent_id=selected_agent_id,
@@ -1071,6 +1167,8 @@ async def get_dashboard_statistics(request: Request, period: str = "week", range
             filter_admin_orders=filter_admin_orders,
             top_range_start=range_start,
             top_range_end=range_end,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
         stats["scope"] = scope
         stats["selected_agent_id"] = selected_agent_id
@@ -1081,12 +1179,27 @@ async def get_dashboard_statistics(request: Request, period: str = "week", range
 
 
 @router.get("/agent/dashboard-stats")
-async def get_agent_dashboard_statistics(request: Request, period: str = "week", range_start: Optional[str] = None, range_end: Optional[str] = None):
+async def get_agent_dashboard_statistics(
+    request: Request,
+    period: str = "week",
+    range_start: Optional[str] = None,
+    range_end: Optional[str] = None,
+    cycle_id: Optional[str] = None,
+):
     """获取仪表盘详细统计信息（代理）。"""
     _agent, scope = require_agent_with_scope(request)
     try:
         if period not in ["day", "week", "month"]:
             period = "week"
+
+        cycle_start = None
+        cycle_end = None
+        if cycle_id:
+            cycle_range = SalesCycleDB.resolve_cycle_range("agent", scope.get("agent_id"), cycle_id)
+            if not cycle_range:
+                return error_response("周期不存在", 404)
+            cycle_start = cycle_range.get("start_time")
+            cycle_end = cycle_range.get("end_time")
 
         stats = OrderDB.get_dashboard_stats(
             period,
@@ -1095,6 +1208,8 @@ async def get_agent_dashboard_statistics(request: Request, period: str = "week",
             building_ids=scope.get("building_ids"),
             top_range_start=range_start,
             top_range_end=range_end,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
         stats["scope"] = scope
         return success_response("获取仪表盘统计成功", stats)
@@ -1106,7 +1221,13 @@ async def get_agent_dashboard_statistics(request: Request, period: str = "week",
 
 
 @router.get("/admin/customers")
-async def get_customers_with_purchases(request: Request, limit: Optional[int] = 5, offset: Optional[int] = 0, agent_id: Optional[str] = None):
+async def get_customers_with_purchases(
+    request: Request,
+    limit: Optional[int] = 5,
+    offset: Optional[int] = 0,
+    agent_id: Optional[str] = None,
+    cycle_id: Optional[str] = None,
+):
     """获取购买过商品的客户列表（管理员）。"""
     staff = get_current_staff_required_from_cookie(request)
     try:
@@ -1139,6 +1260,19 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
         if selected_filter and selected_filter != "self":
             filter_admin_orders = False
 
+        cycle_start = None
+        cycle_end = None
+        if cycle_id:
+            if (selected_filter or "").lower() == "all":
+                return error_response("全部订单不支持周期筛选", 400)
+            owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
+            owner_id = selected_agent_id if owner_type == "agent" else "admin"
+            cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
+            if not cycle_range:
+                return error_response("周期不存在", 404)
+            cycle_start = cycle_range.get("start_time")
+            cycle_end = cycle_range.get("end_time")
+
         customers_data = OrderDB.get_customers_with_purchases(
             limit=limit_val,
             offset=offset_val,
@@ -1146,6 +1280,8 @@ async def get_customers_with_purchases(request: Request, limit: Optional[int] = 
             address_ids=selected_address_ids,
             building_ids=selected_building_ids,
             filter_admin_orders=filter_admin_orders,
+            cycle_start=cycle_start,
+            cycle_end=cycle_end,
         )
         customers_data["scope"] = scope
         return success_response("获取客户列表成功", customers_data)
