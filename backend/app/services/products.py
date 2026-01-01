@@ -17,16 +17,24 @@ from ..utils import enrich_product_image_url, is_non_sellable
 def resolve_owner_id_for_staff(staff: Dict[str, Any], requested_owner_id: Optional[str]) -> Optional[str]:
     """Resolve the final owner_id a staff member is allowed to use。"""
     if staff.get("type") == "agent":
-        return staff.get("id")
+        agent_id = staff.get("agent_id")
+        if not agent_id and staff.get("id"):
+            agent_id = AdminDB.get_agent_id_by_account(staff.get("id"))
+        if not agent_id:
+            raise HTTPException(status_code=400, detail="代理账号缺少 agent_id，请联系管理员完成迁移")
+        return agent_id
 
     if requested_owner_id:
-        owner_record = AdminDB.get_admin(requested_owner_id, include_disabled=True)
+        normalized = requested_owner_id.strip()
+        if normalized.lower() in ("self", "admin", "all"):
+            return "admin"
+        owner_record = AdminDB.get_admin_by_agent_id(normalized, include_disabled=True)
         if not owner_record:
             raise HTTPException(status_code=400, detail="指定的代理不存在")
         role = (owner_record.get("role") or "").lower()
         if role != "agent" and not is_super_admin_role(role):
             raise HTTPException(status_code=400, detail="owner_id 必须为代理账号")
-        return requested_owner_id
+        return normalized
     return "admin"
 
 
@@ -340,6 +348,11 @@ async def handle_product_update(staff: Dict[str, Any], product_id: str, payload:
     except HTTPException as exc:
         return error_response(exc.detail, exc.status_code)
 
+    if staff.get("type") == "admin":
+        owner_id = existing_product.get("owner_id")
+        if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+            return error_response("代理已删除，无法更新该商品", 400)
+
     update_data: Dict[str, Any] = {}
 
     if getattr(payload, "name", None) is not None:
@@ -379,7 +392,7 @@ async def handle_product_update(staff: Dict[str, Any], product_id: str, payload:
         update_data["reservation_note"] = note_value[:120]
 
     if staff.get("type") == "agent":
-        update_data["owner_id"] = staff.get("id")
+        update_data["owner_id"] = staff.get("agent_id")
     elif getattr(payload, "owner_id", None) is not None:
         try:
             resolved_owner = resolve_owner_id_for_staff(staff, payload.owner_id)
@@ -418,6 +431,11 @@ async def handle_product_image_update(staff: Dict[str, Any], product_id: str, im
         existing = ensure_product_accessible(staff, product_id)
     except HTTPException as exc:
         return error_response(exc.detail, exc.status_code)
+
+    if staff.get("type") == "admin":
+        owner_id = existing.get("owner_id")
+        if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+            return error_response("代理已删除，无法更新商品图片", 400)
 
     if not image:
         return error_response("未上传图片", 400)
@@ -549,14 +567,18 @@ def resolve_owner_filter_for_staff(
     if lower == "all":
         return None, True, "all"
 
-    target = AdminDB.get_admin(filter_value, include_disabled=True, include_deleted=True)
+    target = AdminDB.get_admin_by_agent_id(filter_value, include_disabled=True, include_deleted=True)
     if not target or (target.get("role") or "").lower() != "agent":
         raise HTTPException(status_code=400, detail="指定的代理不存在")
 
     return [filter_value], False, filter_value
 
 
-def resolve_single_owner_for_staff(staff: Dict[str, Any], owner_param: Optional[str]) -> Tuple[str, str]:
+def resolve_single_owner_for_staff(
+    staff: Dict[str, Any],
+    owner_param: Optional[str],
+    allow_deleted: bool = True
+) -> Tuple[str, str]:
     """
     解析单一 owner_id，支持管理员在查询参数中指定代理。
     返回 (owner_id, normalized_filter)
@@ -567,7 +589,12 @@ def resolve_single_owner_for_staff(staff: Dict[str, Any], owner_param: Optional[
         raise HTTPException(status_code=400, detail="不支持查询全部归属的数据范围")
 
     if owner_ids and len(owner_ids) > 0:
-        return owner_ids[0], normalized_filter
+        owner_id = owner_ids[0]
+        if owner_id != "admin" and not allow_deleted:
+            agent = AdminDB.get_admin_by_agent_id(owner_id, include_disabled=True, include_deleted=True)
+            if agent and agent.get("deleted_at"):
+                raise HTTPException(status_code=400, detail="代理已删除，无法操作")
+        return owner_id, normalized_filter
 
     fallback_owner = get_owner_id_for_staff(staff)
     if not fallback_owner:
@@ -580,6 +607,12 @@ async def handle_product_stock_update(staff: Dict[str, Any], product_id: str, st
         ensure_product_accessible(staff, product_id)
     except HTTPException as exc:
         return error_response(exc.detail, exc.status_code)
+
+    if staff.get("type") == "admin":
+        product = ProductDB.get_product_by_id(product_id)
+        owner_id = product.get("owner_id") if product else None
+        if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+            return error_response("代理已删除，无法修改库存", 400)
 
     if stock_data.stock < 0:
         return error_response("库存不能为负数", 400)

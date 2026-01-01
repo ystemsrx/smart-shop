@@ -13,11 +13,14 @@ from auth import (
     success_response,
 )
 from database import (
+    AddressDB,
     AdminDB,
     AgentAssignmentDB,
     AgentDeletionDB,
+    BuildingDB,
     OrderDB,
     PaymentQrDB,
+    SalesCycleDB,
     UserProfileDB,
     get_db_connection,
 )
@@ -116,35 +119,64 @@ async def admin_list_agents(request: Request, include_inactive: bool = False):
         data = [serialize_agent_account(agent) for agent in agents]
         deleted_agents: List[Dict[str, Any]] = []
         if include_deleted:
+            address_map = {addr.get("id"): addr for addr in AddressDB.get_all_addresses(include_disabled=True)}
+            building_map = {bld.get("id"): bld for bld in BuildingDB.get_all_buildings(include_disabled=True)}
             for record in AgentDeletionDB.list_active_records():
                 agent_id = record.get("agent_id")
-                has_orders = False
-                if agent_id:
-                    with get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT COUNT(*) FROM orders WHERE agent_id = ?", (agent_id,))
-                        order_count = cursor.fetchone()[0]
-                        has_orders = order_count > 0
+                deleted_at_raw = record.get("deleted_at")
+                deleted_at_timestamp = None
+                if deleted_at_raw:
+                    try:
+                        deleted_at_timestamp = convert_sqlite_timestamp_to_unix(deleted_at_raw, agent_id)
+                    except Exception as exc:
+                        logger.warning(f"转换删除时间失败 {agent_id}: {exc}")
+                agent = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
 
-                if has_orders:
-                    deleted_at_raw = record.get("deleted_at")
-                    deleted_at_timestamp = None
-                    if deleted_at_raw:
-                        try:
-                            deleted_at_timestamp = convert_sqlite_timestamp_to_unix(deleted_at_raw, agent_id)
-                        except Exception as exc:
-                            logger.warning(f"转换删除时间失败 {agent_id}: {exc}")
-
-                    deleted_agents.append(
+                deleted_buildings: List[Dict[str, Any]] = []
+                seen: set = set()
+                for building_id in record.get("building_ids") or []:
+                    if not building_id or building_id in seen:
+                        continue
+                    seen.add(building_id)
+                    building = building_map.get(building_id) or {}
+                    address_id = building.get("address_id")
+                    address = address_map.get(address_id) if address_id else None
+                    deleted_buildings.append(
                         {
-                            "id": agent_id,
-                            "name": record.get("agent_name") or agent_id,
-                            "deleted_at": deleted_at_timestamp,
-                            "address_ids": record.get("address_ids") or [],
-                            "building_ids": record.get("building_ids") or [],
-                            "is_deleted": True,
+                            "address_id": address_id,
+                            "building_id": building_id,
+                            "address_name": address.get("name") if address else None,
+                            "building_name": building.get("name"),
                         }
                     )
+                if not deleted_buildings:
+                    for address_id in record.get("address_ids") or []:
+                        if not address_id or address_id in seen:
+                            continue
+                        seen.add(address_id)
+                        address = address_map.get(address_id)
+                        deleted_buildings.append(
+                            {
+                                "address_id": address_id,
+                                "building_id": None,
+                                "address_name": address.get("name") if address else None,
+                                "building_name": None,
+                            }
+                        )
+
+                deleted_agents.append(
+                    {
+                        "id": agent_id,
+                        "name": record.get("agent_name") or (agent.get("name") if agent else None) or agent_id,
+                        "account": record.get("agent_account") or (agent.get("id") if agent else None),
+                        "agent_id": agent_id,
+                        "deleted_at": deleted_at_timestamp,
+                        "address_ids": record.get("address_ids") or [],
+                        "building_ids": record.get("building_ids") or [],
+                        "buildings": deleted_buildings,
+                        "is_deleted": True,
+                    }
+                )
         return success_response("获取代理列表成功", {"agents": data, "deleted_agents": deleted_agents})
     except Exception as exc:
         logger.error(f"获取代理列表失败: {exc}")
@@ -158,6 +190,8 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
         account = payload.account.strip()
         if not account:
             return error_response("账号不能为空", 400)
+        if not re.fullmatch(r"[A-Za-z0-9]+", account):
+            return error_response("账号只能包含字母或数字", 400)
         if not payload.password or len(payload.password) < 3:
             return error_response("密码至少3位", 400)
         name = payload.name.strip() if payload.name else payload.account
@@ -166,29 +200,14 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
             return error_response("账号已存在", 400)
 
         valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
-        inherited_orders_count = 0
-        if valid_buildings:
-            AgentAssignmentDB.set_agent_buildings(account, valid_buildings)
-            new_assignments = AgentAssignmentDB.get_buildings_for_agent(account)
-            if new_assignments:
-                address_ids = [item.get("address_id") for item in new_assignments]
-                building_ids = [item.get("building_id") for item in new_assignments]
-                inherited_orders_count = AgentDeletionDB.inherit_deleted_agent_orders(address_ids, building_ids, account, name)
-                if inherited_orders_count > 0:
-                    logger.info(f"新代理 {account} 继承了 {inherited_orders_count} 个订单")
-        else:
-            new_assignments = []
-
+        agent = AdminDB.get_admin(account, include_disabled=True, include_deleted=True)
+        agent_id = agent.get("agent_id") if agent else None
+        if valid_buildings and agent_id:
+            AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
         agent = AdminDB.get_admin(account, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(agent)
         data["invalid_buildings"] = invalid_buildings
-        data["inherited_orders_count"] = inherited_orders_count
-
-        message = "代理创建成功"
-        if inherited_orders_count > 0:
-            message = f"代理创建成功，已自动继承相同区域已删除代理的所有数据（订单 {inherited_orders_count} 个及商品、配置、收款码等）"
-
-        return success_response(message, {"agent": data})
+        return success_response("代理创建成功", {"agent": data})
     except Exception as exc:
         logger.error(f"创建代理失败: {exc}")
         return error_response("创建代理失败", 500)
@@ -198,7 +217,7 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
 async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request: Request):
     staff = get_current_super_admin_required_from_cookie(request)
     try:
-        agent = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
+        agent = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
         if not agent or (agent.get("role") or "").lower() != "agent":
             return error_response("代理不存在", 404)
         if agent.get("deleted_at"):
@@ -215,11 +234,24 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
 
         update_fields: Dict[str, Any] = {}
         updated_name = agent.get("name")
+        current_account = agent.get("id")
         if payload.password:
             if len(payload.password) < 3:
                 return error_response("密码至少3位", 400)
             update_fields["password"] = payload.password
             needs_token_reset = True
+        if payload.account:
+            new_account = payload.account.strip()
+            if not new_account:
+                return error_response("账号不能为空", 400)
+            if not re.fullmatch(r"[A-Za-z0-9]+", new_account):
+                return error_response("账号只能包含字母或数字", 400)
+            if new_account != current_account:
+                updated = AdminDB.update_agent_account(agent_id, new_account)
+                if not updated:
+                    return error_response("账号已存在", 400)
+                current_account = new_account
+                needs_token_reset = True
         if payload.name:
             updated_name = payload.name.strip()
             update_fields["name"] = updated_name
@@ -230,41 +262,25 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
                 needs_token_reset = True
 
         if update_fields:
-            updated = AdminDB.update_admin(agent_id, **update_fields)
+            updated = AdminDB.update_admin(current_account, **update_fields)
             if not updated:
                 return error_response("更新代理信息失败", 400)
 
         invalid_buildings: List[str] = []
-        inherited_orders_count = 0
         if payload.building_ids is not None:
             valid_buildings, invalid_buildings = validate_building_ids(payload.building_ids)
             assignments_ok = AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
             if not assignments_ok:
                 return error_response("更新代理负责楼栋失败", 500)
-            fresh_assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
-            if fresh_assignments:
-                address_ids = [item.get("address_id") for item in fresh_assignments]
-                building_ids = [item.get("building_id") for item in fresh_assignments]
-                inherited_orders_count = AgentDeletionDB.inherit_deleted_agent_orders(
-                    address_ids, building_ids, agent_id, updated_name or agent_id
-                )
-                if inherited_orders_count > 0:
-                    logger.info(f"代理 {agent_id} 更新楼栋后继承了 {inherited_orders_count} 个订单")
 
-        if needs_token_reset:
-            AdminDB.bump_token_version(agent_id)
+        if needs_token_reset and current_account:
+            AdminDB.bump_token_version(current_account)
 
-        refreshed = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
+        refreshed = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(refreshed)
         if payload.building_ids is not None:
             data["invalid_buildings"] = invalid_buildings
-            data["inherited_orders_count"] = inherited_orders_count
-
-        message = "代理更新成功"
-        if inherited_orders_count > 0:
-            message = f"代理更新成功，已自动继承相同区域已删除代理的所有数据（订单 {inherited_orders_count} 个及商品、配置、收款码等）"
-
-        return success_response(message, {"agent": data})
+        return success_response("代理更新成功", {"agent": data})
     except Exception as exc:
         logger.error(f"更新代理失败: {exc}")
         return error_response("更新代理失败", 500)
@@ -274,18 +290,18 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
 async def admin_delete_agent(agent_id: str, request: Request):
     staff = get_current_super_admin_required_from_cookie(request)
     try:
-        if agent_id in AdminDB.SAFE_SUPER_ADMINS:
-            return error_response("禁止删除系统管理员", 400)
-        agent = AdminDB.get_admin(agent_id, include_disabled=True, include_deleted=True)
+        agent = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
         if not agent or (agent.get("role") or "").lower() != "agent":
             return error_response("代理不存在", 404)
         assignments = AgentAssignmentDB.get_buildings_for_agent(agent_id)
-        deleted = AdminDB.soft_delete_admin(agent_id)
+        SalesCycleDB.end_latest_cycle("agent", agent_id, force=True)
+        deleted = AdminDB.soft_delete_agent_by_agent_id(agent_id)
         if not deleted:
             return error_response("停用代理失败", 400)
+        AdminDB.archive_agent_account(agent_id, agent.get("id"))
         address_ids = [item.get("address_id") for item in assignments or []]
         building_ids = [item.get("building_id") for item in assignments or []]
-        if not AgentDeletionDB.record_deletion(agent_id, agent.get("name") or agent_id, address_ids, building_ids):
+        if not AgentDeletionDB.record_deletion(agent_id, agent.get("name") or agent_id, agent.get("id"), address_ids, building_ids):
             logger.warning(f"记录代理删除信息失败: {agent_id}")
         if not AgentAssignmentDB.set_agent_buildings(agent_id, []):
             logger.warning(f"清空代理 {agent_id} 的楼栋关联失败")
@@ -316,7 +332,7 @@ async def agent_get_payment_qrs(request: Request):
     if staff.get("role") != "agent":
         return error_response("权限不足", 403)
     try:
-        qrs = PaymentQrDB.get_payment_qrs(staff["id"], "agent", include_disabled=True)
+        qrs = PaymentQrDB.get_payment_qrs(staff.get("agent_id"), "agent", include_disabled=True)
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as exc:
         logger.error(f"获取代理收款码列表失败: {exc}")
@@ -336,7 +352,7 @@ async def admin_create_payment_qr(
         if not file or not file.filename:
             return error_response("请上传图片文件", 400)
 
-        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id, allow_deleted=False)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
 
         allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -381,7 +397,7 @@ async def agent_create_payment_qr(request: Request, name: str = Form(...), file:
 
         timestamp = int(time.time() * 1000)
         safe_name = re.sub(r"[^0-9A-Za-z\u4e00-\u9fa5_-]+", "_", name)
-        filename = f"payment_qr_{staff['id']}_{timestamp}_{safe_name}{ext}"
+        filename = f"payment_qr_{staff.get('agent_id')}_{timestamp}_{safe_name}{ext}"
         target_path = os.path.join(PUBLIC_DIR, filename)
 
         content = await file.read()
@@ -390,7 +406,7 @@ async def agent_create_payment_qr(request: Request, name: str = Form(...), file:
 
         web_path = f"/public/{filename}"
 
-        qr_id = PaymentQrDB.create_payment_qr(staff["id"], "agent", name, web_path)
+        qr_id = PaymentQrDB.create_payment_qr(staff.get("agent_id"), "agent", name, web_path)
         qr = PaymentQrDB.get_payment_qr(qr_id)
 
         return success_response("收款码创建成功", {"payment_qr": qr})
@@ -404,7 +420,7 @@ async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
     """管理员更新收款码。"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id, allow_deleted=False)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
         qr = PaymentQrDB.get_payment_qr(qr_id)
         if not qr or qr["owner_id"] != target_owner_id or qr["owner_type"] != owner_type:
@@ -428,7 +444,7 @@ async def agent_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         return error_response("权限不足", 403)
     try:
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr["owner_id"] != staff["id"] or qr["owner_type"] != "agent":
+        if not qr or qr["owner_id"] != staff.get("agent_id") or qr["owner_type"] != "agent":
             return error_response("收款码不存在或无权限", 404)
 
         if payload.name:
@@ -446,7 +462,7 @@ async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
     """管理员更新收款码启用状态。"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id, allow_deleted=False)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
         qr = PaymentQrDB.get_payment_qr(qr_id)
         if not qr or qr["owner_id"] != target_owner_id or qr["owner_type"] != owner_type:
@@ -473,11 +489,11 @@ async def agent_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         return error_response("权限不足", 403)
     try:
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr["owner_id"] != staff["id"] or qr["owner_type"] != "agent":
+        if not qr or qr["owner_id"] != staff.get("agent_id") or qr["owner_type"] != "agent":
             return error_response("收款码不存在或无权限", 404)
 
         if not payload.is_enabled:
-            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(staff["id"], "agent")
+            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(staff.get("agent_id"), "agent")
             if len(enabled_qrs) <= 1 and qr["is_enabled"] == 1:
                 return error_response("至少需要保留一个启用的收款码", 400)
 
@@ -494,7 +510,7 @@ async def admin_delete_payment_qr(qr_id: str, request: Request, owner_id: Option
     """管理员删除收款码。"""
     staff = get_current_staff_required_from_cookie(request)
     try:
-        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
+        target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id, allow_deleted=False)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
         qr = PaymentQrDB.get_payment_qr(qr_id)
         if not qr or qr["owner_id"] != target_owner_id or qr["owner_type"] != owner_type:
@@ -525,7 +541,7 @@ async def agent_delete_payment_qr(qr_id: str, request: Request):
         return error_response("权限不足", 403)
     try:
         qr = PaymentQrDB.get_payment_qr(qr_id)
-        if not qr or qr["owner_id"] != staff["id"] or qr["owner_type"] != "agent":
+        if not qr or qr["owner_id"] != staff.get("agent_id") or qr["owner_type"] != "agent":
             return error_response("收款码不存在或无权限", 404)
 
         try:
@@ -537,7 +553,7 @@ async def agent_delete_payment_qr(qr_id: str, request: Request):
             logger.warning(f"删除收款码文件失败: {exc}")
 
         PaymentQrDB.delete_payment_qr(qr_id)
-        PaymentQrDB.ensure_at_least_one_enabled(staff["id"], "agent")
+        PaymentQrDB.ensure_at_least_one_enabled(staff.get("agent_id"), "agent")
 
         return success_response("收款码删除成功")
     except Exception as exc:
@@ -594,7 +610,7 @@ async def get_payment_qr(address_id: str = None, building_id: str = None, reques
 
         if not qr:
             if qr_owner_type == "agent":
-                agent = AdminDB.get_admin(qr_owner_id)
+                agent = AdminDB.get_admin_by_agent_id(qr_owner_id, include_disabled=True, include_deleted=True)
                 if agent and agent.get("payment_qr_path"):
                     return success_response(
                         "获取收款码成功",

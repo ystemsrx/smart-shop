@@ -215,7 +215,7 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
 
     staff = get_current_staff_from_cookie(request)
     if staff and staff.get('type') == 'agent':
-        staff_agent_id = staff.get('id')
+        staff_agent_id = staff.get('agent_id')
         owner_ids = [staff_agent_id] if staff_agent_id else None
         return {
             "agent_id": staff_agent_id,

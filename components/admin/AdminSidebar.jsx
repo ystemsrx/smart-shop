@@ -238,8 +238,9 @@ export function AdminSidebar({
   const currentSelection = selectedAgentId || 'self';
   const resolvedAgent = agentOptions.find((a) => a.id === currentSelection) || agentOptions[0];
   const roleLabel = role === 'admin' && currentSelection !== 'self' ? 'Agent' : (role === 'admin' ? 'Admin' : 'Agent');
-  const resolvedAgentName = resolvedAgent?.name || userName || (role === 'admin' ? 'Admin' : '');
+  const resolvedAgentName = resolvedAgent?.name || resolvedAgent?.account || userName || (role === 'admin' ? 'Admin' : '');
   const headerDisplayName = formatHeaderName(resolvedAgentName);
+  const isDeletedSelection = !!resolvedAgent?.isDeleted;
 
   const handleAgentClick = (agentId) => {
     if (!canSwitchAgent || switchDisabled) return;
@@ -286,7 +287,7 @@ export function AdminSidebar({
             </div>
             
             <div className="ml-2.5 flex-1 min-w-0 overflow-hidden">
-              <div className="text-sm font-semibold text-gray-900 truncate" title={resolvedAgentName || roleLabel}>
+              <div className={`text-sm font-semibold truncate ${isDeletedSelection ? 'text-gray-400 line-through' : 'text-gray-900'}`} title={resolvedAgentName || roleLabel}>
                 {headerDisplayName || roleLabel}
               </div>
               <div className="text-xs text-gray-500 truncate">
@@ -330,10 +331,10 @@ export function AdminSidebar({
               <div className="max-h-72 overflow-y-auto space-y-1 p-2">
                 {agentOptions.map((agent, idx) => {
                   const isActive = agent.id === currentSelection;
-                  const disabled = agent.isDeleted || switchDisabled;
+                  const disabled = switchDisabled;
                   const badgeClass = agent.isDeleted
-                    ? 'bg-gray-200'
-                    : agent.isActive !== false ? 'bg-emerald-500' : 'bg-red-500';
+                    ? 'bg-red-500'
+                    : agent.isActive !== false ? 'bg-emerald-500' : 'bg-yellow-500';
                   const avatarColors = [
                     'from-blue-500 to-indigo-500',
                     'from-emerald-500 to-teal-500',
@@ -341,7 +342,7 @@ export function AdminSidebar({
                     'from-purple-500 to-pink-500'
                   ];
                   const gradient = avatarColors[idx % avatarColors.length];
-                  const baseName = agent.name || agent.id || '';
+                  const baseName = agent.name || agent.account || agent.id || '';
                   const avatarLabel = (baseName || '代').slice(0, 2) || '代';
                   const menuDisplayName = formatMenuName(baseName);
                   return (
@@ -361,7 +362,7 @@ export function AdminSidebar({
                           {avatarLabel}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold" title={baseName}>
+                          <div className={`text-sm font-semibold ${agent.isDeleted ? 'text-gray-400 line-through' : ''}`} title={baseName}>
                             {menuDisplayName}
                           </div>
                         </div>

@@ -469,7 +469,7 @@ export default function Orders() {
                       <div className="flex flex-wrap items-center justify-between gap-y-3 gap-x-4 mb-5">
                         <div className="flex items-center gap-2 sm:gap-3">
                           <StatusBadge status={us} />
-                          <span className="text-xs text-gray-400 font-mono tracking-wide">#{o.id.replace('order_', '')}</span>
+                          <span className="text-xs text-gray-400 font-mono tracking-wide">#{o.id.replace(/^order_/, '').slice(-8)}</span>
                           {Boolean(o.is_reservation) && (
                             <span className="px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 text-[10px] font-medium border border-blue-100">
                               预约

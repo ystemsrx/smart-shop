@@ -368,7 +368,7 @@ class AuthManager:
         account_type = 'admin' if role in ('admin', 'super_admin') else 'agent'
 
         if account_type == 'agent':
-            assignments = AgentAssignmentDB.get_buildings_for_agent(admin_id)
+            assignments = AgentAssignmentDB.get_buildings_for_agent(admin.get('agent_id'))
             if not assignments:
                 raise AuthError("地址不存在，请联系管理员")
             has_valid_assignment = False
@@ -395,12 +395,14 @@ class AuthManager:
             "type": account_type,
             "name": admin['name'],
             "role": role,
-            "token_version": token_version
+            "token_version": token_version,
+            "agent_id": admin.get("agent_id")
         }
         access_token = AuthManager.create_access_token(token_data)
 
         account_payload = {
             "id": admin['id'],
+            "agent_id": admin.get("agent_id"),
             "name": admin['name'],
             "role": role,
             "type": account_type,
@@ -535,7 +537,7 @@ def _load_staff_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict
         return None
 
     if expected_type == 'agent':
-        assignments = AgentAssignmentDB.get_buildings_for_agent(admin_id)
+        assignments = AgentAssignmentDB.get_buildings_for_agent(admin.get("agent_id"))
         has_active_assignment = False
         for assignment in assignments or []:
             addr_flag = str(assignment.get('address_enabled', 1)).strip().lower()
@@ -552,6 +554,7 @@ def _load_staff_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict
 
     return {
         "id": admin.get('id'),
+        "agent_id": admin.get("agent_id"),
         "name": admin.get('name'),
         "role": admin.get('role'),
         "type": expected_type,

@@ -1301,19 +1301,28 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const truncateNameForButton = (name) => {
-    if (!name) return '';
-    return name.length > 5 ? name.substring(0, 4) + '...' : name;
-  };
-
   const truncateNameForDropdown = (name) => {
     if (!name) return '';
     return name.length > 6 ? name.substring(0, 5) + '...' : name;
   };
 
-  const selectedLabel = selectedId === 'admin' 
-    ? '自营' 
-    : truncateNameForButton(options.find(a => a.id === selectedId)?.name || selectedId);
+  const isAgentDeleted = (agent) => !!(agent?.isDeleted || agent?.is_deleted);
+
+  const formatAgentLocation = (agent) => {
+    const buildings = Array.isArray(agent?.buildings) ? agent.buildings : [];
+    const primary = buildings.find((item) => item?.address_name || item?.building_name);
+    if (!primary) return '';
+    const addressName = (primary.address_name || '').trim();
+    const buildingName = (primary.building_name || '').trim();
+    if (!addressName && !buildingName) return '';
+    const safeAddress = addressName || '未知园区';
+    const safeBuilding = buildingName || '未知楼栋';
+    return `${safeAddress} · ${safeBuilding}`;
+  };
+
+  const selectedAgent = options.find(a => a.id === selectedId);
+  const selectedBaseName = selectedAgent?.account || selectedAgent?.name || '代理';
+  const selectedIsDeleted = isAgentDeleted(selectedAgent);
 
   return (
     <div className="relative z-20" ref={containerRef}>
@@ -1329,7 +1338,23 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
       >
         <div className="flex flex-col items-start text-left">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">当前查看</span>
-          <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors max-w-[120px] truncate">{selectedLabel}</span>
+          <span
+            className={`text-sm font-bold transition-colors max-w-[120px] truncate ${
+              selectedId === 'admin'
+                ? 'text-slate-700'
+                : selectedIsDeleted
+                  ? 'text-slate-400'
+                  : 'text-slate-700 group-hover:text-indigo-600'
+            }`}
+          >
+            {selectedId === 'admin' ? (
+              '自营'
+            ) : (
+              <>
+                <span className={selectedIsDeleted ? 'line-through' : ''}>{selectedBaseName}</span>
+              </>
+            )}
+          </span>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -1379,7 +1404,11 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
                 
                 {options.length > 0 && <div className="h-px bg-slate-100 my-2 mx-2"></div>}
                 
-                {options.map((agent) => (
+                {options.map((agent) => {
+                  const isDeleted = isAgentDeleted(agent);
+                  const isInactive = agent?.is_active === false || agent?.is_active === 0;
+                  const location = formatAgentLocation(agent);
+                  return (
                   <motion.button
                     key={agent.id}
                     whileTap={{ scale: 0.95 }}
@@ -1391,18 +1420,26 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
                       selectedId === agent.id ? 'bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100' : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-50'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 w-full">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center ${selectedId === agent.id ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
                         <Users size={14} />
                       </div>
                       <div className="flex flex-col">
-                        <span className="truncate">{truncateNameForDropdown(agent.name || agent.id)}</span>
-                        <span className="text-[10px] text-slate-400 font-normal">ID: {agent.id}</span>
+                        <span className={`truncate ${isDeleted ? 'text-slate-400 line-through' : ''}`}>
+                          {truncateNameForDropdown(agent.name || agent.account || agent.id)}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {location ? `${agent.account || agent.name || '—'} (${location})` : (agent.account || agent.name || '—')}
+                        </span>
                       </div>
                     </div>
-                    {selectedId === agent.id && <Check size={16} className="text-indigo-600" />}
+                    <div className="flex items-center gap-2 ml-auto">
+                      {isDeleted && <span className="w-2 h-2 rounded-full bg-red-500" />}
+                      {!isDeleted && isInactive && <span className="w-2 h-2 rounded-full bg-yellow-500" />}
+                      {selectedId === agent.id && <Check size={16} className="text-indigo-600" />}
+                    </div>
                   </motion.button>
-                ))}
+                )})}
             </div>
           </motion.div>
         )}
@@ -1434,7 +1471,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const [timePeriod, setTimePeriod] = useState('week');
   const [customersData, setCustomersData] = useState({ customers: [], total: 0, currentPage: 0, hasMore: false });
   const [customersLoading, setCustomersLoading] = useState(false);
-  const [cycleData, setCycleData] = useState({ cycles: [], active_cycle_id: null, latest_cycle_id: null, locked: false });
+  const customersRequestIdRef = useRef(0);
+  const [cycleData, setCycleData] = useState({ cycles: [], active_cycle_id: null, latest_cycle_id: null, locked: false, is_deleted: false });
   const [cycleLoading, setCycleLoading] = useState(false);
   const [cycleActionLoading, setCycleActionLoading] = useState(false);
   const [selectedCycleId, setSelectedCycleId] = useState(null);
@@ -1468,12 +1506,13 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     agentRequestIdRef.current = requestId;
     setAgentLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/agents?include_inactive=true`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/admin/agents?include_inactive=true&include_deleted=true`, { credentials: 'include' });
       const json = await res.json();
       if (agentRequestIdRef.current !== requestId) return;
       if (json.success) {
         const agentsList = Array.isArray(json.data?.agents) ? json.data.agents : Array.isArray(json.data) ? json.data : [];
-        setAgentOptions(agentsList);
+        const deletedList = Array.isArray(json.data?.deleted_agents) ? json.data.deleted_agents : [];
+        setAgentOptions([...agentsList, ...deletedList]);
       } else {
         setAgentOptions([]);
       }
@@ -1495,7 +1534,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       cycles,
       active_cycle_id: payload?.active_cycle_id || null,
       latest_cycle_id: payload?.latest_cycle_id || null,
-      locked: !!payload?.locked
+      locked: !!payload?.locked,
+      is_deleted: !!payload?.is_deleted
     });
     setSelectedCycleId((prev) => {
       if (prev && cycles.some((cycle) => cycle.id === prev)) {
@@ -1600,7 +1640,16 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   };
 
   const loadCustomersData = async (page = 0) => {
+    const requestId = customersRequestIdRef.current + 1;
+    customersRequestIdRef.current = requestId;
     setCustomersLoading(true);
+    if (cycleMode && !selectedCycleId) {
+      if (customersRequestIdRef.current === requestId) {
+        setCustomersData({ customers: [], total: 0, currentPage: 0, hasMore: false });
+        setCustomersLoading(false);
+      }
+      return;
+    }
     try {
       const offset = page * 5;
       const params = new URLSearchParams({
@@ -1612,9 +1661,16 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       }
       if (cycleMode && selectedCycleId) {
         params.append('cycle_id', selectedCycleId);
+        if (selectedCycle?.start_time) {
+          params.append('cycle_start', selectedCycle.start_time);
+        }
+        if (selectedCycle?.end_time) {
+          params.append('cycle_end', selectedCycle.end_time);
+        }
       }
       const res = await fetch(`${API_BASE}/admin/customers?${params.toString()}`, { credentials: 'include' });
       const json = await res.json();
+      if (customersRequestIdRef.current !== requestId) return;
       if (json.success) {
         setCustomersData({
           customers: json.data?.customers || [],
@@ -1622,12 +1678,19 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           currentPage: page,
           hasMore: json.data?.has_more || false
         });
+      } else {
+        setCustomersData({ customers: [], total: 0, currentPage: page, hasMore: false });
       }
-  } catch (error) {
-    console.error('Customer data error:', error);
-  } finally {
-    setCustomersLoading(false);
-  }
+    } catch (error) {
+      if (customersRequestIdRef.current === requestId) {
+        setCustomersData({ customers: [], total: 0, currentPage: page, hasMore: false });
+      }
+      console.error('Customer data error:', error);
+    } finally {
+      if (customersRequestIdRef.current === requestId) {
+        setCustomersLoading(false);
+      }
+    }
   };
 
   const handleCycleSelect = useCallback((cycleId) => {
@@ -1693,7 +1756,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const selectedCycleRange = selectedCycle ? buildCycleRangeLabel(selectedCycle) : '';
   const selectedCycleStatus = selectedCycle?.end_time ? '已结束' : '进行中';
   const hasActiveCycle = !!cycleData.active_cycle_id;
-  const cycleActionDisabled = cycleLoading || cycleActionLoading;
+  const cycleActionDisabled = cycleLoading || cycleActionLoading || cycleData.is_deleted;
   const pageTitle = isAdmin ? `管理仪表盘 - ${SHOP_NAME}` : `代理仪表盘 - ${SHOP_NAME}`;
 
   // Helper for growth
@@ -1844,9 +1907,9 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                   </div>
                 )}
                 
-                {cycleData.locked && !hasActiveCycle && (
-                  <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
-                    待开启
+                {cycleData.is_deleted && (
+                  <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-red-50 text-red-600">
+                    已删除
                   </span>
                 )}
               </div>

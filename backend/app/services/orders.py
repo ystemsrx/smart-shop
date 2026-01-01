@@ -23,7 +23,7 @@ def resolve_staff_order_scope(
 
     if staff.get("type") == "agent":
         return (
-            staff.get("id"),
+            staff.get("agent_id"),
             selected_address_ids,
             selected_building_ids,
             None,
@@ -58,7 +58,7 @@ def resolve_staff_order_scope(
             "self",
         )
 
-    target = AdminDB.get_admin(filter_value, include_disabled=True, include_deleted=True)
+    target = AdminDB.get_admin_by_agent_id(filter_value, include_disabled=True, include_deleted=True)
     if not target or (target.get("role") or "").lower() != "agent":
         raise HTTPException(status_code=400, detail="指定的代理不存在")
 
@@ -112,10 +112,10 @@ def build_agent_name_map() -> Dict[str, str]:
     mapping: Dict[str, str] = {}
     agents = AdminDB.list_admins(role="agent", include_disabled=True, include_deleted=True)
     for agent in agents:
-        agent_id = agent.get("id")
+        agent_id = agent.get("agent_id")
         if not agent_id:
             continue
-        mapping[agent_id] = agent.get("name") or agent_id
+        mapping[agent_id] = agent.get("name") or agent.get("id") or agent_id
     return mapping
 
 

@@ -104,6 +104,7 @@ class AgentCreateRequest(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
+    account: Optional[str] = None
     password: Optional[str] = None
     name: Optional[str] = None
     building_ids: Optional[List[str]] = None

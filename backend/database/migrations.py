@@ -1,10 +1,11 @@
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Set
 
 from .config import logger, settings
 from .connection import get_db_connection
@@ -188,6 +189,187 @@ def ensure_user_id_schema(conn) -> None:
     _ensure_reference('coupons', 'student_id', allow_null=False)
     _ensure_reference('lottery_draws', 'student_id', allow_null=False)
     _ensure_reference('user_rewards', 'student_id', allow_null=False)
+
+
+def ensure_agent_id_schema(conn) -> Dict[str, str]:
+    """为代理账号生成稳定的 agent_id，并迁移所有相关表的 agent 引用。"""
+    cursor = conn.cursor()
+    ensure_table_columns(conn, 'admins', {
+        'agent_id': 'TEXT'
+    })
+    try:
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_agent_id ON admins(agent_id)')
+    except sqlite3.OperationalError as exc:
+        logger.warning("创建 admins.agent_id 索引失败: %s", exc)
+
+    def _row_value(row: Any, key: str, index: int) -> Any:
+        if isinstance(row, sqlite3.Row):
+            try:
+                return row[key]
+            except Exception:
+                return row[index] if len(row) > index else None
+        if isinstance(row, dict):
+            return row.get(key)
+        try:
+            return row[index]
+        except Exception:
+            return None
+
+    cursor.execute("SELECT id, agent_id, role, created_at FROM admins")
+    rows = cursor.fetchall() or []
+    if not rows:
+        return {}
+
+    mapping: Dict[str, str] = {}
+    existing_agent_ids: Set[str] = set()
+    duplicate_agent_ids: Set[str] = set()
+    def _parse_created_at(value: Any) -> Optional[int]:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            trimmed = value.strip()
+            if not trimmed:
+                return None
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    dt = datetime.strptime(trimmed, fmt).replace(tzinfo=timezone.utc)
+                    break
+                except ValueError:
+                    dt = None
+            if dt is None:
+                try:
+                    normalized = trimmed.replace("T", " ").replace("Z", "")
+                    dt = datetime.fromisoformat(normalized)
+                except Exception:
+                    return None
+        else:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return int(dt.timestamp())
+
+    def _generate_agent_id_from_created_at(created_at_value: Any) -> str:
+        ts = _parse_created_at(created_at_value)
+        if ts is not None:
+            candidate = f"agent_{ts}"
+            while candidate in existing_agent_ids:
+                ts += 1
+                candidate = f"agent_{ts}"
+            return candidate
+        candidate = f"agent_{uuid.uuid4().hex[:16]}"
+        while candidate in existing_agent_ids:
+            candidate = f"agent_{uuid.uuid4().hex[:16]}"
+        return candidate
+
+    for row in rows:
+        role = (_row_value(row, "role", 2) or "").lower()
+        if role != "agent":
+            continue
+        agent_id = _row_value(row, "agent_id", 1)
+        if not agent_id:
+            continue
+        if agent_id in existing_agent_ids:
+            duplicate_agent_ids.add(agent_id)
+        existing_agent_ids.add(agent_id)
+
+    for row in rows:
+        role = (_row_value(row, "role", 2) or "").lower()
+        if role != "agent":
+            continue
+        account_id = _row_value(row, "id", 0)
+        agent_id = _row_value(row, "agent_id", 1)
+        created_at = _row_value(row, "created_at", 3)
+        if not agent_id or agent_id in duplicate_agent_ids:
+            agent_id = _generate_agent_id_from_created_at(created_at)
+            cursor.execute("UPDATE admins SET agent_id = ? WHERE id = ?", (agent_id, account_id))
+            existing_agent_ids.add(agent_id)
+        mapping[account_id] = agent_id
+
+    if not mapping:
+        conn.commit()
+        return {}
+
+    def _migrate_column(
+        table: str,
+        column: str,
+        where_clause: Optional[str] = None,
+        extra_params: Optional[List[Any]] = None,
+    ) -> int:
+        updated = 0
+        for account_id, agent_id in mapping.items():
+            params: List[Any] = [agent_id, account_id]
+            where_sql = f"{column} = ?"
+            if where_clause:
+                where_sql = f"{where_sql} AND {where_clause}"
+                if extra_params:
+                    params.extend(extra_params)
+            try:
+                cursor.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE {where_sql}",
+                    tuple(params),
+                )
+                updated += cursor.rowcount
+            except sqlite3.OperationalError:
+                break
+        return updated
+
+    _migrate_column("agent_buildings", "agent_id")
+    _migrate_column("agent_status", "agent_id")
+    _migrate_column("agent_deletions", "agent_id")
+    _migrate_column("agent_deletions", "replacement_agent_id")
+    _migrate_column("orders", "agent_id")
+    _migrate_column("user_profiles", "agent_id")
+    _migrate_column("products", "owner_id")
+    _migrate_column("settings", "owner_id")
+    _migrate_column("payment_qr_codes", "owner_id", "owner_type = 'agent'")
+    _migrate_column("coupons", "owner_id")
+    _migrate_column("lottery_prizes", "owner_id")
+    _migrate_column("auto_gift_items", "owner_id")
+    _migrate_column("gift_thresholds", "owner_id")
+    _migrate_column("delivery_settings", "owner_id")
+    _migrate_column("lottery_draws", "owner_id")
+    _migrate_column("user_rewards", "owner_id")
+    _migrate_column("lottery_configs", "owner_id")
+    _migrate_column("sales_cycles", "owner_id", "owner_type = 'agent'")
+    _migrate_column("order_exports", "owner_id", "role = 'agent'")
+    _migrate_column("order_exports", "agent_filter")
+
+    for account_id, agent_id in mapping.items():
+        try:
+            cursor.execute(
+                "UPDATE agent_status SET id = ? WHERE agent_id = ?",
+                (f"agent_status_{agent_id}", agent_id),
+            )
+        except sqlite3.OperationalError:
+            break
+
+    try:
+        cursor.execute("SELECT id, shipping_info FROM orders WHERE shipping_info IS NOT NULL AND TRIM(shipping_info) != ''")
+        order_rows = cursor.fetchall() or []
+        for row in order_rows:
+            order_id = _row_value(row, "id", 0)
+            try:
+                shipping_info = json.loads(_row_value(row, "shipping_info", 1))
+            except Exception:
+                continue
+            if not isinstance(shipping_info, dict):
+                continue
+            original_agent = shipping_info.get("agent_id")
+            if original_agent and original_agent in mapping:
+                shipping_info["agent_id"] = mapping[original_agent]
+                cursor.execute(
+                    "UPDATE orders SET shipping_info = ? WHERE id = ?",
+                    (json.dumps(shipping_info, ensure_ascii=False), order_id),
+                )
+    except sqlite3.OperationalError:
+        pass
+
+    conn.commit()
+    return mapping
 
 
 def ensure_admin_accounts(conn) -> None:
@@ -479,7 +661,8 @@ def auto_migrate_database(conn) -> None:
             'is_active': 'INTEGER DEFAULT 1',
             'token_version': 'INTEGER DEFAULT 0',
             'updated_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
-            'deleted_at': 'TIMESTAMP'
+            'deleted_at': 'TIMESTAMP',
+            'agent_id': 'TEXT'
         },
         'products': {
             'is_active': 'INTEGER DEFAULT 1',
@@ -534,6 +717,9 @@ def auto_migrate_database(conn) -> None:
         },
         'agent_status': {
             'allow_reservation': 'INTEGER DEFAULT 0'
+        },
+        'agent_deletions': {
+            'agent_account': 'TEXT'
         },
         'chat_logs': {
             'thread_id': 'TEXT',
@@ -628,6 +814,11 @@ def auto_migrate_database(conn) -> None:
     except Exception as exc:
         logger.warning("回填抽奖归属失败: %s", exc)
 
+    try:
+        ensure_agent_id_schema(conn)
+    except Exception as exc:
+        logger.warning("迁移代理 agent_id 失败: %s", exc)
+
 
 def migrate_passwords_to_hash():
     """
@@ -713,6 +904,11 @@ def migrate_image_paths(items_dir: str) -> None:
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        try:
+            agent_mapping = ensure_agent_id_schema(conn)
+        except Exception as exc:
+            logger.warning("读取代理映射失败: %s", exc)
+            agent_mapping = {}
 
         # 检查是否有需要迁移的图片
         cursor.execute("""
@@ -735,7 +931,23 @@ def migrate_image_paths(items_dir: str) -> None:
         for row in products_to_migrate:
             product_id = row[0]
             old_img_path = row[1]
-            owner_id = row[2] or "admin"
+            raw_owner_id = row[2] or "admin"
+            owner_id = raw_owner_id.strip() if isinstance(raw_owner_id, str) else str(raw_owner_id or "admin")
+
+            rel_path = str(old_img_path or "").lstrip("/\\")
+            if rel_path.startswith("items/"):
+                rel_path = rel_path[6:]
+            path_owner = rel_path.split("/", 1)[0] if rel_path else None
+
+            if owner_id in agent_mapping:
+                owner_id = agent_mapping[owner_id]
+            if (not owner_id or owner_id == "admin") and path_owner:
+                if path_owner in agent_mapping:
+                    owner_id = agent_mapping[path_owner]
+                elif path_owner == "admin" or path_owner.startswith("agent_"):
+                    owner_id = path_owner
+            if not owner_id:
+                owner_id = "admin"
 
             # 检查是否已经是新格式（只有 hash）
             if old_img_path and not old_img_path.startswith("items/") and len(old_img_path) == 12:
@@ -755,10 +967,6 @@ def migrate_image_paths(items_dir: str) -> None:
             try:
                 # 构建旧文件的完整路径
                 # old_img_path 可能是 "items/分类/xxx.webp" 或 "/items/分类/xxx.webp"
-                rel_path = old_img_path.lstrip("/\\")
-                if rel_path.startswith("items/"):
-                    rel_path = rel_path[6:]  # 去掉 "items/" 前缀
-
                 old_file_path = os.path.normpath(os.path.join(items_dir, rel_path))
 
                 if not os.path.exists(old_file_path):
@@ -823,10 +1031,81 @@ def migrate_image_paths(items_dir: str) -> None:
         except Exception as exc:
             logger.warning("清理空分类目录失败: %s", exc)
 
-        logger.info(
-            "商品图片路径迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
-            migrated_count, skipped_count, failed_count
-        )
+    logger.info(
+        "商品图片路径迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
+        migrated_count, skipped_count, failed_count
+    )
+
+
+def migrate_agent_image_paths(items_dir: str) -> None:
+    """迁移代理相关图片目录名到稳定的 agent_id。"""
+    with get_db_connection() as conn:
+        mapping = ensure_agent_id_schema(conn)
+        if not mapping:
+            return
+        def _row_value(row: Any, key: str, index: int) -> Any:
+            if isinstance(row, sqlite3.Row):
+                try:
+                    return row[key]
+                except Exception:
+                    return row[index] if len(row) > index else None
+            if isinstance(row, dict):
+                return row.get(key)
+            try:
+                return row[index]
+            except Exception:
+                return None
+
+        cursor = conn.cursor()
+        for account_id, agent_id in mapping.items():
+            prefix = f"{account_id}/"
+            cursor.execute(
+                "SELECT hash, physical_path FROM image_lookup WHERE physical_path LIKE ?",
+                (f"{prefix}%",),
+            )
+            rows = cursor.fetchall() or []
+            for row in rows:
+                physical_path = _row_value(row, "physical_path", 1)
+                if not physical_path or not physical_path.startswith(prefix):
+                    continue
+                new_path = f"{agent_id}/{physical_path[len(prefix):]}"
+                cursor.execute(
+                    "UPDATE image_lookup SET physical_path = ? WHERE hash = ?",
+                    (new_path, _row_value(row, "hash", 0)),
+                )
+
+            cursor.execute(
+                "UPDATE products SET img_path = REPLACE(img_path, ?, ?) WHERE img_path LIKE ?",
+                (f"items/{account_id}/", f"items/{agent_id}/", f"items/{account_id}/%"),
+            )
+        conn.commit()
+
+    items_root = os.path.normpath(items_dir)
+    for account_id, agent_id in mapping.items():
+        old_dir = os.path.normpath(os.path.join(items_root, account_id))
+        new_dir = os.path.normpath(os.path.join(items_root, agent_id))
+        if not os.path.isdir(old_dir):
+            continue
+        if not new_dir.startswith(items_root):
+            continue
+        if not os.path.exists(new_dir):
+            try:
+                shutil.move(old_dir, new_dir)
+            except Exception as exc:
+                logger.warning("迁移代理图片目录失败: %s -> %s (%s)", old_dir, new_dir, exc)
+            continue
+
+        try:
+            for entry in os.listdir(old_dir):
+                src = os.path.join(old_dir, entry)
+                dst = os.path.join(new_dir, entry)
+                if os.path.exists(dst):
+                    continue
+                shutil.move(src, dst)
+            if not os.listdir(old_dir):
+                os.rmdir(old_dir)
+        except Exception as exc:
+            logger.warning("合并代理图片目录失败: %s -> %s (%s)", old_dir, new_dir, exc)
 
 
 def _cleanup_empty_category_dirs(items_dir: str) -> None:

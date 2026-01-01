@@ -32,6 +32,7 @@ export function useProductManagement({
   const [productCategoryFilter, setProductCategoryFilter] = useState('全部');
   const [showOnlyOutOfStock, setShowOnlyOutOfStock] = useState(false);
   const [showOnlyInactive, setShowOnlyInactive] = useState(false);
+  const [showOnlyActive, setShowOnlyActive] = useState(false);
   const [variantStockProduct, setVariantStockProduct] = useState(null);
   const [sortBy, setSortBy] = useState(null);
   const [sortOrder, setSortOrder] = useState('asc');
@@ -886,11 +887,17 @@ export function useProductManagement({
     let result = filteredByCategory.filter((product) => {
       if (showOnlyOutOfStock && !isProductOutOfStock(product)) return false;
       if (showOnlyInactive && !isProductInactive(product)) return false;
+      if (showOnlyActive && isProductInactive(product)) return false;
       return true;
     });
 
     if (sortBy === null) {
       result = [...result].sort((a, b) => {
+        const aActive = !isProductInactive(a);
+        const bActive = !isProductInactive(b);
+        if (aActive !== bActive) {
+          return aActive ? -1 : 1;
+        }
         const aIsHot = Boolean(a.is_hot);
         const bIsHot = Boolean(b.is_hot);
 
@@ -902,6 +909,11 @@ export function useProductManagement({
       });
     } else {
       result = [...result].sort((a, b) => {
+        const aActive = !isProductInactive(a);
+        const bActive = !isProductInactive(b);
+        if (aActive !== bActive) {
+          return aActive ? -1 : 1;
+        }
         let orderResult = 0;
 
         if (sortBy === 'category') {
@@ -925,7 +937,7 @@ export function useProductManagement({
     }
 
     return result;
-  }, [filteredByCategory, showOnlyOutOfStock, showOnlyInactive, sortBy, sortOrder]);
+  }, [filteredByCategory, showOnlyOutOfStock, showOnlyInactive, showOnlyActive, sortBy, sortOrder]);
 
   return {
     stats,
@@ -949,6 +961,8 @@ export function useProductManagement({
     setShowOnlyOutOfStock,
     showOnlyInactive,
     setShowOnlyInactive,
+    showOnlyActive,
+    setShowOnlyActive,
     sortBy,
     sortOrder,
     showInactiveInShop,

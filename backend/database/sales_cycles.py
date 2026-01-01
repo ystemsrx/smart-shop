@@ -40,7 +40,7 @@ class SalesCycleDB:
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT created_at FROM admins WHERE id = ?", (agent_id,))
+                cursor.execute("SELECT created_at FROM admins WHERE agent_id = ?", (agent_id,))
                 row = cursor.fetchone()
                 return row[0] if row and row[0] else None
         except Exception as exc:
@@ -107,6 +107,46 @@ class SalesCycleDB:
             return dict(row) if row else None
 
     @staticmethod
+    def get_cycle_by_id_any(cycle_id: str) -> Optional[Dict[str, Any]]:
+        if not cycle_id:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                SELECT * FROM sales_cycles
+                WHERE id = ?
+                ''',
+                (cycle_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def end_latest_cycle(owner_type: str, owner_id: Optional[str], force: bool = False) -> Optional[Dict[str, Any]]:
+        normalized = SalesCycleDB._normalize_owner(owner_type, owner_id)
+        if not normalized:
+            return None
+        latest = SalesCycleDB.get_latest_cycle(normalized["owner_type"], normalized["owner_id"])
+        if not latest:
+            return None
+        if latest.get("end_time") and not force:
+            return latest
+        end_time = _format_dt(datetime.utcnow())
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                UPDATE sales_cycles
+                SET end_time = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                ''',
+                (end_time, latest["id"]),
+            )
+            conn.commit()
+        return SalesCycleDB.get_cycle_by_id(latest["id"], normalized["owner_type"], normalized["owner_id"])
+
+    @staticmethod
     def resolve_cycle_range(owner_type: str, owner_id: Optional[str], cycle_id: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
         if not cycle_id:
             return None
@@ -116,11 +156,12 @@ class SalesCycleDB:
         return {"start_time": cycle.get("start_time"), "end_time": cycle.get("end_time")}
 
     @staticmethod
-    def list_cycles(owner_type: str, owner_id: Optional[str]) -> List[Dict[str, Any]]:
+    def list_cycles(owner_type: str, owner_id: Optional[str], ensure_default: bool = True) -> List[Dict[str, Any]]:
         normalized = SalesCycleDB._normalize_owner(owner_type, owner_id)
         if not normalized:
             return []
-        SalesCycleDB.ensure_default_cycle(normalized["owner_type"], normalized["owner_id"])
+        if ensure_default:
+            SalesCycleDB.ensure_default_cycle(normalized["owner_type"], normalized["owner_id"])
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -232,11 +273,11 @@ class SalesCycleDB:
         return SalesCycleDB.create_cycle(normalized["owner_type"], normalized["owner_id"])
 
     @staticmethod
-    def is_locked(owner_type: str, owner_id: Optional[str]) -> bool:
+    def is_locked(owner_type: str, owner_id: Optional[str], ensure_default: bool = True) -> bool:
         normalized = SalesCycleDB._normalize_owner(owner_type, owner_id)
         if not normalized:
             return False
-        cycles = SalesCycleDB.list_cycles(normalized["owner_type"], normalized["owner_id"])
+        cycles = SalesCycleDB.list_cycles(normalized["owner_type"], normalized["owner_id"], ensure_default=ensure_default)
         if not cycles:
             return False
         active = SalesCycleDB.get_current_cycle(normalized["owner_type"], normalized["owner_id"])

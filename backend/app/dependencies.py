@@ -34,15 +34,15 @@ def build_staff_scope(staff: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     scope["is_super_admin"] = is_super_admin_role(staff.get("role"))
 
     if staff.get("type") == "agent":
-        assignments = AgentAssignmentDB.get_buildings_for_agent(staff["id"])
+        assignments = AgentAssignmentDB.get_buildings_for_agent(staff.get("agent_id"))
         building_ids = [item["building_id"] for item in assignments if item.get("building_id")]
         address_ids = list({item["address_id"] for item in assignments if item.get("address_id")})
         scope.update(
             {
-                "owner_ids": [staff["id"]],
+                "owner_ids": [staff.get("agent_id")],
                 "address_ids": address_ids,
                 "building_ids": building_ids,
-                "agent_id": staff["id"],
+                "agent_id": staff.get("agent_id"),
             }
         )
     else:
@@ -70,7 +70,7 @@ def get_owner_id_for_staff(staff: Dict[str, Any]) -> Optional[str]:
     if not staff:
         return None
     if staff.get("type") == "agent":
-        return staff.get("id")
+        return staff.get("agent_id")
     return "admin"
 
 
@@ -155,7 +155,7 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
 
     staff = get_current_staff_from_cookie(request)
     if staff and staff.get("type") == "agent":
-        staff_agent_id = staff.get("id")
+        staff_agent_id = staff.get("agent_id")
         owner_ids = [staff_agent_id] if staff_agent_id else None
         return {"agent_id": staff_agent_id, "address_id": None, "building_id": None, "owner_ids": owner_ids}
 
@@ -222,7 +222,7 @@ def staff_can_access_product(staff: Dict[str, Any], product: Optional[Dict[str, 
     if not product:
         return False
     if staff.get("type") == "agent":
-        return product.get("owner_id") == staff.get("id")
+        return product.get("owner_id") == staff.get("agent_id")
     return True
 
 

@@ -59,7 +59,7 @@ async def agent_get_lottery_config(request: Request):
 @router.put("/admin/lottery-config")
 async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         prizes_payload = payload.prizes or []
         saved_ids: List[str] = []
@@ -105,7 +105,7 @@ async def agent_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
 @router.patch("/admin/lottery-config/threshold")
 async def admin_update_lottery_threshold(payload: LotteryThresholdUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         value = LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
         return success_response("抽奖门槛已更新", {"threshold_amount": value})
@@ -133,7 +133,7 @@ async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
 @router.patch("/admin/lottery-config/enabled")
 async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
         return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
@@ -169,7 +169,7 @@ async def admin_get_auto_gifts(request: Request):
 @router.put("/admin/auto-gifts")
 async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         items = payload.items or []
         unique: Set = set()
@@ -370,7 +370,7 @@ async def admin_get_delivery_settings(request: Request, owner_id: Optional[str] 
 @router.post("/admin/delivery-settings")
 async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCreate, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         if payload.delivery_fee < 0:
             return error_response("配送费不能为负数", 400)
@@ -422,7 +422,7 @@ async def agent_create_or_update_delivery_settings(payload: DeliverySettingsCrea
 @router.post("/admin/lottery-prizes")
 async def admin_create_lottery_prize(payload: LotteryPrizeInput, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         prize_id = persist_lottery_prize_from_payload(payload, owner_id)
         prize = next((p for p in LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True) if p.get("id") == prize_id), None)
@@ -452,7 +452,7 @@ async def agent_create_lottery_prize(payload: LotteryPrizeInput, request: Reques
 @router.put("/admin/lottery-prizes/{prize_id}")
 async def admin_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         updated_id = persist_lottery_prize_from_payload(payload, owner_id, override_id=prize_id)
         prize = next((p for p in LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True) if p.get("id") == updated_id), None)
@@ -486,7 +486,7 @@ async def agent_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, 
 @router.delete("/admin/lottery-prizes/{prize_id}")
 async def admin_delete_lottery_prize(prize_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         ok = LotteryDB.delete_prize(prize_id, owner_id)
         if not ok:
@@ -561,7 +561,7 @@ async def agent_get_gift_thresholds(request: Request, include_inactive: bool = F
 @router.post("/admin/gift-thresholds")
 async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         if payload.threshold_amount <= 0:
             return error_response("门槛金额必须大于0", 400)
@@ -643,7 +643,7 @@ async def agent_create_gift_threshold(payload: GiftThresholdCreate, request: Req
 @router.put("/admin/gift-thresholds/{threshold_id}")
 async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdUpdate, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         existing = GiftThresholdDB.get_by_id(threshold_id, owner_id)
         if not existing:
@@ -727,7 +727,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
 @router.delete("/admin/gift-thresholds/{threshold_id}")
 async def admin_delete_gift_threshold(threshold_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         ok = GiftThresholdDB.delete_threshold(threshold_id, owner_id)
         if not ok:

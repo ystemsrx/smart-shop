@@ -63,7 +63,7 @@ async def agent_list_coupons(request: Request, student_id: Optional[str] = None)
 @router.post("/admin/coupons/issue")
 async def admin_issue_coupons(payload: CouponIssueRequest, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         amt = float(payload.amount)
         if amt <= 0:
@@ -127,7 +127,7 @@ async def agent_issue_coupons(payload: CouponIssueRequest, request: Request):
 @router.patch("/admin/coupons/{coupon_id}/revoke")
 async def admin_revoke_coupon(coupon_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         ok = CouponDB.revoke(coupon_id, owner_id)
         if not ok:
@@ -155,7 +155,7 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
 @router.delete("/admin/coupons/{coupon_id}")
 async def admin_delete_coupon(coupon_id: str, request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
-    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
+    owner_id, _ = resolve_single_owner_for_staff(admin, owner_id, allow_deleted=False)
     try:
         ok = CouponDB.permanently_delete_coupon(coupon_id, owner_id)
         if not ok:

@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
@@ -10,6 +11,64 @@ from .security import hash_password, is_password_hashed, verify_password
 
 class AdminDB:
     SAFE_SUPER_ADMINS = {acc.id for acc in settings.admin_accounts if acc.role == 'super_admin'}
+
+    @staticmethod
+    def _generate_agent_id(conn) -> str:
+        cursor = conn.cursor()
+        base_ts = int(time.time())
+        candidate = f"agent_{base_ts}"
+        cursor.execute("SELECT 1 FROM admins WHERE agent_id = ? LIMIT 1", (candidate,))
+        while cursor.fetchone():
+            base_ts += 1
+            candidate = f"agent_{base_ts}"
+            cursor.execute("SELECT 1 FROM admins WHERE agent_id = ? LIMIT 1", (candidate,))
+        return candidate
+
+    @staticmethod
+    def _generate_archived_account(conn, seed: Optional[str] = None) -> str:
+        cursor = conn.cursor()
+        base_ts = int(time.time())
+        base = f"deleted{base_ts}"
+        if seed:
+            seed_clean = ''.join(ch for ch in seed if ch.isalnum())
+            if seed_clean:
+                base = f"{base}{seed_clean}"
+        candidate = base
+        counter = 0
+        cursor.execute("SELECT 1 FROM admins WHERE id = ? LIMIT 1", (candidate,))
+        while cursor.fetchone():
+            counter += 1
+            candidate = f"{base}{counter}"
+            cursor.execute("SELECT 1 FROM admins WHERE id = ? LIMIT 1", (candidate,))
+        return candidate
+
+    @staticmethod
+    def archive_agent_account(agent_id: str, account_id: Optional[str] = None) -> Optional[str]:
+        if not agent_id:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            candidate = AdminDB._generate_archived_account(conn, account_id)
+            params = [candidate, agent_id]
+            where_sql = "agent_id = ?"
+            if account_id:
+                params.append(account_id)
+                where_sql = f"{where_sql} AND id = ?"
+            try:
+                cursor.execute(
+                    f"UPDATE admins SET id = ?, updated_at = CURRENT_TIMESTAMP WHERE {where_sql}",
+                    tuple(params),
+                )
+                if cursor.rowcount <= 0 and account_id:
+                    cursor.execute(
+                        "UPDATE admins SET id = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?",
+                        (candidate, agent_id),
+                    )
+                conn.commit()
+                return candidate if cursor.rowcount > 0 else None
+            except Exception as exc:
+                logger.error("归档代理账号失败: %s", exc)
+                return None
 
     @staticmethod
     def verify_admin(admin_id: str, password: str) -> Optional[Dict]:
@@ -67,6 +126,74 @@ class AdminDB:
                 return None
 
     @staticmethod
+    def get_admin_by_agent_id(
+        agent_id: str,
+        include_disabled: bool = False,
+        include_deleted: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        if not agent_id:
+            return None
+        with get_db_connection() as conn:
+            try:
+                cursor = safe_execute_with_migration(
+                    conn,
+                    'SELECT * FROM admins WHERE agent_id = ?',
+                    (agent_id,),
+                    'admins'
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                data = dict(row)
+                if not include_deleted and data.get('deleted_at'):
+                    return None
+                if not include_disabled:
+                    try:
+                        if int(data.get('is_active', 1) or 1) != 1:
+                            return None
+                    except Exception:
+                        pass
+                return data
+            except Exception as exc:
+                logger.error("获取代理信息失败: %s", exc)
+                return None
+
+    @staticmethod
+    def is_agent_deleted(agent_id: Optional[str]) -> bool:
+        if not agent_id:
+            return False
+        agent = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
+        return bool(agent and agent.get("deleted_at"))
+
+    @staticmethod
+    def get_agent_id_by_account(admin_id: str) -> Optional[str]:
+        if not admin_id:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT agent_id FROM admins WHERE id = ?', (admin_id,))
+                row = cursor.fetchone()
+                return row['agent_id'] if row else None
+            except Exception as exc:
+                logger.error("获取代理 agent_id 失败: %s", exc)
+                return None
+
+    @staticmethod
+    def get_account_by_agent_id(agent_id: str) -> Optional[str]:
+        if not agent_id:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT id FROM admins WHERE agent_id = ?', (agent_id,))
+                row = cursor.fetchone()
+                return row['id'] if row else None
+            except Exception as exc:
+                logger.error("获取代理账号失败: %s", exc)
+                return None
+
+    @staticmethod
     def list_admins(
         role: Optional[str] = None,
         include_disabled: bool = False,
@@ -106,10 +233,19 @@ class AdminDB:
 
         with get_db_connection() as conn:
             try:
+                existing = AdminDB.get_admin(admin_id, include_disabled=True, include_deleted=True)
+                if existing:
+                    if existing.get("deleted_at") and (existing.get("role") or "").lower() == "agent":
+                        AdminDB.archive_agent_account(existing.get("agent_id"), existing.get("id"))
+                    else:
+                        return False
+                agent_id = None
+                if role == 'agent':
+                    agent_id = AdminDB._generate_agent_id(conn)
                 safe_execute_with_migration(conn, '''
-                    INSERT INTO admins (id, password, name, role, payment_qr_path, is_active)
-                    VALUES (?, ?, ?, ?, ?, 1)
-                ''', (admin_id, password, name, role, payment_qr_path), 'admins')
+                    INSERT INTO admins (id, agent_id, password, name, role, payment_qr_path, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
+                ''', (admin_id, agent_id, password, name, role, payment_qr_path), 'admins')
                 conn.commit()
                 return True
             except Exception:
@@ -140,6 +276,26 @@ class AdminDB:
                 return cursor.rowcount > 0
             except Exception as exc:
                 logger.error("更新管理员信息失败: %s", exc)
+                return False
+
+    @staticmethod
+    def update_agent_account(agent_id: str, new_account: str) -> bool:
+        if not agent_id or not new_account:
+            return False
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('SELECT id FROM admins WHERE id = ?', (new_account,))
+                if cursor.fetchone():
+                    return False
+                cursor.execute(
+                    'UPDATE admins SET id = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?',
+                    (new_account, agent_id)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception as exc:
+                logger.error("更新代理账号失败: %s", exc)
                 return False
 
     @staticmethod
@@ -203,6 +359,15 @@ class AdminDB:
                 AdminDB.update_admin(admin_id, deleted_at=timestamp)
             return True
         return False
+
+    @staticmethod
+    def soft_delete_agent_by_agent_id(agent_id: str) -> bool:
+        if not agent_id:
+            return False
+        admin = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
+        if not admin:
+            return False
+        return AdminDB.soft_delete_admin(admin.get("id"))
 
     @staticmethod
     def restore_admin(admin_id: str) -> bool:
@@ -280,14 +445,16 @@ class AgentAssignmentDB:
                     ab.agent_id,
                     ab.address_id,
                     ab.building_id,
+                    a.id AS agent_account,
                     a.name AS agent_name,
                     a.role AS agent_role,
                     a.payment_qr_path,
                     a.is_active,
+                    a.deleted_at,
                     b.name AS building_name,
                     addr.name AS address_name
                 FROM agent_buildings ab
-                JOIN admins a ON a.id = ab.agent_id
+                JOIN admins a ON a.agent_id = ab.agent_id
                 JOIN buildings b ON b.id = ab.building_id
                 LEFT JOIN addresses addr ON addr.id = ab.address_id
                 WHERE ab.building_id = ?
@@ -302,6 +469,8 @@ class AgentAssignmentDB:
                     return None
             except Exception:
                 pass
+            if data.get("deleted_at"):
+                return None
             return data
 
     @staticmethod
@@ -350,7 +519,7 @@ class AgentAssignmentDB:
         agents = AdminDB.list_admins(role='agent', include_disabled=include_disabled)
         result: List[Dict[str, Any]] = []
         for agent in agents:
-            buildings = AgentAssignmentDB.get_buildings_for_agent(agent['id'])
+            buildings = AgentAssignmentDB.get_buildings_for_agent(agent.get('agent_id'))
             entry = dict(agent)
             entry['buildings'] = buildings
             result.append(entry)
@@ -375,6 +544,7 @@ class AgentDeletionDB:
     def record_deletion(
         agent_id: str,
         agent_name: Optional[str],
+        agent_account: Optional[str],
         address_ids: Optional[List[Optional[str]]],
         building_ids: Optional[List[Optional[str]]]
     ) -> bool:
@@ -390,6 +560,7 @@ class AgentDeletionDB:
                     INSERT INTO agent_deletions (
                         agent_id,
                         agent_name,
+                        agent_account,
                         address_ids,
                         building_ids,
                         deleted_at,
@@ -397,11 +568,12 @@ class AgentDeletionDB:
                         replacement_agent_name,
                         replaced_at
                     )
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, NULL, NULL)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, NULL, NULL)
                     ON CONFLICT(agent_id) DO UPDATE SET
                         agent_name = excluded.agent_name,
+                        agent_account = excluded.agent_account,
                         address_ids = excluded.address_ids,
-                        building_ids = excluded.buildings,
+                        building_ids = excluded.building_ids,
                         deleted_at = CURRENT_TIMESTAMP,
                         replacement_agent_id = NULL,
                         replacement_agent_name = NULL,
@@ -410,6 +582,7 @@ class AgentDeletionDB:
                     (
                         agent_id,
                         agent_name or agent_id,
+                        agent_account or None,
                         json.dumps(normalized_addresses, ensure_ascii=False),
                         json.dumps(normalized_buildings, ensure_ascii=False)
                     )
@@ -428,7 +601,7 @@ class AgentDeletionDB:
             try:
                 cursor.execute(
                     '''
-                    SELECT agent_id, agent_name, address_ids, building_ids, deleted_at
+                    SELECT agent_id, agent_name, agent_account, address_ids, building_ids, deleted_at
                     FROM agent_deletions
                     WHERE replaced_at IS NULL
                     ORDER BY deleted_at DESC
@@ -531,194 +704,8 @@ class AgentDeletionDB:
         new_agent_id: str,
         new_agent_name: Optional[str]
     ) -> int:
-        normalized_addresses = set(address_ids or [])
-        normalized_buildings = set(building_ids or [])
-        if not normalized_addresses and not normalized_buildings:
-            return 0
-
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    '''
-                    SELECT agent_id, address_ids, building_ids
-                    FROM agent_deletions
-                    WHERE replaced_at IS NULL
-                    '''
-                )
-                rows = cursor.fetchall() or []
-                total_orders_updated = 0
-                deleted_agents_to_replace = []
-
-                for row in rows:
-                    try:
-                        record_addresses = set(json.loads(row['address_ids'] or '[]'))
-                    except Exception:
-                        record_addresses = set()
-                    try:
-                        record_buildings = set(json.loads(row['building_ids'] or '[]'))
-                    except Exception:
-                        record_buildings = set()
-                    if not record_addresses and not record_buildings:
-                        continue
-
-                    if (normalized_addresses and record_addresses.intersection(normalized_addresses)) or \
-                       (normalized_buildings and record_buildings.intersection(normalized_buildings)):
-                        deleted_agents_to_replace.append(row['agent_id'])
-
-                if deleted_agents_to_replace:
-                    for old_agent_id in deleted_agents_to_replace:
-                        logger.info("开始继承代理 %s 的所有数据到 %s", old_agent_id, new_agent_id)
-
-                        cursor.execute(
-                            'UPDATE orders SET agent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        orders_count = cursor.rowcount
-                        total_orders_updated += orders_count
-                        if orders_count > 0:
-                            logger.info("  - 继承订单: %s 个", orders_count)
-
-                        cursor.execute(
-                            'UPDATE products SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        products_count = cursor.rowcount
-                        if products_count > 0:
-                            logger.info("  - 继承商品: %s 个", products_count)
-
-                        cursor.execute(
-                            'UPDATE payment_qr_codes SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ? AND owner_type = ?',
-                            (new_agent_id, old_agent_id, 'agent')
-                        )
-                        qr_count = cursor.rowcount
-                        if qr_count > 0:
-                            logger.info("  - 继承收款码: %s 个", qr_count)
-
-                        cursor.execute(
-                            'UPDATE settings SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        settings_count = cursor.rowcount
-                        if settings_count > 0:
-                            logger.info("  - 继承配置: %s 条", settings_count)
-
-                        cursor.execute(
-                            'UPDATE lottery_prizes SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        prizes_count = cursor.rowcount
-                        if prizes_count > 0:
-                            logger.info("  - 继承抽奖奖品: %s 个", prizes_count)
-
-                        cursor.execute(
-                            'SELECT * FROM lottery_configs WHERE owner_id = ?',
-                            (old_agent_id,)
-                        )
-                        old_lottery_config = cursor.fetchone()
-                        if old_lottery_config:
-                            cursor.execute('SELECT * FROM lottery_configs WHERE owner_id = ?', (new_agent_id,))
-                            if not cursor.fetchone():
-                                cursor.execute(
-                                    'INSERT INTO lottery_configs (owner_id, threshold_amount, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-                                    (new_agent_id, old_lottery_config['threshold_amount'])
-                                )
-                                logger.info("  - 继承抽奖配置")
-                            cursor.execute('DELETE FROM lottery_configs WHERE owner_id = ?', (old_agent_id,))
-
-                        cursor.execute(
-                            'UPDATE auto_gift_items SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        gifts_count = cursor.rowcount
-                        if gifts_count > 0:
-                            logger.info("  - 继承自动赠品: %s 个", gifts_count)
-
-                        cursor.execute(
-                            'UPDATE gift_thresholds SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        thresholds_count = cursor.rowcount
-                        if thresholds_count > 0:
-                            logger.info("  - 继承满赠阈值: %s 个", thresholds_count)
-
-                        cursor.execute(
-                            'UPDATE delivery_settings SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        delivery_count = cursor.rowcount
-                        if delivery_count > 0:
-                            logger.info("  - 继承配送设置: %s 条", delivery_count)
-
-                        cursor.execute(
-                            'UPDATE coupons SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        coupons_count = cursor.rowcount
-                        if coupons_count > 0:
-                            logger.info("  - 继承优惠券: %s 张", coupons_count)
-
-                        cursor.execute(
-                            'UPDATE lottery_draws SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        draws_count = cursor.rowcount
-                        if draws_count > 0:
-                            logger.info("  - 继承抽奖记录: %s 条", draws_count)
-
-                        cursor.execute(
-                            'UPDATE user_rewards SET owner_id = ? WHERE owner_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        rewards_count = cursor.rowcount
-                        if rewards_count > 0:
-                            logger.info("  - 继承用户奖励: %s 条", rewards_count)
-
-                        cursor.execute(
-                            'SELECT * FROM agent_status WHERE agent_id = ?',
-                            (old_agent_id,)
-                        )
-                        old_status = cursor.fetchone()
-                        if old_status:
-                            cursor.execute('SELECT * FROM agent_status WHERE agent_id = ?', (new_agent_id,))
-                            if not cursor.fetchone():
-                                cursor.execute(
-                                    '''INSERT INTO agent_status
-                                       (id, agent_id, is_open, closed_note, allow_reservation, updated_at, created_at)
-                                       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''',
-                                    (new_agent_id + '_status', new_agent_id, old_status['is_open'],
-                                     old_status.get('closed_note', ''), old_status.get('allow_reservation', 0))
-                                )
-                                logger.info("  - 继承代理状态")
-                            cursor.execute('DELETE FROM agent_status WHERE agent_id = ?', (old_agent_id,))
-
-                        cursor.execute(
-                            'UPDATE user_profiles SET agent_id = ? WHERE agent_id = ?',
-                            (new_agent_id, old_agent_id)
-                        )
-                        profiles_count = cursor.rowcount
-                        if profiles_count > 0:
-                            logger.info("  - 继承用户配置: %s 个", profiles_count)
-
-                        cursor.execute(
-                            '''
-                            UPDATE agent_deletions
-                            SET replacement_agent_id = ?,
-                                replacement_agent_name = ?,
-                                replaced_at = CURRENT_TIMESTAMP
-                            WHERE agent_id = ?
-                            ''',
-                            (new_agent_id, new_agent_name or new_agent_id, old_agent_id)
-                        )
-
-                        logger.info("完成继承代理 %s 的所有数据到 %s", old_agent_id, new_agent_id)
-
-                conn.commit()
-                return total_orders_updated
-            except Exception as exc:
-                logger.error("继承已删除代理数据失败: %s", exc)
-                conn.rollback()
-                return 0
+        logger.info("已删除代理的数据不再自动继承到新代理: %s", new_agent_id)
+        return 0
 
 
 class AgentStatusDB:
@@ -795,14 +782,16 @@ class AgentStatusDB:
             cursor = conn.cursor()
             try:
                 cursor.execute('''
-                    SELECT a.id as agent_id, a.name as agent_name,
+                    SELECT a.agent_id as agent_id, a.id as agent_account, a.name as agent_name,
                            COALESCE(s.is_open, 1) as is_open,
                            COALESCE(s.closed_note, '') as closed_note,
                            COALESCE(s.allow_reservation, 0) as allow_reservation,
                            s.updated_at
                     FROM admins a
-                    LEFT JOIN agent_status s ON a.id = s.agent_id
-                    WHERE a.role = 'agent' AND COALESCE(a.is_active, 1) = 1
+                    LEFT JOIN agent_status s ON a.agent_id = s.agent_id
+                    WHERE a.role = 'agent'
+                      AND COALESCE(a.is_active, 1) = 1
+                      AND (a.deleted_at IS NULL OR a.deleted_at = '')
                     ORDER BY a.name
                 ''')
                 return [dict(row) for row in cursor.fetchall()]
@@ -948,14 +937,20 @@ class PaymentQrDB:
 
             for row in rows:
                 admin_id, admin_name, role, payment_qr_path = row
+                agent_id = None
+                if role == 'agent':
+                    cursor.execute('SELECT agent_id FROM admins WHERE id = ?', (admin_id,))
+                    agent_row = cursor.fetchone()
+                    agent_id = agent_row['agent_id'] if agent_row else None
 
+                owner_id = agent_id or admin_id
                 cursor.execute('SELECT COUNT(*) FROM payment_qr_codes WHERE owner_id = ? AND owner_type = ?',
-                             (admin_id, role))
+                             (owner_id, role))
                 existing_count = cursor.fetchone()[0]
 
                 if existing_count == 0:
                     qr_name = f"{admin_name or admin_id}的收款码"
-                    PaymentQrDB.create_payment_qr(admin_id, role, qr_name, payment_qr_path)
+                    PaymentQrDB.create_payment_qr(owner_id, role, qr_name, payment_qr_path)
                     migrated_count += 1
 
                     logger.info("迁移 %s %s 的收款码: %s", role, admin_id, payment_qr_path)

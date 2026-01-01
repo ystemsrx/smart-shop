@@ -314,8 +314,10 @@ export const ProductTable = ({
   onToggleHot,
   showOnlyOutOfStock,
   showOnlyInactive,
+  showOnlyActive,
   onToggleOutOfStockFilter,
   onToggleInactiveFilter,
+  onToggleActiveFilter,
   operatingProducts,
   sortBy,
   sortOrder,
@@ -402,13 +404,33 @@ export const ProductTable = ({
                 <span>仅缺货</span>
               </label>
               <label className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer hover:text-gray-900 transition-colors">
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showOnlyActive ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white'}`}>
+                  {showOnlyActive && <Check size={10} className="text-white" />}
+                </div>
+                <input
+                  type="checkbox"
+                  checked={showOnlyActive}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (onToggleActiveFilter) onToggleActiveFilter(checked);
+                    if (checked && onToggleInactiveFilter) onToggleInactiveFilter(false);
+                  }}
+                  className="hidden"
+                />
+                <span>仅上架</span>
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer hover:text-gray-900 transition-colors">
                 <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showOnlyInactive ? 'bg-gray-500 border-gray-500' : 'border-gray-300 bg-white'}`}>
                   {showOnlyInactive && <Check size={10} className="text-white" />}
                 </div>
                 <input
                   type="checkbox"
                   checked={showOnlyInactive}
-                  onChange={(e) => onToggleInactiveFilter(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (onToggleInactiveFilter) onToggleInactiveFilter(checked);
+                    if (checked && onToggleActiveFilter) onToggleActiveFilter(false);
+                  }}
                   className="hidden"
                 />
                 <span>仅下架</span>
@@ -2097,8 +2119,10 @@ export const ProductsPanel = ({
   onToggleHot,
   showOnlyOutOfStock,
   showOnlyInactive,
+  showOnlyActive,
   onToggleOutOfStockFilter,
   onToggleInactiveFilter,
+  onToggleActiveFilter,
   operatingProducts,
   sortBy,
   sortOrder,
@@ -2189,8 +2213,10 @@ export const ProductsPanel = ({
         onToggleHot={onToggleHot}
         showOnlyOutOfStock={showOnlyOutOfStock}
         showOnlyInactive={showOnlyInactive}
+        showOnlyActive={showOnlyActive}
         onToggleOutOfStockFilter={onToggleOutOfStockFilter}
         onToggleInactiveFilter={onToggleInactiveFilter}
+        onToggleActiveFilter={onToggleActiveFilter}
         operatingProducts={operatingProducts}
         sortBy={sortBy}
         sortOrder={sortOrder}

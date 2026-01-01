@@ -15,7 +15,8 @@ def expire_agent_tokens_for_address(address_id: str, agent_ids: Optional[List[st
         if not agent_id or agent_id in seen:
             continue
         seen.add(agent_id)
-        if AdminDB.bump_token_version(agent_id):
+        account_id = AdminDB.get_account_by_agent_id(agent_id)
+        if account_id and AdminDB.bump_token_version(account_id):
             expired += 1
     if expired:
         logger.info(f"地址 {address_id} 已使 {expired} 个代理登录状态失效")
@@ -25,7 +26,9 @@ def expire_agent_tokens_for_address(address_id: str, agent_ids: Optional[List[st
 def serialize_agent_account(agent: Dict[str, Any], include_buildings: bool = True) -> Dict[str, Any]:
     """将数据库中的管理员记录转换为前端需要的结构。"""
     data = {
-        "id": agent.get("id"),
+        "id": agent.get("agent_id") or agent.get("id"),
+        "agent_id": agent.get("agent_id"),
+        "account": agent.get("id"),
         "name": agent.get("name"),
         "role": agent.get("role"),
         "type": "agent" if (agent.get("role") or "").lower() == "agent" else "admin",
@@ -36,7 +39,7 @@ def serialize_agent_account(agent: Dict[str, Any], include_buildings: bool = Tru
         "is_deleted": bool(agent.get("deleted_at")),
     }
     if include_buildings:
-        data["buildings"] = AgentAssignmentDB.get_buildings_for_agent(agent.get("id"))
+        data["buildings"] = AgentAssignmentDB.get_buildings_for_agent(agent.get("agent_id"))
     return data
 
 

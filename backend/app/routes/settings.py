@@ -90,8 +90,8 @@ async def get_agent_status(request: Request):
         return error_response("需要代理权限", 403)
 
     try:
-        status = AgentStatusDB.get_agent_status(agent["id"])
-        cycle_locked = SalesCycleDB.is_locked("agent", agent["id"])
+        status = AgentStatusDB.get_agent_status(agent.get("agent_id"))
+        cycle_locked = SalesCycleDB.is_locked("agent", agent.get("agent_id"))
         return success_response(
             "获取代理状态成功",
             {
@@ -114,10 +114,10 @@ async def update_agent_status(payload: AgentStatusUpdateRequest, request: Reques
         return error_response("需要代理权限", 403)
 
     try:
-        if SalesCycleDB.is_locked("agent", agent["id"]):
+        if SalesCycleDB.is_locked("agent", agent.get("agent_id")):
             return error_response("当前周期已结束，请取消结束或开启新周期后再切换营业状态", 400)
         success = AgentStatusDB.update_agent_status(
-            agent["id"], payload.is_open, payload.closed_note or "", bool(payload.allow_reservation)
+            agent.get("agent_id"), payload.is_open, payload.closed_note or "", bool(payload.allow_reservation)
         )
         if success:
             return success_response(

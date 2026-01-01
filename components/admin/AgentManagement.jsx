@@ -176,8 +176,8 @@ export const AgentManagement = ({
                           {agent.name ? agent.name.charAt(0).toUpperCase() : <i className="fas fa-user"></i>}
                         </div>
                         <div>
-                          <h3 className="text-lg font-bold text-gray-900 truncate max-w-[150px]" title={agent.name || agent.id}>
-                            {agent.name || agent.id}
+                          <h3 className="text-lg font-bold text-gray-900 truncate max-w-[150px]" title={agent.name || agent.account || agent.id}>
+                            {agent.name || agent.account || agent.id}
                           </h3>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
@@ -188,7 +188,7 @@ export const AgentManagement = ({
                               <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
                               {isActive ? '在职' : '已停用'}
                             </span>
-                            <span className="text-xs text-gray-400 font-mono">{agent.id}</span>
+                            <span className="text-xs text-gray-500 font-mono">账号: {agent.account || agent.id}</span>
                           </div>
                         </div>
                       </div>
@@ -319,11 +319,10 @@ export const AgentManagement = ({
                         type="text"
                         value={agentForm.account}
                         onChange={(e) => setAgentForm(prev => ({ ...prev, account: e.target.value }))}
-                        disabled={!!editingAgent}
                         placeholder="输入登录账号"
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
                       />
-                      {editingAgent && <p className="text-xs text-gray-400 mt-1.5">账号不可修改</p>}
+                      <p className="text-xs text-gray-400 mt-1.5">仅支持字母或数字</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -566,8 +565,8 @@ export const AgentManagement = ({
                               {index + 1}
                             </div>
                             <div>
-                              <h4 className="font-bold text-gray-900">{agent.name || agent.id}</h4>
-                              <div className="text-xs text-gray-500 font-mono">{agent.id}</div>
+                              <h4 className="font-bold text-gray-900">{agent.name || agent.account || agent.id}</h4>
+                              <div className="text-xs text-gray-500 font-mono">账号: {agent.account || agent.id}</div>
                             </div>
                           </div>
                           <span className="px-2.5 py-1 text-xs font-medium bg-red-50 text-red-600 rounded-lg">

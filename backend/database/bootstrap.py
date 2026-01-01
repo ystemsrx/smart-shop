@@ -118,6 +118,7 @@ def init_database():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS admins (
                 id TEXT PRIMARY KEY,
+                agent_id TEXT,
                 password TEXT NOT NULL,
                 name TEXT NOT NULL,
                 role TEXT DEFAULT 'admin',
@@ -243,7 +244,7 @@ def init_database():
                 address_id TEXT NOT NULL,
                 building_id TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (agent_id) REFERENCES admins(id),
+                FOREIGN KEY (agent_id) REFERENCES admins(agent_id),
                 FOREIGN KEY (address_id) REFERENCES addresses(id),
                 FOREIGN KEY (building_id) REFERENCES buildings(id),
                 UNIQUE(agent_id, building_id),
@@ -255,6 +256,7 @@ def init_database():
             CREATE TABLE IF NOT EXISTS agent_deletions (
                 agent_id TEXT PRIMARY KEY,
                 agent_name TEXT,
+                agent_account TEXT,
                 address_ids TEXT,
                 building_ids TEXT,
                 deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -273,7 +275,7 @@ def init_database():
                 allow_reservation INTEGER DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (agent_id) REFERENCES admins(id),
+                FOREIGN KEY (agent_id) REFERENCES admins(agent_id),
                 UNIQUE(agent_id)
             )
         ''')
@@ -323,9 +325,15 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_agent ON agent_status(agent_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_status_is_open ON agent_status(is_open)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_cycles_owner ON sales_cycles(owner_type, owner_id, start_time)')
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_agent_id ON admins(agent_id)')
 
         try:
             cursor.execute('ALTER TABLE admins ADD COLUMN payment_qr_path TEXT')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE admins ADD COLUMN agent_id TEXT')
         except sqlite3.OperationalError:
             pass
 
@@ -707,8 +715,11 @@ def init_database():
                 migrated_count = 0
                 for row in cursor.fetchall():
                     admin_id, admin_name, role, payment_qr_path = row
+                    cursor.execute('SELECT agent_id FROM admins WHERE id = ?', (admin_id,))
+                    agent_id_row = cursor.fetchone()
+                    agent_id = agent_id_row[0] if agent_id_row else None
 
-                    actual_owner_id = 'admin' if role in ('admin', 'super_admin') else admin_id
+                    actual_owner_id = 'admin' if role in ('admin', 'super_admin') else (agent_id or admin_id)
 
                     cursor.execute('SELECT COUNT(*) FROM payment_qr_codes WHERE owner_id = ? AND owner_type = ?',
                                  (actual_owner_id, role))

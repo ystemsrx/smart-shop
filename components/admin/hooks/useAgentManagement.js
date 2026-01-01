@@ -2,7 +2,13 @@ import { useState } from 'react';
 
 const defaultAgentForm = { account: '', password: '', name: '', building_ids: [], is_active: true };
 
-export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, initialAgentForm = defaultAgentForm }) {
+export function useAgentManagement({
+  apiRequest,
+  isAdmin,
+  setOrderAgentOptions,
+  showToast,
+  initialAgentForm = defaultAgentForm
+}) {
   const [agents, setAgents] = useState([]);
   const [deletedAgents, setDeletedAgents] = useState([]);
   const [agentLoading, setAgentLoading] = useState(false);
@@ -23,7 +29,7 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
     setAgentLoading(true);
     setAgentError('');
     try {
-      const res = await apiRequest('/admin/agents?include_inactive=1');
+      const res = await apiRequest('/admin/agents?include_inactive=1&include_deleted=1');
       const list = (res.data?.agents || []).filter(item => item && !item.is_deleted);
       const deletedList = (res.data?.deleted_agents || []).filter(item => item && item.id);
       setAgents(list);
@@ -32,15 +38,19 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
         .filter(item => item && item.id)
         .map(item => ({
           id: item.id,
-          name: item.name || item.id,
+          name: item.name || item.account || item.id,
           isActive: item.is_active !== false,
-          isDeleted: false
+          isDeleted: false,
+          account: item.account,
+          agent_id: item.agent_id || item.id
         }));
       const normalizedDeleted = deletedList.map(item => ({
         id: item.id,
-        name: `${item.name || item.id}（已删除）`,
+        name: item.name || item.account || item.id,
         isActive: false,
-        isDeleted: true
+        isDeleted: true,
+        account: item.account,
+        agent_id: item.agent_id || item.id
       }));
       setOrderAgentOptions?.([...normalizedActive, ...normalizedDeleted]);
     } catch (e) {
@@ -57,9 +67,9 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
     if (agent) {
       setEditingAgent(agent);
       setAgentForm({
-        account: agent.id,
+        account: agent.account || '',
         password: '',
-        name: agent.name || agent.id,
+        name: agent.name || agent.account || '',
         building_ids: (agent.buildings || []).map(b => b.building_id).filter(Boolean),
         is_active: agent.is_active !== false,
       });
@@ -109,8 +119,10 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
       }
 
       setAgentSaving(true);
+      let response = null;
       if (editingAgent) {
         const body = {
+          account: payload.account.trim(),
           name: payload.name,
           building_ids: payload.building_ids,
           is_active: payload.is_active,
@@ -118,12 +130,12 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
         if (payload.password) {
           body.password = payload.password;
         }
-        await apiRequest(`/admin/agents/${editingAgent.id}`, {
+        response = await apiRequest(`/admin/agents/${editingAgent.id}`, {
           method: 'PUT',
           body: JSON.stringify(body),
         });
       } else {
-        await apiRequest('/admin/agents', {
+        response = await apiRequest('/admin/agents', {
           method: 'POST',
           body: JSON.stringify({
             account: payload.account.trim(),
@@ -133,10 +145,22 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
           })
         });
       }
+      if (response?.success === false) {
+        const message = response.message || '保存代理失败';
+        setAgentError(message);
+        if (!editingAgent && showToast) {
+          showToast(message, 5000);
+        }
+        return;
+      }
       closeAgentModal();
       await loadAgents();
     } catch (e) {
-      setAgentError(e.message || '保存代理失败');
+      const message = e.message || '保存代理失败';
+      setAgentError(message);
+      if (!editingAgent && showToast && message.includes('账号已存在')) {
+        showToast(message, 5000);
+      }
     } finally {
       setAgentSaving(false);
     }
@@ -155,7 +179,7 @@ export function useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, 
   };
 
   const handleAgentDelete = async (agent) => {
-    if (!confirm(`确定停用代理“${agent.name || agent.id}”吗？`)) return;
+    if (!confirm(`确定停用代理“${agent.name || agent.account || agent.id}”吗？`)) return;
     try {
       await apiRequest(`/admin/agents/${agent.id}`, { method: 'DELETE' });
       await loadAgents();

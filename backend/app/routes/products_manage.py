@@ -8,7 +8,7 @@ from auth import (
     get_current_staff_required_from_cookie,
     success_response,
 )
-from database import CategoryDB, OrderDB, ProductDB, UserProfileDB, VariantDB
+from database import AdminDB, CategoryDB, OrderDB, ProductDB, UserProfileDB, VariantDB
 from ..context import logger
 from ..dependencies import build_staff_scope, get_owner_id_for_staff, require_agent_with_scope, staff_can_access_product
 from ..schemas import (
@@ -152,6 +152,15 @@ async def create_product(
     image: Optional[UploadFile] = File(None),
 ):
     staff = get_current_staff_required_from_cookie(request)
+    resolved_owner_id = owner_id
+    if not resolved_owner_id:
+        resolved_owner_id = request.query_params.get("owner_id")
+    if resolved_owner_id:
+        normalized = resolved_owner_id.strip()
+        if not normalized or normalized.lower() in ("self", "admin", "all"):
+            resolved_owner_id = None
+        else:
+            resolved_owner_id = normalized
     return await handle_product_creation(
         staff,
         name=name,
@@ -160,7 +169,7 @@ async def create_product(
         stock=stock,
         description=description,
         cost=cost,
-        owner_id=owner_id,
+        owner_id=resolved_owner_id,
         discount=discount,
         variants=variants,
         image=image,
@@ -432,15 +441,20 @@ async def bulk_update_products(payload: BulkProductUpdateRequest, request: Reque
 
         updated = 0
         not_found: List[str] = []
+        blocked: List[str] = []
         for pid in payload.product_ids:
             p = ProductDB.get_product_by_id(pid)
             if not p:
                 not_found.append(pid)
                 continue
+            owner_id = p.get("owner_id")
+            if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+                blocked.append(pid)
+                continue
             ok = ProductDB.update_product(pid, update_fields)
             if ok:
                 updated += 1
-        return success_response("批量更新完成", {"updated": updated, "not_found": not_found})
+        return success_response("批量更新完成", {"updated": updated, "not_found": not_found, "blocked": blocked})
     except Exception as exc:
         logger.error(f"批量更新商品失败: {exc}")
         return error_response("批量更新商品失败", 500)
@@ -474,12 +488,19 @@ async def delete_products(product_id: str, request: Request, delete_request: Opt
                 return error_response("批量删除数量不能超过100件商品", 400)
 
             allowed_ids: List[str] = []
+            blocked_ids: List[str] = []
             for pid in product_ids:
                 product = ProductDB.get_product_by_id(pid)
                 if product and staff_can_access_product(staff, product):
+                    owner_id = product.get("owner_id")
+                    if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+                        blocked_ids.append(pid)
+                        continue
                     allowed_ids.append(pid)
 
             if not allowed_ids:
+                if blocked_ids:
+                    return error_response("已删除代理的商品不可删除", 400)
                 return error_response("无权删除指定商品", 403)
 
             logger.info(f"工作人员 {staff['id']} 请求批量删除商品: {allowed_ids}")
@@ -487,11 +508,17 @@ async def delete_products(product_id: str, request: Request, delete_request: Opt
             delete_products_images(allowed_ids)
             # 再删除数据库记录
             result = ProductDB.batch_delete_products(allowed_ids)
-            return success_response("批量删除完成", {"deleted": result.get("deleted_count", 0), "not_found": result.get("not_found", [])})
+            return success_response(
+                "批量删除完成",
+                {"deleted": result.get("deleted_count", 0), "not_found": result.get("not_found", []), "blocked": blocked_ids},
+            )
         else:
             product = ProductDB.get_product_by_id(product_id)
             if not product or not staff_can_access_product(staff, product):
                 return error_response("无权删除该商品", 403)
+            owner_id = product.get("owner_id")
+            if owner_id and owner_id != "admin" and AdminDB.is_agent_deleted(owner_id):
+                return error_response("已删除代理的商品不可删除", 400)
             # 先删除图片
             delete_product_image(product_id, product.get("img_path"))
             # 再删除数据库记录
@@ -510,7 +537,7 @@ async def agent_delete_products(product_id: str, request: Request, delete_reques
     agent, _ = require_agent_with_scope(request)
 
     if delete_request and delete_request.product_ids:
-        filtered_ids = [pid for pid in delete_request.product_ids if ProductDB.is_owned_by_agent(pid, agent["id"])]
+        filtered_ids = [pid for pid in delete_request.product_ids if ProductDB.is_owned_by_agent(pid, agent.get("agent_id"))]
         if not filtered_ids:
             return error_response("无权删除指定商品", 403)
         # 先删除图片
@@ -520,7 +547,7 @@ async def agent_delete_products(product_id: str, request: Request, delete_reques
         return success_response("删除成功", {"deleted": result.get("deleted_count", 0)})
     else:
         product = ProductDB.get_product_by_id(product_id)
-        if not product or product.get("owner_id") != agent["id"]:
+        if not product or product.get("owner_id") != agent.get("agent_id"):
             return error_response("无权删除该商品", 403)
 
         # 先删除图片

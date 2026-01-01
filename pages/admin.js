@@ -123,6 +123,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setOrderAgentOptions,
     orderAgentFilterLabel,
     orderAgentNameMap,
+    orderAgentDeletedMap,
     orderCycles,
     orderCycleId,
     setOrderCycleId,
@@ -189,7 +190,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     handleAgentDelete,
     handleAgentQrUpload,
     setShowDeletedAgentsModal,
-  } = useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions });
+  } = useAgentManagement({ apiRequest, isAdmin, setOrderAgentOptions, showToast });
 
   const {
     stats,
@@ -213,6 +214,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setShowOnlyOutOfStock,
     showOnlyInactive,
     setShowOnlyInactive,
+    showOnlyActive,
+    setShowOnlyActive,
     sortBy,
     sortOrder,
     showInactiveInShop,
@@ -264,7 +267,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       .filter((agent) => agent && agent.id)
       .map((agent) => ({
         id: agent.id,
-        name: agent.name || agent.id,
+        name: agent.name || agent.account || agent.id,
         isActive: agent.isActive !== false,
         isDeleted: !!agent.isDeleted,
         note: agent.isDeleted ? '已删除' : (agent.isActive === false ? '停用' : '活跃')
@@ -458,8 +461,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     onToggleHot={handleToggleHot}
                     showOnlyOutOfStock={showOnlyOutOfStock}
                     showOnlyInactive={showOnlyInactive}
+                    showOnlyActive={showOnlyActive}
                     onToggleOutOfStockFilter={setShowOnlyOutOfStock}
                     onToggleInactiveFilter={setShowOnlyInactive}
+                    onToggleActiveFilter={setShowOnlyActive}
                     operatingProducts={operatingProducts}
                     sortBy={sortBy}
                     sortOrder={sortOrder}
@@ -502,6 +507,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     onPrevPage={handlePrevPage}
                     onNextPage={handleNextPage}
                     agentNameMap={orderAgentNameMap}
+                    agentDeletedMap={orderAgentDeletedMap}
                     isSubmitting={isSubmitting}
                     currentUserLabel={currentOwnerLabel}
                     onUpdateUnifiedStatus={handleUpdateUnifiedStatus}

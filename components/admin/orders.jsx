@@ -1028,7 +1028,9 @@ export const OrderDetailsModal = ({ open, onClose, order, renderStatusBadge, for
     ? formatDate(order.created_at_timestamp ?? order.created_at)
     : '';
   const orderIdRaw = order?.id || '-';
-  const orderIdMobile = typeof orderIdRaw === 'string' ? orderIdRaw.replace(/^order_/, '') : orderIdRaw;
+  const orderIdMobile = typeof orderIdRaw === 'string'
+    ? orderIdRaw.replace(/^order_/, '').slice(-8)
+    : orderIdRaw;
   const paymentMethod = order?.payment_method === 'wechat'
     ? '微信支付'
     : (order?.payment_method || '未知');
@@ -1313,6 +1315,7 @@ export const OrderTable = ({
   onPrevPage,
   onNextPage,
   agentNameMap = {},
+  agentDeletedMap = {},
   showAgentInfo = false
 }) => {
   const [viewingOrder, setViewingOrder] = React.useState(null);
@@ -1401,6 +1404,15 @@ export const OrderTable = ({
         ) : null}
       </span>
     );
+  };
+
+  const formatAgentLabel = (value) => {
+    const text = String(value || '');
+    if (!text) return '未分配';
+    if (text.length > 7) {
+      return `${text.slice(0, 6)}...`;
+    }
+    return text;
   };
 
   const allIds = orders.map(o => o.id);
@@ -1619,8 +1631,10 @@ export const OrderTable = ({
                 </td>
               </tr>
             ) : (
-              orders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50/80 transition-colors group">
+              orders.map((order) => {
+                const isAgentDeleted = showAgentInfo && order?.agent_id && agentDeletedMap?.[order.agent_id];
+                return (
+                  <tr key={order.id} className="hover:bg-gray-50/80 transition-colors group">
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <input
                       type="checkbox"
@@ -1631,15 +1645,20 @@ export const OrderTable = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col gap-1 items-center">
-                      <span className="text-sm font-medium text-gray-900 font-mono">{order.id}</span>
+                      <span className="text-sm font-medium text-gray-900 font-mono">
+                        {String(order.id || '').replace(/^order_/, '')}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                           {order.payment_method === 'wechat' ? '微信' : order.payment_method}
                         </span>
                         {showAgentInfo && (
-                          <span className="text-xs text-gray-400" title="代理">
+                          <span
+                            className={`text-xs text-gray-400${isAgentDeleted ? ' line-through' : ''}`}
+                            title={agentNameMap?.[order.agent_id] || order.agent_id || '未分配'}
+                          >
                             <i className="fas fa-user-tie mr-1"></i>
-                            {agentNameMap?.[order.agent_id] || (order.agent_id ? order.agent_id : '未分配')}
+                            {formatAgentLabel(agentNameMap?.[order.agent_id] || order.agent_id)}
                           </span>
                         )}
                       </div>
@@ -1695,11 +1714,12 @@ export const OrderTable = ({
                     </button>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
-        </table>
-      </div>
+          </table>
+        </div>
     </div>
 
       {/* Pagination */}
@@ -1839,7 +1859,7 @@ const ScopeSelectPopover = ({
     if (value === 'self') return `我的订单（${currentUserLabel || '当前账号'}）`;
     if (value === 'all') return '全部订单';
     const agent = options.find(a => a.id === value);
-    return agent ? agent.name : '选择范围';
+    return agent ? (agent.name || agent.account || agent.id) : '选择范围';
   };
 
   return (
@@ -1905,9 +1925,10 @@ const ScopeSelectPopover = ({
                         onClick={() => handleSelect(agent.id)}
                         className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 flex items-center justify-between group ${value === agent.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
                       >
-                        <span className="truncate">
-                          {agent.name}
+                        <span className={`truncate ${agent.isDeleted ? 'text-gray-400 line-through' : ''}`}>
+                          {agent.name || agent.account || agent.id}
                           {(!agent.isActive && !agent.isDeleted) && <span className="text-xs text-red-400 ml-1">(停用)</span>}
+                          {agent.isDeleted && <span className="text-xs text-red-400 ml-1">(已删除)</span>}
                         </span>
                         {value === agent.id && <i className="fas fa-check text-blue-500"></i>}
                       </button>
@@ -2150,6 +2171,7 @@ export const OrdersPanel = ({
   onPrevPage,
   onNextPage,
   agentNameMap,
+  agentDeletedMap,
   isSubmitting,
   currentUserLabel,
   onUpdateUnifiedStatus,
@@ -2338,6 +2360,7 @@ export const OrdersPanel = ({
           onPrevPage={onPrevPage}
           onNextPage={onNextPage}
           agentNameMap={agentNameMap}
+          agentDeletedMap={agentDeletedMap}
           showAgentInfo={isAdmin}
         />
       </>

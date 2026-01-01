@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.responses import FileResponse
 
 from auth import error_response, get_current_staff_required_from_cookie, get_current_user_required_from_cookie, success_response
-from database import AgentStatusDB, CartDB, CouponDB, DeliverySettingsDB, GiftThresholdDB, LotteryConfigDB, LotteryDB, OrderDB, OrderExportDB, ProductDB, RewardDB, SalesCycleDB, SettingsDB, UserProfileDB, VariantDB
+from database import AdminDB, AgentStatusDB, CartDB, CouponDB, DeliverySettingsDB, GiftThresholdDB, LotteryConfigDB, LotteryDB, OrderDB, OrderExportDB, ProductDB, RewardDB, SalesCycleDB, SettingsDB, UserProfileDB, VariantDB
 from ..context import EXPORTS_DIR, logger
 from ..dependencies import build_staff_scope, check_address_and_building, get_owner_id_for_staff, get_owner_id_from_scope, require_agent_with_scope, resolve_shopping_scope, staff_can_access_order
 from ..schemas import OrderCreateRequest, OrderDeleteRequest, OrderExportRequest, OrderStatusUpdateRequest, PaymentStatusUpdateRequest
@@ -496,8 +496,11 @@ async def get_all_orders(
         if cycle_id:
             if (selected_filter or "").lower() == "all":
                 return error_response("全部订单不支持周期筛选", 400)
-            owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
-            owner_id = selected_agent_id if owner_type == "agent" else "admin"
+            owner_type = "agent" if staff.get("type") == "agent" else "admin"
+            owner_id = staff.get("agent_id") if staff.get("type") == "agent" else "admin"
+            if staff.get("type") != "agent":
+                owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
+                owner_id = selected_agent_id if owner_type == "agent" else "admin"
             cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
             if not cycle_range:
                 return error_response("周期不存在", 404)
@@ -652,7 +655,7 @@ async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExpor
 
     if cycle_id:
         owner_type = "agent" if staff.get("type") == "agent" else "admin"
-        owner_id = staff.get("id") if staff.get("type") == "agent" else "admin"
+        owner_id = staff.get("agent_id") if staff.get("type") == "agent" else "admin"
         if staff.get("type") == "admin":
             filter_value = (selected_filter or "").lower()
             if filter_value == "all":
@@ -704,7 +707,9 @@ async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExpor
 
     agent_name_map = build_agent_name_map()
     scope_label = resolve_scope_label(selected_filter, staff, agent_name_map)
-    owner_id = get_owner_id_for_staff(staff) or staff.get("id")
+    owner_id = get_owner_id_for_staff(staff)
+    if not owner_id:
+        return error_response("无法解析归属范围，请重新登录", 401)
     filename = build_export_filename(start_ms, end_ms)
 
     job = OrderExportDB.create_job(
@@ -740,7 +745,9 @@ async def create_export_job_for_staff(staff: Dict[str, Any], payload: OrderExpor
 
 
 async def stream_export_for_staff(request: Request, staff: Dict[str, Any], staff_prefix: str, job_id: str):
-    owner_id = get_owner_id_for_staff(staff) or staff.get("id")
+    owner_id = get_owner_id_for_staff(staff)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="无法解析归属范围")
     job = OrderExportDB.get_job(job_id)
     if not job or job.get("owner_id") != owner_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
@@ -905,7 +912,9 @@ async def stream_export_for_staff(request: Request, staff: Dict[str, Any], staff
 
 
 async def download_export_for_staff(staff: Dict[str, Any], job_id: str, token: Optional[str]):
-    owner_id = get_owner_id_for_staff(staff) or staff.get("id")
+    owner_id = get_owner_id_for_staff(staff)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="无法解析归属范围")
     job = OrderExportDB.get_job(job_id)
     if not job or job.get("owner_id") != owner_id:
         raise HTTPException(status_code=404, detail="导出记录不存在")
@@ -932,7 +941,9 @@ async def download_export_for_staff(staff: Dict[str, Any], job_id: str, token: O
 
 
 async def get_export_history_for_staff(staff: Dict[str, Any], staff_prefix: str):
-    owner_id = get_owner_id_for_staff(staff) or staff.get("id")
+    owner_id = get_owner_id_for_staff(staff)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="无法解析归属范围")
     rows = OrderExportDB.list_jobs_for_owner(owner_id, limit=12)
     history = [serialize_export_job(row, staff_prefix) for row in rows]
     return success_response("获取导出记录成功", {"history": history})
@@ -1001,13 +1012,20 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
             except Exception:
                 orders_before = []
             accessible_ids: List[str] = []
+            blocked_ids: List[str] = []
             for od in orders_before:
                 if not od:
                     continue
                 if not staff_can_access_order(staff, od, scope):
                     return error_response("无权删除部分订单", 403)
+                agent_id = od.get("agent_id")
+                if agent_id and AdminDB.is_agent_deleted(agent_id):
+                    blocked_ids.append(od["id"])
+                    continue
                 accessible_ids.append(od["id"])
             if not accessible_ids:
+                if blocked_ids:
+                    return error_response("已删除代理的订单不可删除", 400)
                 return success_response("未找到可删除的订单", {"deleted_count": 0, "deleted_ids": [], "not_found_ids": ids})
             result = OrderDB.batch_delete_orders(accessible_ids)
             if not result.get("success"):
@@ -1034,12 +1052,15 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                             continue
             except Exception as exc:
                 logger.warning(f"批量删除后处理失败: {exc}")
+            result["blocked_ids"] = blocked_ids
             return success_response(result.get("message", "批量删除成功"), result)
         else:
             try:
                 od = OrderDB.get_order_by_id(order_id)
                 if not staff_can_access_order(staff, od, scope):
                     return error_response("无权删除此订单", 403)
+                if od and od.get("agent_id") and AdminDB.is_agent_deleted(od.get("agent_id")):
+                    return error_response("已删除代理的订单不可删除", 400)
                 if od:
                     payment_status = od.get("payment_status") or "pending"
                     if payment_status == "succeeded":
@@ -1083,6 +1104,8 @@ async def update_order_status(order_id: str, status_request: OrderStatusUpdateRe
         scope = build_staff_scope(staff)
         if not staff_can_access_order(staff, order, scope):
             return error_response("无权操作该订单", 403)
+        if order.get("agent_id") and AdminDB.is_agent_deleted(order.get("agent_id")):
+            return error_response("已删除代理的订单不可修改", 400)
 
         success = OrderDB.update_order_status(order_id, status_request.status)
         if not success:
@@ -1109,12 +1132,24 @@ async def get_order_statistics(request: Request, agent_id: Optional[str] = None)
             resolved_filter,
         ) = resolve_staff_order_scope(staff, scope, agent_id)
 
+        reference_end = None
+        if selected_agent_id:
+            agent_record = AdminDB.get_admin_by_agent_id(selected_agent_id, include_disabled=True, include_deleted=True)
+            if agent_record and agent_record.get("deleted_at"):
+                reference_end = OrderDB.get_last_order_time(
+                    agent_id=selected_agent_id,
+                    address_ids=selected_address_ids,
+                    building_ids=selected_building_ids,
+                    filter_admin_orders=scope.get("filter_admin_orders", False),
+                )
+
         stats = OrderDB.get_order_stats(
             agent_id=selected_agent_id,
             address_ids=selected_address_ids,
             building_ids=selected_building_ids,
             exclude_address_ids=exclude_address_ids,
             exclude_building_ids=exclude_building_ids,
+            reference_end=reference_end,
         )
         stats["scope"] = scope
         stats["selected_agent_filter"] = resolved_filter
@@ -1159,6 +1194,17 @@ async def get_dashboard_statistics(
             else:
                 return error_response("全部订单不支持周期筛选", 400)
 
+        reference_end = None
+        if selected_agent_id:
+            agent_record = AdminDB.get_admin_by_agent_id(selected_agent_id, include_disabled=True, include_deleted=True)
+            if agent_record and agent_record.get("deleted_at"):
+                reference_end = OrderDB.get_last_order_time(
+                    agent_id=selected_agent_id,
+                    address_ids=selected_address_ids,
+                    building_ids=selected_building_ids,
+                    filter_admin_orders=filter_admin_orders,
+                )
+
         stats = OrderDB.get_dashboard_stats(
             period,
             agent_id=selected_agent_id,
@@ -1169,6 +1215,7 @@ async def get_dashboard_statistics(
             top_range_end=range_end,
             cycle_start=cycle_start,
             cycle_end=cycle_end,
+            reference_end=reference_end,
         )
         stats["scope"] = scope
         stats["selected_agent_id"] = selected_agent_id
@@ -1227,6 +1274,8 @@ async def get_customers_with_purchases(
     offset: Optional[int] = 0,
     agent_id: Optional[str] = None,
     cycle_id: Optional[str] = None,
+    cycle_start: Optional[str] = None,
+    cycle_end: Optional[str] = None,
 ):
     """获取购买过商品的客户列表（管理员）。"""
     staff = get_current_staff_required_from_cookie(request)
@@ -1260,18 +1309,45 @@ async def get_customers_with_purchases(
         if selected_filter and selected_filter != "self":
             filter_admin_orders = False
 
-        cycle_start = None
-        cycle_end = None
+        cycle_start_value = None
+        cycle_end_value = None
+        cycle_start_param = cycle_start
+        cycle_end_param = cycle_end
         if cycle_id:
             if (selected_filter or "").lower() == "all":
                 return error_response("全部订单不支持周期筛选", 400)
-            owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
-            owner_id = selected_agent_id if owner_type == "agent" else "admin"
+            owner_type = "agent" if staff.get("type") == "agent" else "admin"
+            owner_id = staff.get("agent_id") if staff.get("type") == "agent" else "admin"
+            if staff.get("type") != "agent":
+                owner_type = "agent" if selected_filter and selected_filter != "self" else "admin"
+                owner_id = selected_agent_id if owner_type == "agent" else "admin"
             cycle_range = SalesCycleDB.resolve_cycle_range(owner_type, owner_id, cycle_id)
             if not cycle_range:
-                return error_response("周期不存在", 404)
-            cycle_start = cycle_range.get("start_time")
-            cycle_end = cycle_range.get("end_time")
+                fallback_cycle = SalesCycleDB.get_cycle_by_id_any(cycle_id)
+                if fallback_cycle:
+                    if staff.get("type") == "agent":
+                        agent_id_value = staff.get("agent_id")
+                        account_id_value = staff.get("id")
+                        owner_matches = (
+                            fallback_cycle.get("owner_type") == "agent"
+                            and fallback_cycle.get("owner_id") in (agent_id_value, account_id_value)
+                        )
+                        if not owner_matches:
+                            fallback_cycle = None
+                if fallback_cycle:
+                    cycle_start_value = fallback_cycle.get("start_time")
+                    cycle_end_value = fallback_cycle.get("end_time")
+                elif cycle_start_param or cycle_end_param:
+                    cycle_start_value = cycle_start_param
+                    cycle_end_value = cycle_end_param
+                else:
+                    return error_response("周期不存在", 404)
+            else:
+                cycle_start_value = cycle_range.get("start_time")
+                cycle_end_value = cycle_range.get("end_time")
+        elif cycle_start_param or cycle_end_param:
+            cycle_start_value = cycle_start_param
+            cycle_end_value = cycle_end_param
 
         customers_data = OrderDB.get_customers_with_purchases(
             limit=limit_val,
@@ -1280,8 +1356,8 @@ async def get_customers_with_purchases(
             address_ids=selected_address_ids,
             building_ids=selected_building_ids,
             filter_admin_orders=filter_admin_orders,
-            cycle_start=cycle_start,
-            cycle_end=cycle_end,
+            cycle_start=cycle_start_value,
+            cycle_end=cycle_end_value,
         )
         customers_data["scope"] = scope
         return success_response("获取客户列表成功", customers_data)
@@ -1508,6 +1584,8 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
         scope = build_staff_scope(staff)
         if not staff_can_access_order(staff, order, scope):
             return error_response("无权操作该订单", 403)
+        if order.get("agent_id") and AdminDB.is_agent_deleted(order.get("agent_id")):
+            return error_response("已删除代理的订单不可修改", 400)
 
         if new_status == "succeeded":
             ok, missing_items = OrderDB.complete_payment_and_update_stock(order_id)

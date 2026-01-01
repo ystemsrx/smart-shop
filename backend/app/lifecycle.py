@@ -15,6 +15,7 @@ from database import (
     get_db_connection,
     init_database,
     migrate_image_paths,
+    migrate_agent_image_paths,
 )
 from .context import EXPORTS_DIR, ITEMS_DIR, logger
 
@@ -262,6 +263,11 @@ async def run_startup_tasks() -> List[asyncio.Task]:
         migrate_image_paths(ITEMS_DIR)
     except Exception as exc:
         logger.warning(f"迁移商品图片路径失败: {exc}")
+
+    try:
+        migrate_agent_image_paths(ITEMS_DIR)
+    except Exception as exc:
+        logger.warning(f"迁移代理图片目录失败: {exc}")
 
     maintenance_tasks: List[asyncio.Task] = []
     maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))

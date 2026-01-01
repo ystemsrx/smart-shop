@@ -45,6 +45,7 @@ export function useOrderManagement({
   const [orderCycleId, setOrderCycleId] = useState('all');
   const [orderCycleLoading, setOrderCycleLoading] = useState(false);
   const [orderCycleLocked, setOrderCycleLocked] = useState(false);
+  const forceCycleAllRef = useRef(false);
 
   const loadOrdersRef = useRef(null);
   const previousOrderSearchRef = useRef(orderSearch);
@@ -57,7 +58,7 @@ export function useOrderManagement({
 
   const resolveCycleOwner = useCallback((agentFilterValue = orderAgentFilter) => {
     if (!isAdmin) {
-      return { ownerType: 'agent', ownerId: user?.id || '', disabled: false };
+      return { ownerType: 'agent', ownerId: user?.agent_id || user?.id || '', disabled: false };
     }
     const raw = (agentFilterValue ?? orderAgentFilter).toString().trim().toLowerCase();
     if (raw === 'all') {
@@ -69,12 +70,16 @@ export function useOrderManagement({
     return { ownerType: 'agent', ownerId: agentFilterValue, disabled: false };
   }, [isAdmin, orderAgentFilter, user]);
 
-  const loadOrderCycles = useCallback(async (agentFilterValue = orderAgentFilter) => {
+  const loadOrderCycles = useCallback(async (agentFilterValue = orderAgentFilter, options = {}) => {
+    const shouldForceAll = options.forceAll || forceCycleAllRef.current;
     const owner = resolveCycleOwner(agentFilterValue);
     if (owner.disabled) {
       setOrderCycles([]);
       setOrderCycleLocked(false);
       setOrderCycleId('all');
+      if (forceCycleAllRef.current) {
+        forceCycleAllRef.current = false;
+      }
       return;
     }
     if (!owner.ownerId) return;
@@ -91,6 +96,9 @@ export function useOrderManagement({
         setOrderCycles(cycles);
         setOrderCycleLocked(!!res.data?.locked);
         setOrderCycleId((prev) => {
+          if (shouldForceAll) {
+            return 'all';
+          }
           if (prev === 'all') {
             return 'all';
           }
@@ -108,6 +116,9 @@ export function useOrderManagement({
       setOrderCycles([]);
       setOrderCycleId('all');
     } finally {
+      if (forceCycleAllRef.current) {
+        forceCycleAllRef.current = false;
+      }
       setOrderCycleLoading(false);
     }
   }, [apiRequest, isAdmin, orderAgentFilter, resolveCycleOwner, staffPrefix]);
@@ -128,7 +139,8 @@ export function useOrderManagement({
     limit = 20,
     offset = 0,
     search = '',
-    agentFilterValue = orderAgentFilter
+    agentFilterValue = orderAgentFilter,
+    cycleIdValue = orderCycleId
   } = {}) => {
     const params = new URLSearchParams();
     const normalizedLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
@@ -153,24 +165,24 @@ export function useOrderManagement({
       }
     }
 
-    if (orderCycleId && orderCycleId !== 'all') {
-      params.set('cycle_id', orderCycleId);
+    if (cycleIdValue && cycleIdValue !== 'all') {
+      params.set('cycle_id', cycleIdValue);
     }
 
     return `${staffPrefix}/orders?${params.toString()}`;
   }, [orderAgentFilter, isAdmin, staffPrefix, orderCycleId]);
 
-  const buildOrdersQuery = useCallback((page = 0, search = '', agentFilterValue = orderAgentFilter) => {
+  const buildOrdersQuery = useCallback((page = 0, search = '', agentFilterValue = orderAgentFilter, cycleIdValue = orderCycleId) => {
     const limit = 20;
     const p = parseInt(page, 10) || 0;
     const offset = p * limit;
-    return buildOrdersQueryParams({ limit, offset, search, agentFilterValue });
-  }, [buildOrdersQueryParams, orderAgentFilter]);
+    return buildOrdersQueryParams({ limit, offset, search, agentFilterValue, cycleIdValue });
+  }, [buildOrdersQueryParams, orderAgentFilter, orderCycleId]);
 
-  const loadOrders = useCallback(async (page = orderPage, search = orderSearch, agentFilterValue = orderAgentFilter) => {
+  const loadOrders = useCallback(async (page = orderPage, search = orderSearch, agentFilterValue = orderAgentFilter, cycleIdValue = orderCycleId) => {
     setOrderLoading(true);
     try {
-      const url = buildOrdersQuery(page, search, agentFilterValue);
+      const url = buildOrdersQuery(page, search, agentFilterValue, cycleIdValue);
       const res = await apiRequest(url);
       const data = res?.data || {};
       setOrders(data.orders || []);
@@ -191,7 +203,7 @@ export function useOrderManagement({
     } finally {
       setOrderLoading(false);
     }
-  }, [apiRequest, buildOrdersQuery, orderAgentFilter, orderPage, orderSearch]);
+  }, [apiRequest, buildOrdersQuery, orderAgentFilter, orderPage, orderSearch, orderCycleId]);
   loadOrdersRef.current = loadOrders;
 
   useEffect(() => {
@@ -216,7 +228,17 @@ export function useOrderManagement({
     const map = {};
     orderAgentOptions.forEach(agent => {
       if (agent?.id) {
-        map[agent.id] = agent.name || agent.id;
+        map[agent.id] = agent.name || agent.account || agent.id;
+      }
+    });
+    return map;
+  }, [orderAgentOptions]);
+
+  const orderAgentDeletedMap = useMemo(() => {
+    const map = {};
+    orderAgentOptions.forEach(agent => {
+      if (agent?.id) {
+        map[agent.id] = !!(agent.isDeleted || agent.is_deleted);
       }
     });
     return map;
@@ -386,8 +408,10 @@ export function useOrderManagement({
     const normalized = (nextFilter || 'self').toString();
     setOrderAgentFilter(normalized);
     setOrderStatusFilter('全部');
-    const refreshOrdersPromise = loadOrders(0, orderSearch, normalized);
-    const refreshCyclesPromise = loadOrderCycles(normalized);
+    setOrderCycleId('all');
+    forceCycleAllRef.current = true;
+    const refreshOrdersPromise = loadOrders(0, orderSearch, normalized, 'all');
+    const refreshCyclesPromise = loadOrderCycles(normalized, { forceAll: true });
     const agentFilterChangePromise = agentFilterChangeHandlerRef.current
       ? agentFilterChangeHandlerRef.current(normalized)
       : Promise.resolve();
@@ -505,7 +529,7 @@ export function useOrderManagement({
       return `${user?.name || user?.id || '当前账号'} 的订单`;
     }
     const target = orderAgentOptions.find(agent => agent.id === orderAgentFilter);
-    return `${target?.name || orderAgentFilter} 的订单`;
+    return `${target?.name || target?.account || orderAgentFilter} 的订单`;
   }, [isAdmin, orderAgentFilter, orderAgentOptions, user]);
 
   const setOnAgentFilterChange = useCallback((handler) => {
@@ -532,6 +556,7 @@ export function useOrderManagement({
     setOrderAgentOptions,
     orderAgentFilterLabel,
     orderAgentNameMap,
+    orderAgentDeletedMap,
     orderCycles,
     orderCycleId,
     setOrderCycleId,

@@ -73,6 +73,30 @@ class OrderDB:
         return UserDB.resolve_user_reference(user_identifier)
 
     @staticmethod
+    def get_last_order_time(
+        agent_id: Optional[str] = None,
+        address_ids: Optional[List[str]] = None,
+        building_ids: Optional[List[str]] = None,
+        filter_admin_orders: bool = False,
+    ) -> Optional[str]:
+        """获取范围内最后一笔订单的创建时间。"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            scope_clause, scope_params = OrderDB._build_scope_filter(
+                agent_id, address_ids, building_ids, table_alias='o', filter_admin_orders=filter_admin_orders
+            )
+            where_sql = f"WHERE {scope_clause}" if scope_clause else ""
+            try:
+                cursor.execute(
+                    f"SELECT MAX(o.created_at) FROM orders o {where_sql}",
+                    tuple(scope_params),
+                )
+                row = cursor.fetchone()
+                return row[0] if row and row[0] else None
+            except Exception:
+                return None
+
+    @staticmethod
     def create_order(
         user_identifier: Union[str, int],
         total_amount: float,
@@ -873,7 +897,8 @@ class OrderDB:
         exclude_building_ids: Optional[List[str]] = None,
         cycle_start: Optional[str] = None,
         cycle_end: Optional[str] = None,
-        filter_admin_orders: bool = False
+        filter_admin_orders: bool = False,
+        reference_end: Optional[str] = None
     ) -> Dict:
         """获取订单统计信息（管理员用）"""
         with get_db_connection() as conn:
@@ -926,9 +951,22 @@ class OrderDB:
             ''', params)
             status_counts = {row[0]: row[1] for row in cursor.fetchall()}
 
-            # 今日订单数
-            today_clause = "date(created_at, 'localtime') = date('now', 'localtime')"
-            where_clause, params = build_where(today_clause)
+            # 今日订单数（支持锚定到指定日期）
+            today_date = None
+            if reference_end:
+                try:
+                    today_date = datetime.strptime(reference_end, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
+                except Exception:
+                    try:
+                        today_date = datetime.fromisoformat(reference_end.replace("T", " ")).strftime("%Y-%m-%d")
+                    except Exception:
+                        today_date = None
+            if today_date:
+                today_clause = "date(created_at, 'localtime') = date(?, 'localtime')"
+                where_clause, params = build_where(today_clause, [today_date])
+            else:
+                today_clause = "date(created_at, 'localtime') = date('now', 'localtime')"
+                where_clause, params = build_where(today_clause)
             cursor.execute(f'''SELECT COUNT(*) FROM orders{where_clause}''', params)
             today_orders = cursor.fetchone()[0]
 
@@ -1283,7 +1321,8 @@ class OrderDB:
         top_range_start: Optional[str] = None,
         top_range_end: Optional[str] = None,
         cycle_start: Optional[str] = None,
-        cycle_end: Optional[str] = None
+        cycle_end: Optional[str] = None,
+        reference_end: Optional[str] = None
     ) -> Dict[str, Any]:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
@@ -1299,7 +1338,7 @@ class OrderDB:
 
             cycle_start_dt = parse_cycle_datetime(cycle_start)
             cycle_end_dt = parse_cycle_datetime(cycle_end)
-            reference_end_dt = cycle_end_dt or datetime.now()
+            reference_end_dt = parse_cycle_datetime(reference_end) or cycle_end_dt or datetime.now()
             reference_end_str = reference_end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
             # 基础统计
@@ -1310,6 +1349,7 @@ class OrderDB:
                 filter_admin_orders=filter_admin_orders,
                 cycle_start=cycle_start,
                 cycle_end=cycle_end,
+                reference_end=reference_end,
             )
 
             def build_where(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None, alias: str = 'orders') -> Tuple[str, List[Any]]:
@@ -1921,7 +1961,7 @@ class OrderDB:
                 INNER JOIN orders o ON u.id = o.student_id
                 {where_sql}
                 GROUP BY u.id, u.name
-                ORDER BY total_spent DESC
+                ORDER BY total_spent DESC, AVG(o.total_amount) DESC, datetime(last_order_date) DESC
                 LIMIT ? OFFSET ?
             ''', [*params, limit, offset])
 
