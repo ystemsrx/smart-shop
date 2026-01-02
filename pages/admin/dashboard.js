@@ -44,19 +44,34 @@ const parsePeriodValueToDate = (value) => {
   }
   if (typeof value === 'string') {
     const trimmed = value.trim();
+    if (!trimmed) return null;
     const dateOnlyMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
     if (dateOnlyMatch) {
       const [, year, month, day] = dateOnlyMatch;
       return new Date(Number(year), Number(month) - 1, Number(day));
     }
-    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
-    const candidates = normalized.includes(':')
-      ? [`${normalized}Z`, normalized, trimmed]
-      : [normalized, trimmed, trimmed.replace(/-/g, '/')];
-    for (const candidate of candidates) {
-      const parsed = new Date(candidate);
+    const hasTimezone = /[zZ]$/.test(trimmed) || /[+-]\d{2}:\d{2}$/.test(trimmed);
+    if (hasTimezone) {
+      const parsed = new Date(trimmed);
       if (!Number.isNaN(parsed.getTime())) return parsed;
     }
+    const dateTimeMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?$/);
+    if (dateTimeMatch) {
+      const [, year, month, day, hour, minute = '0', second = '0'] = dateTimeMatch;
+      return new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+    }
+    const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const fallback = new Date(trimmed.replace(/-/g, '/'));
+    if (!Number.isNaN(fallback.getTime())) return fallback;
   }
   return null;
 };
@@ -74,6 +89,17 @@ const formatDateTimeLocal = (date) => {
   const pad = (v) => String(v).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
+
+const getDeviceTimezoneOffset = () => {
+  if (typeof window === 'undefined') return 0;
+  return new Date().getTimezoneOffset();
+};
+
+const isSameLocalDate = (a, b) => (
+  a.getFullYear() === b.getFullYear()
+  && a.getMonth() === b.getMonth()
+  && a.getDate() === b.getDate()
+);
 
 /**
  * 解析周期日期字符串为 Date 对象
@@ -286,7 +312,7 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
   );
 };
 
-const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
+const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindowChange }) => {
   const dataset = useMemo(() => {
     if (!Array.isArray(data)) return [];
     const safeData = data.filter(Boolean).map(item => ({ ...item }));
@@ -328,7 +354,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
 
   const startIndex = Math.max(0, Math.min(windowStart, maxStart));
   const endIndex = Math.min(startIndex + windowSize, dataset.length);
-  const chartData = dataset.slice(startIndex, endIndex);
+  const chartData = useMemo(() => dataset.slice(startIndex, endIndex), [dataset, startIndex, endIndex]);
 
   const isEmptyDataset = dataset.length === 0;
 
@@ -511,15 +537,15 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
 
   useEffect(() => {
     if (!onRangeChange) return;
-    const startPeriod = plottedData[0]?.period || null;
-    const endPeriod = plottedData[plottedData.length - 1]?.period || null;
+    const startPeriod = chartData[0]?.period || null;
+    const endPeriod = chartData[chartData.length - 1]?.period || null;
     if (rangeRef.current.start === startPeriod && rangeRef.current.end === endPeriod) return;
     rangeRef.current = { start: startPeriod, end: endPeriod };
     onRangeChange({ start: startPeriod, end: endPeriod });
-  }, [plottedData, onRangeChange]);
+  }, [chartData, onRangeChange]);
   
-  const windowTotals = useMemo(() => {
-    const totals = chartData.reduce(
+  const sumTotals = useCallback((items) => {
+    const totals = items.reduce(
       (acc, item) => {
         acc.revenue += Number(item?.revenue) || 0;
         acc.profit += Number(item?.profit) || 0;
@@ -528,13 +554,57 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
       },
       { revenue: 0, profit: 0, orders: 0 }
     );
+    const users = items.reduce((set, item) => {
+      if (Array.isArray(item?.user_ids)) {
+        item.user_ids.forEach((uid) => {
+          if (uid !== null && uid !== undefined && uid !== '') {
+            set.add(String(uid));
+          }
+        });
+      }
+      return set;
+    }, new Set());
+    return { ...totals, users: users.size };
+  }, []);
 
-    return {
-      revenue: formatNumber(totals.revenue),
-      profit: formatNumber(totals.profit),
-      orders: formatNumber(totals.orders, 0)
-    };
-  }, [chartData]);
+  const windowTotalsRaw = useMemo(() => sumTotals(chartData), [chartData, sumTotals]);
+  const prevWindowTotalsRaw = useMemo(() => {
+    const prevStart = startIndex - windowSize;
+    if (prevStart < 0) return { revenue: 0, profit: 0, orders: 0 };
+    const prevData = dataset.slice(prevStart, prevStart + windowSize);
+    return sumTotals(prevData);
+  }, [dataset, startIndex, windowSize, sumTotals]);
+
+  const windowTotals = useMemo(() => ({
+    revenue: formatNumber(windowTotalsRaw.revenue),
+    profit: formatNumber(windowTotalsRaw.profit),
+    orders: formatNumber(windowTotalsRaw.orders, 0)
+  }), [windowTotalsRaw]);
+
+  const windowStatsRef = useRef('');
+  useEffect(() => {
+    if (!onWindowChange) return;
+    const start = chartData[0]?.period || '';
+    const end = chartData[chartData.length - 1]?.period || '';
+    const signature = [
+      start,
+      end,
+      windowTotalsRaw.revenue,
+      windowTotalsRaw.profit,
+      windowTotalsRaw.orders,
+      prevWindowTotalsRaw.revenue,
+      prevWindowTotalsRaw.profit,
+      prevWindowTotalsRaw.orders
+    ].join('|');
+    if (windowStatsRef.current === signature) return;
+    windowStatsRef.current = signature;
+    onWindowChange({
+      current: windowTotalsRaw,
+      previous: prevWindowTotalsRaw,
+      start: start || null,
+      end: end || null
+    });
+  }, [chartData, onWindowChange, prevWindowTotalsRaw, windowTotalsRaw]);
   
   return (
     <motion.div 
@@ -587,7 +657,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange }) => {
               </div>
             </div>
             
-      <div className="relative w-full min-h-[320px] md:min-h-0 flex-1">
+      <div className="relative w-full min-h-[320px] flex-1">
               {isEmptyDataset ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
             <Activity size={32} className="mb-2 opacity-50" />
@@ -1468,6 +1538,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   const [topProductsLoading, setTopProductsLoading] = useState(false);
   const topProductsRequestIdRef = useRef(0);
   const [trendRange, setTrendRange] = useState(null);
+  const [trendWindowStats, setTrendWindowStats] = useState(null);
   const [timePeriod, setTimePeriod] = useState('week');
   const [customersData, setCustomersData] = useState({ customers: [], total: 0, currentPage: 0, hasMore: false });
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -1606,6 +1677,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     try {
       const dashboardParams = new URLSearchParams({ period: timePeriod });
       const statsParams = new URLSearchParams();
+      dashboardParams.append('timezone_offset_minutes', `${getDeviceTimezoneOffset()}`);
       if (selectedAgentParam) {
         dashboardParams.append('agent_id', selectedAgentParam);
         statsParams.append('owner_id', selectedAgentParam);
@@ -1766,7 +1838,14 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
   };
   
   const formatChange = (val) => val != null ? Math.round(val * 100) / 100 : null;
+  const calcWindowGrowth = useCallback((current, previous) => {
+    const currentVal = Number(current) || 0;
+    const previousVal = Number(previous) || 0;
+    if (previousVal === 0) return currentVal > 0 ? 100 : 0;
+    return Math.round(((currentVal - previousVal) / previousVal) * 1000) / 10;
+  }, []);
   const periodLabel = timePeriod === 'day' ? '今日' : timePeriod === 'week' ? '本周' : '本月';
+  const windowPeriodLabel = timePeriod === 'day' ? '当日' : timePeriod === 'week' ? '当周' : '当月';
   
   const buildTopRangeForPeriod = useCallback((range) => {
     if (!range?.start || !range?.end) return null;
@@ -1777,8 +1856,13 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     const dayStart = new Date(startDate);
     dayStart.setHours(0, 0, 0, 0);
 
+    const now = new Date();
     const dayEnd = new Date(timePeriod === 'day' ? startDate : endDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    if (isSameLocalDate(dayEnd, now)) {
+      dayEnd.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    } else {
+      dayEnd.setHours(23, 59, 59, 999);
+    }
 
     const startStr = formatDateTimeLocal(dayStart);
     const endStr = formatDateTimeLocal(dayEnd);
@@ -1793,6 +1877,10 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     setTrendRange(normalizedRange);
   }, [buildTopRangeForPeriod]);
 
+  const handleTrendWindowChange = useCallback((windowStats) => {
+    setTrendWindowStats(windowStats);
+  }, []);
+
   const loadTopProductsForRange = async (range) => {
     const requestId = topProductsRequestIdRef.current + 1;
     topProductsRequestIdRef.current = requestId;
@@ -1805,7 +1893,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
       const params = new URLSearchParams({
         period: timePeriod,
         range_start: range.start,
-        range_end: range.end
+        range_end: range.end,
+        timezone_offset_minutes: `${getDeviceTimezoneOffset()}`
       });
       if (selectedAgentParam) {
         params.append('agent_id', selectedAgentParam);
@@ -1843,6 +1932,16 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     if (dashboardStats?.period && dashboardStats.period !== timePeriod) return [];
     return dashboardStats.chart_data || dashboardStats.current_period?.data || [];
   }, [dashboardStats, timePeriod]);
+
+  const trendComparison = useMemo(() => {
+    if (!trendWindowStats?.current || !trendWindowStats?.previous) return null;
+    return {
+      orders_growth: calcWindowGrowth(trendWindowStats.current.orders, trendWindowStats.previous.orders),
+      revenue_growth: calcWindowGrowth(trendWindowStats.current.revenue, trendWindowStats.previous.revenue),
+      profit_growth: calcWindowGrowth(trendWindowStats.current.profit, trendWindowStats.previous.profit),
+      users_growth: calcWindowGrowth(trendWindowStats.current.users, trendWindowStats.previous.users)
+    };
+  }, [calcWindowGrowth, trendWindowStats]);
 
   if (!user || user.type !== expectedRole) return null;
 
@@ -2087,27 +2186,33 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
             <StatCard
               title="总订单数"
               value={dashboardStats.total_orders || 0}
-              change={formatChange(dashboardStats.comparison?.orders_growth)}
-              changeType={getChangeType(dashboardStats.comparison?.orders_growth)}
-              subtitle={`${dashboardStats.period_name || '本期'}新增: ${dashboardStats.current_period?.orders || 0}`}
+              change={formatChange(trendComparison?.orders_growth ?? dashboardStats.comparison?.orders_growth)}
+              changeType={getChangeType(trendComparison?.orders_growth ?? dashboardStats.comparison?.orders_growth)}
+              subtitle={trendWindowStats?.current
+                ? `${windowPeriodLabel}订单: ${formatNumber(trendWindowStats.current.orders, 0)}`
+                : `${dashboardStats.period_name || '本期'}新增: ${dashboardStats.current_period?.orders || 0}`}
               icon={ShoppingCart}
               colorClass={{ bg: 'bg-blue-500', text: 'text-blue-500' }}
             />
             <StatCard
               title="总销售额"
               value={`¥${formatNumber(dashboardStats.total_revenue || 0)}`}
-              change={formatChange(dashboardStats.comparison?.revenue_growth)}
-              changeType={getChangeType(dashboardStats.comparison?.revenue_growth)}
-              subtitle={`${dashboardStats.period_name || '本期'}收入: ¥${formatNumber(dashboardStats.current_period?.revenue || 0)}`}
+              change={formatChange(trendComparison?.revenue_growth ?? dashboardStats.comparison?.revenue_growth)}
+              changeType={getChangeType(trendComparison?.revenue_growth ?? dashboardStats.comparison?.revenue_growth)}
+              subtitle={trendWindowStats?.current
+                ? `${windowPeriodLabel}收入: ¥${formatNumber(trendWindowStats.current.revenue || 0)}`
+                : `${dashboardStats.period_name || '本期'}收入: ¥${formatNumber(dashboardStats.current_period?.revenue || 0)}`}
               icon={DollarSign}
               colorClass={{ bg: 'bg-indigo-500', text: 'text-indigo-500' }}
             />
             <StatCard
               title="净利润"
               value={`¥${formatNumber(dashboardStats.profit_stats?.total_profit || 0)}`}
-              change={formatChange(dashboardStats.comparison?.profit_growth)}
-              changeType={getChangeType(dashboardStats.comparison?.profit_growth)}
-              subtitle={`${timePeriod === 'day' ? '今日' : timePeriod === 'week' ? '本周' : '本月'}盈利: ¥${formatNumber(dashboardStats.profit_stats?.current_period_profit || 0)}`}
+              change={formatChange(trendComparison?.profit_growth ?? dashboardStats.comparison?.profit_growth)}
+              changeType={getChangeType(trendComparison?.profit_growth ?? dashboardStats.comparison?.profit_growth)}
+              subtitle={trendWindowStats?.current
+                ? `${windowPeriodLabel}盈利: ¥${formatNumber(trendWindowStats.current.profit || 0)}`
+                : `${timePeriod === 'day' ? '今日' : timePeriod === 'week' ? '本周' : '本月'}盈利: ¥${formatNumber(dashboardStats.profit_stats?.current_period_profit || 0)}`}
               icon={TrendingUp}
               colorClass={{ bg: 'bg-amber-500', text: 'text-amber-500' }}
             />
@@ -2121,9 +2226,11 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
             <StatCard
               title="消费用户"
               value={dashboardStats.users?.total || 0}
-              change={formatChange(dashboardStats.users?.growth)}
-              changeType={getChangeType(dashboardStats.users?.growth)}
-              subtitle={`${periodLabel}用户: ${dashboardStats.users?.current_period_new ?? dashboardStats.users?.new_this_week ?? 0}`}
+              change={formatChange(trendComparison?.users_growth ?? dashboardStats.users?.growth)}
+              changeType={getChangeType(trendComparison?.users_growth ?? dashboardStats.users?.growth)}
+              subtitle={trendWindowStats?.current
+                ? `${windowPeriodLabel}用户: ${formatNumber(trendWindowStats.current.users || 0, 0)}`
+                : `${periodLabel}用户: ${dashboardStats.users?.current_period_new ?? dashboardStats.users?.new_this_week ?? 0}`}
               icon={Users}
               colorClass={{ bg: 'bg-emerald-500', text: 'text-emerald-500' }}
             />
@@ -2138,6 +2245,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
               period={timePeriod}
               settings={dashboardStats.chart_settings}
               onRangeChange={handleTrendRangeChange}
+              onWindowChange={handleTrendWindowChange}
             />
             </div>
             <div>
@@ -2155,7 +2263,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
              <div className="p-6 border-b border-slate-50 flex items-center justify-between">
                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <span className="w-1 h-5 bg-indigo-500 rounded-full"></span>
-                  最新客户动态
+                  {cycleMode ? '当前周期客户动态' : '所有客户动态'}
                 </h3>
                <span className="text-sm text-slate-400">共 {customersData.total} 位客户</span>
               </div>

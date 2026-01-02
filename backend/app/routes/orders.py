@@ -1167,6 +1167,7 @@ async def get_dashboard_statistics(
     range_end: Optional[str] = None,
     agent_id: Optional[str] = None,
     cycle_id: Optional[str] = None,
+    timezone_offset_minutes: Optional[int] = None,
 ):
     """获取仪表盘详细统计信息（管理员）。"""
     staff = get_current_staff_required_from_cookie(request)
@@ -1216,6 +1217,7 @@ async def get_dashboard_statistics(
             cycle_start=cycle_start,
             cycle_end=cycle_end,
             reference_end=reference_end,
+            timezone_offset_minutes=timezone_offset_minutes,
         )
         stats["scope"] = scope
         stats["selected_agent_id"] = selected_agent_id
@@ -1232,6 +1234,7 @@ async def get_agent_dashboard_statistics(
     range_start: Optional[str] = None,
     range_end: Optional[str] = None,
     cycle_id: Optional[str] = None,
+    timezone_offset_minutes: Optional[int] = None,
 ):
     """获取仪表盘详细统计信息（代理）。"""
     _agent, scope = require_agent_with_scope(request)
@@ -1257,6 +1260,7 @@ async def get_agent_dashboard_statistics(
             top_range_end=range_end,
             cycle_start=cycle_start,
             cycle_end=cycle_end,
+            timezone_offset_minutes=timezone_offset_minutes,
         )
         stats["scope"] = scope
         return success_response("获取仪表盘统计成功", stats)

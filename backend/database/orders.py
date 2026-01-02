@@ -1322,7 +1322,8 @@ class OrderDB:
         top_range_end: Optional[str] = None,
         cycle_start: Optional[str] = None,
         cycle_end: Optional[str] = None,
-        reference_end: Optional[str] = None
+        reference_end: Optional[str] = None,
+        timezone_offset_minutes: Optional[int] = None
     ) -> Dict[str, Any]:
         """获取仪表盘详细统计信息"""
         with get_db_connection() as conn:
@@ -1338,8 +1339,24 @@ class OrderDB:
 
             cycle_start_dt = parse_cycle_datetime(cycle_start)
             cycle_end_dt = parse_cycle_datetime(cycle_end)
-            reference_end_dt = parse_cycle_datetime(reference_end) or cycle_end_dt or datetime.now()
-            reference_end_str = reference_end_dt.strftime("%Y-%m-%d %H:%M:%S")
+            reference_end_dt = cycle_end_dt or parse_cycle_datetime(reference_end) or datetime.utcnow()
+
+            def normalize_tz_offset(value: Optional[Any]) -> int:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return 0
+
+            tz_offset_minutes = normalize_tz_offset(timezone_offset_minutes)
+            shift_minutes = -tz_offset_minutes
+            shift_sign = '+' if shift_minutes >= 0 else ''
+            shift_modifier = f"{shift_sign}{shift_minutes} minutes"
+
+            def to_local(dt: datetime) -> datetime:
+                return dt - timedelta(minutes=tz_offset_minutes)
+
+            reference_end_local = to_local(reference_end_dt)
+            cycle_start_local = to_local(cycle_start_dt) if cycle_start_dt else None
 
             # 基础统计
             basic_stats = OrderDB.get_order_stats(
@@ -1375,49 +1392,66 @@ class OrderDB:
             
             cycle_view_enabled = bool(cycle_start or cycle_end)
 
+            def build_local_period_range(period_key: str, anchor_local: datetime) -> Tuple[datetime, datetime, int]:
+                if period_key == 'day':
+                    start_local = anchor_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                    end_local = anchor_local
+                    span_days = 1
+                elif period_key == 'week':
+                    start_local = (anchor_local - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    end_local = anchor_local
+                    span_days = 7
+                else:
+                    start_local = (anchor_local - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    end_local = anchor_local
+                    span_days = 30
+                return start_local, end_local, span_days
+
+            def build_local_time_filter(alias: str, start_local: datetime, end_local: datetime) -> Tuple[str, List[Any]]:
+                start_str = start_local.strftime("%Y-%m-%d %H:%M:%S")
+                end_str = end_local.strftime("%Y-%m-%d %H:%M:%S")
+                clause = (
+                    f"datetime({alias}.created_at, '{shift_modifier}') >= datetime(?) "
+                    f"AND datetime({alias}.created_at, '{shift_modifier}') <= datetime(?)"
+                )
+                return clause, [start_str, end_str]
+
+            current_start_local, current_end_local, period_days = build_local_period_range(period, reference_end_local)
+            prev_start_local = current_start_local - timedelta(days=period_days)
+            prev_end_local = current_end_local - timedelta(days=period_days)
+
+            time_filter, time_filter_params = build_local_time_filter('orders', current_start_local, current_end_local)
+            prev_time_filter, prev_time_filter_params = build_local_time_filter('orders', prev_start_local, prev_end_local)
+            time_filter_o, time_filter_o_params = build_local_time_filter('o', current_start_local, current_end_local)
+            prev_time_filter_o, prev_time_filter_o_params = build_local_time_filter('o', prev_start_local, prev_end_local)
+
             # 按时间段统计销售额
             if period == 'day':
-                time_filter = f"date(created_at, 'localtime') = date('{reference_end_str}', 'localtime')"
-                prev_time_filter = f"date(created_at, 'localtime') = date('{reference_end_str}', '-1 day', 'localtime')"
-                group_by = "strftime('%Y-%m-%d %H:00:00', created_at, 'localtime')"
+                group_by = f"strftime('%Y-%m-%d %H:00:00', datetime(created_at, '{shift_modifier}'))"
                 date_format = "周期内当日" if cycle_view_enabled else "今日各小时"
             elif period == 'week':
-                time_filter = (
-                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-6 days', 'localtime') "
-                    f"AND date(created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
-                )
-                prev_time_filter = (
-                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-13 days', 'localtime') "
-                    f"AND date(created_at, 'localtime') < date('{reference_end_str}', '-6 days', 'localtime')"
-                )
-                group_by = "date(created_at, 'localtime')"
+                group_by = f"date(datetime(created_at, '{shift_modifier}'))"
                 date_format = "周期内7天" if cycle_view_enabled else "近7天"
             else:  # month
-                time_filter = (
-                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-30 days', 'localtime') "
-                    f"AND date(created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
-                )
-                prev_time_filter = (
-                    f"date(created_at, 'localtime') >= date('{reference_end_str}', '-60 days', 'localtime') "
-                    f"AND date(created_at, 'localtime') < date('{reference_end_str}', '-30 days', 'localtime')"
-                )
-                group_by = "date(created_at, 'localtime')"
+                group_by = f"date(datetime(created_at, '{shift_modifier}'))"
                 date_format = "周期内30天" if cycle_view_enabled else "近30天"
 
             if period == 'day':
                 chart_time_filter = "1=1"
+                chart_time_params: List[Any] = []
+                chart_time_filter_o = chart_time_filter
+                chart_time_params_o: List[Any] = []
                 chart_window_config: Dict[str, Any] = {'window_size': 24, 'step': 24}
-            elif period == 'week':
-                # 增加到730天（约2年）的历史数据，支持往前翻约104次
-                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
-                chart_window_config = {'window_size': 7, 'step': 7}
             else:
-                # 月视图也增加到730天，支持往前翻约24次
-                chart_time_filter = "date(created_at, 'localtime') >= date('now', '-730 days', 'localtime')"
-                chart_window_config = {'window_size': 30, 'step': 30}
+                # 周/月视图增加到730天历史数据
+                chart_start_local = reference_end_local - timedelta(days=730)
+                chart_end_local = reference_end_local
+                chart_time_filter, chart_time_params = build_local_time_filter('orders', chart_start_local, chart_end_local)
+                chart_time_filter_o, chart_time_params_o = build_local_time_filter('o', chart_start_local, chart_end_local)
+                chart_window_config = {'window_size': 7, 'step': 7} if period == 'week' else {'window_size': 30, 'step': 30}
 
             # 当前时间段销售额
-            where_clause, params = build_where(time_filter)
+            where_clause, params = build_where(time_filter, time_filter_params)
             cursor.execute(f'''
                 SELECT {group_by} as period, 
                        COALESCE(SUM(total_amount), 0) as revenue,
@@ -1432,7 +1466,32 @@ class OrderDB:
                 for row in cursor.fetchall()
             ]
 
-            chart_where, chart_params = build_where(chart_time_filter)
+            def fetch_users_by_period(filter_clause: str, filter_params: List[Any]) -> Dict[str, List[str]]:
+                where_clause_users, params_users = build_where(filter_clause, filter_params)
+                cursor.execute(f'''
+                    SELECT {group_by} as period,
+                           GROUP_CONCAT(DISTINCT student_id) as user_ids
+                    FROM orders
+                    {where_clause_users}
+                    GROUP BY {group_by}
+                    ORDER BY period
+                ''', params_users)
+                users_by_period: Dict[str, List[str]] = {}
+                for row in cursor.fetchall():
+                    period_key = row[0]
+                    raw_ids = row[1]
+                    if raw_ids:
+                        users_by_period[period_key] = [uid for uid in str(raw_ids).split(',') if uid]
+                    else:
+                        users_by_period[period_key] = []
+                return users_by_period
+
+            current_users_by_period = fetch_users_by_period(time_filter, time_filter_params)
+            for data_point in current_period_data:
+                period_key = data_point.get('period')
+                data_point['user_ids'] = current_users_by_period.get(period_key, [])
+
+            chart_where, chart_params = build_where(chart_time_filter, chart_time_params)
             cursor.execute(f'''
                 SELECT {group_by} as period,
                        COALESCE(SUM(total_amount), 0) as revenue,
@@ -1446,11 +1505,15 @@ class OrderDB:
                 {'period': row[0], 'revenue': round(row[1], 2), 'orders': row[2]}
                 for row in cursor.fetchall()
             ]
+            chart_users_by_period = fetch_users_by_period(chart_time_filter, chart_time_params)
+            for data_point in chart_data:
+                period_key = data_point.get('period')
+                data_point['user_ids'] = chart_users_by_period.get(period_key, [])
 
             # 计算净利润数据 - 使用新算法：订单总额减去成本总和
-            def calculate_profit_for_period(time_filter_clause: str) -> Tuple[float, Dict[str, float]]:
+            def calculate_profit_for_period(time_filter_clause: str, time_filter_params: Optional[List[Any]] = None) -> Tuple[float, Dict[str, float]]:
                 where_clause_profit, params_profit = build_where(
-                    f"({time_filter_clause})", alias='o'
+                    f"({time_filter_clause})", time_filter_params, alias='o'
                 )
                 extra_clause = "o.payment_status = 'succeeded'"
                 if where_clause_profit:
@@ -1513,15 +1576,15 @@ class OrderDB:
                         final_order_profit = order_total_amount - total_cost - fallback_gift_count
                         total_profit += final_order_profit
                         
-                        # 按时间段分组，使用与销售额查询一致的SQLite本地时间转换
+                        # 按时间段分组，使用与销售额查询一致的时区偏移转换
                         if period == 'day':
-                            # 使用SQLite的localtime转换，确保与销售额查询的period格式一致
+                            # 使用SQLite时区偏移转换，确保与销售额查询的period格式一致
                             created_at = row[1]
                             if created_at:
                                 # 查询SQLite转换后的本地时间格式，与销售额查询保持一致
                                 cursor.execute('''
-                                    SELECT strftime('%Y-%m-%d %H:00:00', ?, 'localtime')
-                                ''', (created_at,))
+                                    SELECT strftime('%Y-%m-%d %H:00:00', ?, ?)
+                                ''', (created_at, shift_modifier))
                                 sqlite_result = cursor.fetchone()
                                 period_key = sqlite_result[0] if sqlite_result else ''
                             else:
@@ -1531,8 +1594,8 @@ class OrderDB:
                             created_at = row[1]
                             if created_at:
                                 cursor.execute('''
-                                    SELECT date(?, 'localtime')
-                                ''', (created_at,))
+                                    SELECT date(?, ?)
+                                ''', (created_at, shift_modifier))
                                 sqlite_result = cursor.fetchone()
                                 period_key = sqlite_result[0] if sqlite_result else ''
                             else:
@@ -1547,9 +1610,9 @@ class OrderDB:
                 return total_profit, profit_by_period
 
             # 计算当前时间段净利润
-            current_profit, current_profit_by_period = calculate_profit_for_period(time_filter)
+            current_profit, current_profit_by_period = calculate_profit_for_period(time_filter_o, time_filter_o_params)
             # 计算图表所需的历史净利润数据
-            _, chart_profit_by_period = calculate_profit_for_period(chart_time_filter)
+            _, chart_profit_by_period = calculate_profit_for_period(chart_time_filter_o, chart_time_params_o)
             
             # 为current_period_data添加净利润数据
             for data_point in current_period_data:
@@ -1580,8 +1643,8 @@ class OrderDB:
                 existing_points = {entry['period']: entry for entry in chart_data}
                 filled_chart: List[Dict[str, Any]] = []
 
-                reference_end_date = reference_end_dt.date()
-                cycle_start_date = cycle_start_dt.date() if cycle_start_dt else None
+                reference_end_date = reference_end_local.date()
+                cycle_start_date = cycle_start_local.date() if cycle_start_local else None
                 if existing_points:
                     try:
                         earliest_key = min(existing_points.keys())
@@ -1614,7 +1677,8 @@ class OrderDB:
                                 'period': period_key,
                                 'revenue': 0,
                                 'orders': 0,
-                                'profit': 0
+                                'profit': 0,
+                                'user_ids': []
                             })
                     current_date += timedelta(days=1)
 
@@ -1627,8 +1691,8 @@ class OrderDB:
                     else:
                         chart_window_config['today_index'] = len(chart_day_labels) - 1
             else:
-                reference_end_date = reference_end_dt.date()
-                cycle_start_date = cycle_start_dt.date() if cycle_start_dt else None
+                reference_end_date = reference_end_local.date()
+                cycle_start_date = cycle_start_local.date() if cycle_start_local else None
                 window_span = chart_window_config.get('window_size', 7)
                 existing_points = {entry['period']: entry for entry in chart_data}
                 parsed_dates: List[date] = []
@@ -1663,14 +1727,15 @@ class OrderDB:
                             'period': period_key,
                             'revenue': 0,
                             'orders': 0,
-                            'profit': 0
+                            'profit': 0,
+                            'user_ids': []
                         })
                     current_date += timedelta(days=1)
 
                 chart_data = filled_chart
             
             # 对比时间段销售额和净利润
-            prev_where, prev_params = build_where(prev_time_filter)
+            prev_where, prev_params = build_where(prev_time_filter, prev_time_filter_params)
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
                 FROM orders 
@@ -1681,10 +1746,10 @@ class OrderDB:
             prev_orders = prev_data[1] if prev_data else 0
             
             # 计算对比时间段净利润
-            prev_profit, _ = calculate_profit_for_period(prev_time_filter)
+            prev_profit, _ = calculate_profit_for_period(prev_time_filter_o, prev_time_filter_o_params)
             
             # 当前时间段总计
-            current_where, current_params = build_where(time_filter)
+            current_where, current_params = build_where(time_filter, time_filter_params)
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
                 FROM orders 
@@ -1721,33 +1786,33 @@ class OrderDB:
 
             custom_top_start = parse_datetime_str(top_range_start)
             custom_top_end = parse_datetime_str(top_range_end)
-            custom_top_params: List[Any] = []
-            custom_prev_params: List[Any] = []
+            top_time_params: List[Any] = list(time_filter_o_params)
+            prev_top_time_params: List[Any] = list(prev_time_filter_o_params)
 
             if custom_top_start and custom_top_end and custom_top_start > custom_top_end:
                 custom_top_start, custom_top_end = custom_top_end, custom_top_start
 
             # 允许自定义范围过滤热销榜单
-            top_time_clause = f'({time_filter})'
-            prev_top_time_clause = f'({prev_time_filter})'
+            top_time_clause = f'({time_filter_o})'
+            prev_top_time_clause = f'({prev_time_filter_o})'
             if custom_top_start and custom_top_end:
                 start_str = custom_top_start.strftime('%Y-%m-%d %H:%M:%S')
                 end_str = custom_top_end.strftime('%Y-%m-%d %H:%M:%S')
-                # 直接使用本地时间字符串进行比较，避免重复 localtime 偏移导致跨日
-                top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
-                custom_top_params = [start_str, end_str]
+                # 直接使用本地时间字符串进行比较，避免重复偏移导致跨日
+                top_time_clause = f"datetime(o.created_at, '{shift_modifier}') >= ? AND datetime(o.created_at, '{shift_modifier}') <= ?"
+                top_time_params = [start_str, end_str]
 
                 range_delta = custom_top_end - custom_top_start
                 prev_end = custom_top_start - timedelta(seconds=1)
                 prev_start = prev_end - range_delta
-                prev_top_time_clause = "datetime(o.created_at, 'localtime') >= ? AND datetime(o.created_at, 'localtime') <= ?"
-                custom_prev_params = [
+                prev_top_time_clause = f"datetime(o.created_at, '{shift_modifier}') >= ? AND datetime(o.created_at, '{shift_modifier}') <= ?"
+                prev_top_time_params = [
                     prev_start.strftime('%Y-%m-%d %H:%M:%S'),
                     prev_end.strftime('%Y-%m-%d %H:%M:%S')
                 ]
 
             # 当前期商品销量统计
-            where_clause_orders, params_orders = build_where(top_time_clause, custom_top_params, alias='o')
+            where_clause_orders, params_orders = build_where(top_time_clause, top_time_params, alias='o')
             if where_clause_orders:
                 where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
             else:
@@ -1786,7 +1851,7 @@ class OrderDB:
                     continue
             
             # 上一期商品销量统计
-            prev_where_clause_orders, prev_params_orders = build_where(prev_top_time_clause, custom_prev_params, alias='o')
+            prev_where_clause_orders, prev_params_orders = build_where(prev_top_time_clause, prev_top_time_params, alias='o')
             if prev_where_clause_orders:
                 prev_where_clause_orders = prev_where_clause_orders + " AND o.payment_status = 'succeeded'"
             else:
@@ -1846,11 +1911,9 @@ class OrderDB:
                 cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
             total_users = cursor.fetchone()[0] or 0
 
-            recent_clause = (
-                f"date(o.created_at, 'localtime') >= date('{reference_end_str}', '-6 days', 'localtime') "
-                f"AND date(o.created_at, 'localtime') <= date('{reference_end_str}', 'localtime')"
-            )
-            recent_where, recent_params = build_where(recent_clause, alias='o')
+            recent_start_local = (reference_end_local - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+            recent_clause, recent_params = build_local_time_filter('o', recent_start_local, reference_end_local)
+            recent_where, recent_params = build_where(recent_clause, recent_params, alias='o')
             cursor.execute(f'''
                 SELECT COUNT(DISTINCT o.student_id)
                 FROM orders o
@@ -1859,7 +1922,7 @@ class OrderDB:
             new_users_week = cursor.fetchone()[0] or 0
 
             # 计算当前统计周期与对比周期的消费用户变化
-            current_users_where, current_users_params = build_where(f'({time_filter})', alias='o')
+            current_users_where, current_users_params = build_where(f'({time_filter_o})', time_filter_o_params, alias='o')
             cursor.execute(f'''
                 SELECT COUNT(DISTINCT o.student_id)
                 FROM orders o
@@ -1867,7 +1930,7 @@ class OrderDB:
             ''', current_users_params)
             current_period_users = cursor.fetchone()[0] or 0
 
-            prev_users_where, prev_users_params = build_where(f'({prev_time_filter})', alias='o')
+            prev_users_where, prev_users_params = build_where(f'({prev_time_filter_o})', prev_time_filter_o_params, alias='o')
             cursor.execute(f'''
                 SELECT COUNT(DISTINCT o.student_id)
                 FROM orders o
@@ -1881,11 +1944,9 @@ class OrderDB:
             
             # 计算总净利润和今日净利润
             total_profit, _ = calculate_profit_for_period("o.payment_status = 'succeeded'")
-            today_clause = (
-                f"date(created_at, 'localtime') = date('{reference_end_str}', 'localtime') "
-                "AND o.payment_status = 'succeeded'"
-            )
-            today_profit, _ = calculate_profit_for_period(today_clause)
+            today_start_local = reference_end_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_clause, today_params = build_local_time_filter('o', today_start_local, reference_end_local)
+            today_profit, _ = calculate_profit_for_period(today_clause, today_params)
             
             return {
                 **basic_stats,
