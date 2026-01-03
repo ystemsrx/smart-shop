@@ -10,6 +10,11 @@ export function useAdminWarnings({ user, expectedRole, staffPrefix, apiRequest }
 
     try {
       const response = await apiRequest(`${staffPrefix}/lottery-config`);
+      const lotteryEnabled = normalizeBooleanFlag(response?.data?.is_enabled, true);
+      if (!lotteryEnabled) {
+        setLotteryHasStockWarning(false);
+        return;
+      }
       const list = response?.data?.prizes || [];
       const prizesData = list.map((p) => {
         const normalizedItems = (p.items || []).map((item) => ({

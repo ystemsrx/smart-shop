@@ -475,12 +475,12 @@ const LotteryPrizeModal = ({ open, onClose, onSave, initialPrize, apiRequest, ap
   );
 };
 
-export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: injectedApiRequest }) => {
+export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: injectedApiRequest, showToast }) => {
   const { apiRequest: contextApiRequest } = useApi();
   const apiRequest = injectedApiRequest || contextApiRequest;
   const [prizes, setPrizes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [thresholdAmount, setThresholdAmount] = useState('10');
   const [thresholdSaving, setThresholdSaving] = useState(false);
   const [isEnabled, setIsEnabled] = useState(true);
@@ -489,10 +489,40 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const [editingPrize, setEditingPrize] = useState(null);
   const [viewingPrize, setViewingPrize] = useState(null);
   const [itemsModalOpen, setItemsModalOpen] = useState(false);
+  const lastSavedThresholdRef = useRef('10');
 
   const MIN_THRESHOLD = 0.01;
 
-  const checkForStockWarnings = useCallback((prizesData) => {
+  const notifyError = useCallback((message) => {
+    if (showToast) {
+      showToast(message);
+      return;
+    }
+    console.error(message);
+  }, [showToast]);
+
+  const normalizePrize = useCallback((prize) => {
+    if (!prize) return null;
+    const normalizedItems = (prize.items || []).map((item) => ({
+      ...item,
+      available: normalizeBooleanFlag(item?.available, false),
+      is_active: normalizeBooleanFlag(item?.is_active, true)
+    }));
+    return {
+      ...prize,
+      weight: parseFloat(prize.weight || 0),
+      is_active: normalizeBooleanFlag(prize.is_active, true),
+      items: normalizedItems
+    };
+  }, []);
+
+  const checkForStockWarnings = useCallback((prizesData, enabled = isEnabled) => {
+    if (!enabled) {
+      if (typeof onWarningChange === 'function') {
+        onWarningChange(false);
+      }
+      return;
+    }
     const hasStockWarnings = prizesData.some(prize => {
       if (!prize.is_active) return false;
       const itemList = Array.isArray(prize.items) ? prize.items : [];
@@ -505,50 +535,74 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
     if (typeof onWarningChange === 'function') {
       onWarningChange(hasStockWarnings);
     }
-  }, [onWarningChange]);
+  }, [onWarningChange, isEnabled]);
 
-  const loadPrizes = async () => {
-    setLoading(true);
+  const syncPrizesState = useCallback((list, enabledOverride) => {
+    const normalized = (list || []).map(normalizePrize).filter(Boolean);
+    setPrizes(normalized);
+    checkForStockWarnings(normalized, enabledOverride);
+    return normalized;
+  }, [normalizePrize, checkForStockWarnings]);
+
+  const updatePrizesState = useCallback((updater, enabledOverride) => {
+    setPrizes((prev) => {
+      const next = updater(prev);
+      checkForStockWarnings(next, enabledOverride);
+      return next;
+    });
+  }, [checkForStockWarnings]);
+
+  const replacePrize = useCallback((incomingPrize) => {
+    if (!incomingPrize) return;
+    const normalized = normalizePrize(incomingPrize);
+    if (!normalized) return;
+    updatePrizesState((prev) => {
+      const idx = prev.findIndex((p) => p.id === normalized.id);
+      if (idx === -1) {
+        return [...prev, normalized];
+      }
+      const next = [...prev];
+      next[idx] = normalized;
+      return next;
+    });
+  }, [normalizePrize, updatePrizesState]);
+
+  const loadPrizes = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const res = await apiRequest(`${apiPrefix}/lottery-config`);
       const list = res?.data?.prizes || [];
-      const prizesData = list.map((p) => {
-        const normalizedItems = (p.items || []).map((item) => ({
-          ...item,
-          available: normalizeBooleanFlag(item?.available, false),
-          is_active: normalizeBooleanFlag(item?.is_active, true)
-        }));
-        return {
-          ...p,
-          weight: parseFloat(p.weight || 0),
-          is_active: normalizeBooleanFlag(p.is_active, true),
-          items: normalizedItems
-        };
-      });
-      setPrizes(prizesData);
       const rawThreshold = res?.data?.threshold_amount;
       if (rawThreshold !== undefined && rawThreshold !== null) {
         const numeric = Number(rawThreshold);
         if (Number.isFinite(numeric)) {
           const display = Number.isInteger(numeric) ? numeric.toString() : numeric.toFixed(2);
           setThresholdAmount(display);
+          lastSavedThresholdRef.current = display;
         }
       }
       const rawEnabled = res?.data?.is_enabled;
-      setIsEnabled(rawEnabled !== false);
-      checkForStockWarnings(prizesData);
+      const enabledValue = rawEnabled !== false;
+      setIsEnabled(enabledValue);
+      syncPrizesState(list, enabledValue);
     } catch (e) {
-      alert(e.message || '加载抽奖配置失败');
-      setPrizes([]);
+      notifyError(e.message || '加载抽奖配置失败');
+      if (!silent) {
+        setPrizes([]);
+      }
       if (onWarningChange) {
         onWarningChange(false);
       }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [apiPrefix, apiRequest, onWarningChange, syncPrizesState]);
 
-  useEffect(() => { loadPrizes(); }, [apiPrefix, apiRequest]);
+  useEffect(() => { loadPrizes(); }, [loadPrizes]);
 
   const totalWeightRaw = prizes.reduce((acc, p) => {
     if (!p.is_active) return acc;
@@ -584,20 +638,29 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
 
   const handleDelete = async (prize) => {
     if (!prize?.id) return;
+    if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
     setSaving(true);
     try {
-      await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, { method: 'DELETE' });
-      await loadPrizes();
+      const resp = await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, { method: 'DELETE' });
+      if (!resp?.success) {
+        throw new Error(resp?.message || '删除失败');
+      }
+      updatePrizesState((prev) => prev.filter((item) => item.id !== prize.id));
+      if (viewingPrize?.id === prize.id) {
+        setItemsModalOpen(false);
+        setViewingPrize(null);
+      }
     } catch (e) {
-      alert(e.message || '删除失败');
+      notifyError(e.message || '删除失败');
     } finally {
       setSaving(false);
     }
-    if (!confirm(`确定删除奖项“${prize.display_name}”吗？`)) return;
   };
 
   const handleToggleActive = async (prize, nextActive) => {
     if (!prize?.id) return;
+    const prevPrize = prize;
+    replacePrize({ ...prize, is_active: !!nextActive });
     setSaving(true);
     try {
       const body = {
@@ -611,14 +674,20 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
           variant_id: item.variant_id
         }))
       };
-      await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, {
+      const resp = await apiRequest(`${apiPrefix}/lottery-prizes/${prize.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      await loadPrizes();
+      if (!resp?.success) {
+        throw new Error(resp?.message || '更新状态失败');
+      }
+      if (resp?.data?.prize) {
+        replacePrize(resp.data.prize);
+      }
     } catch (e) {
-      alert(e.message || '更新状态失败');
+      replacePrize(prevPrize);
+      notifyError(e.message || '更新状态失败');
     } finally {
       setSaving(false);
     }
@@ -627,7 +696,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const handleSaveThreshold = async () => {
     const value = Number.parseFloat(thresholdAmount);
     if (!Number.isFinite(value) || value < MIN_THRESHOLD) {
-      alert(`请输入不少于 ${MIN_THRESHOLD} 的抽奖门槛`);
+      notifyError(`请输入不少于 ${MIN_THRESHOLD} 的抽奖门槛`);
       return;
     }
     setThresholdSaving(true);
@@ -646,28 +715,38 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
           ? serverValue.toString()
           : serverValue.toFixed(2);
         setThresholdAmount(display);
+        lastSavedThresholdRef.current = display;
       }
     } catch (e) {
-      alert(e.message || '更新抽奖门槛失败');
+      setThresholdAmount(lastSavedThresholdRef.current);
+      notifyError(e.message || '更新抽奖门槛失败');
     } finally {
       setThresholdSaving(false);
     }
   };
 
   const handleToggleEnabled = async () => {
+    const nextEnabled = !isEnabled;
+    const prevEnabled = isEnabled;
     setEnabledSaving(true);
+    setIsEnabled(nextEnabled);
+    checkForStockWarnings(prizes, nextEnabled);
     try {
       const resp = await apiRequest(`${apiPrefix}/lottery-config/enabled`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_enabled: !isEnabled })
+        body: JSON.stringify({ is_enabled: nextEnabled })
       });
       if (!resp?.success) {
         throw new Error(resp?.message || '更新抽奖启用状态失败');
       }
-      setIsEnabled(!isEnabled);
+      const serverEnabled = normalizeBooleanFlag(resp?.data?.is_enabled, nextEnabled);
+      setIsEnabled(serverEnabled);
+      checkForStockWarnings(prizes, serverEnabled);
     } catch (e) {
-      alert(e.message || '更新抽奖启用状态失败');
+      setIsEnabled(prevEnabled);
+      checkForStockWarnings(prizes, prevEnabled);
+      notifyError(e.message || '更新抽奖启用状态失败');
     } finally {
       setEnabledSaving(false);
     }
@@ -696,23 +775,31 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
           variant_id: item.variant_id
         }))
       };
+      let resp = null;
       if (editingPrize?.id) {
-        await apiRequest(`${apiPrefix}/lottery-prizes/${editingPrize.id}`, {
+        resp = await apiRequest(`${apiPrefix}/lottery-prizes/${editingPrize.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
       } else {
-        await apiRequest(`${apiPrefix}/lottery-prizes`, {
+        resp = await apiRequest(`${apiPrefix}/lottery-prizes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
       }
-      await loadPrizes();
+      if (!resp?.success) {
+        throw new Error(resp?.message || '保存抽奖奖项失败');
+      }
+      if (resp?.data?.prize) {
+        replacePrize(resp.data.prize);
+      } else {
+        await loadPrizes({ silent: true });
+      }
       setModalOpen(false);
     } catch (e) {
-      alert(e.message || '保存抽奖奖项失败');
+      notifyError(e.message || '保存抽奖奖项失败');
     } finally {
       setSaving(false);
     }
@@ -1029,13 +1116,6 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             </table>
           </div>
         </>
-      )}
-      
-      {(saving || thresholdSaving) && (
-        <div className="px-8 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-3 text-sm text-gray-600 animate-pulse">
-          <i className="fas fa-spinner fa-spin"></i>
-          <span>正在保存更改...</span>
-        </div>
       )}
       
       <LotteryItemsViewModal

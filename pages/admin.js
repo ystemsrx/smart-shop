@@ -578,6 +578,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                       apiPrefix={staffPrefix} 
                       onWarningChange={setLotteryHasStockWarning}
                       apiRequest={apiRequest}
+                      showToast={showToast}
                     />
                   </div>
                 )}

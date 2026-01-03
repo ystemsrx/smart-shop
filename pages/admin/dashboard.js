@@ -1376,6 +1376,11 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
     return name.length > 6 ? name.substring(0, 5) + '...' : name;
   };
 
+  const truncateNameForHeader = (name) => {
+    if (!name) return '';
+    return name.length > 5 ? name.substring(0, 4) + '...' : name;
+  };
+
   const isAgentDeleted = (agent) => !!(agent?.isDeleted || agent?.is_deleted);
 
   const formatAgentLocation = (agent) => {
@@ -1391,7 +1396,7 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
   };
 
   const selectedAgent = options.find(a => a.id === selectedId);
-  const selectedBaseName = selectedAgent?.account || selectedAgent?.name || '代理';
+  const selectedBaseName = selectedAgent?.name || '代理';
   const selectedIsDeleted = isAgentDeleted(selectedAgent);
 
   return (
@@ -1421,7 +1426,9 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
               '自营'
             ) : (
               <>
-                <span className={selectedIsDeleted ? 'line-through' : ''}>{selectedBaseName}</span>
+                <span className={selectedIsDeleted ? 'line-through' : ''}>
+                  {truncateNameForHeader(selectedBaseName)}
+                </span>
               </>
             )}
           </span>

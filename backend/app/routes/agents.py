@@ -18,6 +18,7 @@ from database import (
     AgentAssignmentDB,
     AgentDeletionDB,
     BuildingDB,
+    LotteryConfigDB,
     OrderDB,
     PaymentQrDB,
     SalesCycleDB,
@@ -204,6 +205,8 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
         agent_id = agent.get("agent_id") if agent else None
         if valid_buildings and agent_id:
             AgentAssignmentDB.set_agent_buildings(agent_id, valid_buildings)
+        if agent_id:
+            LotteryConfigDB.set_enabled(agent_id, False)
         agent = AdminDB.get_admin(account, include_disabled=True, include_deleted=True)
         data = serialize_agent_account(agent)
         data["invalid_buildings"] = invalid_buildings
