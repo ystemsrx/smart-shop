@@ -433,6 +433,7 @@ const OrderSummary = ({
   cart,
   onCheckout,
   isClosed,
+  cycleLocked = false,
   reservationAllowed = false,
   shouldReserve = false,
   reservationFromClosure = false,
@@ -473,10 +474,11 @@ const OrderSummary = ({
   const closedReservationOnly = isClosed && allReservationItems && ((cart?.total_quantity || 0) > 0);
   // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
   const closedBlocked = isClosed && !reservationAllowed && !allReservationItems;
-  const checkoutDisabled = cart.total_quantity === 0 || closedBlocked || !locationReady || addressInvalid || isProcessingCheckout;
+  const checkoutDisabled = cart.total_quantity === 0 || cycleLocked || closedBlocked || !locationReady || addressInvalid || isProcessingCheckout;
   const buttonLabel = (() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
+    if (cycleLocked) return '暂时无法结算，请联系管理员';
     if (closedBlocked) {
       return '打烊中 · 仅限预约商品';
     }
@@ -652,6 +654,11 @@ const OrderSummary = ({
           )}
         </div>
       )}
+      {cycleLocked && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 font-medium">
+          暂时无法结算，请联系管理员
+        </div>
+      )}
 
       <button
         onClick={onCheckout}
@@ -682,6 +689,7 @@ export default function Cart() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [reservationAllowed, setReservationAllowed] = useState(false);
+  const [cycleLocked, setCycleLocked] = useState(false);
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -1111,6 +1119,10 @@ export default function Cart() {
   // 去结算
   const handleCheckout = async () => {
     if (isCheckingOut) return;
+    if (cycleLocked) {
+      showToast('暂时无法结算，请联系管理员');
+      return;
+    }
     if (closedBlocked) {
       showToast('当前打烊期间仅支持预约商品，请先移除非预约商品后再试');
       return;
@@ -1184,11 +1196,15 @@ export default function Cart() {
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
 
-        const open = !!res.data?.is_open;
+        const locked = !!res.data?.cycle_locked;
+        const open = !!res.data?.is_open && !locked;
+        setCycleLocked(locked);
         setShopOpen(open);
-        setReservationAllowed(!!res.data?.allow_reservation);
+        setReservationAllowed(locked ? false : !!res.data?.allow_reservation);
 
-        if (open) {
+        if (locked) {
+          setShopNote('暂时无法结算，请联系管理员');
+        } else if (open) {
           setShopNote('');
         } else {
           const defaultNote = res.data?.is_agent
@@ -1201,6 +1217,7 @@ export default function Cart() {
         setShopOpen(true);
         setShopNote('');
         setReservationAllowed(false);
+        setCycleLocked(false);
       }
     })();
   }, [location]);
@@ -1759,6 +1776,7 @@ export default function Cart() {
                       cart={cart}
                       onCheckout={handleCheckout}
                       isClosed={!shopOpen}
+                      cycleLocked={cycleLocked}
                       reservationAllowed={reservationAllowed}
                       shouldReserve={shouldReserve}
                       reservationFromClosure={reservationFromClosure}

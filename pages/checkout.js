@@ -73,6 +73,7 @@ export default function Checkout() {
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
   const [reservationAllowed, setReservationAllowed] = useState(false);
+  const [cycleLocked, setCycleLocked] = useState(false);
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -212,6 +213,7 @@ export default function Checkout() {
   const checkoutButtonLabel = useMemo(() => {
     if (!locationReady) return '请选择配送地址';
     if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
+    if (cycleLocked) return '暂时无法结算，请联系管理员';
     if (closedBlocked) {
       return '打烊中 · 仅限预约商品';
     }
@@ -219,9 +221,12 @@ export default function Checkout() {
     if (!shopOpen && reservationAllowed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
     if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
     return `立即支付 ¥${payableAmount.toFixed(2)}`;
-  }, [locationReady, addressInvalid, addressAlertMessage, closedBlocked, shopOpen, reservationAllowed, closedReservationOnly, payableAmount, hasReservationItems, shouldReserve]);
+  }, [locationReady, addressInvalid, addressAlertMessage, cycleLocked, closedBlocked, shopOpen, reservationAllowed, closedReservationOnly, payableAmount, hasReservationItems, shouldReserve]);
 
   const closedBlockedMessage = useMemo(() => {
+    if (cycleLocked) {
+      return '暂时无法结算，请联系管理员';
+    }
     if (!shopOpen) {
       // 打烊时：未开启预约且不是全预约商品
       if (!reservationAllowed && !allReservationItems) {
@@ -231,7 +236,7 @@ export default function Checkout() {
       return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
     }
     return '当前暂无法提交订单';
-  }, [shopOpen, reservationAllowed, allReservationItems, shopNote]);
+  }, [cycleLocked, shopOpen, reservationAllowed, allReservationItems, shopNote]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
@@ -259,7 +264,7 @@ export default function Checkout() {
 
   // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
   const handlePayLater = async () => {
-    if (closedBlocked) {
+    if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
@@ -335,11 +340,15 @@ export default function Checkout() {
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
         
-        const open = !!res.data?.is_open;
+        const locked = !!res.data?.cycle_locked;
+        const open = !!res.data?.is_open && !locked;
+        setCycleLocked(locked);
         setShopOpen(open);
-        setReservationAllowed(!!res.data?.allow_reservation);
+        setReservationAllowed(locked ? false : !!res.data?.allow_reservation);
         
-        if (open) {
+        if (locked) {
+          setShopNote('暂时无法结算，请联系管理员');
+        } else if (open) {
           setShopNote('');
         } else {
           const defaultNote = res.data?.is_agent 
@@ -352,6 +361,7 @@ export default function Checkout() {
         setShopOpen(true);
         setShopNote('');
         setReservationAllowed(false);
+        setCycleLocked(false);
       }
     })();
   }, [user, isInitialized, router, router.asPath, router.isReady, location, getUserAgentStatus]);
@@ -466,12 +476,12 @@ export default function Checkout() {
   const handleSubmit = (e) => {
     e.preventDefault(); // 防止默认表单提交行为
     // 当用户按回车或点击提交时，触发支付创建
-    if (!isCreatingPayment && shopOpen) handleCreatePayment();
+    if (!isCreatingPayment && shopOpen && !cycleLocked) handleCreatePayment();
   };
 
   // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
-    if (closedBlocked) {
+    if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
@@ -543,7 +553,7 @@ export default function Checkout() {
 
   // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
-    if (closedBlocked) {
+    if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
@@ -1263,6 +1273,11 @@ export default function Checkout() {
                         )}
                       </div>
                     )}
+                    {cycleLocked && (
+                      <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 font-medium">
+                        暂时无法结算，请联系管理员
+                      </div>
+                    )}
                   </div>
                   {/* 抽奖奖品（仅展示，不计入金额；达标则自动随单配送）*/}
                   {eligibleRewards && eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
@@ -1344,7 +1359,7 @@ export default function Checkout() {
                   {/* 支付按钮 */}
                   <button
                     onClick={handleCreatePayment}
-                    disabled={isCreatingPayment || closedBlocked || !locationReady || addressInvalid}
+                    disabled={isCreatingPayment || cycleLocked || closedBlocked || !locationReady || addressInvalid}
                     className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transform hover:scale-105 transition-all duration-300 text-white shadow-2xl flex items-center justify-center gap-2"
                   >
                     {isCreatingPayment ? (
@@ -1422,7 +1437,7 @@ export default function Checkout() {
             <div className="flex gap-3">
               <button
                 onClick={handleMarkPaid}
-                disabled={(paymentQr && paymentQr.owner_type === 'default') || addressInvalid}
+                disabled={cycleLocked || (paymentQr && paymentQr.owner_type === 'default') || addressInvalid}
                 className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 <i className="fas fa-check-circle"></i>
@@ -1431,7 +1446,7 @@ export default function Checkout() {
               
               <button
                 onClick={handlePayLater}
-                disabled={addressInvalid || !locationReady}
+                disabled={cycleLocked || addressInvalid || !locationReady}
                 className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <i className="fas fa-clock text-black"></i>

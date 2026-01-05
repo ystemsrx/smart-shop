@@ -146,12 +146,20 @@ async def get_user_agent_status(request: Request, address_id: Optional[str] = No
             is_open = SettingsDB.get("shop_is_open", "1") != "0"
             note = SettingsDB.get("shop_closed_note", "")
             allow_reservation = SettingsDB.get("shop_reservation_enabled", "false") == "true"
+            cycle_locked = SalesCycleDB.is_locked("admin", "admin")
             return success_response(
                 "获取店铺状态成功",
-                {"is_open": is_open, "note": note, "is_agent": False, "allow_reservation": allow_reservation},
+                {
+                    "is_open": is_open,
+                    "note": note,
+                    "is_agent": False,
+                    "allow_reservation": allow_reservation,
+                    "cycle_locked": cycle_locked,
+                },
             )
 
         status = AgentStatusDB.get_agent_status(agent_id)
+        cycle_locked = SalesCycleDB.is_locked("agent", agent_id)
         return success_response(
             "获取代理状态成功",
             {
@@ -160,6 +168,7 @@ async def get_user_agent_status(request: Request, address_id: Optional[str] = No
                 "is_agent": True,
                 "agent_id": agent_id,
                 "allow_reservation": bool(status.get("allow_reservation", 0)),
+                "cycle_locked": cycle_locked,
             },
         )
     except Exception as exc:

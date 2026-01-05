@@ -47,6 +47,7 @@ export const AgentStatusCard = () => {
   };
 
   const toggleReservation = async () => {
+    if (cycleLocked) return;
     const next = !allowReservation;
     setAllowReservation(next);
     try {
@@ -155,10 +156,11 @@ export const AgentStatusCard = () => {
             </p>
           </div>
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={cycleLocked ? undefined : { scale: 1.02 }}
+            whileTap={cycleLocked ? undefined : { scale: 0.98 }}
             onClick={toggleReservation}
-            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
+            disabled={cycleLocked}
+            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
               allowReservation
                 ? "bg-slate-500 hover:bg-slate-600 shadow-slate-200"
                 : "bg-teal-500 hover:bg-teal-600 shadow-teal-200"
@@ -166,6 +168,11 @@ export const AgentStatusCard = () => {
           >
             {allowReservation ? "关闭预约" : "开启预约"}
           </motion.button>
+          {cycleLocked && (
+            <div className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              当前周期已结束，请先在仪表盘撤销或开启新周期。
+            </div>
+          )}
         </div>
       </motion.div>
     </>

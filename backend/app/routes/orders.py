@@ -48,6 +48,13 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
             return error_response(message, 400)
 
         agent_id = scope.get("agent_id")
+        cycle_locked = False
+        if agent_id:
+            cycle_locked = SalesCycleDB.is_locked("agent", agent_id)
+        else:
+            cycle_locked = SalesCycleDB.is_locked("admin", "admin")
+        if cycle_locked:
+            return error_response("暂时无法结算，请联系管理员", 400)
         reservation_due_to_closure = False
         closure_note = ""
         allow_reservation_when_closed = False

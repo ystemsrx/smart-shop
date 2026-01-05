@@ -12,7 +12,7 @@ from auth import (
     set_auth_cookie,
     success_response,
 )
-from database import AdminDB, SettingsDB, UserDB
+from database import AdminDB, SalesCycleDB, SettingsDB, UserDB
 from ..context import logger
 from ..schemas import AdminLoginRequest, LoginRequest, RegisterRequest
 from ..utils import is_truthy
@@ -116,9 +116,14 @@ async def get_registration_status():
     try:
         enabled = SettingsDB.get("registration_enabled", "false").lower() == "true"
         reservation_enabled = SettingsDB.get("shop_reservation_enabled", "false") == "true"
+        cycle_locked = SalesCycleDB.is_locked("admin", "admin")
         return success_response(
             "获取注册状态成功",
-            {"enabled": enabled, "reservation_enabled": reservation_enabled},
+            {
+                "enabled": enabled,
+                "reservation_enabled": reservation_enabled,
+                "cycle_locked": cycle_locked,
+            },
         )
     except Exception as exc:
         logger.error(f"获取注册状态失败: {exc}")
@@ -205,6 +210,11 @@ async def update_registration_settings(request: Request):
         reservation_value = (
             resolve_bool(payload.get("reservation_enabled")) if "reservation_enabled" in payload else resolve_bool(reservation_param)
         )
+
+        current_reservation = SettingsDB.get("shop_reservation_enabled", "false") == "true"
+        if reservation_value is not None and reservation_value != current_reservation:
+            if SalesCycleDB.is_locked("admin", "admin"):
+                return error_response("当前周期已结束，暂不支持调整预约设置", 400)
 
         if enabled_value is not None:
             SettingsDB.set("registration_enabled", "true" if enabled_value else "false")

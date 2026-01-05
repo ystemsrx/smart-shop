@@ -655,6 +655,7 @@ export default function Shop() {
   const [prevQty, setPrevQty] = useState(0);
   const [shopOpen, setShopOpen] = useState(true);
   const [shopNote, setShopNote] = useState('');
+  const [cycleLocked, setCycleLocked] = useState(false);
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
   const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
@@ -1344,6 +1345,10 @@ export default function Shop() {
       router.push('/login');
       return;
     }
+    if (cycleLocked) {
+      showToast('暂时无法结算，请联系管理员');
+      return;
+    }
     if (checkingOut) return;
     setCheckingOut(true);
     try {
@@ -1450,11 +1455,16 @@ export default function Shop() {
         const addressId = location?.address_id;
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
-        
-        setShopOpen(!!res.data?.is_open);
+
+        const locked = !!res.data?.cycle_locked;
+        const open = !!res.data?.is_open && !locked;
+        setCycleLocked(locked);
+        setShopOpen(open);
         setIsAgent(!!res.data?.is_agent);
-        
-        if (res.data?.is_open) {
+
+        if (locked) {
+          setShopNote('暂时无法结算，请联系管理员');
+        } else if (res.data?.is_open) {
           setShopNote('');
         } else {
           const defaultNote = res.data?.is_agent 
@@ -1467,6 +1477,7 @@ export default function Shop() {
         setShopOpen(true);
         setShopNote('');
         setIsAgent(false);
+        setCycleLocked(false);
       }
     })();
   }, [location]);
@@ -2018,12 +2029,12 @@ export default function Shop() {
                   {/* 去结算按钮 */}
                   <button
                     onClick={handleDrawerCheckout}
-                    disabled={checkingOut}
+                    disabled={checkingOut || cycleLocked}
                     aria-busy={checkingOut}
                     className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-bold text-base shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
                   >
                     <i className="fas fa-credit-card"></i>
-                    <span>{checkingOut ? '正在检查库存...' : '去结算'}</span>
+                    <span>{cycleLocked ? '暂时无法结算，请联系管理员' : (checkingOut ? '正在检查库存...' : '去结算')}</span>
                   </button>
                 </div>
               )}

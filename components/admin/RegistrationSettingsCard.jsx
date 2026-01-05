@@ -8,6 +8,7 @@ export const RegistrationSettingsCard = () => {
   const [enabled, setEnabled] = useState(false);
   const [reservationEnabled, setReservationEnabled] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [cycleLocked, setCycleLocked] = useState(false);
 
   useEffect(() => {
     loadRegistrationStatus();
@@ -19,6 +20,7 @@ export const RegistrationSettingsCard = () => {
       if (response.success) {
         setEnabled(response.data.enabled);
         setReservationEnabled(!!response.data.reservation_enabled);
+        setCycleLocked(!!response.data.cycle_locked);
       }
     } catch (e) {
       console.error('获取注册状态失败:', e);
@@ -62,6 +64,7 @@ export const RegistrationSettingsCard = () => {
   };
 
   const toggleReservation = async () => {
+    if (cycleLocked) return;
     await updateSettings(enabled, !reservationEnabled);
   };
 
@@ -122,18 +125,23 @@ export const RegistrationSettingsCard = () => {
             <p className="text-xs text-gray-400 mb-4 leading-relaxed">开启后，店铺打烊时用户仍可提交预约订单。</p>
           </div>
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={cycleLocked ? undefined : { scale: 1.02 }}
+            whileTap={cycleLocked ? undefined : { scale: 0.98 }}
             onClick={toggleReservation}
-            disabled={updating}
-            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors ${
+            disabled={updating || cycleLocked}
+            className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               reservationEnabled
                 ? 'bg-slate-500 hover:bg-slate-600 shadow-slate-200'
                 : 'bg-teal-500 hover:bg-teal-600 shadow-teal-200'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            }`}
           >
             {reservationEnabled ? '关闭预约' : '开启预约'}
           </motion.button>
+          {cycleLocked && (
+            <div className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              当前周期已结束，请先在仪表盘撤销或开启新周期。
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
