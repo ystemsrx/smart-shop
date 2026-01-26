@@ -190,7 +190,11 @@ const transformSyncDialogsToAsync = (htmlContent) => {
       // Pattern: function name(...) { ... }
       transformed = transformed.replace(
         /function\s+(\w+)\s*\(([^)]*)\)\s*\{/g,
-        (funcMatch, funcName, params) => {
+        (funcMatch, funcName, params, offset, fullText) => {
+          const before = fullText.slice(0, offset);
+          if (/\basync\s*$/.test(before)) {
+            return funcMatch;
+          }
           return `async function ${funcName}(${params}) {`;
         }
       );
@@ -201,6 +205,22 @@ const transformSyncDialogsToAsync = (htmlContent) => {
         /(const|let|var)\s+(\w+)\s*=\s*(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>\s*\{/g,
         (arrowMatch, keyword, name, params) => {
           return `${keyword} ${name} = async ${params} => {`;
+        }
+      );
+
+      // Transform addEventListener callbacks to async when needed
+      transformed = transformed.replace(
+        /(addEventListener\s*\(\s*['"`][^'"`]+['"`]\s*,\s*)(async\s+)?function\s*\(/g,
+        (match, prefix, asyncKeyword) => {
+          if (asyncKeyword) return match;
+          return `${prefix}async function(`;
+        }
+      );
+      transformed = transformed.replace(
+        /(addEventListener\s*\(\s*['"`][^'"`]+['"`]\s*,\s*)(async\s+)?(\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>\s*\{/g,
+        (match, prefix, asyncKeyword, params) => {
+          if (asyncKeyword) return match;
+          return `${prefix}async ${params} => {`;
         }
       );
       
@@ -276,7 +296,7 @@ const transformSyncDialogsToAsync = (htmlContent) => {
   return result;
 };
 
-const CUSTOM_ALERT_HTML = `
+const CUSTOM_DIALOG_HTML = `
 <!-- Custom Dialog Implementation (Alert, Confirm, Prompt) -->
 <style>
   /* Force Reset to prevent unwanted scrolling */
@@ -457,55 +477,163 @@ const CUSTOM_ALERT_HTML = `
   };
 })();
 </script>
+`;
 
-<!-- Error Display Implementation -->
-<style>
-  .preview-error-box {
-    position: fixed;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(220, 38, 38, 0.9);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-family: system-ui, -apple-system, sans-serif;
-    max-width: 80%;
-    z-index: 2147483647;
-    pointer-events: none;
-    display: none;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .preview-error-box.show {
-    display: block;
-    animation: slideIn 0.3s ease-out;
-  }
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-</style>
-<div id="preview-error-box" class="preview-error-box"></div>
+const CUSTOM_ERROR_OVERLAY_HTML = `
 <script>
   (function() {
-    const errorBox = document.getElementById('preview-error-box');
+    const STYLE_ID = 'preview-error-style';
+    const BOX_ID = 'preview-error-box';
+    const COPIED_ID = 'preview-copied-box';
     let errorTimer;
+    let copiedTimer;
+    let lastMessage = '';
+
+    function ensureStyle() {
+      if (document.getElementById(STYLE_ID)) return;
+      const style = document.createElement('style');
+      style.id = STYLE_ID;
+      style.textContent = \`
+        .preview-error-box {
+          position: fixed;
+          bottom: 10px;
+          left: 10px;
+          background: rgba(220, 38, 38, 0.9);
+          color: white;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-family: system-ui, -apple-system, sans-serif;
+          max-width: 80%;
+          z-index: 2147483647;
+          pointer-events: none;
+          opacity: 0;
+          transform: translateY(10px);
+          transition: opacity 0.25s ease, transform 0.25s ease, background 0.2s ease;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          white-space: pre-wrap;
+          word-break: break-word;
+          cursor: pointer;
+        }
+        .preview-error-box.show {
+          opacity: 1;
+          transform: translateY(0);
+          pointer-events: auto;
+        }
+        .preview-copied-box {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%) scale(0.98);
+          background: rgba(16, 185, 129, 0.8);
+          color: white;
+          padding: 10px 16px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-family: system-ui, -apple-system, sans-serif;
+          z-index: 2147483647;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.2s ease, transform 0.2s ease;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+        }
+        .preview-copied-box.show {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+      \`;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    function ensureBox() {
+      let box = document.getElementById(BOX_ID);
+      if (box) return box;
+      box = document.createElement('div');
+      box.id = BOX_ID;
+      box.className = 'preview-error-box';
+      (document.body || document.documentElement).appendChild(box);
+      box.addEventListener('click', function() {
+        if (!lastMessage) return;
+        const textToCopy = lastMessage;
+        const showCopied = () => {
+          const copiedBox = ensureCopiedBox();
+          if (!copiedBox) return;
+          copiedBox.textContent = 'Copied!';
+          copiedBox.classList.remove('show');
+          void copiedBox.offsetWidth;
+          requestAnimationFrame(() => {
+            copiedBox.classList.add('show');
+          });
+          clearTimeout(copiedTimer);
+          copiedTimer = setTimeout(() => {
+            copiedBox.classList.remove('show');
+          }, 1000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(textToCopy).then(showCopied).catch(() => {
+            try {
+              const textarea = document.createElement('textarea');
+              textarea.value = textToCopy;
+              textarea.setAttribute('readonly', '');
+              textarea.style.position = 'fixed';
+              textarea.style.opacity = '0';
+              document.body.appendChild(textarea);
+              textarea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textarea);
+              showCopied();
+            } catch (err) {
+              // Swallow copy errors silently
+            }
+          });
+        } else {
+          try {
+            const textarea = document.createElement('textarea');
+            textarea.value = textToCopy;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showCopied();
+          } catch (err) {
+            // Swallow copy errors silently
+          }
+        }
+      });
+      return box;
+    }
+
+    function ensureCopiedBox() {
+      let box = document.getElementById(COPIED_ID);
+      if (box) return box;
+      box = document.createElement('div');
+      box.id = COPIED_ID;
+      box.className = 'preview-copied-box';
+      (document.body || document.documentElement).appendChild(box);
+      return box;
+    }
 
     function showError(msg) {
-      if (!errorBox) return;
-      errorBox.textContent = msg;
-      errorBox.classList.add('show');
-      
-      // Auto hide after 8 seconds
+      ensureStyle();
+      const box = ensureBox();
+      if (!box) return;
+      lastMessage = msg;
+      box.textContent = msg;
+      box.classList.remove('show');
+      void box.offsetWidth;
+      requestAnimationFrame(() => {
+        box.classList.add('show');
+      });
       clearTimeout(errorTimer);
       errorTimer = setTimeout(() => {
-        errorBox.classList.remove('show');
+        box.classList.remove('show');
       }, 8000);
     }
 
-    // Capture console.error
     const originalConsoleError = console.error;
     console.error = function(...args) {
       originalConsoleError.apply(console, args);
@@ -514,7 +642,7 @@ const CUSTOM_ALERT_HTML = `
         if (typeof arg === 'object') {
           try {
             return JSON.stringify(arg);
-          } catch(e) {
+          } catch (e) {
             return String(arg);
           }
         }
@@ -523,18 +651,71 @@ const CUSTOM_ALERT_HTML = `
       showError(msg);
     };
 
-    // Capture unhandled errors
     window.addEventListener('error', function(event) {
       showError(event.message || 'Unknown Error');
     });
 
-    // Capture unhandled promise rejections
     window.addEventListener('unhandledrejection', function(event) {
       showError('Unhandled Rejection: ' + (event.reason?.message || event.reason || 'Unknown'));
     });
   })();
 </script>
 `;
+
+const DIALOG_CALL_REGEX = /\b(confirm|prompt|alert)\s*\(/i;
+
+const buildHtmlPreviewDoc = (codeContent = "") => {
+  if (!codeContent?.trim()) return "";
+  const needsDialogShim = DIALOG_CALL_REGEX.test(codeContent);
+  const dialogHtml = needsDialogShim ? CUSTOM_DIALOG_HTML : "";
+  let htmlDoc = "";
+
+  if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
+    htmlDoc = codeContent;
+    if (/<head[^>]*>/i.test(htmlDoc)) {
+      htmlDoc = htmlDoc.replace(/<head[^>]*>/i, (match) => `${match}\n${CUSTOM_ERROR_OVERLAY_HTML}`);
+    } else if (/<html[^>]*>/i.test(htmlDoc)) {
+      htmlDoc = htmlDoc.replace(/<html[^>]*>/i, (match) => `${match}\n<head>${CUSTOM_ERROR_OVERLAY_HTML}</head>`);
+    } else {
+      htmlDoc = `${CUSTOM_ERROR_OVERLAY_HTML}\n${htmlDoc}`;
+    }
+    if (dialogHtml) {
+      if (/<\/body>/i.test(htmlDoc)) {
+        htmlDoc = htmlDoc.replace(/<\/body>/i, dialogHtml + "</body>");
+      } else {
+        htmlDoc = htmlDoc + dialogHtml;
+      }
+    }
+  } else {
+    htmlDoc = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${CUSTOM_ERROR_OVERLAY_HTML}
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+${codeContent}
+${dialogHtml}
+</body>
+</html>`;
+  }
+
+  if (needsDialogShim) {
+    htmlDoc = transformSyncDialogsToAsync(htmlDoc);
+  }
+
+  return htmlDoc;
+};
 
 const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
 const INLINE_MATH_PLACEHOLDER_CLASS = 'inline-math-placeholder';
@@ -1366,38 +1547,12 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           const codeElement = blockContainer.querySelector('pre code');
           const codeContent = codeElement?.textContent || '';
           if (codeContent.trim()) {
-            let htmlDoc = '';
-            if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
-              if (/<\/body>/i.test(codeContent)) {
-                htmlDoc = codeContent.replace(/<\/body>/i, CUSTOM_ALERT_HTML + '</body>');
-              } else {
-                htmlDoc = codeContent + CUSTOM_ALERT_HTML;
-              }
-            } else {
-              htmlDoc = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
-    body { 
-      font-family: system-ui, -apple-system, sans-serif;
-      line-height: 1.5;
-      overflow: auto;
-    }
-  </style>
-</head>
-<body>
-${codeContent}
-${CUSTOM_ALERT_HTML}
-</body>
-</html>`;
+            const htmlDoc = buildHtmlPreviewDoc(codeContent);
+            if (htmlDoc) {
+              iframe.srcdoc = htmlDoc;
+              htmlSnapshotRef.current.set(blockKey, codeContent);
+              previewContainer.setAttribute('data-render-success', 'true');
             }
-            // Transform synchronous confirm/prompt patterns to async/await
-            htmlDoc = transformSyncDialogsToAsync(htmlDoc);
-            iframe.srcdoc = htmlDoc;
           }
         } else {
           // 切换回代码：清空iframe内容，停止执行
@@ -1458,7 +1613,7 @@ ${CUSTOM_ALERT_HTML}
     
     // Capture scroll positions before re-render - REMOVED
 
-    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview');
+    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview, .html-preview');
     existingPreviews.forEach(preview => {
       const blockKey = preview.getAttribute('data-block-key');
       if (!blockKey) return;
@@ -1482,6 +1637,12 @@ ${CUSTOM_ALERT_HTML}
         const snapshotSvg = preview.querySelector('svg');
         if (snapshotSvg) {
           svgSnapshotRef.current.set(blockKey, snapshotSvg.outerHTML);
+        }
+      } else if (preview.classList.contains('html-preview')) {
+        const codeElement = preview.closest('.code-block-container')?.querySelector('pre code');
+        const codeContent = codeElement?.textContent || '';
+        if (codeContent.trim()) {
+          htmlSnapshotRef.current.set(blockKey, codeContent);
         }
       }
     });
@@ -2654,40 +2815,10 @@ ${CUSTOM_ALERT_HTML}
           try {
             // 将HTML内容注入到iframe中
             // 添加一些基础样式确保内容正常显示
-            let htmlDoc = '';
-            if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
-              if (/<\/body>/i.test(codeContent)) {
-                htmlDoc = codeContent.replace(/<\/body>/i, CUSTOM_ALERT_HTML + '</body>');
-              } else {
-                htmlDoc = codeContent + CUSTOM_ALERT_HTML;
-              }
-            } else {
-              htmlDoc = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
-    body { 
-      font-family: system-ui, -apple-system, sans-serif;
-      line-height: 1.5;
-      overflow: auto;
-    }
-  </style>
-</head>
-<body>
-${codeContent}
-${CUSTOM_ALERT_HTML}
-</body>
-</html>`;
+            const htmlDoc = buildHtmlPreviewDoc(codeContent);
+            if (htmlDoc) {
+              iframe.srcdoc = htmlDoc;
             }
-            
-            // Transform synchronous confirm/prompt patterns to async/await
-            htmlDoc = transformSyncDialogsToAsync(htmlDoc);
-            
-            iframe.srcdoc = htmlDoc;
             htmlSnapshotRef.current.set(blockKey, codeContent);
             htmlContainer.setAttribute('data-render-success', 'true');
           } catch (err) {
@@ -2833,6 +2964,36 @@ ${CUSTOM_ALERT_HTML}
 
     // Apply Smart DOM Update
     updateDomSmartly(containerRef.current, tempDiv);
+
+    const syncHtmlPreviews = () => {
+      const root = containerRef.current;
+      if (!root) return;
+      const htmlBlocks = root.querySelectorAll('.code-block-container[data-block-key]');
+      htmlBlocks.forEach((block) => {
+        const preview = block.querySelector('.html-preview');
+        if (!preview) return;
+        const blockKey = preview.getAttribute('data-block-key');
+        if (!blockKey) return;
+        const viewMode = preview.dataset.viewMode || (preview.style.display === 'none' ? 'code' : 'preview');
+        if (viewMode !== 'preview') return;
+        const codeElement = block.querySelector('pre code');
+        const codeContent = codeElement?.textContent || '';
+        if (!codeContent.trim()) return;
+        const lastRendered = htmlSnapshotRef.current.get(blockKey) || '';
+        if (codeContent === lastRendered && preview.getAttribute('data-render-success') === 'true') {
+          return;
+        }
+        const iframe = preview.querySelector('iframe');
+        if (!iframe) return;
+        const htmlDoc = buildHtmlPreviewDoc(codeContent);
+        if (!htmlDoc) return;
+        iframe.srcdoc = htmlDoc;
+        htmlSnapshotRef.current.set(blockKey, codeContent);
+        preview.setAttribute('data-render-success', 'true');
+      });
+    };
+
+    syncHtmlPreviews();
 
     // Clean up caches for removed items (Need to check based on what's active in tempDiv or final result)
     // We already tracked active keys based on tempDiv processing above.
