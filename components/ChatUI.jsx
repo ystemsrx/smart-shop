@@ -5,6 +5,105 @@ import TextType from './TextType';
 import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { updateDomSmartly } from './dom_utils';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import java from 'highlight.js/lib/languages/java';
+import cpp from 'highlight.js/lib/languages/cpp';
+import c from 'highlight.js/lib/languages/c';
+import csharp from 'highlight.js/lib/languages/csharp';
+import go from 'highlight.js/lib/languages/go';
+import rust from 'highlight.js/lib/languages/rust';
+import php from 'highlight.js/lib/languages/php';
+import ruby from 'highlight.js/lib/languages/ruby';
+import swift from 'highlight.js/lib/languages/swift';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import sql from 'highlight.js/lib/languages/sql';
+import xml from 'highlight.js/lib/languages/xml';
+import json from 'highlight.js/lib/languages/json';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+import bash from 'highlight.js/lib/languages/bash';
+import powershell from 'highlight.js/lib/languages/powershell';
+import dockerfile from 'highlight.js/lib/languages/dockerfile';
+import css from 'highlight.js/lib/languages/css';
+import plaintext from 'highlight.js/lib/languages/plaintext';
+import objectivec from 'highlight.js/lib/languages/objectivec';
+import ini from 'highlight.js/lib/languages/ini';
+import diff from 'highlight.js/lib/languages/diff';
+import nginx from 'highlight.js/lib/languages/nginx';
+import graphql from 'highlight.js/lib/languages/graphql';
+import makefile from 'highlight.js/lib/languages/makefile';
+import cmake from 'highlight.js/lib/languages/cmake';
+import protobuf from 'highlight.js/lib/languages/protobuf';
+import latex from 'highlight.js/lib/languages/latex';
+import r from 'highlight.js/lib/languages/r';
+
+// highlight.js 语言注册
+const HLJS_LANGUAGES = {
+  javascript,
+  typescript,
+  python,
+  java,
+  cpp,
+  c,
+  csharp,
+  objectivec,
+  go,
+  rust,
+  php,
+  ruby,
+  swift,
+  kotlin,
+  sql,
+  xml,
+  json,
+  yaml,
+  markdown,
+  bash,
+  powershell,
+  dockerfile,
+  css,
+  plaintext,
+  ini,
+  diff,
+  nginx,
+  graphql,
+  makefile,
+  cmake,
+  protobuf,
+  latex,
+  r,
+};
+
+Object.entries(HLJS_LANGUAGES).forEach(([name, lang]) => {
+  try {
+    hljs.registerLanguage(name, lang);
+  } catch (err) {
+    // 忽略重复注册
+  }
+});
+
+const HLJS_LANGUAGE_ALIASES = {
+  'objective-c': 'objectivec',
+  proto: 'protobuf',
+  text: 'plaintext',
+  toml: 'ini',
+};
+
+const normalizeHljsLanguage = (lang) => {
+  if (!lang) return '';
+  const lower = String(lang).trim().toLowerCase();
+  return HLJS_LANGUAGE_ALIASES[lower] || lower;
+};
+
+const resolveHljsLanguage = (lang) => {
+  const normalized = normalizeHljsLanguage(lang);
+  if (!normalized) return 'plaintext';
+  if (hljs.getLanguage(normalized)) return normalized;
+  return 'plaintext';
+};
 
 /**
  * Modern AI Chat UI – Flat White, Smart Stadium Composer (React + Tailwind)
@@ -483,53 +582,86 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
 <script>
   (function() {
     const STYLE_ID = 'preview-error-style';
-    const BOX_ID = 'preview-error-box';
+    const CONTAINER_ID = 'preview-error-container';
     const COPIED_ID = 'preview-copied-box';
-    let errorTimer;
+    const TOAST_DURATION = 8000;
+    const EXIT_DURATION = 250;
+    const STAGGER_DELAY = 50;
+    const TOAST_GAP = 8;
+    const TOAST_LIMIT = 5;
+    const FADE_SIZE = 16;
     let copiedTimer;
-    let lastMessage = '';
+    let pendingErrors = [];
+    let isFlushingQueue = false;
 
     function ensureStyle() {
       if (document.getElementById(STYLE_ID)) return;
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = \`
-        .preview-error-box {
+        .preview-error-container {
           position: fixed;
           bottom: 10px;
           left: 10px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+          max-width: 80%;
+          z-index: 2147483647;
+          pointer-events: auto;
+          overflow-y: auto;
+          --fade-size: 16px;
+          padding: var(--fade-size) 0;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+          mask-image: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,1) var(--fade-size), rgba(0,0,0,1) calc(100% - var(--fade-size)), rgba(0,0,0,0));
+          -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,1) var(--fade-size), rgba(0,0,0,1) calc(100% - var(--fade-size)), rgba(0,0,0,0));
+          mask-size: 100% 100%;
+          -webkit-mask-size: 100% 100%;
+          mask-repeat: no-repeat;
+          -webkit-mask-repeat: no-repeat;
+        }
+        .preview-error-container::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+        }
+        .preview-error-toast {
           background: rgba(220, 38, 38, 0.9);
           color: white;
           padding: 8px 12px;
           border-radius: 6px;
           font-size: 12px;
           font-family: system-ui, -apple-system, sans-serif;
-          max-width: 80%;
-          z-index: 2147483647;
-          pointer-events: none;
+          max-width: 100%;
+          pointer-events: auto;
           opacity: 0;
-          transform: translateY(10px);
+          transform: translateY(16px);
           transition: opacity 0.25s ease, transform 0.25s ease, background 0.2s ease;
           box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
           white-space: pre-wrap;
           word-break: break-word;
           cursor: pointer;
+          will-change: transform, opacity;
         }
-        .preview-error-box.show {
+        .preview-error-toast.show {
           opacity: 1;
           transform: translateY(0);
-          pointer-events: auto;
+        }
+        .preview-error-toast.hide {
+          opacity: 0;
+          transform: translateY(6px);
         }
         .preview-copied-box {
           position: fixed;
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%) scale(0.98);
-          background: rgba(16, 185, 129, 0.8);
+          background: #10b981;
           color: white;
-          padding: 10px 16px;
-          border-radius: 10px;
-          font-size: 14px;
+          padding: 6px 10px;
+          border-radius: 8px;
+          font-size: 13px;
           font-family: system-ui, -apple-system, sans-serif;
           z-index: 2147483647;
           pointer-events: none;
@@ -545,66 +677,16 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
       (document.head || document.documentElement).appendChild(style);
     }
 
-    function ensureBox() {
-      let box = document.getElementById(BOX_ID);
-      if (box) return box;
-      box = document.createElement('div');
-      box.id = BOX_ID;
-      box.className = 'preview-error-box';
-      (document.body || document.documentElement).appendChild(box);
-      box.addEventListener('click', function() {
-        if (!lastMessage) return;
-        const textToCopy = lastMessage;
-        const showCopied = () => {
-          const copiedBox = ensureCopiedBox();
-          if (!copiedBox) return;
-          copiedBox.textContent = 'Copied!';
-          copiedBox.classList.remove('show');
-          void copiedBox.offsetWidth;
-          requestAnimationFrame(() => {
-            copiedBox.classList.add('show');
-          });
-          clearTimeout(copiedTimer);
-          copiedTimer = setTimeout(() => {
-            copiedBox.classList.remove('show');
-          }, 1000);
-        };
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(textToCopy).then(showCopied).catch(() => {
-            try {
-              const textarea = document.createElement('textarea');
-              textarea.value = textToCopy;
-              textarea.setAttribute('readonly', '');
-              textarea.style.position = 'fixed';
-              textarea.style.opacity = '0';
-              document.body.appendChild(textarea);
-              textarea.select();
-              document.execCommand('copy');
-              document.body.removeChild(textarea);
-              showCopied();
-            } catch (err) {
-              // Swallow copy errors silently
-            }
-          });
-        } else {
-          try {
-            const textarea = document.createElement('textarea');
-            textarea.value = textToCopy;
-            textarea.setAttribute('readonly', '');
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-            showCopied();
-          } catch (err) {
-            // Swallow copy errors silently
-          }
-        }
-      });
-      return box;
+    function ensureContainer() {
+      let container = document.getElementById(CONTAINER_ID);
+      if (!container) {
+        container = document.createElement('div');
+        container.id = CONTAINER_ID;
+        container.className = 'preview-error-container';
+        (document.body || document.documentElement).appendChild(container);
+      }
+      container.style.setProperty('--fade-size', FADE_SIZE + 'px');
+      return container;
     }
 
     function ensureCopiedBox() {
@@ -617,21 +699,151 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
       return box;
     }
 
-    function showError(msg) {
-      ensureStyle();
-      const box = ensureBox();
-      if (!box) return;
-      lastMessage = msg;
-      box.textContent = msg;
-      box.classList.remove('show');
-      void box.offsetWidth;
-      requestAnimationFrame(() => {
-        box.classList.add('show');
+    function copyText(text) {
+      const showCopied = () => {
+        const copiedBox = ensureCopiedBox();
+        if (!copiedBox) return;
+        copiedBox.textContent = 'Copied!';
+        copiedBox.classList.remove('show');
+        void copiedBox.offsetWidth;
+        requestAnimationFrame(() => {
+          copiedBox.classList.add('show');
+        });
+        clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => {
+          copiedBox.classList.remove('show');
+        }, 1000);
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showCopied).catch(() => {
+          try {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showCopied();
+          } catch (err) {
+            // Swallow copy errors silently
+          }
+        });
+      } else {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          showCopied();
+        } catch (err) {
+          // Swallow copy errors silently
+        }
+      }
+    }
+
+    function updateContainerMaxHeight(container) {
+      const toasts = Array.from(container.querySelectorAll('.preview-error-toast'));
+      if (toasts.length === 0) {
+        container.style.maxHeight = '';
+        return;
+      }
+      const limit = Math.min(TOAST_LIMIT, toasts.length);
+      let height = 0;
+      for (let i = 0; i < limit; i++) {
+        const rect = toasts[i].getBoundingClientRect();
+        height += rect.height;
+        if (i > 0) height += TOAST_GAP;
+      }
+      const paddedHeight = height + (FADE_SIZE * 2);
+      container.style.maxHeight = \`\${Math.ceil(paddedHeight)}px\`;
+    }
+
+    function captureToastPositions(container) {
+      const map = new Map();
+      const toasts = container.querySelectorAll('.preview-error-toast');
+      toasts.forEach((toast) => {
+        map.set(toast, toast.getBoundingClientRect());
       });
-      clearTimeout(errorTimer);
-      errorTimer = setTimeout(() => {
-        box.classList.remove('show');
-      }, 8000);
+      return map;
+    }
+
+    function applyToastShift(container, previousRects) {
+      const toasts = container.querySelectorAll('.preview-error-toast');
+      toasts.forEach((toast) => {
+        const prev = previousRects.get(toast);
+        if (!prev) return;
+        const next = toast.getBoundingClientRect();
+        const deltaY = prev.top - next.top;
+        if (!deltaY) return;
+        toast.style.transition = 'none';
+        toast.style.transform = \`translateY(\${deltaY}px)\`;
+        toast.dataset.shifted = 'true';
+      });
+    }
+
+    function showErrorNow(msg) {
+      ensureStyle();
+      const container = ensureContainer();
+      if (!container) return;
+      const previousRects = captureToastPositions(container);
+      const toast = document.createElement('div');
+      toast.className = 'preview-error-toast';
+      toast.textContent = msg;
+      toast.dataset.message = msg;
+      toast.addEventListener('click', function() {
+        const textToCopy = toast.dataset.message || '';
+        if (!textToCopy) return;
+        copyText(textToCopy);
+      });
+      container.appendChild(toast);
+      applyToastShift(container, previousRects);
+      void container.offsetHeight;
+      requestAnimationFrame(() => {
+        const shifted = container.querySelectorAll('.preview-error-toast[data-shifted="true"]');
+        shifted.forEach((item) => {
+          item.style.transition = '';
+          item.style.transform = '';
+          item.removeAttribute('data-shifted');
+        });
+        toast.classList.add('show');
+        updateContainerMaxHeight(container);
+      });
+      const hideTimer = setTimeout(() => {
+        toast.classList.remove('show');
+        toast.classList.add('hide');
+        setTimeout(() => {
+          toast.remove();
+          updateContainerMaxHeight(container);
+        }, EXIT_DURATION);
+      }, TOAST_DURATION);
+      toast._hideTimer = hideTimer;
+    }
+
+    function flushErrorQueue() {
+      if (pendingErrors.length === 0) {
+        isFlushingQueue = false;
+        return;
+      }
+      isFlushingQueue = true;
+      const msg = pendingErrors.shift();
+      showErrorNow(msg);
+      setTimeout(flushErrorQueue, STAGGER_DELAY);
+    }
+
+    function showError(msg) {
+      pendingErrors.push(msg);
+      if (!isFlushingQueue) {
+        flushErrorQueue();
+      }
     }
 
     const originalConsoleError = console.error;
@@ -1371,7 +1583,6 @@ const ICON_MAPPING = {
   'mermaid': 'mermaid',
   'svg': 'svg',
   'vue': 'vue',
-  'svelte': 'svelte', // Not in list but good to have mapping if added
   'angular': 'angular',
   'react': 'javascript-react',
   'vb': 'vbnet',
@@ -1402,6 +1613,29 @@ const ICON_MAPPING = {
   'tf': 'terraform',
 };
 
+const ICON_STATUS = new Map();
+const ICON_FALLBACK_SRC = '/icons/square-code.svg';
+let iconsPreloaded = false;
+
+const preloadCodeIcons = () => {
+  if (typeof window === 'undefined' || iconsPreloaded) return;
+  iconsPreloaded = true;
+  const iconNames = new Set(Object.values(ICON_MAPPING));
+  iconNames.add('square-code');
+  iconNames.forEach((iconName) => {
+    const existing = ICON_STATUS.get(iconName);
+    if (existing === 'ok' || existing === 'missing') return;
+    const img = new Image();
+    img.onload = () => {
+      ICON_STATUS.set(iconName, 'ok');
+    };
+    img.onerror = () => {
+      ICON_STATUS.set(iconName, 'missing');
+    };
+    img.src = `/icons/${iconName}.svg`;
+  });
+};
+
 // Markdown渲染器组件（内部实现）
 const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const containerRef = useRef(null);
@@ -1409,13 +1643,15 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const chunkMetaRef = useRef([]);
   const blockMathCacheRef = useRef(new Map());
   const inlineMathCacheRef = useRef(new Map());
-  const iconLoadCacheRef = useRef(new Set());
+  
   
   // Keep track of streaming state in a ref for async access
   const isStreamingRef = useRef(isStreaming);
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  // highlight.js 无需额外预热
 
   const finalizeFadeSpan = useCallback((span) => {
     if (!span?.isConnected) return;
@@ -1607,7 +1843,6 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       previewViewModeRef.current.clear();
       mermaidSnapshotRef.current.clear();
       svgSnapshotRef.current.clear();
-      iconLoadCacheRef.current.clear();
       return;
     }
     
@@ -1649,13 +1884,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
     const replacements = new Map();
 
-    // 配置Prism自动加载器
-    if (window.Prism?.plugins?.autoloader) {
-      window.Prism.plugins.autoloader.languages_path =
-        'https://cdn.jsdelivr.net/npm/prismjs/components/';
-      // 禁用 worker 以避免跨域安全错误
-      window.Prism.plugins.autoloader.use_worker = false;
-    }
+    // highlight.js 已在模块层注册语言，无需额外初始化
 
     // 配置markdown-it
     const md = window.markdownit({ 
@@ -2132,6 +2361,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     let mermaidBlockIndex = 0;
     let svgBlockIndex = 0;
     let htmlBlockIndex = 0;
+    let codeBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
 
@@ -2152,6 +2382,8 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         blockKey = `svg-${svgBlockIndex++}`;
       } else if (isHtml) {
         blockKey = `html-${htmlBlockIndex++}`;
+      } else {
+        blockKey = `code-${codeBlockIndex++}`;
       }
       if (supportsPreview && blockKey) {
         activePreviewKeys.add(blockKey);
@@ -2173,7 +2405,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       // 创建容器结构
       const container = document.createElement('div');
       container.className = 'code-block-container';
-      if (supportsPreview && blockKey) {
+      if (blockKey) {
         container.setAttribute('data-block-key', blockKey);
       }
       
@@ -2200,48 +2432,30 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         iconImg.style.width = '14px';
         iconImg.style.height = '14px';
         iconImg.style.marginRight = '2px';
-        // 移除之前的 filter，因为本地 SVG 图标通常已经有颜色，或者我们希望保持原色
-        // 如果原本是纯黑SVG且需要变白，可以保留 filter，但 Usually icons are colored or we should use CSS to style them.
-        // User requested to use icons from components/icon (now public/icons). Assuming they are standard colored SVGs.
-        // Let's keep a subtle filter or remove if they are colored.
-        // Looking at file list (apple.svg, python.svg), they are likely colored brands.
-        // Let's remove the heavy inversion filter effectively unless dark mode requires it.
-        // But the previous filter was specific. 
-        // Let's try without filter first as "original" icons are usually best.
-        // iconImg.style.filter = ''; 
         
-        // Set src to trigger load
-        
-        if (iconLoadCacheRef.current.has(src)) {
-            // If cached, show immediately
-            iconImg.style.display = 'inline-block';
-            iconImg.src = src;
+        iconImg.style.display = 'inline-block';
+
+        const cachedStatus = ICON_STATUS.get(iconName);
+        if (cachedStatus === 'missing') {
+          iconImg.src = ICON_FALLBACK_SRC;
         } else {
-            // If not cached, hide initially and wait for load
-            iconImg.style.display = 'none';
-            iconImg.onload = () => {
-              iconImg.style.display = 'inline-block';
-              iconLoadCacheRef.current.add(src);
-            };
-            iconImg.onerror = () => {
-              // Load fallback icon
-              const fallbackSrc = '/icons/square-code.svg';
-              if (iconImg.src.endsWith(fallbackSrc)) {
-                  // Avoid infinite loop if fallback fails
-                  iconImg.style.display = 'none';
-                  return;
-              }
-              iconImg.src = fallbackSrc;
-              iconImg.style.display = 'inline-block';
-            };
-            iconImg.src = src;
+          iconImg.onload = () => {
+            ICON_STATUS.set(iconName, 'ok');
+          };
+          iconImg.onerror = () => {
+            ICON_STATUS.set(iconName, 'missing');
+            if (!iconImg.src.endsWith(ICON_FALLBACK_SRC)) {
+              iconImg.src = ICON_FALLBACK_SRC;
+            }
+          };
+          iconImg.src = src;
         }
         
         langSpan.appendChild(iconImg);
       } else {
         // No language specified, show default icon
         const iconImg = document.createElement('img');
-        const src = '/icons/square-code.svg';
+        const src = ICON_FALLBACK_SRC;
         iconImg.alt = '';
         iconImg.style.width = '14px';
         iconImg.style.height = '14px';
@@ -2251,7 +2465,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         langSpan.appendChild(iconImg);
       }
 
-      langSpan.appendChild(document.createTextNode(language || 'code'));
+      langSpan.appendChild(document.createTextNode(language || 'plaintext'));
       
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
@@ -2902,10 +3116,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         pre.parentNode.replaceChild(container, pre);
       }
 
-      // 然后对克隆的代码元素进行高亮（非Mermaid的情况）
-      if (window.Prism && codeClone && !isMermaid) {
-        window.Prism.highlightElement(codeClone, false);
-      }
+      // 注意：highlight.js 高亮将在 updateDomSmartly 之后对真实 DOM 执行
     });
 
 
@@ -2964,6 +3175,54 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
     // Apply Smart DOM Update
     updateDomSmartly(containerRef.current, tempDiv);
+
+    // 使用 highlight.js 对真实 DOM 中的代码块进行高亮
+    const applyHighlighting = () => {
+      const root = containerRef.current;
+      if (!root) return;
+
+      const codeBlocks = root.querySelectorAll('.code-block-container pre code');
+      codeBlocks.forEach((codeElement) => {
+        const container = codeElement.closest('.code-block-container');
+        if (container?.querySelector('.mermaid-preview')) return;
+
+        const languageMatch = /language-([^\s]+)/.exec(codeElement.className || '');
+        const rawLanguage = languageMatch ? languageMatch[1] : '';
+        if (rawLanguage.toLowerCase() === 'mermaid') return;
+        const resolvedLanguage = resolveHljsLanguage(rawLanguage);
+
+        const codeContent = codeElement.textContent || '';
+        if (!codeContent.trim()) return;
+
+        const lastHighlightedContent = codeElement.getAttribute('data-highlighted-content');
+        if (lastHighlightedContent === codeContent) return;
+
+        codeElement.removeAttribute('data-highlighted');
+        codeElement.classList.remove('hljs');
+
+        try {
+          Array.from(codeElement.classList).forEach((cls) => {
+            if (cls.startsWith('language-')) {
+              codeElement.classList.remove(cls);
+            }
+          });
+          if (resolvedLanguage) {
+            codeElement.classList.add(`language-${resolvedLanguage}`);
+          }
+          const result = hljs.highlight(codeContent, {
+            language: resolvedLanguage,
+            ignoreIllegals: true,
+          });
+          codeElement.innerHTML = result.value;
+          codeElement.classList.add('hljs');
+          codeElement.setAttribute('data-highlighted-content', codeContent);
+        } catch (err) {
+          console.warn('highlight.js 高亮失败，保持原始代码:', err);
+        }
+      });
+    };
+
+    applyHighlighting();
 
     const syncHtmlPreviews = () => {
       const root = containerRef.current;
@@ -4087,6 +4346,9 @@ export default function ChatModern({ user, initialConversationId = null }) {
   // 【性能优化】用于节流流式更新的refs
   const streamUpdateTimerRef = useRef(null);
   const pendingContentRef = useRef(null);
+  useEffect(() => {
+    preloadCodeIcons();
+  }, []);
   const apiBase = useMemo(() => getApiBaseUrl().replace(/\/$/, ""), []);
   const historyEnabled = Boolean(user);
   const routeChatId = router?.query?.chatId ? String(router.query.chatId) : null;
@@ -5759,7 +6021,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         </motion.aside>
         </>
       )}
-      <div className="relative flex flex-1 flex-col">
+      <div className="relative flex flex-1 flex-col chat-selection-scope">
         {Header}
         <main ref={containerRef} className={cx("absolute left-0 right-0 top-[120px] bottom-0 overflow-y-auto z-20", mainPaddingBottom)} style={{ scrollbarGutter: 'stable' }}>
           <div className="mx-auto w-full max-w-4xl px-4 pt-4">

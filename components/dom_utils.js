@@ -38,11 +38,10 @@ export const updateDomSmartly = (container, newContentDiv) => {
       // 2. 更新代码文本（如果变化了）
       if (oldCodeFn && newCodeFn && codeContentChanged) {
         oldCodeFn.textContent = newCodeFn.textContent;
-        // 如果使用了Prism，重新高亮
-        if (window.Prism && !oldNode.querySelector('.mermaid-preview')) {
-             // 简单高亮
-             window.Prism.highlightElement(oldCodeFn, false);
-        }
+        // 清理 highlight.js 标记，确保流式更新后可重新高亮
+        oldCodeFn.classList.remove('hljs');
+        oldCodeFn.removeAttribute('data-highlighted');
+        oldCodeFn.removeAttribute('data-highlighted-content');
       }
       
       // 3. 更新行号

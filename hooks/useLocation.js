@@ -40,14 +40,23 @@ export function LocationProvider({ children }) {
   }, [buildingCache]);
 
   const fetchJSON = useCallback(async (url, options = {}) => {
-    const resp = await fetch(url, {
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      },
-      ...options,
-    });
+    let resp;
+    try {
+      resp = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {})
+        },
+        ...options,
+      });
+    } catch (err) {
+      const isAbort = err && err.name === 'AbortError';
+      const wrapped = new Error(isAbort ? '请求已取消' : '网络连接失败，请稍后重试');
+      wrapped.cause = err;
+      wrapped.isNetworkError = !isAbort;
+      throw wrapped;
+    }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.success) {
       const message = data.message || `HTTP ${resp.status}`;
@@ -169,7 +178,15 @@ export function LocationProvider({ children }) {
       setForceSelection(false);
       return;
     }
-    loadProfile();
+    const task = loadProfile();
+    if (task && typeof task.catch === 'function') {
+      task.catch((err) => {
+        console.error('加载收货资料失败:', err);
+        setError(err?.message || '加载收货资料失败');
+        setForceSelection(true);
+        setModalOpen(true);
+      });
+    }
   }, [user, isInitialized, loadProfile]);
 
   const openLocationModal = useCallback(async (options = {}) => {

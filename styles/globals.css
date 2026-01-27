@@ -69,6 +69,24 @@ body {
   color: var(--text-primary);
 }
 
+/* Chat selection: keep text color, soften background */
+.chat-selection-scope ::selection {
+  background: rgba(147, 197, 253, 0.45);
+  color: inherit;
+}
+.chat-selection-scope *::selection {
+  background: rgba(147, 197, 253, 0.45);
+  color: inherit;
+}
+.chat-selection-scope ::-moz-selection {
+  background: rgba(147, 197, 253, 0.45);
+  color: inherit;
+}
+.chat-selection-scope *::-moz-selection {
+  background: rgba(147, 197, 253, 0.45);
+  color: inherit;
+}
+
 /* 磨砂玻璃效果基础类 */
 .glass {
   background: var(--glass-bg);
@@ -946,6 +964,58 @@ body {
   min-width: max-content;
   /* 确保代码内容能够横向扩展 */
   color: #1f2937;
+}
+
+/* highlight.js 代码高亮样式 */
+.code-block-container pre code.hljs {
+  background: transparent !important;
+}
+
+.hljs {
+  color: #1f2937;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #6b7280;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #7c3aed;
+}
+.hljs-literal,
+.hljs-number,
+.hljs-tag .hljs-attr {
+  color: #0369a1;
+}
+.hljs-string,
+.hljs-doctag,
+.hljs-attribute {
+  color: #15803d;
+}
+.hljs-title,
+.hljs-section,
+.hljs-type {
+  color: #b45309;
+}
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #b91c1c;
+}
+.hljs-meta,
+.hljs-meta-string {
+  color: #0f766e;
+}
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #0f766e;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
 }
 
 /* 代码块滚动条样式 */
