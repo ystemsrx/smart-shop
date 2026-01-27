@@ -21,7 +21,11 @@ class ChatLogDB:
             try:
                 ensure_table_columns(conn, 'chat_logs', {
                     'thread_id': 'TEXT',
-                    'tool_call_id': 'TEXT'
+                    'tool_call_id': 'TEXT',
+                    'thinking_content': 'TEXT',
+                    'thinking_duration': 'REAL',
+                    'is_thinking_stopped': 'INTEGER DEFAULT 0',
+                    'is_error': 'INTEGER DEFAULT 0'
                 })
             except Exception as exc:
                 logger.warning("确保 chat_logs schema 时出错: %s", exc)
@@ -197,7 +201,8 @@ class ChatLogDB:
         tool_call_id: Optional[str] = None,
         thinking_content: Optional[str] = None,
         thinking_duration: Optional[float] = None,
-        is_thinking_stopped: bool = False
+        is_thinking_stopped: bool = False,
+        is_error: bool = False
     ):
         user_ref = ChatLogDB._resolve_user_identifier(user_identifier)
 
@@ -227,8 +232,8 @@ class ChatLogDB:
                     raise ValueError("会话不存在或无权限访问")
 
             cursor.execute('''
-                INSERT INTO chat_logs (student_id, user_id, thread_id, tool_call_id, role, content, thinking_content, thinking_duration, is_thinking_stopped)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_logs (student_id, user_id, thread_id, tool_call_id, role, content, thinking_content, thinking_duration, is_thinking_stopped, is_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_ref['student_id'] if user_ref else None,
                 user_ref['user_id'] if user_ref else None,
@@ -238,7 +243,8 @@ class ChatLogDB:
                 actual_content,
                 thinking_content,
                 thinking_duration,
-                1 if is_thinking_stopped else 0
+                1 if is_thinking_stopped else 0,
+                1 if is_error else 0
             ))
 
             if thread_id:

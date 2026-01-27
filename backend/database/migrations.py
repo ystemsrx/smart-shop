@@ -726,7 +726,8 @@ def auto_migrate_database(conn) -> None:
             'tool_call_id': 'TEXT',
             'thinking_content': 'TEXT',
             'thinking_duration': 'REAL',
-            'is_thinking_stopped': 'INTEGER DEFAULT 0'
+            'is_thinking_stopped': 'INTEGER DEFAULT 0',
+            'is_error': 'INTEGER DEFAULT 0'
         },
         'chat_threads': {
             'title': 'TEXT',

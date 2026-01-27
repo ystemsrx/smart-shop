@@ -1678,6 +1678,7 @@ const pythonExecutionState = {
   interruptBuffer: null,
   supportsInterrupt: false,
   runId: 0,
+  preloadPromise: null,
 };
 
 const resetPythonRuntime = () => {
@@ -2058,6 +2059,14 @@ self.onmessage = (event) => {
     post({ type: 'ready' });
     return;
   }
+  if (data.type === 'preload') {
+    ensurePyodideReady()
+      .then(() => post({ type: 'preloaded' }))
+      .catch((err) => {
+        post({ type: 'preload-error', error: err?.message || String(err || 'Pyodide preload failed') });
+      });
+    return;
+  }
   if (data.type === 'stdin') {
     if (pendingInput && pendingInputTaskId === data.taskId) {
       const value = typeof data.value === 'string' ? data.value : '';
@@ -2158,6 +2167,22 @@ const ensurePythonWorker = async () => {
   return pythonExecutionState.workerReadyPromise;
 };
 
+const warmupPyodideDownload = () => {
+  if (pythonExecutionState.preloadPromise) return pythonExecutionState.preloadPromise;
+  pythonExecutionState.preloadPromise = (async () => {
+    try {
+      await ensurePythonWorker();
+      const worker = pythonExecutionState.worker;
+      if (worker) {
+        worker.postMessage({ type: 'preload' });
+      }
+    } catch (err) {
+      console.debug('Pyodide preload skipped:', err);
+    }
+  })();
+  return pythonExecutionState.preloadPromise;
+};
+
 const terminatePythonWorker = () => {
   if (pythonExecutionState.worker) {
     pythonExecutionState.worker.terminate();
@@ -2169,6 +2194,7 @@ const terminatePythonWorker = () => {
   pythonExecutionState.workerReadyPromise = null;
   pythonExecutionState.workerBlobUrl = null;
   pythonExecutionState.workerHandlers = new Map();
+  pythonExecutionState.preloadPromise = null;
 };
 
 const forceInterruptPyodide = (taskId) => {
@@ -2993,26 +3019,63 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     codeWrapper.style.display = showPreview ? 'none' : 'flex';
     previewViewModeRef.current.set(blockKey, nextMode);
 
-    // HTML块特殊处理：每次切换到预览时重新渲染，切换回代码时清空iframe
+    // HTML块特殊处理：切换到源码时清空所有状态，切换回预览时强制重建/渲染
     if (isHtmlBlock) {
-      const iframe = previewContainer.querySelector('iframe');
-      if (iframe) {
-        if (showPreview) {
-          // 切换到预览：重新渲染iframe内容
-          const codeElement = blockContainer.querySelector('pre code');
-          const codeContent = codeElement?.textContent || '';
-          if (codeContent.trim()) {
-            const htmlDoc = buildHtmlPreviewDoc(codeContent);
-            if (htmlDoc) {
-              iframe.srcdoc = htmlDoc;
-              htmlSnapshotRef.current.set(blockKey, codeContent);
-              previewContainer.setAttribute('data-render-success', 'true');
-            }
-          }
-        } else {
-          // 切换回代码：清空iframe内容，停止执行
+      const getPreviewHeight = () => {
+        const raw = previewContainer.dataset.previewHeight;
+        const parsed = raw ? parseInt(raw, 10) : NaN;
+        return Number.isFinite(parsed) ? parsed : 400;
+      };
+      const resetHtmlState = () => {
+        const iframe = previewContainer.querySelector('iframe');
+        if (iframe) {
+          iframe.removeAttribute('srcdoc');
+          iframe.removeAttribute('src');
           iframe.srcdoc = '';
+          iframe.remove();
         }
+        htmlSnapshotRef.current.delete(blockKey);
+        previewContainer.removeAttribute('data-render-success');
+        previewContainer.dataset.previewCleared = 'true';
+      };
+      const ensureHtmlIframe = () => {
+        let iframe = previewContainer.querySelector('iframe');
+        if (!iframe) {
+          iframe = document.createElement('iframe');
+          iframe.className = 'html-preview-iframe';
+          const previewHeight = getPreviewHeight();
+          iframe.style.cssText = `
+            width: 100%;
+            height: ${previewHeight}px;
+            border: none;
+            border-radius: 0 0 12px 12px;
+            background: white;
+            display: block;
+          `;
+          iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+          iframe.setAttribute('title', 'HTML Preview');
+          previewContainer.appendChild(iframe);
+        }
+        return iframe;
+      };
+
+      if (showPreview) {
+        // 切换到预览：重新渲染iframe内容（强制刷新）
+        const codeElement = blockContainer.querySelector('pre code');
+        const codeContent = codeElement?.textContent || '';
+        if (codeContent.trim()) {
+          const htmlDoc = buildHtmlPreviewDoc(codeContent);
+          if (htmlDoc) {
+            const iframe = ensureHtmlIframe();
+            iframe.srcdoc = htmlDoc;
+            htmlSnapshotRef.current.set(blockKey, codeContent);
+            previewContainer.setAttribute('data-render-success', 'true');
+            delete previewContainer.dataset.previewCleared;
+          }
+        }
+      } else {
+        // 切换回源码：清空所有状态，避免残留导致空白
+        resetHtmlState();
       }
     }
 
@@ -4319,6 +4382,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         htmlContainer.setAttribute('data-block-key', blockKey);
         htmlContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
         htmlContainer.dataset.previewDisplay = 'block';
+        htmlContainer.dataset.previewHeight = String(previewHeight);
         previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
         htmlContainer.style.cssText = `
           background: white;
@@ -5760,6 +5824,9 @@ export default function ChatModern({ user, initialConversationId = null }) {
   const pendingContentRef = useRef(null);
   useEffect(() => {
     preloadCodeIcons();
+  }, []);
+  useEffect(() => {
+    warmupPyodideDownload();
   }, []);
   const apiBase = useMemo(() => getApiBaseUrl().replace(/\/$/, ""), []);
   const historyEnabled = Boolean(user);

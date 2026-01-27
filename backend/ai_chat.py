@@ -107,6 +107,16 @@ def _is_truthy(value: Any) -> bool:
     return text in {"1", "true", "yes", "on"}
 
 
+ERROR_INTERRUPTED_MARKER = "[生成已中断]"
+USER_CANCELLED_REASONS = {"cancelled", "interrupted"}
+
+
+def _is_user_cancelled(finish_reason: Optional[str]) -> bool:
+    if not finish_reason:
+        return False
+    return str(finish_reason).strip().lower() in USER_CANCELLED_REASONS
+
+
 def _extract_text(content: Any) -> str:
     """从OpenAI SDK返回的content结构中提取文本。"""
     if content is None:
@@ -2159,6 +2169,98 @@ def _prune_unsent_user_messages(
 
     return pruned
 
+
+def _collect_failed_user_contents(
+    user_id: Optional[str],
+    thread_id: Optional[str] = None
+) -> List[str]:
+    if not user_id:
+        return []
+    try:
+        history = ChatLogDB.get_recent_logs(user_id, limit=200, thread_id=thread_id)
+    except Exception as exc:
+        logger.warning("读取聊天历史失败，跳过失败消息剔除: %s", exc)
+        return []
+
+    failed_user_contents: List[str] = []
+    last_user_content: Optional[str] = None
+    last_user_failed = False
+
+    for record in reversed(history):  # 转为时间正序
+        role = (record.get("role") or "").lower()
+        if role == "user":
+            last_user_content = record.get("content") or ""
+            last_user_failed = False
+            continue
+        if role != "assistant":
+            continue
+        if last_user_content is None:
+            continue
+        if last_user_failed:
+            continue
+        if _is_truthy(record.get("is_error")):
+            failed_user_contents.append(last_user_content)
+            last_user_failed = True
+
+    return failed_user_contents
+
+
+def _prune_failed_turns(
+    user_id: Optional[str],
+    messages: List[Dict[str, Any]],
+    thread_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """移除历史中已判定失败的用户回合（对应的用户消息及其后续助手/工具消息）。"""
+    if not user_id or not messages:
+        return messages
+
+    failed_user_contents = _collect_failed_user_contents(user_id, thread_id)
+    if not failed_user_contents:
+        return messages
+
+    message_user_contents = [
+        (msg.get("content") or "")
+        for msg in messages
+        if (msg.get("role") or "").lower() == "user"
+    ]
+    if not message_user_contents:
+        return messages
+
+    matched_failures: List[str] = []
+    fail_idx = 0
+    for content in message_user_contents:
+        while fail_idx < len(failed_user_contents) and failed_user_contents[fail_idx] != content:
+            fail_idx += 1
+        if fail_idx < len(failed_user_contents) and failed_user_contents[fail_idx] == content:
+            matched_failures.append(failed_user_contents[fail_idx])
+            fail_idx += 1
+
+    if not matched_failures:
+        return messages
+
+    pruned: List[Dict[str, Any]] = []
+    failed_match_idx = 0
+    skip_until_next_user = False
+
+    for msg in messages:
+        role = (msg.get("role") or "").lower()
+        if role == "user":
+            skip_until_next_user = False
+            content = msg.get("content") or ""
+            if failed_match_idx < len(matched_failures) and content == matched_failures[failed_match_idx]:
+                failed_match_idx += 1
+                skip_until_next_user = True
+                continue
+            pruned.append(msg)
+            continue
+
+        if skip_until_next_user:
+            continue
+
+        pruned.append(msg)
+
+    return pruned
+
 async def handle_tool_calls_and_continue(
     user_id: Optional[str], 
     base_messages: List[Dict[str, Any]],
@@ -2288,6 +2390,10 @@ async def handle_tool_calls_and_continue(
                 logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
             else:
                 logger.warning(f"工具调用后继续对话异常 (尝试 {attempt+1}/{retries+1}): {e}")
+            is_user_cancelled = _is_user_cancelled(e.finish_reason)
+            will_retry = e.retryable and attempt < retries and not e.has_partial and not is_user_cancelled
+            if will_retry:
+                continue
             # 始终保存助手消息（即使内容为空）
             # 只有在thinking阶段被中断时才标记stopped（有reasoning但没有assistant text）
             is_thinking_stopped = (
@@ -2296,6 +2402,7 @@ async def handle_tool_calls_and_continue(
                 and not e.partial_text.strip()
             )
             if user_id:
+                is_error_log = (not is_user_cancelled) and (not e.has_partial)
                 if e.partial_text or e.partial_reasoning or not e.tool_calls:
                     content_to_save = _build_assistant_log_content(
                         e.partial_text or "", 
@@ -2303,29 +2410,28 @@ async def handle_tool_calls_and_continue(
                     )
                     # 如果完全为空，至少保存一个标记
                     if not e.partial_text.strip() and not e.partial_reasoning.strip():
-                        content_to_save = "[生成已中断]"
+                        content_to_save = ERROR_INTERRUPTED_MARKER
                     ChatLogDB.add_log(
                         user_id,
                         "assistant",
                         content_to_save,
                         thread_id=conversation_id,
                         is_thinking_stopped=is_thinking_stopped,
-                        thinking_duration=e.thinking_duration
+                        thinking_duration=e.thinking_duration,
+                        is_error=is_error_log
                     )
                     logger.info(f"已保存工具调用后的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}, thinking中断: {is_thinking_stopped}, 思考时长: {e.thinking_duration}")
                 elif e.tool_calls:
                     ChatLogDB.add_log(user_id, "assistant", json.dumps({
                         "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
-                    }, ensure_ascii=False), thread_id=conversation_id)
+                    }, ensure_ascii=False), thread_id=conversation_id, is_error=is_error_log)
                     logger.info(f"已保存工具调用")
             
             # 发送完成或错误消息到前端
-            if e.has_partial or e.finish_reason == "cancelled":
+            if e.has_partial or is_user_cancelled:
                 await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
                 break
-            
-            if e.retryable and attempt < retries:
-                continue
+
             await send(_sse("error", {"type": "error", "error": str(e)}))
             break
         except Exception as e:
@@ -2344,6 +2450,7 @@ async def stream_chat(
     queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
     user_id = user["id"] if user else None
     init_messages = _sanitize_initial_messages(init_messages, user_id, conversation_id)
+    init_messages = _prune_failed_turns(user_id, init_messages, conversation_id)
     init_messages = _prune_unsent_user_messages(user_id, init_messages, conversation_id)
     model_config = resolve_model_config(selected_model_name)
     
@@ -2469,6 +2576,10 @@ async def stream_chat(
                         logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
                     else:
                         logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
+                    is_user_cancelled = _is_user_cancelled(e.finish_reason)
+                    will_retry = e.retryable and attempt < retries and not e.has_partial and not is_user_cancelled
+                    if will_retry:
+                        continue
                     # 始终保存用户消息（即使没有部分内容）
                     if user_id and user_messages_to_log and not partial_state["user_messages_logged"]:
                         for content in user_messages_to_log:
@@ -2482,6 +2593,7 @@ async def stream_chat(
                         and not e.partial_text.strip()
                     )
                     if user_id:
+                        is_error_log = (not is_user_cancelled) and (not e.has_partial)
                         # 始终保存助手消息，即使内容为空（标记中断）
                         if e.partial_text or e.partial_reasoning or not e.tool_calls:
                             content_to_save = _build_assistant_log_content(
@@ -2490,30 +2602,27 @@ async def stream_chat(
                             )
                             # 如果完全为空，至少保存一个标记
                             if not e.partial_text.strip() and not e.partial_reasoning.strip():
-                                content_to_save = "[生成已中断]"
+                                content_to_save = ERROR_INTERRUPTED_MARKER
                             ChatLogDB.add_log(
                                 user_id,
                                 "assistant",
                                 content_to_save,
                                 thread_id=conversation_id,
                                 is_thinking_stopped=is_thinking_stopped,
-                                thinking_duration=e.thinking_duration
+                                thinking_duration=e.thinking_duration,
+                                is_error=is_error_log
                             )
                             logger.info(f"已保存StreamResponseError中的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}, thinking中断: {is_thinking_stopped}, 思考时长: {e.thinking_duration}")
                         elif e.tool_calls:
                             ChatLogDB.add_log(user_id, "assistant", json.dumps({
                                 "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
-                            }, ensure_ascii=False), thread_id=conversation_id)
+                            }, ensure_ascii=False), thread_id=conversation_id, is_error=is_error_log)
                             logger.info(f"已保存StreamResponseError中的工具调用")
 
                     # 发送完成或错误消息到前端
-                    if e.has_partial or e.finish_reason == "cancelled":
+                    if e.has_partial or is_user_cancelled:
                         await send(_sse("completed", {"type": "completed", "finish_reason": e.finish_reason or "interrupted"}))
                         break
-                    
-                    # 如果可以重试，继续
-                    if e.retryable and attempt < retries:
-                        continue
 
                     await send(_sse("error", {"type": "error", "error": str(e)}))
                     break
@@ -2543,11 +2652,19 @@ async def stream_chat(
                         content_to_log = _build_assistant_log_content(assistant_text, reasoning_output)
                     else:
                         # 如果完全没有生成内容，至少保存一个标记
-                        content_to_log = "[生成已中断]"
+                        content_to_log = ERROR_INTERRUPTED_MARKER
                     
                     # 只有在thinking阶段被中断时才标记stopped（有reasoning但没有assistant text）
                     is_thinking_stopped = bool(reasoning_output.strip()) and not bool(assistant_text.strip())
-                    ChatLogDB.add_log(user_id, "assistant", content_to_log, thread_id=conversation_id, is_thinking_stopped=is_thinking_stopped, thinking_duration=thinking_dur)
+                    ChatLogDB.add_log(
+                        user_id,
+                        "assistant",
+                        content_to_log,
+                        thread_id=conversation_id,
+                        is_thinking_stopped=is_thinking_stopped,
+                        thinking_duration=thinking_dur,
+                        is_error=False
+                    )
                     logger.info(f"已保存部分生成内容，文本长度: {len(assistant_text)}, 思考长度: {len(reasoning_output)}, thinking中断: {is_thinking_stopped}, 思考时长: {thinking_dur}")
                 except Exception as e:
                     logger.error(f"保存部分内容失败: {e}")
