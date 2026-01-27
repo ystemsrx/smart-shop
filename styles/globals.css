@@ -74,14 +74,17 @@ body {
   background: rgba(147, 197, 253, 0.45);
   color: inherit;
 }
+
 .chat-selection-scope *::selection {
   background: rgba(147, 197, 253, 0.45);
   color: inherit;
 }
+
 .chat-selection-scope ::-moz-selection {
   background: rgba(147, 197, 253, 0.45);
   color: inherit;
 }
+
 .chat-selection-scope *::-moz-selection {
   background: rgba(147, 197, 253, 0.45);
   color: inherit;
@@ -974,46 +977,56 @@ body {
 .hljs {
   color: #1f2937;
 }
+
 .hljs-comment,
 .hljs-quote {
   color: #6b7280;
 }
+
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-subst {
   color: #7c3aed;
 }
+
 .hljs-literal,
 .hljs-number,
 .hljs-tag .hljs-attr {
   color: #0369a1;
 }
+
 .hljs-string,
 .hljs-doctag,
 .hljs-attribute {
   color: #15803d;
 }
+
 .hljs-title,
 .hljs-section,
 .hljs-type {
   color: #b45309;
 }
+
 .hljs-name,
 .hljs-selector-id,
 .hljs-selector-class {
   color: #b91c1c;
 }
+
 .hljs-meta,
 .hljs-meta-string {
   color: #0f766e;
 }
+
 .hljs-built_in,
 .hljs-builtin-name {
   color: #0f766e;
 }
+
 .hljs-emphasis {
   font-style: italic;
 }
+
 .hljs-strong {
   font-weight: 600;
 }
@@ -1124,7 +1137,8 @@ body {
 /* 当预览区域显示时，隐藏整个包装器（行号+代码） */
 .code-block-content:has(.mermaid-preview:not([style*="display: none"])) .code-block-wrapper,
 .code-block-content:has(.svg-preview:not([style*="display: none"])) .code-block-wrapper,
-.code-block-content:has(.html-preview:not([style*="display: none"])) .code-block-wrapper {
+.code-block-content:has(.html-preview:not([style*="display: none"])) .code-block-wrapper,
+.code-block-content:has(.python-preview:not([style*="display: none"])) .code-block-wrapper {
   display: none;
 }
 
@@ -1220,6 +1234,175 @@ body {
   min-height: 100px;
   color: #6b7280;
   font-size: 14px;
+}
+
+/* Python终端预览样式 */
+.python-preview {
+  background: #0b0f16;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+  min-height: 400px;
+}
+
+.python-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.python-terminal-output {
+  flex: 1;
+  padding: 16px;
+  overflow: auto;
+  font-family: "Consolas", "Fira Code", "Monaco", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5e7eb;
+  white-space: pre-wrap;
+}
+
+.python-terminal-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.python-terminal-status {
+  color: #e5e7eb;
+}
+
+.python-terminal-spinner {
+  font-weight: 600;
+  display: inline-block;
+  position: relative;
+  width: 1em;
+  height: 1em;
+  vertical-align: middle;
+}
+
+.python-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.python-status .python-terminal-spinner {
+  line-height: 1;
+  align-self: center;
+  transform: translateY(-0.05em);
+}
+
+.python-status > span {
+  line-height: 1;
+}
+
+/* 使用多帧opacity动画实现盲文spinner，避免主线程阻塞时动画卡住 */
+.python-terminal-spinner>span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  animation: braille-frame 1s steps(1) infinite;
+}
+
+/* 错开每个帧的起始时间，使它们依次显示，并为每帧设置不同颜色 */
+.python-terminal-spinner>span:nth-child(1) {
+  animation-delay: 0s;
+  color: #93c5fd;
+}
+
+.python-terminal-spinner>span:nth-child(2) {
+  animation-delay: 0.1s;
+  color: #a5b4fc;
+}
+
+.python-terminal-spinner>span:nth-child(3) {
+  animation-delay: 0.2s;
+  color: #c4b5fd;
+}
+
+.python-terminal-spinner>span:nth-child(4) {
+  animation-delay: 0.3s;
+  color: #f9a8d4;
+}
+
+.python-terminal-spinner>span:nth-child(5) {
+  animation-delay: 0.4s;
+  color: #fda4af;
+}
+
+.python-terminal-spinner>span:nth-child(6) {
+  animation-delay: 0.5s;
+  color: #fdba74;
+}
+
+.python-terminal-spinner>span:nth-child(7) {
+  animation-delay: 0.6s;
+  color: #fcd34d;
+}
+
+.python-terminal-spinner>span:nth-child(8) {
+  animation-delay: 0.7s;
+  color: #6ee7b7;
+}
+
+.python-terminal-spinner>span:nth-child(9) {
+  animation-delay: 0.8s;
+  color: #5eead4;
+}
+
+.python-terminal-spinner>span:nth-child(10) {
+  animation-delay: 0.9s;
+  color: #7dd3fc;
+}
+
+@keyframes braille-frame {
+
+  0%,
+  10% {
+    opacity: 1;
+  }
+
+  10.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.python-terminal-queued {
+  color: #93c5fd;
+}
+
+.python-terminal-error {
+  color: #fca5a5;
+}
+
+.python-terminal-input-line {
+  align-items: center;
+}
+
+.python-terminal-input {
+  flex: 1;
+  min-width: 120px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.python-terminal-image {
+  width: 100%;
+  max-width: 100%;
+  min-width: 400px;
+  height: auto;
+  margin-top: 12px;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: white;
 }
 
 /* 链接样式 */

@@ -233,6 +233,7 @@ const BUTTON_CONTENT = {
   PREVIEW_OFF: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"/><path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/></svg><span>代码</span>`,
   RUN_ON: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg><span>运行</span>`,
   RUN_OFF: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg><span>源码</span>`,
+  RUN_BUSY: `<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="icon-xs"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4.25c0 .414.336.75.75.75H13a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg><span>运行</span>`,
 };
 
 // Transform synchronous confirm/prompt/alert code patterns to async/await
@@ -1488,6 +1489,10 @@ const STREAM_FADE_DURATION = 600;
 const MarkdownRendererWrapper = ({ content, isStreaming }) => {
   const wrapperRef = useRef(null);
   const maxHeightRef = useRef(0);
+  const isStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
   
   // 为整个 Markdown 渲染器添加外层高度缓冲
   useEffect(() => {
@@ -1500,10 +1505,27 @@ const MarkdownRendererWrapper = ({ content, isStreaming }) => {
         for (const entry of entries) {
           const currentHeight = entry.contentRect.height;
           
-          if (currentHeight > 10 && currentHeight > maxHeightRef.current) {
+          if (currentHeight <= 10) continue;
+          const bufferHeight = Math.floor(currentHeight * 0.97); // 3%缓冲区
+
+          if (currentHeight > maxHeightRef.current) {
             maxHeightRef.current = currentHeight;
-            const bufferHeight = Math.floor(currentHeight * 0.97); // 3%缓冲区
             wrapperRef.current.style.minHeight = `${bufferHeight}px`;
+            continue;
+          }
+
+          if (!isStreamingRef.current && currentHeight < maxHeightRef.current - 6) {
+            maxHeightRef.current = currentHeight;
+            if (wrapperRef.current) {
+              // 下降时立刻回落，避免底部出现缓慢空白
+              wrapperRef.current.style.transition = 'none';
+              wrapperRef.current.style.minHeight = `${bufferHeight}px`;
+              requestAnimationFrame(() => {
+                if (wrapperRef.current) {
+                  wrapperRef.current.style.transition = 'min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+                }
+              });
+            }
           }
         }
       });
@@ -1636,6 +1658,1201 @@ const preloadCodeIcons = () => {
   });
 };
 
+// Spinner动画现在由CSS处理，不再需要JavaScript常量
+const PYODIDE_CDN_SOURCES = [
+  "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js",
+  "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js",
+  "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js",
+];
+
+const pythonExecutionState = {
+  queue: [],
+  runningTask: null,
+  currentOrder: 0,
+  busy: false,
+  tasks: new Map(),
+  worker: null,
+  workerReadyPromise: null,
+  workerBlobUrl: null,
+  workerHandlers: new Map(),
+  interruptBuffer: null,
+  supportsInterrupt: false,
+  runId: 0,
+};
+
+const resetPythonRuntime = () => {
+  terminatePythonWorker();
+  pythonExecutionState.queue = [];
+  pythonExecutionState.runningTask = null;
+  pythonExecutionState.currentOrder = 0;
+  pythonExecutionState.busy = false;
+  pythonExecutionState.tasks.clear();
+  pythonExecutionState.runId = 0;
+  if (typeof document === 'undefined') return;
+  const previews = document.querySelectorAll('.python-preview');
+  previews.forEach((preview) => {
+    resetPythonPreviewOutput(preview);
+    preview.dataset.viewMode = 'code';
+    preview.style.display = 'none';
+  });
+  const statuses = document.querySelectorAll('.python-status');
+  statuses.forEach((statusEl) => {
+    statusEl.textContent = '';
+    statusEl.style.display = 'none';
+    statusEl.dataset.status = '';
+  });
+  const wrappers = document.querySelectorAll('.code-block-container .code-block-wrapper');
+  wrappers.forEach((wrapper) => {
+    wrapper.style.display = 'flex';
+  });
+  const buttons = document.querySelectorAll('[data-python-toggle]');
+  buttons.forEach((button) => {
+    resetPythonButtonState(button, 'code');
+  });
+};
+
+const getPyodideIndexUrl = (src) => {
+  if (!src) return null;
+  return src.replace(/pyodide\.js(\?.*)?$/i, '');
+};
+
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const getPyodideWorkerSource = () => {
+  const sources = JSON.stringify(PYODIDE_CDN_SOURCES);
+  return `
+const PYODIDE_CDN_SOURCES = ${sources};
+const DEFAULT_INDEX_URL = PYODIDE_CDN_SOURCES.length
+  ? PYODIDE_CDN_SOURCES[0].replace(/pyodide\\.js(\\?.*)?$/i, '')
+  : 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/';
+
+let pyodide = null;
+let pyodideReadyPromise = null;
+let interruptBuffer = null;
+let pendingInput = null;
+let pendingInputTaskId = null;
+let autoflushReady = false;
+const cancelledTasks = new Set();
+
+const post = (payload) => self.postMessage(payload);
+
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const loadPyodideScript = async () => {
+  if (typeof self.loadPyodide === 'function') {
+    return null;
+  }
+  for (const src of PYODIDE_CDN_SOURCES) {
+    try {
+      importScripts(src);
+      if (typeof self.loadPyodide === 'function') {
+        return src.replace(/pyodide\\.js(\\?.*)?$/i, '');
+      }
+    } catch (err) {
+      // ignore and try next source
+    }
+  }
+  throw new Error('Unable to load Pyodide from CDN.');
+};
+
+const ensurePyodideReady = async () => {
+  if (pyodide) return pyodide;
+  if (!pyodideReadyPromise) {
+    pyodideReadyPromise = (async () => {
+      const indexURL = (await loadPyodideScript()) || DEFAULT_INDEX_URL;
+      if (typeof self.loadPyodide !== 'function') {
+        throw new Error('Pyodide loader is unavailable.');
+      }
+      const instance = await self.loadPyodide({ indexURL });
+      pyodide = instance;
+      if (interruptBuffer && typeof instance.setInterruptBuffer === 'function') {
+        instance.setInterruptBuffer(interruptBuffer);
+      }
+      return instance;
+    })();
+  }
+  return pyodideReadyPromise;
+};
+
+const setPyodideStream = (setter, handler) => {
+  if (typeof setter !== 'function') return false;
+  try {
+    // batched 模式下每次调用 handler 时 Pyodide 会剥离换行符，需要手动添加
+    setter({ batched: (text) => handler(text + '\\n') });
+    return true;
+  } catch (err) {}
+  try {
+    setter({ write: handler });
+    return true;
+  } catch (err) {}
+  try {
+    const decoder = new TextDecoder();
+    setter({
+      raw: (data) => {
+        handler(decoder.decode(data));
+      },
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+
+const configurePyodideIO = (taskId) => {
+  if (!pyodide) return;
+  setPyodideStream((options) => pyodide.setStdout(options), (text) => {
+    if (!cancelledTasks.has(taskId)) {
+      post({ type: 'stdout', taskId, text });
+    }
+  });
+  setPyodideStream((options) => pyodide.setStderr(options), (text) => {
+    if (!cancelledTasks.has(taskId)) {
+      post({ type: 'stderr', taskId, text });
+    }
+  });
+  if (typeof pyodide.setStdin === 'function') {
+    pyodide.setStdin({
+      stdin: () => {
+        if (cancelledTasks.has(taskId)) return '';
+        if (!pendingInput) {
+          pendingInput = createDeferred();
+          pendingInputTaskId = taskId;
+          post({ type: 'input-request', taskId });
+        }
+        return pendingInput.promise;
+      },
+      isatty: true,
+    });
+  }
+};
+
+const resetPyodideIO = () => {
+  if (!pyodide) return;
+  setPyodideStream((options) => pyodide.setStdout(options), () => {});
+  setPyodideStream((options) => pyodide.setStderr(options), () => {});
+  if (typeof pyodide.setStdin === 'function') {
+    pyodide.setStdin({ stdin: () => null, isatty: true });
+  }
+};
+
+const cleanupPythonState = async () => {
+  if (!pyodide) return;
+  try {
+    await pyodide.runPythonAsync(\`
+import gc
+try:
+    import matplotlib.pyplot as plt
+    plt.close('all')
+except Exception:
+    pass
+gc.collect()
+\`);
+  } catch (err) {
+    // ignore cleanup failures
+  }
+  try {
+    self.__pyodideImageCallback = () => {};
+  } catch (err) {
+    // ignore
+  }
+};
+
+const ensureAutoFlush = async () => {
+  if (autoflushReady || !pyodide) return;
+  try {
+    await pyodide.runPythonAsync(\`
+import sys
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+class _AutoFlush:
+    def __init__(self, stream):
+        self.stream = stream
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+    def flush(self):
+        self.stream.flush()
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+try:
+    sys.stdout = _AutoFlush(sys.stdout)
+    sys.stderr = _AutoFlush(sys.stderr)
+except Exception:
+    pass
+\`);
+    autoflushReady = true;
+  } catch (err) {
+    // ignore auto flush setup failures
+  }
+};
+
+const detectMissingImports = async (code) => {
+  if (!code || !code.trim()) return [];
+  try {
+    const payload = JSON.stringify(code);
+    const result = await pyodide.runPythonAsync(\`
+import ast, importlib.util, json
+code = \${payload}
+missing = []
+try:
+    tree = ast.parse(code)
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name:
+                    modules.add(alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                modules.add(node.module.split('.')[0])
+    for name in sorted(modules):
+        try:
+            if importlib.util.find_spec(name) is None:
+                missing.append(name)
+        except Exception:
+            missing.append(name)
+except Exception:
+    missing = []
+json.dumps(missing)
+\`);
+    return JSON.parse(result || '[]');
+  } catch (err) {
+    return [];
+  }
+};
+
+const installDependencies = async (code) => {
+  try {
+    if (typeof pyodide.loadPackagesFromImports === 'function') {
+      await pyodide.loadPackagesFromImports(code);
+    }
+  } catch (err) {
+    // ignore
+  }
+  const remaining = await detectMissingImports(code);
+  const filtered = remaining.filter((name) => name && name !== 'micropip');
+  const needsMicropip = remaining.includes('micropip') || filtered.length > 0;
+  if (!needsMicropip) return;
+  await pyodide.loadPackage('micropip');
+  if (filtered.length === 0) return;
+  await pyodide.runPythonAsync(\`
+import micropip
+await micropip.install(\${JSON.stringify(filtered)})
+\`);
+};
+
+const shouldSetupMatplotlib = (code) => {
+  if (!code) return false;
+  return /(^|\\n)\\s*(import|from)\\s+matplotlib\\b/.test(code);
+};
+
+const MATPLOTLIB_SETUP_CODE = \`
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64, js
+    # Set larger default figure size and higher DPI for better quality
+    plt.rcParams['figure.figsize'] = [10, 6]
+    plt.rcParams['figure.dpi'] = 100
+    plt.rcParams['savefig.dpi'] = 150
+    def __pyodide_show():
+        buf = BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor='white', edgecolor='none')
+        buf.seek(0)
+        data = base64.b64encode(buf.read()).decode("ascii")
+        js.__pyodideImageCallback(data)
+        plt.close()
+    plt.show = __pyodide_show
+except Exception:
+    pass
+\`;
+
+const runTask = async (taskId, code) => {
+  const assertNotCancelled = () => {
+    if (cancelledTasks.has(taskId)) {
+      throw new Error('Python execution cancelled');
+    }
+  };
+
+  try {
+    post({ type: 'status', taskId, label: 'Setting up Python environment' });
+    await ensurePyodideReady();
+    assertNotCancelled();
+    await ensureAutoFlush();
+
+    const missing = await detectMissingImports(code);
+    assertNotCancelled();
+    if (missing.length > 0) {
+      post({ type: 'status', taskId, label: 'Installing dependencies' });
+      await installDependencies(code);
+      assertNotCancelled();
+    }
+
+    post({ type: 'clear', taskId });
+    configurePyodideIO(taskId);
+    self.__pyodideImageCallback = (data) => {
+      if (!cancelledTasks.has(taskId)) {
+        post({ type: 'image', taskId, data });
+      }
+    };
+
+    if (shouldSetupMatplotlib(code)) {
+      await pyodide.runPythonAsync(MATPLOTLIB_SETUP_CODE);
+      assertNotCancelled();
+    }
+
+    const codeWithFlush = code + '\\nprint()  # force flush\\nimport sys; sys.stdout.flush()';
+    const result = await pyodide.runPythonAsync(codeWithFlush);
+    assertNotCancelled();
+    if (typeof result !== 'undefined' && result !== null) {
+      let textResult = '';
+      if (pyodide && typeof pyodide.isPyProxy === 'function' && pyodide.isPyProxy(result)) {
+        textResult = result.toString();
+        result.destroy();
+      } else {
+        textResult = String(result);
+      }
+      if (textResult && textResult !== 'None') {
+        post({ type: 'result', taskId, result: textResult });
+      }
+    }
+    post({ type: 'done', taskId });
+  } catch (err) {
+    const message = err?.message || String(err || 'Python execution failed.');
+    post({ type: 'done', taskId, error: message });
+  } finally {
+    resetPyodideIO();
+    await cleanupPythonState();
+    cancelledTasks.delete(taskId);
+  }
+};
+
+self.onmessage = (event) => {
+  const data = event.data || {};
+  if (data.type === 'init') {
+    interruptBuffer = data.interruptBuffer || null;
+    if (interruptBuffer && pyodide && typeof pyodide.setInterruptBuffer === 'function') {
+      pyodide.setInterruptBuffer(interruptBuffer);
+    }
+    post({ type: 'ready' });
+    return;
+  }
+  if (data.type === 'stdin') {
+    if (pendingInput && pendingInputTaskId === data.taskId) {
+      const value = typeof data.value === 'string' ? data.value : '';
+      pendingInput.resolve(value);
+      pendingInput = null;
+      pendingInputTaskId = null;
+    }
+    return;
+  }
+  if (data.type === 'cancel') {
+    if (data.taskId) {
+      cancelledTasks.add(data.taskId);
+      if (pendingInput && pendingInputTaskId === data.taskId) {
+        pendingInput.resolve('');
+        pendingInput = null;
+        pendingInputTaskId = null;
+      }
+    }
+    if (interruptBuffer) {
+      interruptBuffer[0] = 2;
+    }
+    const mod = pyodide?._module;
+    if (mod) {
+      if (typeof mod.PyErr_SetInterrupt === 'function') {
+        mod.PyErr_SetInterrupt();
+      }
+      if (typeof mod._PyErr_SetInterrupt === 'function') {
+        mod._PyErr_SetInterrupt();
+      }
+    }
+    return;
+  }
+  if (data.type === 'run') {
+    const taskId = data.taskId;
+    const code = data.code || '';
+    if (taskId) {
+      cancelledTasks.delete(taskId);
+      runTask(taskId, code);
+    }
+  }
+};
+`;
+};
+
+const ensurePythonWorker = async () => {
+  if (pythonExecutionState.workerReadyPromise) {
+    return pythonExecutionState.workerReadyPromise;
+  }
+  if (typeof window === 'undefined') {
+    throw new Error('Pyodide requires a browser environment.');
+  }
+  pythonExecutionState.workerReadyPromise = new Promise((resolve, reject) => {
+    try {
+      const workerSource = getPyodideWorkerSource();
+      const blob = new Blob([workerSource], { type: 'text/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      const worker = new Worker(blobUrl);
+      pythonExecutionState.worker = worker;
+      pythonExecutionState.workerBlobUrl = blobUrl;
+      pythonExecutionState.workerHandlers = new Map();
+
+      const handleMessage = (event) => {
+        const payload = event.data || {};
+        if (payload.type === 'ready') {
+          resolve();
+          return;
+        }
+        if (payload.taskId) {
+          const handler = pythonExecutionState.workerHandlers.get(payload.taskId);
+          if (handler) {
+            handler(payload);
+            return;
+          }
+        }
+      };
+
+      worker.addEventListener('message', handleMessage);
+      worker.addEventListener('error', (err) => {
+        console.error('Pyodide worker error:', err);
+        reject(err);
+      });
+
+      if (typeof SharedArrayBuffer !== 'undefined') {
+        pythonExecutionState.interruptBuffer = new Int32Array(new SharedArrayBuffer(4));
+        pythonExecutionState.supportsInterrupt = true;
+      } else {
+        pythonExecutionState.interruptBuffer = null;
+        pythonExecutionState.supportsInterrupt = false;
+      }
+      worker.postMessage({ type: 'init', interruptBuffer: pythonExecutionState.interruptBuffer });
+    } catch (err) {
+      reject(err);
+    }
+  });
+  pythonExecutionState.workerReadyPromise.catch(() => {
+    terminatePythonWorker();
+  });
+  return pythonExecutionState.workerReadyPromise;
+};
+
+const terminatePythonWorker = () => {
+  if (pythonExecutionState.worker) {
+    pythonExecutionState.worker.terminate();
+  }
+  if (pythonExecutionState.workerBlobUrl) {
+    URL.revokeObjectURL(pythonExecutionState.workerBlobUrl);
+  }
+  pythonExecutionState.worker = null;
+  pythonExecutionState.workerReadyPromise = null;
+  pythonExecutionState.workerBlobUrl = null;
+  pythonExecutionState.workerHandlers = new Map();
+};
+
+const forceInterruptPyodide = (taskId) => {
+  if (pythonExecutionState.interruptBuffer) {
+    if (typeof Atomics !== 'undefined' && typeof Atomics.store === 'function') {
+      Atomics.store(pythonExecutionState.interruptBuffer, 0, 2);
+      if (typeof Atomics.notify === 'function') {
+        Atomics.notify(pythonExecutionState.interruptBuffer, 0);
+      }
+    } else {
+      pythonExecutionState.interruptBuffer[0] = 2;
+    }
+  }
+  const worker = pythonExecutionState.worker;
+  if (worker) {
+    worker.postMessage({ type: 'cancel', taskId });
+  }
+  if (!pythonExecutionState.supportsInterrupt && pythonExecutionState.worker && taskId) {
+    terminatePythonWorker();
+  }
+};
+
+const setPythonBusyState = (busy) => {
+  pythonExecutionState.busy = busy;
+  if (typeof document === 'undefined') return;
+  const buttons = document.querySelectorAll('[data-python-toggle]');
+  buttons.forEach((button) => {
+    if (button.getAttribute('data-python-mode') !== 'code') return;
+    button.innerHTML = busy ? BUTTON_CONTENT.RUN_BUSY : BUTTON_CONTENT.RUN_ON;
+  });
+};
+
+const getPythonElementsByUid = (pythonUid) => {
+  if (typeof document === 'undefined') return null;
+  const block = document.querySelector(`.code-block-container[data-python-uid="${pythonUid}"]`);
+  if (!block) return null;
+  return {
+    block,
+    preview: block.querySelector('.python-preview'),
+    button: block.querySelector(`[data-python-toggle="${pythonUid}"]`),
+    codeWrapper: block.querySelector('.code-block-wrapper'),
+    status: block.querySelector('.python-status'),
+  };
+};
+
+const PYTHON_STATUS_CONFIG = {
+  running: { text: 'Running', color: '#f59e0b' },
+  completed: { text: 'Completed.', color: '#22c55e' },
+  error: { text: 'Error.', color: '#ef4444' },
+  waiting: { text: 'Waiting...', color: '#3b82f6' },
+};
+
+const setPythonStatus = (pythonUid, statusKey) => {
+  if (!pythonUid) return;
+  const elements = getPythonElementsByUid(pythonUid);
+  if (!elements?.status) return;
+  const config = PYTHON_STATUS_CONFIG[statusKey] || PYTHON_STATUS_CONFIG.waiting;
+  elements.status.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = config.text + (statusKey === 'running' ? ' ' : '');
+  elements.status.appendChild(label);
+  if (statusKey === 'running') {
+    const spinner = document.createElement('span');
+    spinner.className = 'python-terminal-spinner';
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    frames.forEach((frame) => {
+      const frameSpan = document.createElement('span');
+      frameSpan.textContent = frame;
+      spinner.appendChild(frameSpan);
+    });
+    elements.status.appendChild(document.createTextNode(' '));
+    elements.status.appendChild(spinner);
+  }
+  elements.status.style.color = config.color;
+  elements.status.style.display = 'inline-flex';
+  elements.status.dataset.status = statusKey;
+};
+
+const hidePythonStatus = (pythonUid) => {
+  if (!pythonUid) return;
+  const elements = getPythonElementsByUid(pythonUid);
+  if (!elements?.status) return;
+  elements.status.textContent = '';
+  elements.status.style.display = 'none';
+  elements.status.dataset.status = '';
+};
+
+const cleanupPythonStatusForInactive = (activePythonKeys) => {
+  if (typeof document === 'undefined') return;
+  const root = document;
+  const statusNodes = root.querySelectorAll('.code-block-container[data-python-uid]');
+  statusNodes.forEach((container) => {
+    const pythonUid = container.getAttribute('data-python-uid');
+    if (!pythonUid || activePythonKeys.has(pythonUid)) return;
+    const statusEl = container.querySelector('.python-status');
+    if (statusEl) {
+      statusEl.textContent = '';
+      statusEl.style.display = 'none';
+      statusEl.dataset.status = '';
+    }
+  });
+  pythonExecutionState.tasks.forEach((_, key) => {
+    if (!activePythonKeys.has(key)) {
+      pythonExecutionState.tasks.delete(key);
+    }
+  });
+  if (pythonExecutionState.runningTask && !activePythonKeys.has(pythonExecutionState.runningTask.pythonUid)) {
+    cancelPythonTask(pythonExecutionState.runningTask.pythonUid);
+  }
+};
+
+const createPythonTerminalController = (previewEl) => {
+  const outputEl = previewEl.querySelector('.python-terminal-output');
+  const state = {
+    currentLineEl: null,
+    pendingInput: null,
+    spinners: new Set(),
+    userScrolledUp: false,
+  };
+
+  // 检测用户是否接近底部（允许 30px 的误差）
+  const isNearBottom = () => {
+    if (!outputEl) return true;
+    const threshold = 30;
+    return outputEl.scrollHeight - outputEl.scrollTop - outputEl.clientHeight < threshold;
+  };
+
+  // 监听滚动事件来检测用户是否向上滚动
+  const handleScroll = () => {
+    state.userScrolledUp = !isNearBottom();
+  };
+
+  // 添加滚动监听
+  if (outputEl) {
+    outputEl.addEventListener('scroll', handleScroll, { passive: true });
+  }
+
+  const scrollToBottom = (force = false) => {
+    // 如果用户向上滚动了，除非强制，否则不自动滚动
+    if (state.userScrolledUp && !force) return;
+    outputEl.scrollTop = outputEl.scrollHeight;
+  };
+
+  const clearSpinners = () => {
+    state.spinners.forEach((spinner) => spinner.stop());
+    state.spinners.clear();
+  };
+
+  const clear = () => {
+    clearSpinners();
+    if (state.pendingInput) {
+      state.pendingInput.resolve('');
+      state.pendingInput = null;
+    }
+    state.currentLineEl = null;
+    state.userScrolledUp = false; // 重置滚动状态，新执行重新开始自动滚动
+    outputEl.innerHTML = '';
+  };
+
+  const ensureLine = (className) => {
+    if (!state.currentLineEl) {
+      const line = document.createElement('div');
+      line.className = `python-terminal-line${className ? ` ${className}` : ''}`;
+      outputEl.appendChild(line);
+      state.currentLineEl = line;
+    }
+    return state.currentLineEl;
+  };
+
+  const write = (text, options = {}) => {
+    if (!outputEl) return;
+    const { isError = false } = options;
+    if (isError) {
+      state.currentLineEl = null;
+    }
+    const content = String(text ?? '');
+    if (!content) return;
+    const segments = content.split('\n');
+    segments.forEach((segment, idx) => {
+      if (segment.length === 0 && idx === segments.length - 1) {
+        return;
+      }
+      const line = ensureLine(isError ? 'python-terminal-error' : '');
+      const span = document.createElement('span');
+      span.textContent = segment;
+      line.appendChild(span);
+      if (idx < segments.length - 1) {
+        state.currentLineEl = null;
+      }
+    });
+    scrollToBottom();
+  };
+
+  const writeLine = (text, className) => {
+    const line = document.createElement('div');
+    line.className = `python-terminal-line${className ? ` ${className}` : ''}`;
+    line.textContent = text;
+    outputEl.appendChild(line);
+    state.currentLineEl = null;
+    scrollToBottom();
+  };
+
+  const startSpinner = (label) => {
+    const line = document.createElement('div');
+    line.className = 'python-terminal-line python-terminal-status';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = `${label} `;
+    const spinnerSpan = document.createElement('span');
+    spinnerSpan.className = 'python-terminal-spinner';
+    // 创建10个盲文帧，CSS动画会控制它们的显示/隐藏
+    // 使用CSS动画而非JavaScript setInterval，确保主线程阻塞时动画继续运行
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    frames.forEach((frame) => {
+      const frameSpan = document.createElement('span');
+      frameSpan.textContent = frame;
+      spinnerSpan.appendChild(frameSpan);
+    });
+    line.appendChild(labelSpan);
+    line.appendChild(spinnerSpan);
+    outputEl.appendChild(line);
+
+    const spinner = {
+      stop: () => {
+        if (line.parentNode) {
+          line.remove();
+        }
+        state.spinners.delete(spinner);
+      },
+    };
+    state.spinners.add(spinner);
+    scrollToBottom();
+    return spinner;
+  };
+
+  const requestInput = () => {
+    if (state.pendingInput) return state.pendingInput.promise;
+    const line = state.currentLineEl || document.createElement('div');
+    if (!state.currentLineEl) {
+      line.className = 'python-terminal-line';
+      outputEl.appendChild(line);
+    }
+    line.classList.add('python-terminal-input-line');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'python-terminal-input';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    line.appendChild(input);
+    scrollToBottom();
+    input.focus();
+
+    let resolveFn;
+    const promise = new Promise((resolve) => {
+      resolveFn = resolve;
+    });
+    const finalize = () => {
+      const value = input.value ?? '';
+      input.remove();
+      line.classList.remove('python-terminal-input-line');
+      const textSpan = document.createElement('span');
+      textSpan.textContent = value;
+      line.appendChild(textSpan);
+      state.currentLineEl = null;
+      state.pendingInput = null;
+      scrollToBottom();
+      resolveFn(`${value}\n`);
+    };
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finalize();
+      }
+    });
+
+    state.pendingInput = { promise, resolve: resolveFn, line, input };
+    return promise;
+  };
+
+  const cancelInput = () => {
+    if (!state.pendingInput) return;
+    const { resolve, line, input } = state.pendingInput;
+    if (input) input.remove();
+    if (line) line.classList.remove('python-terminal-input-line');
+    resolve('');
+    state.pendingInput = null;
+  };
+
+  const setQueuedMessage = (message) => {
+    clear();
+    writeLine(message, 'python-terminal-queued');
+  };
+
+  const appendImage = (base64Data) => {
+    if (!base64Data) return;
+    const img = document.createElement('img');
+    img.src = `data:image/png;base64,${base64Data}`;
+    img.className = 'python-terminal-image';
+    outputEl.appendChild(img);
+    state.currentLineEl = null;
+    scrollToBottom();
+  };
+
+  return {
+    clear,
+    write,
+    writeLine,
+    startSpinner,
+    requestInput,
+    cancelInput,
+    setQueuedMessage,
+    appendImage,
+  };
+};
+
+const getTerminalForTask = (task) => {
+  const elements = getPythonElementsByUid(task.pythonUid);
+  if (!elements?.preview) return null;
+  if (!elements.preview._terminalController) {
+    elements.preview._terminalController = createPythonTerminalController(elements.preview);
+  }
+  return elements.preview._terminalController;
+};
+
+const resetPythonPreviewOutput = (previewEl) => {
+  if (!previewEl) return;
+  if (previewEl._terminalController) {
+    previewEl._terminalController.clear();
+    previewEl._terminalController = null;
+  }
+  const outputEl = previewEl.querySelector('.python-terminal-output');
+  if (outputEl) {
+    const freshOutput = outputEl.cloneNode(false);
+    outputEl.replaceWith(freshOutput);
+  }
+};
+
+const resetPythonButtonState = (button, mode) => {
+  if (!button) return;
+  button.setAttribute('data-python-mode', mode);
+  if (mode === 'code') {
+    button.innerHTML = pythonExecutionState.busy ? BUTTON_CONTENT.RUN_BUSY : BUTTON_CONTENT.RUN_ON;
+  } else {
+    button.innerHTML = BUTTON_CONTENT.RUN_OFF;
+  }
+};
+
+const detectMissingImports = async (pyodide, code) => {
+  if (!code || !code.trim()) return [];
+  try {
+    const payload = JSON.stringify(code);
+    const result = await pyodide.runPythonAsync(`
+import ast, importlib.util, json
+code = ${payload}
+missing = []
+try:
+    tree = ast.parse(code)
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name:
+                    modules.add(alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                modules.add(node.module.split('.')[0])
+    for name in sorted(modules):
+        try:
+            if importlib.util.find_spec(name) is None:
+                missing.append(name)
+        except Exception:
+            missing.append(name)
+except Exception:
+    missing = []
+json.dumps(missing)
+`);
+    return JSON.parse(result || '[]');
+  } catch (err) {
+    return [];
+  }
+};
+
+const installDependencies = async (pyodide, code) => {
+  try {
+    if (typeof pyodide.loadPackagesFromImports === 'function') {
+      await pyodide.loadPackagesFromImports(code);
+    }
+  } catch (err) {
+    // Ignore and try micropip for remaining packages
+  }
+  const remaining = await detectMissingImports(pyodide, code);
+  const filtered = remaining.filter((name) => name && name !== 'micropip');
+  const needsMicropip = remaining.includes('micropip') || filtered.length > 0;
+  if (!needsMicropip) return;
+  await pyodide.loadPackage('micropip');
+  if (filtered.length === 0) return;
+  await pyodide.runPythonAsync(`
+import micropip
+await micropip.install(${JSON.stringify(filtered)})
+`);
+};
+
+const setPyodideStream = (setter, handler) => {
+  if (typeof setter !== 'function') return false;
+  try {
+    // batched 模式下每次调用 handler 时 Pyodide 会剥离换行符，需要手动添加
+    setter({ batched: (text) => handler(text + '\n') });
+    return true;
+  } catch (err) {
+    // ignore and fallback
+  }
+  try {
+    setter({ write: handler });
+    return true;
+  } catch (err) {
+    // ignore and fallback
+  }
+  try {
+    const decoder = new TextDecoder();
+    setter({
+      raw: (data) => {
+        handler(decoder.decode(data));
+      },
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+
+const configurePyodideIO = (pyodide, terminal, task) => {
+  if (!pyodide || !terminal) return;
+  // 使用箭头函数包装以保留pyodide的this上下文
+  setPyodideStream((options) => pyodide.setStdout(options), (text) => {
+    if (!task.cancelled) terminal.write(text);
+  });
+  setPyodideStream((options) => pyodide.setStderr(options), (text) => {
+    if (!task.cancelled) terminal.write(text, { isError: true });
+  });
+  if (typeof pyodide.setStdin === 'function') {
+    pyodide.setStdin({
+      stdin: async () => {
+        if (task.cancelled) return '';
+        return terminal.requestInput();
+      },
+      isatty: true,
+    });
+  }
+};
+
+const resetPyodideIO = (pyodide) => {
+  if (!pyodide) return;
+  // 使用箭头函数包装以保留pyodide的this上下文
+  setPyodideStream((options) => pyodide.setStdout(options), () => {});
+  setPyodideStream((options) => pyodide.setStderr(options), () => {});
+  if (typeof pyodide.setStdin === 'function') {
+    pyodide.setStdin({ stdin: () => null, isatty: true });
+  }
+};
+
+const shouldSetupMatplotlib = (code) => {
+  if (!code) return false;
+  return /(^|\n)\s*(import|from)\s+matplotlib\b/.test(code);
+};
+
+const MATPLOTLIB_SETUP_CODE = `
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64, js
+    def __pyodide_show():
+        buf = BytesIO()
+        plt.savefig(buf, format="png", bbox_inches="tight")
+        buf.seek(0)
+        data = base64.b64encode(buf.read()).decode("ascii")
+        js.__pyodideImageCallback(data)
+        plt.close()
+    plt.show = __pyodide_show
+except Exception:
+    pass
+`;
+
+const raceWithCancel = (promise, task) => {
+  if (!task?.cancelSignal) return promise;
+  return Promise.race([
+    promise,
+    task.cancelSignal.promise.then(() => {
+      throw new Error('Python execution cancelled');
+    }),
+  ]);
+};
+
+const runPythonTask = async (task) => {
+  const terminal = getTerminalForTask(task);
+  if (!terminal) return;
+  terminal.clear();
+  let spinner = terminal.startSpinner('Setting up Python environment');
+  let spinnerLabel = 'Setting up Python environment';
+  const updateSpinner = (label) => {
+    if (!label || label === spinnerLabel) return;
+    if (spinner) spinner.stop();
+    spinnerLabel = label;
+    spinner = terminal.startSpinner(label);
+  };
+  const stopSpinner = () => {
+    if (!spinner) return;
+    spinner.stop();
+    spinner = null;
+  };
+  const runId = ++pythonExecutionState.runId;
+  task.runId = runId;
+  let outcome = 'completed';
+  try {
+    await ensurePythonWorker();
+    if (pythonExecutionState.interruptBuffer) {
+      pythonExecutionState.interruptBuffer[0] = 0;
+    }
+    if (task.cancelled) throw new Error('Python execution cancelled');
+    const worker = pythonExecutionState.worker;
+    if (!worker) throw new Error('Python worker unavailable.');
+    const runPromise = new Promise((resolve) => {
+      pythonExecutionState.workerHandlers.set(runId, (payload) => {
+        if (task.cancelled && payload.type !== 'done') return;
+        switch (payload.type) {
+          case 'status':
+            updateSpinner(payload.label);
+            break;
+          case 'clear':
+            stopSpinner();
+            terminal.clear();
+            break;
+          case 'stdout':
+            stopSpinner();
+            terminal.write(payload.text);
+            break;
+          case 'stderr':
+            stopSpinner();
+            terminal.write(payload.text, { isError: true });
+            break;
+          case 'image':
+            stopSpinner();
+            terminal.appendImage(payload.data);
+            break;
+          case 'result':
+            stopSpinner();
+            terminal.writeLine(payload.result);
+            break;
+          case 'input-request':
+            stopSpinner();
+            terminal.requestInput().then((value) => {
+              if (task.cancelled) return;
+              if (pythonExecutionState.worker) {
+                pythonExecutionState.worker.postMessage({ type: 'stdin', taskId: runId, value });
+              }
+            });
+            break;
+          case 'done':
+            if (!task.cancelled && payload.error) {
+              outcome = 'error';
+              terminal.write(payload.error, { isError: true });
+            }
+            resolve();
+            break;
+          default:
+            break;
+        }
+      });
+    });
+    worker.postMessage({ type: 'run', taskId: runId, code: task.code });
+    await raceWithCancel(runPromise, task);
+  } catch (err) {
+    if (task.cancelled) return;
+    outcome = 'error';
+    const message = err?.message || String(err || 'Python execution failed.');
+    terminal.write(message, { isError: true });
+  } finally {
+    stopSpinner();
+    terminal.cancelInput();
+    pythonExecutionState.workerHandlers.delete(runId);
+  }
+  return outcome;
+};
+
+const updateQueuedMessages = () => {
+  if (!pythonExecutionState.runningTask) return;
+  const currentOrder = pythonExecutionState.currentOrder || 1;
+  pythonExecutionState.queue.forEach((task, index) => {
+    const order = currentOrder + index + 1;
+    const terminal = getTerminalForTask(task);
+    if (terminal) {
+      terminal.setQueuedMessage(`Queued. Will run after current execution. [${currentOrder}/${order}]`);
+    }
+    setPythonStatus(task.pythonUid, 'waiting');
+  });
+};
+
+const startNextPythonTask = async () => {
+  if (pythonExecutionState.runningTask || pythonExecutionState.queue.length === 0) return;
+  const task = pythonExecutionState.queue.shift();
+  if (!task) return;
+  pythonExecutionState.runningTask = task;
+  task.status = 'running';
+  pythonExecutionState.tasks.set(task.pythonUid, task);
+  setPythonStatus(task.pythonUid, 'running');
+  updateQueuedMessages();
+  const outcome = await runPythonTask(task);
+  pythonExecutionState.runningTask = null;
+  task.status = task.cancelled ? 'cancelled' : 'done';
+  pythonExecutionState.tasks.set(task.pythonUid, task);
+  if (!task.cancelled) {
+    setPythonStatus(task.pythonUid, outcome === 'error' ? 'error' : 'completed');
+  }
+
+  if (pythonExecutionState.queue.length > 0) {
+    pythonExecutionState.currentOrder = (pythonExecutionState.currentOrder || 1) + 1;
+    startNextPythonTask();
+  } else {
+    pythonExecutionState.currentOrder = 0;
+    setPythonBusyState(false);
+  }
+};
+
+const enqueuePythonTask = (task) => {
+  if (!task?.pythonUid) return;
+  const existing = pythonExecutionState.tasks.get(task.pythonUid);
+  if (existing && (existing.status === 'running' || existing.status === 'queued')) return;
+  if (typeof task.cancelled !== 'boolean') {
+    task.cancelled = false;
+  }
+  if (!task.cancelSignal) {
+    task.cancelSignal = createDeferred();
+  }
+  task.status = 'queued';
+  pythonExecutionState.tasks.set(task.pythonUid, task);
+  if (!pythonExecutionState.runningTask && pythonExecutionState.queue.length === 0) {
+    pythonExecutionState.currentOrder = 1;
+  }
+  pythonExecutionState.queue.push(task);
+  setPythonBusyState(true);
+  setPythonStatus(task.pythonUid, 'waiting');
+  updateQueuedMessages();
+  if (!pythonExecutionState.runningTask) {
+    startNextPythonTask();
+  }
+};
+
+const cancelPythonTask = (pythonUid) => {
+  if (!pythonUid) return;
+  const queuedIndex = pythonExecutionState.queue.findIndex((task) => task.pythonUid === pythonUid);
+  if (queuedIndex >= 0) {
+    const [task] = pythonExecutionState.queue.splice(queuedIndex, 1);
+    if (task) {
+      task.cancelled = true;
+      task.status = 'cancelled';
+      pythonExecutionState.tasks.set(task.pythonUid, task);
+      if (task.cancelSignal) {
+        task.cancelSignal.resolve();
+      }
+      const terminal = getTerminalForTask(task);
+      terminal?.clear();
+    }
+    updateQueuedMessages();
+  }
+
+  const runningTask = pythonExecutionState.runningTask;
+  if (runningTask && runningTask.pythonUid === pythonUid) {
+    runningTask.cancelled = true;
+    runningTask.status = 'cancelled';
+    pythonExecutionState.tasks.set(runningTask.pythonUid, runningTask);
+    if (runningTask.cancelSignal) {
+      runningTask.cancelSignal.resolve();
+    }
+    forceInterruptPyodide(runningTask.runId);
+    const terminal = getTerminalForTask(runningTask);
+    terminal?.cancelInput();
+  }
+
+  if (!pythonExecutionState.runningTask && pythonExecutionState.queue.length === 0) {
+    setPythonBusyState(false);
+    pythonExecutionState.currentOrder = 0;
+  }
+};
+
 // Markdown渲染器组件（内部实现）
 const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const containerRef = useRef(null);
@@ -1643,6 +2860,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const chunkMetaRef = useRef([]);
   const blockMathCacheRef = useRef(new Map());
   const inlineMathCacheRef = useRef(new Map());
+  const rendererIdRef = useRef(`mdr-${Math.random().toString(36).slice(2, 10)}`);
   
   
   // Keep track of streaming state in a ref for async access
@@ -1748,6 +2966,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
   const mermaidSnapshotRef = useRef(new Map()); // key: mermaid块序号, value: svg string
   const svgSnapshotRef = useRef(new Map()); // key: svg块序号, value: svg string
   const htmlSnapshotRef = useRef(new Map()); // key: html块序号, value: html string
+  const pythonViewModeRef = useRef(new Map()); // key: python uid, value: 'preview' | 'code'
 
   const togglePreviewMode = useCallback((blockKey, forcedMode) => {
     if (!blockKey || !containerRef.current) return;
@@ -1810,6 +3029,44 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     }
   }, []);
 
+  const togglePythonRun = useCallback((pythonUid, button) => {
+    if (!pythonUid || !button) return;
+    const blockContainer = button.closest('.code-block-container');
+    if (!blockContainer) return;
+    const previewContainer = blockContainer.querySelector('.python-preview');
+    const codeWrapper = blockContainer.querySelector('.code-block-wrapper');
+    if (!previewContainer || !codeWrapper) return;
+
+    const currentMode = button.getAttribute('data-python-mode') || 'code';
+    if (currentMode !== 'code') {
+      // 只取消当前任务，不要重置整个运行时，否则会打断其他正在运行的任务
+      cancelPythonTask(pythonUid);
+      previewContainer.style.display = 'none';
+      previewContainer.dataset.viewMode = 'code';
+      codeWrapper.style.display = 'flex';
+      pythonViewModeRef.current.set(pythonUid, 'code');
+      resetPythonButtonState(button, 'code');
+      hidePythonStatus(pythonUid);
+      resetPythonPreviewOutput(previewContainer);
+      return;
+    }
+
+    const codeElement = blockContainer.querySelector('pre code');
+    const codeContent = codeElement?.textContent || '';
+    if (!codeContent.trim()) return;
+
+    previewContainer.style.display = previewContainer.dataset.previewDisplay || 'block';
+    previewContainer.dataset.viewMode = 'preview';
+    codeWrapper.style.display = 'none';
+    pythonViewModeRef.current.set(pythonUid, 'preview');
+    resetPythonButtonState(button, 'running');
+    setPythonStatus(pythonUid, 'waiting');
+    const task = { pythonUid, code: codeContent, cancelled: false };
+    task.cancelSignal = createDeferred();
+    resetPythonPreviewOutput(previewContainer);
+    enqueuePythonTask(task);
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const root = containerRef.current;
@@ -1827,6 +3084,23 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     };
   }, [togglePreviewMode]);
 
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const root = containerRef.current;
+    const handlePointerDown = (event) => {
+      const button = event.target.closest('[data-python-toggle]');
+      if (!button || !root.contains(button)) return;
+      const pythonUid = button.getAttribute('data-python-toggle');
+      if (!pythonUid) return;
+      event.preventDefault();
+      togglePythonRun(pythonUid, button);
+    };
+    root.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      root.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [togglePythonRun]);
+
 
 
   useEffect(() => {
@@ -1834,6 +3108,15 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
     // 处理 content 为 null 或空的情况（assistant 消息可能只有 tool_calls 而没有文本内容）
     if (!content || content === null) {
+      if (containerRef.current) {
+        const statuses = containerRef.current.querySelectorAll('.python-status');
+        statuses.forEach((statusEl) => {
+          statusEl.textContent = '';
+          statusEl.style.display = 'none';
+          statusEl.dataset.status = '';
+        });
+      }
+      pythonExecutionState.tasks.clear();
       containerRef.current.innerHTML = '';
       lastTextLengthRef.current = 0;
       chunkMetaRef.current = [];
@@ -1848,7 +3131,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     
     // Capture scroll positions before re-render - REMOVED
 
-    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview, .html-preview');
+    const existingPreviews = containerRef.current.querySelectorAll('.mermaid-preview, .svg-preview, .html-preview, .python-preview');
     existingPreviews.forEach(preview => {
       const blockKey = preview.getAttribute('data-block-key');
       if (!blockKey) return;
@@ -1878,6 +3161,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         const codeContent = codeElement?.textContent || '';
         if (codeContent.trim()) {
           htmlSnapshotRef.current.set(blockKey, codeContent);
+        }
+      } else if (preview.classList.contains('python-preview')) {
+        const pythonUid = preview.getAttribute('data-python-uid') || preview.closest('.code-block-container')?.getAttribute('data-python-uid');
+        if (pythonUid) {
+          pythonViewModeRef.current.set(pythonUid, recordedMode);
         }
       }
     });
@@ -2358,9 +3646,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     const pres = Array.from(tempDiv.querySelectorAll('pre'));
     const activeMermaidKeys = new Set();
     const activePreviewKeys = new Set();
+    const activePythonKeys = new Set();
     let mermaidBlockIndex = 0;
     let svgBlockIndex = 0;
     let htmlBlockIndex = 0;
+    let pythonBlockIndex = 0;
     let codeBlockIndex = 0;
     pres.forEach(pre => {
       if (pre.closest('.code-block-container')) return;
@@ -2368,13 +3658,16 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       const code = pre.querySelector('code');
       if (!code) return;
 
-      const languageMatch = /language-(\w+)/.exec(code.className || '');
+      const languageMatch = /language-([^\s]+)/.exec(code.className || '');
       const language = languageMatch ? languageMatch[1] : '';
-      const isMermaid = language === 'mermaid';
-      const isSvg = language === 'svg';
-      const isHtml = language === 'html' || language === 'htm';
+      const normalizedLanguage = String(language || '').toLowerCase();
+      const isMermaid = normalizedLanguage === 'mermaid';
+      const isSvg = normalizedLanguage === 'svg';
+      const isHtml = normalizedLanguage === 'html' || normalizedLanguage === 'htm';
+      const isPython = normalizedLanguage === 'python' || normalizedLanguage === 'py';
       const supportsPreview = isMermaid || isSvg || isHtml;
       let blockKey = null;
+      let pythonUid = null;
       if (isMermaid) {
         blockKey = `mermaid-${mermaidBlockIndex++}`;
         activeMermaidKeys.add(blockKey);
@@ -2382,6 +3675,10 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         blockKey = `svg-${svgBlockIndex++}`;
       } else if (isHtml) {
         blockKey = `html-${htmlBlockIndex++}`;
+      } else if (isPython) {
+        blockKey = `python-${pythonBlockIndex++}`;
+        pythonUid = `${rendererIdRef.current}-${blockKey}`;
+        activePythonKeys.add(pythonUid);
       } else {
         blockKey = `code-${codeBlockIndex++}`;
       }
@@ -2408,12 +3705,15 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       if (blockKey) {
         container.setAttribute('data-block-key', blockKey);
       }
+      if (pythonUid) {
+        container.setAttribute('data-python-uid', pythonUid);
+      }
       
       const header = document.createElement('div');
       header.className = 'code-block-header';
 
       const langSpan = document.createElement('span');
-      langSpan.style.display = 'flex';
+      langSpan.style.display = 'inline-flex';
       langSpan.style.alignItems = 'center';
       langSpan.style.gap = '6px';
       
@@ -2474,6 +3774,8 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       let previewButton = null;
       // HTML默认不预览（需要手动点击运行），其他类型默认预览
       let showPreview = isHtml ? false : true;
+      let showPythonPreview = false;
+      let pythonExistingTask = null;
       
       if (supportsPreview && blockKey) {
         const savedViewMode = previewViewModeRef.current.get(blockKey);
@@ -2500,6 +3802,25 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         previewButton.setAttribute('data-mode', showPreview ? 'preview' : 'code');
       }
       
+      if (isPython && pythonUid) {
+        const savedPythonMode = pythonViewModeRef.current.get(pythonUid);
+        pythonExistingTask = pythonExecutionState.tasks.get(pythonUid);
+        showPythonPreview = savedPythonMode === 'preview' || (pythonExistingTask && (pythonExistingTask.status === 'running' || pythonExistingTask.status === 'queued'));
+      }
+      
+      let pythonRunButton = null;
+      if (isPython && pythonUid) {
+        pythonRunButton = document.createElement('button');
+        pythonRunButton.className = 'code-copy-button python-run-toggle';
+        pythonRunButton.style.cssText = 'display: inline-flex; align-items: center; gap: 3px;';
+        pythonRunButton.setAttribute('aria-label', 'Run Python');
+        pythonRunButton.setAttribute('data-python-toggle', pythonUid);
+        pythonRunButton.setAttribute('data-python-mode', showPythonPreview ? 'running' : 'code');
+        pythonRunButton.innerHTML = showPythonPreview
+          ? BUTTON_CONTENT.RUN_OFF
+          : (pythonExecutionState.busy ? BUTTON_CONTENT.RUN_BUSY : BUTTON_CONTENT.RUN_ON);
+      }
+
       const copyButton = document.createElement('button');
       copyButton.className = 'code-copy-button code-copy-btn';
       copyButton.style.cssText = 'display: inline-flex; align-items: center; gap: 3px;';
@@ -2508,6 +3829,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
       // 创建Mermaid预览容器（仅对Mermaid图表）
       let mermaidContainer = null;
+      let pythonContainer = null;
       if (isMermaid) {
         // 固定预览高度为400px
         const previewHeight = 400;
@@ -3047,8 +4369,80 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         }
       }
 
+      if (isPython && blockKey) {
+        const previewHeight = 400;
+        pythonContainer = document.createElement('div');
+        pythonContainer.className = 'python-preview';
+        pythonContainer.setAttribute('data-block-key', blockKey);
+        if (pythonUid) {
+          pythonContainer.setAttribute('data-python-uid', pythonUid);
+        }
+        pythonContainer.dataset.viewMode = showPythonPreview ? 'preview' : 'code';
+        pythonContainer.dataset.previewDisplay = 'block';
+        if (pythonUid) {
+          pythonViewModeRef.current.set(pythonUid, showPythonPreview ? 'preview' : 'code');
+        }
+        pythonContainer.style.cssText = `
+          background: #0b0f16;
+          color: #e5e7eb;
+          display: ${showPythonPreview ? 'block' : 'none'};
+          height: ${previewHeight}px;
+          overflow: hidden;
+          position: relative;
+        `;
+        const terminal = document.createElement('div');
+        terminal.className = 'python-terminal';
+        const output = document.createElement('div');
+        output.className = 'python-terminal-output';
+        terminal.appendChild(output);
+        pythonContainer.appendChild(terminal);
+      }
+
       // 组装结构
       header.appendChild(langSpan);
+      let pythonStatusEl = null;
+      if (isPython && pythonUid) {
+        pythonStatusEl = document.createElement('span');
+        pythonStatusEl.className = 'python-status';
+        pythonStatusEl.style.cssText = `
+          margin-left: 10px;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.1px;
+          user-select: none;
+          white-space: nowrap;
+          display: ${showPythonPreview ? 'inline-flex' : 'none'};
+        `;
+        if (showPythonPreview) {
+          const statusKey = pythonExistingTask?.status === 'running'
+            ? 'running'
+            : pythonExistingTask?.status === 'queued'
+              ? 'waiting'
+              : 'waiting';
+          const statusConfig = PYTHON_STATUS_CONFIG[statusKey];
+          pythonStatusEl.style.color = statusConfig.color;
+          const label = document.createElement('span');
+          label.textContent = statusConfig.text + (statusKey === 'running' ? ' ' : '');
+          pythonStatusEl.appendChild(label);
+          if (statusKey === 'running') {
+            const spinner = document.createElement('span');
+            spinner.className = 'python-terminal-spinner';
+            const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+            frames.forEach((frame) => {
+              const frameSpan = document.createElement('span');
+              frameSpan.textContent = frame;
+              spinner.appendChild(frameSpan);
+            });
+            pythonStatusEl.appendChild(document.createTextNode(' '));
+            pythonStatusEl.appendChild(spinner);
+          }
+          pythonStatusEl.dataset.status = statusKey;
+        } else {
+          pythonStatusEl.textContent = '';
+          pythonStatusEl.dataset.status = '';
+        }
+        header.appendChild(pythonStatusEl);
+      }
       
       // 创建按钮容器 - 使用固定属性防止挤压
       const buttonContainer = document.createElement('div');
@@ -3056,6 +4450,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       
       if (previewButton) {
         buttonContainer.appendChild(previewButton);
+      }
+      if (pythonRunButton) {
+        buttonContainer.appendChild(pythonRunButton);
       }
       buttonContainer.appendChild(copyButton);
       header.appendChild(buttonContainer);
@@ -3075,8 +4472,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       const codeWrapper = document.createElement('div');
       codeWrapper.className = 'code-block-wrapper';
       // 根据预览状态设置初始显示
-      if (supportsPreview && blockKey) {
-        codeWrapper.style.display = showPreview ? 'none' : 'flex';
+      if ((supportsPreview && blockKey) || (isPython && blockKey)) {
+        const hideForPreview = supportsPreview ? showPreview : showPythonPreview;
+        codeWrapper.style.display = hideForPreview ? 'none' : 'flex';
       }
       codeWrapper.appendChild(lineNumbersDiv);
       codeWrapper.appendChild(preClone);
@@ -3090,6 +4488,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       }
       if (htmlContainer) {
         contentArea.appendChild(htmlContainer);
+      }
+      if (pythonContainer) {
+        contentArea.appendChild(pythonContainer);
       }
       // 代码包装器（包含行号和pre）
       contentArea.appendChild(codeWrapper);
@@ -3139,6 +4540,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         previewViewModeRef.current.delete(key);
       }
     });
+    pythonViewModeRef.current.forEach((_, key) => {
+      if (!activePythonKeys.has(key)) {
+        pythonViewModeRef.current.delete(key);
+      }
+    });
     svgSnapshotRef.current.forEach((_, key) => {
       if (!activePreviewKeys.has(key)) {
         svgSnapshotRef.current.delete(key);
@@ -3175,6 +4581,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
     // Apply Smart DOM Update
     updateDomSmartly(containerRef.current, tempDiv);
+    cleanupPythonStatusForInactive(activePythonKeys);
 
     // 使用 highlight.js 对真实 DOM 中的代码块进行高亮
     const applyHighlighting = () => {
@@ -3271,6 +4678,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     previewViewModeRef.current.forEach((_, key) => {
       if (!activePreviewKeys.has(key)) {
         previewViewModeRef.current.delete(key);
+      }
+    });
+    pythonViewModeRef.current.forEach((_, key) => {
+      if (!activePythonKeys.has(key)) {
+        pythonViewModeRef.current.delete(key);
       }
     });
     svgSnapshotRef.current.forEach((_, key) => {
@@ -4357,6 +5769,13 @@ export default function ChatModern({ user, initialConversationId = null }) {
   const activeChatIdRef = useRef(activeChatId);
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    resetPythonRuntime();
+    return () => {
+      resetPythonRuntime();
+    };
   }, [activeChatId]);
   useEffect(() => {
     persistModelSelection(selectedModel);
@@ -6136,7 +7555,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
 
                       return (
                         <motion.div 
-                          key={m.id}
+                          key={`${activeChatId || 'new'}-${m.id}`}
                           layout="position" // 只对position进行布局动画,不影响size
                           initial={{ opacity: 0, y: 10, scale: 0.98 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}

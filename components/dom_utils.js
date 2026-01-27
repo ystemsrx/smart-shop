@@ -54,10 +54,17 @@ export const updateDomSmartly = (container, newContentDiv) => {
       }
 
       // 4. 更新预览区域 (Mermaid/SVG/HTML)
-      const oldPreview = oldNode.querySelector('.mermaid-preview, .svg-preview, .html-preview');
-      const newPreview = newNode.querySelector('.mermaid-preview, .svg-preview, .html-preview');
+      const oldPreview = oldNode.querySelector('.mermaid-preview, .svg-preview, .html-preview, .python-preview');
+      const newPreview = newNode.querySelector('.mermaid-preview, .svg-preview, .html-preview, .python-preview');
 
       if (oldPreview && newPreview) {
+          if (oldPreview.classList.contains('python-preview') && newPreview.classList.contains('python-preview')) {
+              // Python终端输出为状态型内容，保持旧预览以避免输出丢失
+              const viewMode = newPreview.dataset.viewMode;
+              if (viewMode) {
+                  oldPreview.dataset.viewMode = viewMode;
+              }
+          } else {
           const oldSuccess = oldPreview.getAttribute('data-render-success') === 'true';
           const newSuccess = newPreview.getAttribute('data-render-success') === 'true';
 
@@ -92,6 +99,7 @@ export const updateDomSmartly = (container, newContentDiv) => {
               // Mermaid preview container 本身的 style transform 也可以保留 (although our CSS uses internal SVG transform)
               
               oldPreview.replaceWith(newPreview);
+          }
           }
       } else if (newPreview && !oldPreview) {
           // 之前没有预览，现在有了，插入
