@@ -42,15 +42,28 @@ export function AuthProvider({ children }) {
     return { ...payload, type: 'user' };
   };
 
-  // 检查用户登录状态
+  // 检查用户登录状态 - 优化版本，带超时机制
   const checkAuth = async () => {
+    // 创建超时 Promise (3秒超时，避免长时间等待)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Auth check timeout')), 3000);
+    });
+
     try {
-      const response = await fetch(`${API_BASE}/auth/me`, {
+      // 使用 AbortController 支持取消请求
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const fetchPromise = fetch(`${API_BASE}/auth/me`, {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
+
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
@@ -62,8 +75,12 @@ export function AuthProvider({ children }) {
         }
       }
     } catch (err) {
-      console.log('认证检查失败:', err.message);
+      // 静默处理错误，不阻塞应用启动
+      if (err.name !== 'AbortError') {
+        console.log('认证检查失败:', err.message);
+      }
     } finally {
+      // 无论成功失败，都标记为已初始化
       setIsInitialized(true);
     }
   };

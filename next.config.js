@@ -64,10 +64,67 @@ if (!isDevEnv) {
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  // 支持外部CDN脚本
+  
+  // 压缩优化
+  compress: true,
+  
+  // 生成更小的构建输出
+  productionBrowserSourceMaps: false,
+  
+  // 优化包导入 - 减少初始 bundle 大小
   experimental: {
-    optimizePackageImports: ['react', 'react-dom']
+    optimizePackageImports: [
+      'react', 
+      'react-dom',
+      'framer-motion',  // 重要: 优化 framer-motion 的 tree shaking
+      'lucide-react',   // 图标库优化
+      'gl-matrix',      // WebGL 数学库
+    ]
   },
+  
+  // Webpack 配置优化
+  webpack: (config, { dev, isServer }) => {
+    // 生产环境优化
+    if (!dev && !isServer) {
+      // 分割大型第三方库到独立 chunk
+      config.optimization.splitChunks = {
+        ...config.optimization.splitChunks,
+        cacheGroups: {
+          ...config.optimization.splitChunks?.cacheGroups,
+          // framer-motion 单独打包
+          framerMotion: {
+            test: /[\\/]node_modules[\\/]framer-motion[\\/]/,
+            name: 'framer-motion',
+            chunks: 'all',
+            priority: 30,
+          },
+          // gl-matrix 单独打包（用于 3D 菜单）
+          glMatrix: {
+            test: /[\\/]node_modules[\\/]gl-matrix[\\/]/,
+            name: 'gl-matrix',
+            chunks: 'all',
+            priority: 30,
+          },
+          // gsap 单独打包
+          gsap: {
+            test: /[\\/]node_modules[\\/]gsap[\\/]/,
+            name: 'gsap',
+            chunks: 'all',
+            priority: 30,
+          },
+          // 其他大型库
+          vendors: {
+            test: /[\\/]node_modules[\\/]/,
+            name: 'vendors',
+            chunks: 'all',
+            priority: 10,
+          },
+        },
+      };
+    }
+    return config;
+  },
+  
   env: {
     NEXT_PUBLIC_ENV: envFlag,
     NEXT_PUBLIC_API_URL: resolvedApiUrl,

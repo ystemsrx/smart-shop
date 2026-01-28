@@ -1,20 +1,47 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
-import InfiniteMenu from '../components/InfiniteMenu';
 import Nav from '../components/Nav';
 import { getProductImage } from '../utils/urls';
-import FloatingCart from '../components/FloatingCart';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName, getApiBaseUrl, getLogo } from '../utils/runtimeConfig';
-import PastelBackground from '../components/ModalCard';
-import ProductDetailModal from '../components/ProductDetailModal';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+
+// 延迟加载 InfiniteMenu (包含 WebGL 和 gl-matrix)
+const InfiniteMenu = dynamic(
+  () => import(/* webpackChunkName: "infinite-menu" */ '../components/InfiniteMenu'),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-pulse text-gray-400">加载3D菜单...</div>
+      </div>
+    )
+  }
+);
+
+// 延迟加载 FloatingCart
+const FloatingCart = dynamic(
+  () => import(/* webpackChunkName: "floating-cart" */ '../components/FloatingCart'),
+  { ssr: false }
+);
+
+// 延迟加载模态框组件
+const PastelBackground = dynamic(
+  () => import(/* webpackChunkName: "modal-card" */ '../components/ModalCard'),
+  { ssr: false }
+);
+
+const ProductDetailModal = dynamic(
+  () => import(/* webpackChunkName: "product-detail" */ '../components/ProductDetailModal'),
+  { ssr: false }
+);
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
