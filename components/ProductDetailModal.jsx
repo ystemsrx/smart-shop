@@ -167,13 +167,16 @@ const ProductDetailModal = ({
         </button>
 
         {/* 弹窗主体 */}
-        <div className="relative w-full max-h-[65vh] sm:max-h-[70vh] lg:max-h-[75vh] overflow-y-auto overflow-x-hidden custom-scrollbar bg-white rounded-3xl shadow-2xl opacity-0 animate-apple-scale-in">
+        {/* 移动端：整体可滚动；桌面端：固定 2:1 宽高比，仅右侧滚动 */}
+        {/* 桌面端使用 aspect-[2/1] 确保宽:高=2:1，左右各占一半形成两个正方形 */}
+        <div className="relative w-full max-h-[65vh] sm:max-h-[70vh] lg:max-h-[75vh] lg:aspect-[2/1] overflow-y-auto lg:overflow-hidden overflow-x-hidden custom-scrollbar bg-white rounded-3xl shadow-2xl opacity-0 animate-apple-scale-in">
           {/* 内容区域 - 响应式布局 */}
-          <div className="flex flex-col lg:flex-row">
+          <div className="flex flex-col lg:flex-row lg:h-full">
           {/* 左侧/上方：商品图片 */}
-          <div className="relative lg:w-1/2 bg-gradient-to-br from-gray-50 to-gray-100">
-            {/* 正方形容器 */}
-            <div className="relative aspect-square w-full overflow-hidden">
+          {/* 桌面端：图片区域是左侧正方形，宽度50%，高度100% */}
+          <div className="relative lg:w-1/2 lg:h-full bg-gradient-to-br from-gray-50 to-gray-100 lg:flex-shrink-0">
+            {/* 正方形容器 - 移动端保持正方形；桌面端由于父容器是2:1宽高比的一半，自然形成正方形 */}
+            <div className="relative aspect-square lg:aspect-auto w-full lg:h-full overflow-hidden">
               {/* 折扣角标 */}
               {hasDiscount && (
                 <div className="absolute left-4 top-4 z-20">
@@ -229,7 +232,8 @@ const ProductDetailModal = ({
           </div>
 
           {/* 右侧/下方：商品信息 */}
-          <div className="lg:w-1/2 p-6 lg:p-8 flex flex-col min-w-0">
+          {/* 桌面端：内容区域独立滚动，避免整个弹窗变高 */}
+          <div className="lg:w-1/2 p-6 lg:p-8 flex flex-col min-w-0 lg:overflow-y-auto lg:h-full custom-scrollbar">
             {/* 商品标题和分类 */}
             <div className="mb-6">
               {/* 桌面端：左侧标题+标签，右侧价格；移动端：堆叠布局 */}
@@ -414,10 +418,10 @@ const ProductDetailModal = ({
               ) : isVariant && !selectedVariant ? (
                 <button
                   disabled
-                  className="w-full py-3 sm:py-4 rounded-xl bg-gray-200 text-gray-600 font-semibold text-base sm:text-lg cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-2 sm:py-2.5 rounded-xl bg-gray-200 text-gray-500 font-semibold text-lg cursor-not-allowed flex items-center justify-center"
+                  aria-label="请选择规格"
                 >
-                  <i className="fas fa-hand-pointer flex-shrink-0"></i>
-                  <span>请选择规格</span>
+                  <i className="fas fa-hand-pointer"></i>
                 </button>
               ) : isInCart ? (
                 <div className="flex items-center justify-center gap-3 sm:gap-4">

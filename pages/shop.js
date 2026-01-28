@@ -27,11 +27,8 @@ const InfiniteMenu = dynamic(
   }
 );
 
-// 延迟加载 FloatingCart
-const FloatingCart = dynamic(
-  () => import(/* webpackChunkName: "floating-cart" */ '../components/FloatingCart'),
-  { ssr: false }
-);
+// 直接导入 FloatingCart（需要 ref 透传，dynamic 不支持）
+import FloatingCart from '../components/FloatingCart';
 
 // 延迟加载模态框组件
 const PastelBackground = dynamic(
@@ -858,9 +855,16 @@ export default function Shop() {
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
   const flyToCart = (startEl) => {
     if (typeof window === 'undefined') return;
-    if (!startEl || !cartWidgetRef.current?.getIconRect) return;
+    
+    // 获取购物车图标位置
+    const cartIcon = document.getElementById('floating-cart-icon');
+    if (!startEl || !cartIcon) {
+      console.log('[flyToCart] 缺少起始元素或购物车图标');
+      return;
+    }
+    
     const startRect = startEl.getBoundingClientRect();
-    const endRect = cartWidgetRef.current.getIconRect();
+    const endRect = cartIcon.getBoundingClientRect();
     if (!startRect || !endRect) return;
 
     const startX = startRect.left + startRect.width / 2;
@@ -868,33 +872,47 @@ export default function Shop() {
     const endX = endRect.left + endRect.width / 2;
     const endY = endRect.top + endRect.height / 2;
 
+    // 创建飞行小球
     const ball = document.createElement('div');
     ball.className = 'cart-fly-ball';
     document.body.appendChild(ball);
 
-    const size = 12;
+    const size = 14;
     ball.style.width = `${size}px`;
     ball.style.height = `${size}px`;
 
-    const duration = 600; // ms
+    const duration = 500; // ms
     const cpX = (startX + endX) / 2;
-    const cpY = Math.min(startY, endY) - 120; // 控制点，形成弧线
+    const cpY = Math.min(startY, endY) - 100; // 控制点，形成弧线
     const startTime = performance.now();
 
     const animate = (now) => {
-      const t = Math.min(1, (now - startTime) / duration);
-      const oneMinusT = 1 - t;
+      const elapsed = now - startTime;
+      const t = Math.min(1, elapsed / duration);
+      // 使用 easeOutQuad 缓动函数，让动画更自然
+      const easeT = 1 - (1 - t) * (1 - t);
+      const oneMinusT = 1 - easeT;
       // 二次贝塞尔曲线公式
-      const x = oneMinusT * oneMinusT * startX + 2 * oneMinusT * t * cpX + t * t * endX;
-      const y = oneMinusT * oneMinusT * startY + 2 * oneMinusT * t * cpY + t * t * endY;
-      ball.style.transform = `translate3d(${x - size / 2}px, ${y - size / 2}px, 0)`;
-      ball.style.opacity = String(1 - t * 0.2);
+      const x = oneMinusT * oneMinusT * startX + 2 * oneMinusT * easeT * cpX + easeT * easeT * endX;
+      const y = oneMinusT * oneMinusT * startY + 2 * oneMinusT * easeT * cpY + easeT * easeT * endY;
+      // 小球逐渐缩小
+      const scale = 1 - easeT * 0.3;
+      ball.style.transform = `translate3d(${x - size / 2}px, ${y - size / 2}px, 0) scale(${scale})`;
+      ball.style.opacity = String(1 - easeT * 0.3);
+      
       if (t < 1) {
         requestAnimationFrame(animate);
       } else {
         // 到达后触发购物车抖动
-        try { cartWidgetRef.current?.shake(); } catch (e) {}
-        document.body.removeChild(ball);
+        try { 
+          cartWidgetRef.current?.shake(); 
+        } catch (e) {
+          console.log('[flyToCart] shake 调用失败:', e);
+        }
+        // 安全移除小球
+        if (ball.parentNode) {
+          ball.parentNode.removeChild(ball);
+        }
       }
     };
     requestAnimationFrame(animate);
@@ -2090,7 +2108,7 @@ export default function Shop() {
             }
           }}
         >
-          <div className="card-glass max-w-md w-full mx-4 p-6 shadow-2xl border border-gray-200/50 opacity-0 animate-apple-scale-in">
+          <div className="card-glass max-w-md w-full mx-4 pt-6 px-6 pb-2 shadow-2xl border border-gray-200/50 opacity-0 animate-apple-scale-in">
             {/* 弹窗头部 */}
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -2118,7 +2136,7 @@ export default function Shop() {
             </div>
 
             {/* 规格选项 */}
-            <div className="space-y-3 max-h-60 overflow-y-auto mb-6">
+            <div className="space-y-3 max-h-80 overflow-y-auto mb-2">
               {(specModalProduct.variants || [])
                 .sort((a, b) => (b.stock || 0) - (a.stock || 0)) // 按库存倒序排列，库存高的在前
                 .map((variant, index) => {
@@ -2190,7 +2208,7 @@ export default function Shop() {
             </div>
 
             {/* 操作区域 */}
-            <div className="pt-4 border-t border-gray-200/50">
+            <div className="pt-2 border-t border-gray-200/50">
               {selectedVariant ? (
                 (() => {
                   const qty = cartItemsMap[`${specModalProduct.id}@@${selectedVariant}`] || 0;
@@ -2238,9 +2256,8 @@ export default function Shop() {
                   );
                 })()
               ) : (
-                <div className="text-center py-4">
-                  <i className="fas fa-hand-pointer text-gray-400 text-2xl mb-2"></i>
-                  <p className="text-sm text-gray-500">请选择一个规格</p>
+                <div className="text-center py-1">
+                  <i className="fas fa-hand-pointer text-gray-400 text-xl"></i>
                 </div>
               )}
             </div>
