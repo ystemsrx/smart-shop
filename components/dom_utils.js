@@ -67,9 +67,12 @@ export const updateDomSmartly = (container, newContentDiv) => {
           } else {
           const oldSuccess = oldPreview.getAttribute('data-render-success') === 'true';
           const newSuccess = newPreview.getAttribute('data-render-success') === 'true';
+          const oldPhase = oldPreview.dataset ? oldPreview.dataset.streamPhase : null;
+          const newPhase = newPreview.dataset ? newPreview.dataset.streamPhase : null;
+          const phaseChanged = Boolean(oldPhase && newPhase && oldPhase !== newPhase);
 
           // 如果代码内容没有变化，且旧的预览已成功渲染，则跳过更新，避免闪烁
-          if (!codeContentChanged && oldSuccess) {
+          if (!codeContentChanged && oldSuccess && !phaseChanged) {
               // 代码没变，保留旧的预览，不做任何操作
               // 这样可以避免 iframe/mermaid/svg 的无谓重新渲染
           } else if (newSuccess || !oldSuccess) {

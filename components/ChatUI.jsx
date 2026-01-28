@@ -930,6 +930,70 @@ ${dialogHtml}
   return htmlDoc;
 };
 
+const ensureMermaidCopiedBox = (container) => {
+  if (!container || typeof document === 'undefined') return null;
+  let box = container.querySelector('.preview-copied-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'preview-copied-box';
+    container.appendChild(box);
+  }
+  return box;
+};
+
+const showMermaidCopiedIndicator = (container) => {
+  const box = ensureMermaidCopiedBox(container);
+  if (!box) return;
+  box.textContent = 'Copied!';
+  box.classList.remove('show');
+  void box.offsetWidth;
+  requestAnimationFrame(() => {
+    box.classList.add('show');
+  });
+  clearTimeout(box._hideTimer);
+  box._hideTimer = setTimeout(() => {
+    box.classList.remove('show');
+  }, 1000);
+};
+
+const copyTextWithMermaidFeedback = (text, container) => {
+  if (!text) return;
+  const onSuccess = () => showMermaidCopiedIndicator(container);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        onSuccess();
+      } catch (err) {
+        // Ignore copy failures
+      }
+    });
+  } else {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      onSuccess();
+    } catch (err) {
+      // Ignore copy failures
+    }
+  }
+};
+
 const BLOCK_MATH_PLACEHOLDER_CLASS = 'block-math-placeholder';
 const INLINE_MATH_PLACEHOLDER_CLASS = 'inline-math-placeholder';
 const STREAM_FADE_EXEMPT_CLASS = 'stream-fade-exempt';
@@ -3038,6 +3102,21 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     codeWrapper.style.display = showPreview ? 'none' : 'flex';
     previewViewModeRef.current.set(blockKey, nextMode);
 
+    if (previewContainer.classList.contains('mermaid-preview')) {
+      const contentArea = blockContainer.querySelector('.code-block-content');
+      if (contentArea) {
+        if (showPreview) {
+          contentArea.style.overflow = 'hidden';
+          contentArea.style.scrollbarWidth = 'none';
+          contentArea.style.msOverflowStyle = 'none';
+        } else {
+          contentArea.style.overflow = 'auto';
+          contentArea.style.removeProperty('scrollbar-width');
+          contentArea.style.removeProperty('-ms-overflow-style');
+        }
+      }
+    }
+
     // HTML块特殊处理：切换到源码时清空所有状态，切换回预览时强制重建/渲染
     if (isHtmlBlock) {
       const getPreviewHeight = () => {
@@ -3415,11 +3494,82 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
       const getTableContent = (line) => splitBlockquotePrefix(line).content;
 
-      const isTableRow = (line) => {
+      const stripInlineCode = (line) => {
+        const content = getTableContent(line);
+        let output = '';
+        let i = 0;
+        let inCode = false;
+        let fence = '';
+
+        while (i < content.length) {
+          const char = content[i];
+          if (char === '`') {
+            let j = i;
+            while (j < content.length && content[j] === '`') j += 1;
+            const tickSeq = content.slice(i, j);
+
+            if (!inCode) {
+              inCode = true;
+              fence = tickSeq;
+              i = j;
+              continue;
+            }
+
+            if (tickSeq === fence) {
+              inCode = false;
+              fence = '';
+              i = j;
+              continue;
+            }
+          }
+
+          if (!inCode) {
+            output += char;
+          }
+          i += 1;
+        }
+
+        return output;
+      };
+
+      const countPipes = (line) => {
+        const content = stripInlineCode(line);
+        let count = 0;
+        for (let i = 0; i < content.length; i += 1) {
+          if (content[i] === '|' && content[i - 1] !== '\\') {
+            count += 1;
+          }
+        }
+        return count;
+      };
+
+      const looksLikeTableRow = (line) => {
+        const trimmed = stripInlineCode(line).trim();
+        if (!trimmed || trimmed.startsWith('```')) return false;
+        const pipeCount = countPipes(line);
+        if (pipeCount === 0) return false;
+        const startsOrEndsWithPipe = trimmed.startsWith('|') || trimmed.endsWith('|');
+        if (startsOrEndsWithPipe) return true;
+        if (pipeCount < 2) return false;
+        // Require at least one separator-like pipe outside code spans to avoid false positives.
+        return /\s\|/.test(trimmed) || /\|\s/.test(trimmed);
+      };
+
+      const findNextNonEmptyLine = (linesToScan, startIndex) => {
+        for (let j = startIndex; j < linesToScan.length; j += 1) {
+          if (linesToScan[j].trim() !== '') return linesToScan[j];
+        }
+        return null;
+      };
+
+      const isTableRow = (line, lineIndex, { allowMinimalPipeRow = false } = {}) => {
         if (inCodeBlock) return false;
-        const trimmed = getTableContent(line).trim();
-        // 表格行特征：包含 | 且不是代码块
-        return trimmed.includes('|') && !trimmed.startsWith('```');
+        const trimmed = stripInlineCode(line).trim();
+        if (!trimmed || !trimmed.includes('|') || trimmed.startsWith('```')) return false;
+        if (looksLikeTableRow(line)) return true;
+        if (allowMinimalPipeRow) return true;
+        const nextLine = findNextNonEmptyLine(lines, lineIndex + 1);
+        return !!(nextLine && isSeparatorRow(nextLine));
       };
       
       const isSeparatorRow = (line) => {
@@ -3522,7 +3672,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
             continue;
         }
 
-        if (isTableRow(line)) {
+        if (isTableRow(line, i, { allowMinimalPipeRow: inTable })) {
           if (!inTable) {
             inTable = true;
             // 第一行是表头，确定列数
@@ -3866,6 +4016,17 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       
       const contentArea = document.createElement('div');
       contentArea.className = 'code-block-content';
+      const setMermaidPreviewOverflow = (shouldHide) => {
+        if (!shouldHide) {
+          contentArea.style.overflow = 'auto';
+          contentArea.style.removeProperty('scrollbar-width');
+          contentArea.style.removeProperty('-ms-overflow-style');
+          return;
+        }
+        contentArea.style.overflow = 'hidden';
+        contentArea.style.scrollbarWidth = 'none';
+        contentArea.style.msOverflowStyle = 'none';
+      };
       
       // 为支持预览的代码块添加预览按钮
       let previewButton = null;
@@ -3881,6 +4042,10 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           showPreview = savedViewMode === 'preview';
         } else {
           showPreview = savedViewMode !== 'code';
+        }
+
+        if (isMermaid) {
+          setMermaidPreviewOverflow(showPreview);
         }
 
         previewButton = document.createElement('button');
@@ -3937,6 +4102,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         mermaidContainer.setAttribute('data-block-key', blockKey);
         mermaidContainer.dataset.viewMode = showPreview ? 'preview' : 'code';
         mermaidContainer.dataset.previewDisplay = 'block';
+        mermaidContainer.dataset.streamPhase = isStreamingRef.current ? 'streaming' : 'final';
         previewViewModeRef.current.set(blockKey, showPreview ? 'preview' : 'code');
         mermaidContainer.style.cssText = `
           padding: 20px;
@@ -3946,6 +4112,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           transition: transform 0.2s ease;
           cursor: grab;
           user-select: none;
+          touch-action: none;
           position: relative;
           height: ${previewHeight}px;
           overflow: hidden;
@@ -3992,6 +4159,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         let translate = savedState ? { ...savedState.translate } : { x: 0, y: 0 };
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
+        const preventNativeDrag = (event) => {
+          event.preventDefault();
+        };
         
         // 初始化状态对象并保存到容器上
         mermaidContainer._transformState = { scale, translate };
@@ -4014,6 +4184,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           svgElement.style.display = 'block';
           svgElement.style.margin = '0 auto';
           svgElement.style.transformOrigin = 'center center';
+          svgElement.style.userSelect = 'none';
+          svgElement.style.webkitUserSelect = 'none';
+          svgElement.style.touchAction = 'none';
+          svgElement.setAttribute('draggable', 'false');
+          svgElement.addEventListener('dragstart', preventNativeDrag);
           const existingSvg = mermaidContainer.querySelector('svg');
           const controlsNode = mermaidContainer.querySelector('.mermaid-zoom-controls');
           if (existingSvg) {
@@ -4058,31 +4233,44 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         });
         
         // 拖拽功能 - 使用闭包确保每个图表的事件处理独立
-        const handleMouseDown = (e) => {
-          if (e.target.closest('button')) return;
+        let activePointerId = null;
+
+        const handlePointerDown = (e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
+          if (e.target.closest('button, a, .preview-error-container, .preview-error-toast, .preview-copied-box')) return;
+          e.preventDefault();
           isDragging = true;
+          activePointerId = e.pointerId;
           dragStart = { x: e.clientX - translate.x, y: e.clientY - translate.y };
           mermaidContainer.style.cursor = 'grabbing';
+          if (mermaidContainer.setPointerCapture) {
+            mermaidContainer.setPointerCapture(e.pointerId);
+          }
         };
-        
-        const handleMouseMove = (e) => {
-          if (!isDragging) return;
+
+        const handlePointerMove = (e) => {
+          if (!isDragging || (activePointerId !== null && e.pointerId !== activePointerId)) return;
           e.preventDefault();
           translate.x = e.clientX - dragStart.x;
           translate.y = e.clientY - dragStart.y;
           updateTransform();
         };
-        
-        const handleMouseUp = () => {
-          if (isDragging) {
-            isDragging = false;
-            mermaidContainer.style.cursor = 'grab';
+
+        const handlePointerUp = (e) => {
+          if (!isDragging || (activePointerId !== null && e.pointerId !== activePointerId)) return;
+          isDragging = false;
+          mermaidContainer.style.cursor = 'grab';
+          if (mermaidContainer.releasePointerCapture) {
+            mermaidContainer.releasePointerCapture(e.pointerId);
           }
+          activePointerId = null;
         };
-        
-        mermaidContainer.addEventListener('mousedown', handleMouseDown);
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
+
+        const pointerListenerOptions = { capture: true };
+        mermaidContainer.addEventListener('pointerdown', handlePointerDown, pointerListenerOptions);
+        mermaidContainer.addEventListener('pointermove', handlePointerMove, pointerListenerOptions);
+        mermaidContainer.addEventListener('pointerup', handlePointerUp, pointerListenerOptions);
+        mermaidContainer.addEventListener('pointercancel', handlePointerUp, pointerListenerOptions);
         
         // 鼠标滚轮缩放
         const handleWheel = (e) => {
@@ -4091,15 +4279,20 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           scale = Math.max(0.3, Math.min(3, scale * delta));
           updateTransform();
         };
-        
-        mermaidContainer.addEventListener('wheel', handleWheel);
+        const wheelListenerOptions = { passive: false };
+        mermaidContainer.addEventListener('wheel', handleWheel, wheelListenerOptions);
         
         // 存储清理函数以便后续使用
         const cleanupEventListeners = () => {
-          mermaidContainer.removeEventListener('mousedown', handleMouseDown);
-          document.removeEventListener('mousemove', handleMouseMove);
-          document.removeEventListener('mouseup', handleMouseUp);
-          mermaidContainer.removeEventListener('wheel', handleWheel);
+          mermaidContainer.removeEventListener('pointerdown', handlePointerDown, pointerListenerOptions);
+          mermaidContainer.removeEventListener('pointermove', handlePointerMove, pointerListenerOptions);
+          mermaidContainer.removeEventListener('pointerup', handlePointerUp, pointerListenerOptions);
+          mermaidContainer.removeEventListener('pointercancel', handlePointerUp, pointerListenerOptions);
+          mermaidContainer.removeEventListener('wheel', handleWheel, wheelListenerOptions);
+          const svgElement = mermaidContainer.querySelector('svg');
+          if (svgElement) {
+            svgElement.removeEventListener('dragstart', preventNativeDrag);
+          }
         };
         
         // 将清理函数绑定到容器，以便在组件卸载时清理
@@ -4128,33 +4321,67 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
             }
           };
           
+        const formatMermaidErrorMessage = (err) => {
+            if (!err) return 'Unknown error';
+            if (typeof err === 'string') return err;
+            if (err instanceof Error && err.message) return err.message;
+            if (typeof err.message === 'string') return err.message;
+            if (typeof err.str === 'string') return err.str;
+            if (typeof err.text === 'string') return err.text;
+            if (err.hash && typeof err.hash.text === 'string') return err.hash.text;
+            try {
+                return JSON.stringify(err);
+            } catch (jsonErr) {
+                return String(err);
+            }
+        };
+
+        const clearMermaidRenderState = () => {
+            mermaidSnapshotRef.current.delete(blockKey);
+            mermaidStatesRef.current.delete(blockKey);
+            mermaidContainer.removeAttribute('data-render-success');
+            const existingSvg = mermaidContainer.querySelector('svg');
+            if (existingSvg) {
+                existingSvg.remove();
+            }
+            scale = 1;
+            translate = { x: 0, y: 0 };
+            mermaidContainer._transformState = { scale, translate: { ...translate } };
+        };
+
+        const ensureMermaidErrorContainer = () => {
+            let container = mermaidContainer.querySelector('.preview-error-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'preview-error-container';
+                mermaidContainer.appendChild(container);
+            }
+            return container;
+        };
+
         // Helper to show error
         const showError = (msg) => {
-            let errorBox = mermaidContainer.querySelector('.preview-error-box');
-            if (!errorBox) {
-                errorBox = document.createElement('div');
-                errorBox.className = 'preview-error-box';
-                errorBox.style.cssText = `
-                    position: absolute;
-                    bottom: 10px;
-                    left: 10px;
-                    background: rgba(220, 38, 38, 0.9);
-                    color: white;
-                    padding: 8px 12px;
-                    border-radius: 6px;
-                    font-size: 12px;
-                    max-width: 80%;
-                    z-index: 20;
-                    pointer-events: none;
-                `;
-                mermaidContainer.appendChild(errorBox);
-            }
-            errorBox.textContent = msg;
+            if (!msg) return;
+            const container = ensureMermaidErrorContainer();
+            container.replaceChildren();
+            const toast = document.createElement('div');
+            toast.className = 'preview-error-toast';
+            toast.textContent = msg;
+            toast.dataset.message = msg;
+            toast.addEventListener('click', () => {
+                const textToCopy = toast.dataset.message || '';
+                if (!textToCopy) return;
+                copyTextWithMermaidFeedback(textToCopy, mermaidContainer);
+            });
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.add('show');
+            });
         };
 
         const hideError = () => {
-            const errorBox = mermaidContainer.querySelector('.preview-error-box');
-            if (errorBox) errorBox.remove();
+            const container = mermaidContainer.querySelector('.preview-error-container');
+            if (container) container.remove();
         };
 
           // 异步渲染函数
@@ -4165,6 +4392,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
                 // Try removing last line iteratively until success or empty
                 // Limit retries to reasonable amount (e.g., 20 lines) to avoid hanging
                 const maxRetries = Math.min(lines.length, 20); 
+                let firstError;
                 
                 for (let i = 0; i <= maxRetries; i++) {
                     const currentLines = lines.slice(0, lines.length - i);
@@ -4174,13 +4402,13 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
                     try {
                          const result = await window.mermaid.render(mermaidId + '-svg', partialContent);
                          if (result && result.svg) {
-                             return { success: true, svg: result.svg, error: i === 0 ? null : `Displaying partial content (syntax error at line ${lines.length - i + 1})` };
+                             return { success: true, svg: result.svg, error: firstError || null };
                          }
                     } catch (e) {
                         // Continue to next iteration
-                        if (i === 0) {
+                        if (!firstError) {
                             // Save first error to return if everything fails
-                             var firstError = e;
+                             firstError = e;
                         }
                     }
                 }
@@ -4201,13 +4429,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
                   const refined = await tryRenderRefine(codeContent);
                   if (refined.success) {
                       result = { svg: refined.svg };
-                      // Only show warning if we are actually displaying partial content
-                      // And generally we want to show this "Partial Success" message even during streaming? 
-                      // Maybe suppress it too until done to be super clean? 
-                      // User said "don't show ERROR", this is a warning. 
-                      // Let's hide it during streaming to be safe and clean.
                       if (!isStreamingRef.current) {
-                          showError(`Rendering Partial: Syntax error detected. Displaying valid part.`);
+                          const errorMessage = formatMermaidErrorMessage(fullRenderErr || refined.error);
+                          showError(errorMessage);
                       } else {
                           hideError();
                       }
@@ -4242,23 +4466,24 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
               const hasSuccessRender = mermaidContainer.getAttribute('data-render-success') === 'true';
               
               if (!isStreamingRef.current) {
-                   showError(`Syntax Error: ${err.message || 'Invalid syntax'}`);
+                   const errorMessage = formatMermaidErrorMessage(err);
+                   clearMermaidRenderState();
+                   showError(errorMessage);
               } else {
                    hideError();
-              }
-              
-              if (!hasSuccessRender) {
-                // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
-                // 只在控制台输出调试信息
-                console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
-                // Don't show UI error yet, wait for completion or valid partial
-                hideError(); 
-              } else {
-                applyMermaidSnapshot();
-                // If we have a snapshot, we are "good" for now, don't flash error
-                // unless we want to warn the user that the *new* content is broken
-                // For now, suppress to avoid flickering
-                hideError();
+                   if (!hasSuccessRender) {
+                     // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
+                     // 只在控制台输出调试信息
+                     console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
+                     // Don't show UI error yet, wait for completion or valid partial
+                     hideError(); 
+                   } else {
+                     applyMermaidSnapshot();
+                     // If we have a snapshot, we are "good" for now, don't flash error
+                     // unless we want to warn the user that the *new* content is broken
+                     // For now, suppress to avoid flickering
+                     hideError();
+                   }
               }
               
               // 错误时也清理DOM中的错误信息
@@ -4838,8 +5063,11 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     // 清理函数
     return () => {
       clearInterval(cleanupInterval);
+    };
+  }, [content, applyFadeToRange, vendorVersion, isStreaming]);
 
-      // 清理Mermaid容器的事件监听器
+  useEffect(() => {
+    return () => {
       const mermaidContainers = containerRef.current?.querySelectorAll('.mermaid-preview') || [];
       mermaidContainers.forEach(container => {
         if (container._cleanupEventListeners) {
@@ -4847,7 +5075,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         }
       });
     };
-  }, [content, applyFadeToRange, vendorVersion]);
+  }, []);
 
   return (
     <div className="w-full">
