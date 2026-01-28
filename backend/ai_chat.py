@@ -775,14 +775,19 @@ async def stream_model_response(
     # 使用 httpx 直接发起流式请求，以便在中断时可以立即关闭 HTTP 连接
     response: Optional[httpx.Response] = None
     
-    async def _close_response():
-        """关闭 HTTP 响应，立即断开连接以节省 token"""
+    async def _close_response(sync_only: bool = False):
+        """关闭 HTTP 响应，立即断开连接以节省 token（同步关闭优先）"""
         nonlocal response
         if response is not None:
             try:
-                await response.aclose()
+                response.close()
             except Exception:
                 pass
+            if not sync_only:
+                try:
+                    await response.aclose()
+                except Exception:
+                    pass
 
     try:
         # 使用 httpx.AsyncClient 发起流式请求
@@ -805,121 +810,124 @@ async def stream_model_response(
                 error_text = await response.aread()
                 raise RuntimeError(f"API请求失败 (HTTP {response.status_code}): {error_text.decode('utf-8', errors='ignore')}")
 
-            # 逐行读取 SSE 流
-            async for line in response.aiter_lines():
-                # 检查客户端是否断开连接 - 立即关闭 HTTP 连接以节省 token
-                if client_disconnected and client_disconnected.is_set():
-                    logger.info("检测到客户端断开，立即关闭HTTP连接停止生成")
-                    await _close_response()
-                    # 计算 thinking_duration
-                    interrupted_thinking_duration = thinking_duration
-                    if thinking_start_time is not None and interrupted_thinking_duration is None:
-                        interrupted_thinking_duration = round(time.time() - thinking_start_time, 2)
-                    # 返回已生成的内容
-                    return (
-                        "".join(assistant_text_parts),
-                        tool_calls_buffer,
-                        "interrupted",
-                        "".join(reasoning_text_parts),
-                        interrupted_thinking_duration
-                    )
-                
-                # 跳过空行和非数据行
-                if not line or not line.startswith("data: "):
-                    continue
-                
-                data_str = line[6:]  # 移除 "data: " 前缀
-                if data_str == "[DONE]":
-                    break
-                
-                try:
-                    chunk_dict = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
+            try:
+                # 逐行读取 SSE 流
+                async for line in response.aiter_lines():
+                    # 检查客户端是否断开连接 - 立即关闭 HTTP 连接以节省 token
+                    if client_disconnected and client_disconnected.is_set():
+                        logger.info("检测到客户端断开，立即关闭HTTP连接停止生成")
+                        await _close_response(sync_only=True)
+                        # 计算 thinking_duration
+                        interrupted_thinking_duration = thinking_duration
+                        if thinking_start_time is not None and interrupted_thinking_duration is None:
+                            interrupted_thinking_duration = round(time.time() - thinking_start_time, 2)
+                        # 返回已生成的内容
+                        return (
+                            "".join(assistant_text_parts),
+                            tool_calls_buffer,
+                            "interrupted",
+                            "".join(reasoning_text_parts),
+                            interrupted_thinking_duration
+                        )
+                    
+                    # 跳过空行和非数据行
+                    if not line or not line.startswith("data: "):
+                        continue
+                    
+                    data_str = line[6:]  # 移除 "data: " 前缀
+                    if data_str == "[DONE]":
+                        break
+                    
+                    try:
+                        chunk_dict = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
 
-                if "error" in chunk_dict and chunk_dict["error"]:
-                    error_detail = chunk_dict["error"]
-                    if isinstance(error_detail, dict):
-                        message = error_detail.get("message") or json.dumps(error_detail, ensure_ascii=False)
-                    else:
-                        message = str(error_detail)
-                    # 计算thinking_duration
-                    err_thinking_duration = thinking_duration
-                    if thinking_start_time is not None and err_thinking_duration is None:
-                        err_thinking_duration = round(time.time() - thinking_start_time, 2)
-                    raise StreamResponseError(
-                        message,
-                        partial_text="".join(assistant_text_parts),
-                        partial_reasoning="".join(reasoning_text_parts),
-                        tool_calls=tool_calls_buffer,
-                        finish_reason=finish_reason,
-                        retryable=True,
-                        thinking_duration=err_thinking_duration
-                    )
+                    if "error" in chunk_dict and chunk_dict["error"]:
+                        error_detail = chunk_dict["error"]
+                        if isinstance(error_detail, dict):
+                            message = error_detail.get("message") or json.dumps(error_detail, ensure_ascii=False)
+                        else:
+                            message = str(error_detail)
+                        # 计算thinking_duration
+                        err_thinking_duration = thinking_duration
+                        if thinking_start_time is not None and err_thinking_duration is None:
+                            err_thinking_duration = round(time.time() - thinking_start_time, 2)
+                        raise StreamResponseError(
+                            message,
+                            partial_text="".join(assistant_text_parts),
+                            partial_reasoning="".join(reasoning_text_parts),
+                            tool_calls=tool_calls_buffer,
+                            finish_reason=finish_reason,
+                            retryable=True,
+                            thinking_duration=err_thinking_duration
+                        )
 
-                choices = chunk_dict.get("choices") or []
-                for choice in choices:
-                    choice_dict = choice if isinstance(choice, dict) else _coerce_to_dict(choice)
-                    delta_dict = _coerce_to_dict(choice_dict.get("delta"))
+                    choices = chunk_dict.get("choices") or []
+                    for choice in choices:
+                        choice_dict = choice if isinstance(choice, dict) else _coerce_to_dict(choice)
+                        delta_dict = _coerce_to_dict(choice_dict.get("delta"))
 
-                    # 处理 reasoning（思维链）内容
-                    reasoning_piece = delta_dict.get("reasoning")
-                    reasoning_text = _extract_text(reasoning_piece)
-                    if reasoning_text:
-                        await emit_reasoning_chunk(reasoning_text)
+                        # 处理 reasoning（思维链）内容
+                        reasoning_piece = delta_dict.get("reasoning")
+                        reasoning_text = _extract_text(reasoning_piece)
+                        if reasoning_text:
+                            await emit_reasoning_chunk(reasoning_text)
 
-                    # 处理 content 内容
-                    content_piece = delta_dict.get("content")
-                    content_text = _extract_text(content_piece)
-                    if content_text:
-                        await handle_content_delta(content_text)
+                        # 处理 content 内容
+                        content_piece = delta_dict.get("content")
+                        content_text = _extract_text(content_piece)
+                        if content_text:
+                            await handle_content_delta(content_text)
 
-                    # 处理 tool_calls
-                    tool_parts = delta_dict.get("tool_calls") or []
-                    for tool_part in tool_parts:
-                        tool_dict = tool_part if isinstance(tool_part, dict) else _coerce_to_dict(tool_part)
-                        index = tool_dict.get("index", 0)
-                        try:
-                            index = int(index)
-                        except Exception:
-                            index = 0
+                        # 处理 tool_calls
+                        tool_parts = delta_dict.get("tool_calls") or []
+                        for tool_part in tool_parts:
+                            tool_dict = tool_part if isinstance(tool_part, dict) else _coerce_to_dict(tool_part)
+                            index = tool_dict.get("index", 0)
+                            try:
+                                index = int(index)
+                            except Exception:
+                                index = 0
 
-                        if index not in tool_calls_buffer:
-                            tool_calls_buffer[index] = {
-                                "id": "",
-                                "type": tool_dict.get("type") or "function",
-                                "function": {"name": "", "arguments": "{}"}
-                            }
+                            if index not in tool_calls_buffer:
+                                tool_calls_buffer[index] = {
+                                    "id": "",
+                                    "type": tool_dict.get("type") or "function",
+                                    "function": {"name": "", "arguments": "{}"}
+                                }
 
-                        if tool_dict.get("id"):
-                            tool_calls_buffer[index]["id"] = tool_dict["id"]
+                            if tool_dict.get("id"):
+                                tool_calls_buffer[index]["id"] = tool_dict["id"]
 
-                        func_dict = _coerce_to_dict(tool_dict.get("function"))
-                        if func_dict.get("name"):
-                            tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
+                            func_dict = _coerce_to_dict(tool_dict.get("function"))
+                            if func_dict.get("name"):
+                                tool_calls_buffer[index]["function"]["name"] = func_dict["name"]
 
-                        arguments_value = func_dict.get("arguments")
-                        if arguments_value is not None:
-                            if isinstance(arguments_value, str):
-                                arg_text = arguments_value
-                            else:
-                                try:
-                                    arg_text = json.dumps(arguments_value, ensure_ascii=False)
-                                except TypeError:
-                                    arg_text = str(arguments_value)
-                            normalized = arg_text.strip()
-                            if normalized in ("", "{}"):
-                                continue
-                            existing = tool_calls_buffer[index]["function"]["arguments"]
-                            if existing.strip() in ("", "{}"):
-                                tool_calls_buffer[index]["function"]["arguments"] = arg_text
-                            else:
-                                tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
+                            arguments_value = func_dict.get("arguments")
+                            if arguments_value is not None:
+                                if isinstance(arguments_value, str):
+                                    arg_text = arguments_value
+                                else:
+                                    try:
+                                        arg_text = json.dumps(arguments_value, ensure_ascii=False)
+                                    except TypeError:
+                                        arg_text = str(arguments_value)
+                                normalized = arg_text.strip()
+                                if normalized in ("", "{}"):
+                                    continue
+                                existing = tool_calls_buffer[index]["function"]["arguments"]
+                                if existing.strip() in ("", "{}"):
+                                    tool_calls_buffer[index]["function"]["arguments"] = arg_text
+                                else:
+                                    tool_calls_buffer[index]["function"]["arguments"] = existing + arg_text
 
-                    # 处理 finish_reason
-                    finish_reason_value = choice_dict.get("finish_reason")
-                    if finish_reason_value:
-                        finish_reason = finish_reason_value
+                        # 处理 finish_reason
+                        finish_reason_value = choice_dict.get("finish_reason")
+                        if finish_reason_value:
+                            finish_reason = finish_reason_value
+            finally:
+                await _close_response()
 
     except asyncio.CancelledError as exc:
         await _close_response()

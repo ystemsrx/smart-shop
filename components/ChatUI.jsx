@@ -3388,22 +3388,30 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       let headerColumnCount = 0; // 表头确定的列数
       let inCodeBlock = false;   // 标记是否在代码块中
 
+      const splitBlockquotePrefix = (line) => {
+        const match = line.match(/^(\s*(?:>\s*)+)(.*)$/);
+        if (!match) return { prefix: '', content: line };
+        return { prefix: match[1], content: match[2] };
+      };
+
+      const getTableContent = (line) => splitBlockquotePrefix(line).content;
+
       const isTableRow = (line) => {
         if (inCodeBlock) return false;
-        const trimmed = line.trim();
+        const trimmed = getTableContent(line).trim();
         // 表格行特征：包含 | 且不是代码块
         return trimmed.includes('|') && !trimmed.startsWith('```');
       };
       
       const isSeparatorRow = (line) => {
-        const trimmed = line.trim();
+        const trimmed = getTableContent(line).trim();
         // 分隔行特征：只包含 |、-、: 和空格
         return /^\|?[\s\-:|]+\|?$/.test(trimmed) && trimmed.includes('-');
       };
       
       // 计算行的列数（基于 | 分隔符）
       const getColumnCount = (line) => {
-        const trimmed = line.trim();
+        const trimmed = getTableContent(line).trim();
         // 移除首尾的 |，然后按 | 分割
         let content = trimmed;
         if (content.startsWith('|')) content = content.slice(1);
@@ -3413,8 +3421,9 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       
       // 补齐行到指定列数
       const padRowToColumns = (line, targetColumns) => {
-        const trimmed = line.trim();
-        const currentColumns = getColumnCount(line);
+        const { prefix, content } = splitBlockquotePrefix(line);
+        const trimmed = content.trim();
+        const currentColumns = getColumnCount(content);
         
         if (currentColumns >= targetColumns) {
           return line; // 已经足够，无需补齐
@@ -3425,18 +3434,24 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         
         // 判断原始行的格式（是否以 | 结尾）
         const endsWithPipe = trimmed.endsWith('|');
-        // const startsWithPipe = trimmed.startsWith('|'); // unused
         
         // 构建补齐的空单元格
         const padding = ' |'.repeat(missingColumns);
         
+        let paddedContent = content;
         if (endsWithPipe) {
           // 如果已经以 | 结尾，在结尾 | 之前插入空单元格
-          return line.slice(0, -1) + padding + '|';
+          const lastPipeIndex = content.lastIndexOf('|');
+          if (lastPipeIndex !== -1) {
+            paddedContent = content.slice(0, lastPipeIndex) + padding + content.slice(lastPipeIndex);
+          } else {
+            paddedContent = content + padding;
+          }
         } else {
           // 如果没有以 | 结尾，直接追加
-          return line + padding;
+          paddedContent = content + padding;
         }
+        return `${prefix}${paddedContent}`;
       };
       
       const flushTable = () => {
@@ -3475,7 +3490,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         const line = lines[i];
         
         // 代码块检测：如果遇到代码块围栏，切换状态
-        const fenceMatch = line.trim().match(/^(`{3,}|~{3,})/);
+        const fenceMatch = getTableContent(line).trim().match(/^(`{3,}|~{3,})/);
         if (fenceMatch) {
             if (inTable) flushTable(); // 代码块开始会打断表格
             inCodeBlock = !inCodeBlock;
