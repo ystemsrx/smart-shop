@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1547,9 +1548,15 @@ export default function Shop() {
   return (
     <>
       <Head>
-        <title>{shopName} - 智能小超市</title>
+        <title>{`${shopName} - 智能小超市`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
+      <Script
+        id="dotlottie-wc"
+        src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"
+        type="module"
+        strategy="afterInteractive"
+      />
 
       {/* 顶部导航（移动端优化） */}
       <Nav active={navActive} />

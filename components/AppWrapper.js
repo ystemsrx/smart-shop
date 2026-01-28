@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AuthProvider } from '../hooks/useAuth';
 import { LocationProvider } from '../hooks/useLocation';
@@ -31,11 +31,11 @@ function StaffRedirector({ children }) {
   return children;
 }
 
-// 应用包装器组件 - 优化后的版本
-// 移除了不必要的 isClient 双重检查，因为 _app.js 已经通过 dynamic({ ssr: false }) 保证只在客户端运行
+// 应用包装器组件 - 认证/位置/支付上下文统一入口
 export default function AppWrapper({ Component, pageProps }) {
-  // 由于 dynamic({ ssr: false })，这个组件只会在客户端渲染
-  // 所以不需要额外的 isClient 状态检查
+  if (typeof window === 'undefined') {
+    return <Component {...pageProps} />;
+  }
 
   return (
     <AuthProvider>

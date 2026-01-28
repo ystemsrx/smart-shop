@@ -2895,6 +2895,25 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  const [vendorVersion, setVendorVersion] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleVendorReady = () => {
+      setVendorVersion((prev) => prev + 1);
+    };
+
+    if (window.markdownit) {
+      handleVendorReady();
+    }
+
+    window.addEventListener('chat-vendors-ready', handleVendorReady);
+    return () => {
+      window.removeEventListener('chat-vendors-ready', handleVendorReady);
+    };
+  }, []);
+
   // highlight.js 无需额外预热
 
   const finalizeFadeSpan = useCallback((span) => {
@@ -4828,7 +4847,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
         }
       });
     };
-  }, [content, applyFadeToRange]);
+  }, [content, applyFadeToRange, vendorVersion]);
 
   return (
     <div className="w-full">
@@ -7337,10 +7356,19 @@ export default function ChatModern({ user, initialConversationId = null }) {
     "你有什么推荐"
   ];
 
-  const SUGGESTIONS = useMemo(() => {
-    return [...ALL_SUGGESTIONS]
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 4);
+  const shuffleSuggestions = (items) => {
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+
+  const [suggestions, setSuggestions] = useState(() => ALL_SUGGESTIONS.slice(0, 4));
+
+  useEffect(() => {
+    setSuggestions(shuffleSuggestions(ALL_SUGGESTIONS).slice(0, 4));
   }, []);
 
   const inputPlaceholder = "继续提问…";
@@ -7573,7 +7601,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                     transition={{ delay: 0.5, duration: 0.5 }}
                     className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4"
                   >
-                    {SUGGESTIONS.map((s) => (
+                    {suggestions.map((s) => (
                       <button
                         key={s}
                         onClick={() => setInp(s)}

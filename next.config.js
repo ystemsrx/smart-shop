@@ -74,8 +74,6 @@ const nextConfig = {
   // 优化包导入 - 减少初始 bundle 大小
   experimental: {
     optimizePackageImports: [
-      'react', 
-      'react-dom',
       'framer-motion',  // 重要: 优化 framer-motion 的 tree shaking
       'lucide-react',   // 图标库优化
       'gl-matrix',      // WebGL 数学库

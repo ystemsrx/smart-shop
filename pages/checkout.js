@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
@@ -47,6 +48,7 @@ export default function Checkout() {
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const { getCachedPaymentQr, getPaymentQr, preloadPaymentQr } = usePaymentQr();
   const shopName = getShopName();
+  const pageTitle = `结算 - ${shopName}`;
   
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
@@ -764,9 +766,15 @@ export default function Checkout() {
   return (
     <>
       <Head>
-        <title>结算 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
+      <Script
+        id="dotlottie-wc"
+        src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"
+        type="module"
+        strategy="afterInteractive"
+      />
 
        <div className="min-h-screen" style={{
          background: 'linear-gradient(135deg, rgba(147, 197, 253, 0.2) 0%, rgba(252, 231, 243, 0.25) 50%, rgba(191, 219, 254, 0.2) 100%), #fafafa'

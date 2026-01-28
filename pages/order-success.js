@@ -8,6 +8,7 @@ export default function OrderSuccess() {
   const router = useRouter();
   const { order_id, payment_status } = router.query || {};
   const shopName = getShopName();
+  const pageTitle = `订单提交成功 - ${shopName}`;
   // 使用统一状态文案
   const statusText = payment_status === 'processing'
     ? '待确认'
@@ -17,7 +18,7 @@ export default function OrderSuccess() {
   return (
     <>
       <Head>
-        <title>订单提交成功 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 

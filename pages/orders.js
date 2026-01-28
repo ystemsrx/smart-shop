@@ -116,6 +116,7 @@ export default function Orders() {
   const { apiRequest } = useApi();
   const { clearCart } = useCart();
   const shopName = getShopName();
+  const pageTitle = `我的订单 - ${shopName}`;
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -346,7 +347,7 @@ export default function Orders() {
   return (
     <>
       <Head>
-        <title>我的订单 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 

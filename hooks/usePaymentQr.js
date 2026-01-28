@@ -2,13 +2,26 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef } f
 import { useAuth, useApi } from './useAuth';
 import { useLocation } from './useLocation';
 
-const PaymentQrContext = createContext(null);
+const DEFAULT_PAYMENT_QR_CONTEXT = {
+  isLoading: false,
+  qrCache: {},
+  preloadPaymentQr: async () => null,
+  getCachedPaymentQr: () => null,
+  getPaymentQr: async () => null,
+  clearCache: () => {},
+  invalidateCache: () => {},
+};
+
+const PaymentQrContext = createContext(DEFAULT_PAYMENT_QR_CONTEXT);
 
 // sessionStorage 的 key
 const STORAGE_KEY = 'payment_qr_cache';
 
 // 从 sessionStorage 读取缓存
 const loadCacheFromStorage = () => {
+  if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+    return {};
+  }
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -26,6 +39,9 @@ const loadCacheFromStorage = () => {
 
 // 保存缓存到 sessionStorage
 const saveCacheToStorage = (cache) => {
+  if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+    return;
+  }
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       data: cache,
@@ -209,9 +225,9 @@ export function PaymentQrProvider({ children }) {
 }
 
 export function usePaymentQr() {
-  const context = useContext(PaymentQrContext);
-  if (!context) {
-    throw new Error('usePaymentQr must be used within a PaymentQrProvider');
+  if (typeof window === 'undefined' || typeof useContext !== 'function') {
+    return DEFAULT_PAYMENT_QR_CONTEXT;
   }
-  return context;
+  const context = useContext(PaymentQrContext);
+  return context || DEFAULT_PAYMENT_QR_CONTEXT;
 }

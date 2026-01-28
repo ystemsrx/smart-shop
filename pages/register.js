@@ -9,6 +9,7 @@ export default function Register() {
   const router = useRouter();
   const { user, checkAuth } = useAuth();
   const shopName = getShopName();
+  const pageTitle = `注册 - ${shopName}`;
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -151,7 +152,7 @@ export default function Register() {
     return (
       <>
         <Head>
-          <title>注册 - {shopName}</title>
+          <title>{pageTitle}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         </Head>
         <PastelBackground>
@@ -171,7 +172,7 @@ export default function Register() {
     return (
       <>
         <Head>
-          <title>注册 - {shopName}</title>
+          <title>{pageTitle}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         </Head>
         <PastelBackground>
@@ -203,7 +204,7 @@ export default function Register() {
   return (
     <>
       <Head>
-        <title>注册 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       

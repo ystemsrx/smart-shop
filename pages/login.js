@@ -9,6 +9,7 @@ export default function Login() {
   const router = useRouter();
   const { login, isLoading, user, error, isInitialized } = useAuth();
   const shopName = getShopName();
+  const pageTitle = `登录 - ${shopName}`;
   const [formData, setFormData] = useState({
     student_id: '',
     password: ''
@@ -91,7 +92,7 @@ export default function Login() {
   return (
     <>
       <Head>
-        <title>登录 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
       

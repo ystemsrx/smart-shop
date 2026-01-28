@@ -1,8 +1,21 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { getApiBaseUrl } from '../utils/runtimeConfig';
 
+const DEFAULT_AUTH_CONTEXT = {
+  user: null,
+  isLoading: false,
+  error: '',
+  isInitialized: true,
+  login: async () => {
+    throw new Error('Auth not available during server render');
+  },
+  logout: async () => {},
+  refreshToken: async () => false,
+  checkAuth: async () => {},
+};
+
 // 创建认证上下文
-const AuthContext = createContext(null);
+const AuthContext = createContext(DEFAULT_AUTH_CONTEXT);
 
 // 检查是否为客户端环境
 const isClient = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -183,11 +196,11 @@ export function AuthProvider({ children }) {
 
 // 使用认证的hook
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  if (typeof window === 'undefined' || typeof useContext !== 'function') {
+    return DEFAULT_AUTH_CONTEXT;
   }
-  return context;
+  const context = useContext(AuthContext);
+  return context || DEFAULT_AUTH_CONTEXT;
 }
 
 // API请求hook

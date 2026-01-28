@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import Link from 'next/link';
 import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -701,6 +702,7 @@ export default function Cart() {
   const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
   const [shopClosedModalOpen, setShopClosedModalOpen] = useState(false);
   const shopName = getShopName();
+  const pageTitle = `购物车 - ${shopName}`;
 
   const normalizeValidation = useCallback((raw) => {
     if (!raw) {
@@ -1230,9 +1232,15 @@ export default function Cart() {
   return (
     <>
       <Head>
-        <title>购物车 - {shopName}</title>
+        <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
+      <Script
+        id="dotlottie-wc"
+        src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"
+        type="module"
+        strategy="afterInteractive"
+      />
 
       {/* 顶部导航（移动端优化） */}
       <Nav active="cart" />

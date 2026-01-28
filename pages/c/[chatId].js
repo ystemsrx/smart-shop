@@ -7,14 +7,17 @@ import Nav from "../../components/Nav";
 import { useAuth } from "../../hooks/useAuth";
 import { getShopName } from "../../utils/runtimeConfig";
 import LandingPage from "../../components/page";
+import ChatVendorScripts from "../../components/ChatVendorScripts";
 
 const shopName = getShopName();
 
 export default function ChatPage() {
-  const { user, logout, isInitialized } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const { chatId, home } = router.query;
   const showHome = home === "true";
+  const homeTitle = `${shopName} - Future Marketplace`;
+  const chatTitle = user?.name ? `${user.name} - ${shopName}` : shopName;
 
   useEffect(() => {
     if (!user || showHome) return;
@@ -25,22 +28,11 @@ export default function ChatPage() {
     }
   }, [user, router, showHome]);
 
-  if (!isInitialized) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p className="text-gray-600">正在加载...</p>
-        </div>
-      </div>
-    );
-  }
-
   if (showHome) {
     return (
       <>
         <Head>
-          <title>{shopName} - Future Marketplace</title>
+          <title>{homeTitle}</title>
           <meta
             name="viewport"
             content="width=device-width, initial-scale=1.0"
@@ -58,11 +50,9 @@ export default function ChatPage() {
 
   return (
     <>
+      <ChatVendorScripts />
       <Head>
-        <title>
-          {user ? `${user.name} - ` : ""}
-          {shopName}
-        </title>
+        <title>{chatTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="description" content={`${shopName}的AI购物助手`} />
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
