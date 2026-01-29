@@ -6026,7 +6026,7 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
           {isLoading ? stopIcon : sendIcon}
         </button>
       </div>
-      <p className="mt-2 text-center text-xs text-gray-400">
+      <p className="mt-2 text-center text-xs text-gray-400 select-none">
         {isLoading ? "AI 正在响应..." : (isMobile() ? "点击发送按钮发送消息" : "Enter 发送 · Shift+Enter 换行")}
       </p>
     </div>
@@ -6084,11 +6084,12 @@ export default function ChatModern({ user, initialConversationId = null }) {
   // 【性能优化】用于节流流式更新的refs
   const streamUpdateTimerRef = useRef(null);
   const pendingContentRef = useRef(null);
-  useEffect(() => {
-    preloadCodeIcons();
+  const triggerPyodideWarmup = useCallback(() => {
+    // Fire-and-forget: start downloading Pyodide as soon as chat loads.
+    warmupPyodideDownload();
   }, []);
   useEffect(() => {
-    warmupPyodideDownload();
+    preloadCodeIcons();
   }, []);
   const apiBase = useMemo(() => getApiBaseUrl().replace(/\/$/, ""), []);
   const historyEnabled = Boolean(user);
@@ -6102,10 +6103,11 @@ export default function ChatModern({ user, initialConversationId = null }) {
 
   useEffect(() => {
     resetPythonRuntime();
+    triggerPyodideWarmup();
     return () => {
       resetPythonRuntime();
     };
-  }, [activeChatId]);
+  }, [activeChatId, triggerPyodideWarmup]);
   useEffect(() => {
     persistModelSelection(selectedModel);
   }, [selectedModel]);
@@ -7488,7 +7490,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
             </button>
           )}
           <div className="flex items-center">
-            <div className="relative inline-block text-left model-selector-container">
+            <div className="relative inline-block text-left model-selector-container select-none">
               <button
                 onClick={() => setModelSelectorOpen(!modelSelectorOpen)}
                 disabled={isLoading || isLoadingModels || models.length === 0}
@@ -7808,7 +7810,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
             )}
             {shouldShowHero && (
               <section className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center gap-8 text-center">
-                <div className="text-3xl font-semibold text-gray-900 h-12 flex items-center justify-center">{welcomeTextComponent}</div>
+                <div className="text-3xl font-semibold text-gray-900 h-12 flex items-center justify-center select-none">{welcomeTextComponent}</div>
                 <div className="w-full max-w-2xl px-4">
                   <motion.div layoutId="input-container" className="w-full">
                     <InputBar
@@ -7827,7 +7829,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5, duration: 0.5 }}
-                    className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4"
+                    className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 select-none"
                   >
                     {suggestions.map((s) => (
                       <button
