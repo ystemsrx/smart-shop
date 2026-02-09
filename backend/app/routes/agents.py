@@ -1,9 +1,12 @@
 import os
 import re
 import time
+import io
+import secrets
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
+from PIL import Image, UnidentifiedImageError
 
 from auth import (
     error_response,
@@ -39,6 +42,104 @@ from ..schemas import (
 
 
 router = APIRouter()
+
+
+PAYMENT_QR_ROOT_DIR = "payment-qrs"
+PAYMENT_QR_QUALITY = 80
+PAYMENT_QR_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+def _normalize_payment_owner_type(owner_type: Optional[str]) -> str:
+    return "agent" if str(owner_type or "").strip().lower() == "agent" else "admin"
+
+
+def _safe_payment_path_segment(value: Any, default: str) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z_-]+", "_", str(value or "").strip())
+    return normalized or default
+
+
+def _payment_qr_db_path_to_file_path(image_path: Optional[str]) -> Optional[str]:
+    if not image_path:
+        return None
+    normalized = str(image_path).strip().replace("\\", "/")
+    if not normalized:
+        return None
+    if normalized.startswith("/public/"):
+        relative = normalized[len("/public/"):]
+    elif normalized.startswith("public/"):
+        relative = normalized[len("public/"):]
+    elif normalized.startswith("/"):
+        relative = normalized[1:]
+    else:
+        relative = normalized
+    target = os.path.normpath(os.path.join(PUBLIC_DIR, relative))
+    public_root = os.path.normpath(PUBLIC_DIR)
+    if not target.startswith(public_root):
+        return None
+    return target
+
+
+def _build_payment_qr_target(owner_type: str, owner_id: str, filename: str) -> Dict[str, str]:
+    normalized_type = _normalize_payment_owner_type(owner_type)
+    normalized_owner = _safe_payment_path_segment(owner_id, "unknown")
+    folder = os.path.join(PUBLIC_DIR, PAYMENT_QR_ROOT_DIR, normalized_type, normalized_owner)
+    os.makedirs(folder, exist_ok=True)
+    file_path = os.path.join(folder, filename)
+    web_path = f"/public/{PAYMENT_QR_ROOT_DIR}/{normalized_type}/{normalized_owner}/{filename}"
+    return {"file_path": file_path, "web_path": web_path}
+
+
+def _to_payment_public_path(image_path: Optional[str]) -> Optional[str]:
+    if not image_path:
+        return image_path
+    filename = os.path.basename(str(image_path).strip().replace("\\", "/"))
+    if not filename:
+        return image_path
+    return f"/payment/{filename}"
+
+
+def _present_payment_qr(qr: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not qr:
+        return qr
+    result = dict(qr)
+    if result.get("image_path"):
+        result["image_path"] = _to_payment_public_path(result.get("image_path"))
+    return result
+
+
+def _convert_upload_to_webp(content: bytes) -> bytes:
+    try:
+        with Image.open(io.BytesIO(content)) as img:
+            if getattr(img, "is_animated", False):
+                img.seek(0)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+            output = io.BytesIO()
+            img.save(output, format="WEBP", quality=PAYMENT_QR_QUALITY, method=6)
+            return output.getvalue()
+    except UnidentifiedImageError as exc:
+        raise ValueError("上传文件不是有效图片") from exc
+
+
+def _generate_payment_qr_filename() -> str:
+    for _ in range(12):
+        timestamp = int(time.time() * 1000)
+        filename = f"{timestamp}_{secrets.token_hex(4)}.webp"
+        if not PaymentQrDB.is_payment_qr_filename_taken(filename):
+            return filename
+    return f"{int(time.time() * 1000)}_{secrets.token_hex(8)}.webp"
+
+
+def _cleanup_empty_payment_qr_dirs(file_path: str) -> None:
+    root = os.path.normpath(os.path.join(PUBLIC_DIR, PAYMENT_QR_ROOT_DIR))
+    current = os.path.dirname(os.path.normpath(file_path))
+    while current.startswith(root) and current != root:
+        if not os.path.isdir(current):
+            break
+        if os.listdir(current):
+            break
+        os.rmdir(current)
+        current = os.path.dirname(current)
 
 
 @router.get("/admin/students/search")
@@ -321,7 +422,7 @@ async def admin_get_payment_qrs(request: Request, owner_id: Optional[str] = None
     try:
         target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
-        qrs = PaymentQrDB.get_payment_qrs(target_owner_id, owner_type, include_disabled=True)
+        qrs = [_present_payment_qr(item) for item in PaymentQrDB.get_payment_qrs(target_owner_id, owner_type, include_disabled=True)]
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as exc:
         logger.error(f"获取管理员收款码列表失败: {exc}")
@@ -335,7 +436,7 @@ async def agent_get_payment_qrs(request: Request):
     if staff.get("role") != "agent":
         return error_response("权限不足", 403)
     try:
-        qrs = PaymentQrDB.get_payment_qrs(staff.get("agent_id"), "agent", include_disabled=True)
+        qrs = [_present_payment_qr(item) for item in PaymentQrDB.get_payment_qrs(staff.get("agent_id"), "agent", include_disabled=True)]
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as exc:
         logger.error(f"获取代理收款码列表失败: {exc}")
@@ -358,26 +459,29 @@ async def admin_create_payment_qr(
         target_owner_id, normalized = resolve_single_owner_for_staff(staff, owner_id, allow_deleted=False)
         owner_type = "agent" if (normalized not in ("self", None) or staff.get("type") == "agent") else "admin"
 
-        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
         ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in allowed_extensions:
+        if ext not in PAYMENT_QR_ALLOWED_EXTENSIONS:
             return error_response("只支持图片格式：jpg, jpeg, png, gif, webp", 400)
 
-        timestamp = int(time.time() * 1000)
-        safe_name = re.sub(r"[^0-9A-Za-z\u4e00-\u9fa5_-]+", "_", name)
-        filename = f"payment_qr_{target_owner_id}_{timestamp}_{safe_name}{ext}"
-        target_path = os.path.join(PUBLIC_DIR, filename)
-
         content = await file.read()
-        with open(target_path, "wb") as f:
-            f.write(content)
+        webp_content = _convert_upload_to_webp(content)
+        filename = _generate_payment_qr_filename()
+        target = _build_payment_qr_target(owner_type, target_owner_id, filename)
 
-        web_path = f"/public/{filename}"
+        with open(target["file_path"], "wb") as f:
+            f.write(webp_content)
 
-        qr_id = PaymentQrDB.create_payment_qr(target_owner_id, owner_type, name, web_path)
-        qr = PaymentQrDB.get_payment_qr(qr_id)
+        try:
+            qr_id = PaymentQrDB.create_payment_qr(target_owner_id, owner_type, name, target["web_path"])
+        except Exception:
+            if os.path.exists(target["file_path"]):
+                os.remove(target["file_path"])
+            raise
 
+        qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码创建成功", {"payment_qr": qr})
+    except ValueError as exc:
+        return error_response(str(exc), 400)
     except Exception as exc:
         logger.error(f"创建管理员收款码失败: {exc}")
         return error_response("创建收款码失败", 500)
@@ -393,26 +497,29 @@ async def agent_create_payment_qr(request: Request, name: str = Form(...), file:
         if not file or not file.filename:
             return error_response("请上传图片文件", 400)
 
-        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
         ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in allowed_extensions:
+        if ext not in PAYMENT_QR_ALLOWED_EXTENSIONS:
             return error_response("只支持图片格式：jpg, jpeg, png, gif, webp", 400)
 
-        timestamp = int(time.time() * 1000)
-        safe_name = re.sub(r"[^0-9A-Za-z\u4e00-\u9fa5_-]+", "_", name)
-        filename = f"payment_qr_{staff.get('agent_id')}_{timestamp}_{safe_name}{ext}"
-        target_path = os.path.join(PUBLIC_DIR, filename)
-
         content = await file.read()
-        with open(target_path, "wb") as f:
-            f.write(content)
+        webp_content = _convert_upload_to_webp(content)
+        filename = _generate_payment_qr_filename()
+        target = _build_payment_qr_target("agent", staff.get("agent_id"), filename)
 
-        web_path = f"/public/{filename}"
+        with open(target["file_path"], "wb") as f:
+            f.write(webp_content)
 
-        qr_id = PaymentQrDB.create_payment_qr(staff.get("agent_id"), "agent", name, web_path)
-        qr = PaymentQrDB.get_payment_qr(qr_id)
+        try:
+            qr_id = PaymentQrDB.create_payment_qr(staff.get("agent_id"), "agent", name, target["web_path"])
+        except Exception:
+            if os.path.exists(target["file_path"]):
+                os.remove(target["file_path"])
+            raise
 
+        qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码创建成功", {"payment_qr": qr})
+    except ValueError as exc:
+        return error_response(str(exc), 400)
     except Exception as exc:
         logger.error(f"创建代理收款码失败: {exc}")
         return error_response("创建收款码失败", 500)
@@ -432,7 +539,7 @@ async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         if payload.name:
             PaymentQrDB.update_payment_qr(qr_id, name=payload.name)
 
-        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
         logger.error(f"更新管理员收款码失败: {exc}")
@@ -453,7 +560,7 @@ async def agent_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         if payload.name:
             PaymentQrDB.update_payment_qr(qr_id, name=payload.name)
 
-        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
         logger.error(f"更新代理收款码失败: {exc}")
@@ -471,13 +578,8 @@ async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         if not qr or qr["owner_id"] != target_owner_id or qr["owner_type"] != owner_type:
             return error_response("收款码不存在或无权限", 404)
 
-        if not payload.is_enabled:
-            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(target_owner_id, owner_type)
-            if len(enabled_qrs) <= 1 and qr["is_enabled"] == 1:
-                return error_response("至少需要保留一个启用的收款码", 400)
-
         PaymentQrDB.update_payment_qr_status(qr_id, payload.is_enabled)
-        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
         logger.error(f"更新管理员收款码状态失败: {exc}")
@@ -495,13 +597,8 @@ async def agent_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         if not qr or qr["owner_id"] != staff.get("agent_id") or qr["owner_type"] != "agent":
             return error_response("收款码不存在或无权限", 404)
 
-        if not payload.is_enabled:
-            enabled_qrs = PaymentQrDB.get_enabled_payment_qrs(staff.get("agent_id"), "agent")
-            if len(enabled_qrs) <= 1 and qr["is_enabled"] == 1:
-                return error_response("至少需要保留一个启用的收款码", 400)
-
         PaymentQrDB.update_payment_qr_status(qr_id, payload.is_enabled)
-        updated_qr = PaymentQrDB.get_payment_qr(qr_id)
+        updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
         logger.error(f"更新代理收款码状态失败: {exc}")
@@ -520,15 +617,14 @@ async def admin_delete_payment_qr(qr_id: str, request: Request, owner_id: Option
             return error_response("收款码不存在或无权限", 404)
 
         try:
-            if qr["image_path"] and qr["image_path"].startswith("/"):
-                file_path = os.path.join(PUBLIC_DIR, qr["image_path"][1:])
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+            file_path = _payment_qr_db_path_to_file_path(qr.get("image_path"))
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                _cleanup_empty_payment_qr_dirs(file_path)
         except Exception as exc:
             logger.warning(f"删除收款码文件失败: {exc}")
 
         PaymentQrDB.delete_payment_qr(qr_id)
-        PaymentQrDB.ensure_at_least_one_enabled(target_owner_id, owner_type)
 
         return success_response("收款码删除成功")
     except Exception as exc:
@@ -548,15 +644,14 @@ async def agent_delete_payment_qr(qr_id: str, request: Request):
             return error_response("收款码不存在或无权限", 404)
 
         try:
-            if qr["image_path"] and qr["image_path"].startswith("/"):
-                file_path = os.path.join(PUBLIC_DIR, qr["image_path"][1:])
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+            file_path = _payment_qr_db_path_to_file_path(qr.get("image_path"))
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                _cleanup_empty_payment_qr_dirs(file_path)
         except Exception as exc:
             logger.warning(f"删除收款码文件失败: {exc}")
 
         PaymentQrDB.delete_payment_qr(qr_id)
-        PaymentQrDB.ensure_at_least_one_enabled(staff.get("agent_id"), "agent")
 
         return success_response("收款码删除成功")
     except Exception as exc:
@@ -613,13 +708,16 @@ async def get_payment_qr(address_id: str = None, building_id: str = None, reques
 
         if not qr:
             if qr_owner_type == "agent":
+                existing_qrs = PaymentQrDB.get_payment_qrs(qr_owner_id, qr_owner_type, include_disabled=True)
+                if existing_qrs:
+                    return success_response("获取收款码成功", {"payment_qr": {"name": "无收款码", "owner_type": "default"}})
                 agent = AdminDB.get_admin_by_agent_id(qr_owner_id, include_disabled=True, include_deleted=True)
                 if agent and agent.get("payment_qr_path"):
                     return success_response(
                         "获取收款码成功",
                         {
                             "payment_qr": {
-                                "image_path": agent["payment_qr_path"],
+                                "image_path": _to_payment_public_path(agent["payment_qr_path"]),
                                 "name": f"{agent.get('name', qr_owner_id)}的收款码",
                                 "owner_type": qr_owner_type,
                             }
@@ -628,7 +726,7 @@ async def get_payment_qr(address_id: str = None, building_id: str = None, reques
 
             return success_response("获取收款码成功", {"payment_qr": {"name": "无收款码", "owner_type": "default"}})
 
-        return success_response("获取收款码成功", {"payment_qr": qr})
+        return success_response("获取收款码成功", {"payment_qr": _present_payment_qr(qr)})
 
     except Exception as exc:
         logger.error(f"获取收款码失败: {exc}")

@@ -2,18 +2,80 @@
 Hash-based image serving route.
 Provides /items/{hash}.webp endpoint that resolves hash to physical path.
 """
+import mimetypes
 import os
 import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from database import ImageLookupDB
-from ..context import ITEMS_DIR, STATIC_CACHE_MAX_AGE, logger
+from database import ImageLookupDB, PaymentQrDB
+from ..context import ITEMS_DIR, PUBLIC_DIR, STATIC_CACHE_MAX_AGE, logger
 
 router = APIRouter(tags=["images"])
 
 # Match hash12.webp pattern
 HASH_PATTERN = re.compile(r"^([a-f0-9]{12})\.webp$", re.IGNORECASE)
+PAYMENT_FILENAME_PATTERN = re.compile(r"^[0-9A-Za-z._-]+\.(webp|png|jpg|jpeg|gif)$", re.IGNORECASE)
+
+
+def _resolve_public_file_path(image_path: str):
+    if not image_path:
+        return None
+    normalized = str(image_path).strip().replace("\\", "/")
+    if not normalized:
+        return None
+    if normalized.startswith("/public/"):
+        relative = normalized[len("/public/"):]
+    elif normalized.startswith("public/"):
+        relative = normalized[len("public/"):]
+    elif normalized.startswith("/"):
+        relative = normalized[1:]
+    else:
+        relative = normalized
+    target = os.path.normpath(os.path.join(PUBLIC_DIR, relative))
+    public_root = os.path.normpath(PUBLIC_DIR)
+    if not target.startswith(public_root):
+        return None
+    return target
+
+
+@router.get("/payment/{filename}")
+async def serve_payment_qr_by_filename(filename: str):
+    """
+    Serve payment QR image by filename.
+    Frontend only exposes /payment/{filename}, while DB stores absolute web path.
+    """
+    normalized = (filename or "").strip()
+    if not normalized or ".." in normalized or "/" in normalized or "\\" in normalized:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    if not PAYMENT_FILENAME_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    db_image_path = PaymentQrDB.get_image_path_by_filename(normalized)
+    if db_image_path:
+        physical_path = _resolve_public_file_path(db_image_path)
+        if physical_path and os.path.exists(physical_path):
+            media_type = mimetypes.guess_type(physical_path)[0] or "image/webp"
+            return FileResponse(
+                physical_path,
+                media_type=media_type,
+                headers={"Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable"},
+            )
+
+    payment_root = os.path.normpath(os.path.join(PUBLIC_DIR, "payment-qrs"))
+    if os.path.isdir(payment_root):
+        for current_root, _, files in os.walk(payment_root):
+            if normalized in files:
+                candidate = os.path.normpath(os.path.join(current_root, normalized))
+                if candidate.startswith(payment_root) and os.path.exists(candidate):
+                    media_type = mimetypes.guess_type(candidate)[0] or "image/webp"
+                    return FileResponse(
+                        candidate,
+                        media_type=media_type,
+                        headers={"Cache-Control": f"public, max-age={STATIC_CACHE_MAX_AGE}, immutable"},
+                    )
+
+    raise HTTPException(status_code=404, detail="图片不存在")
 
 
 @router.get("/items/{image_path:path}")

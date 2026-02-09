@@ -802,6 +802,47 @@ class AgentStatusDB:
 
 class PaymentQrDB:
     @staticmethod
+    def is_payment_qr_filename_taken(filename: str) -> bool:
+        if not filename:
+            return False
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                SELECT 1
+                FROM payment_qr_codes
+                WHERE image_path LIKE ?
+                LIMIT 1
+                ''',
+                (f"%/{filename}",),
+            )
+            return cursor.fetchone() is not None
+
+    @staticmethod
+    def get_image_path_by_filename(filename: str) -> Optional[str]:
+        if not filename:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                SELECT image_path
+                FROM payment_qr_codes
+                WHERE image_path LIKE ?
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                ''',
+                (f"%/{filename}",),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            try:
+                return row["image_path"]
+            except Exception:
+                return row[0]
+
+    @staticmethod
     def create_payment_qr(owner_id: str, owner_type: str, name: str, image_path: str) -> str:
         qr_id = f"qr_{int(datetime.now().timestamp() * 1000)}"
 

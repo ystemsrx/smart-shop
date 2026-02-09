@@ -13,6 +13,8 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
   const [error, setError] = React.useState('');
   const [editingQrId, setEditingQrId] = React.useState(null);
   const [editingName, setEditingName] = React.useState('');
+  const [pendingStatusIds, setPendingStatusIds] = React.useState(() => new Set());
+  const [pendingNameIds, setPendingNameIds] = React.useState(() => new Set());
 
   const loadPaymentQrs = async () => {
     setLoading(true);
@@ -64,15 +66,42 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
   };
 
   const handleUpdateStatus = async (qrId, isEnabled) => {
+    if (pendingStatusIds.has(qrId)) return;
+    const previous = paymentQrs.find((qr) => qr.id === qrId);
+    if (!previous) return;
+
+    setPaymentQrs((prev) =>
+      prev.map((qr) => (qr.id === qrId ? { ...qr, is_enabled: isEnabled ? 1 : 0 } : qr))
+    );
+    setPendingStatusIds((prev) => {
+      const next = new Set(prev);
+      next.add(qrId);
+      return next;
+    });
+
     try {
-      await apiRequest(`${staffPrefix}/payment-qrs/${qrId}/status`, {
+      const response = await apiRequest(`${staffPrefix}/payment-qrs/${qrId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_enabled: isEnabled }),
       });
-      loadPaymentQrs();
+      const updated = response?.data?.payment_qr;
+      if (updated) {
+        setPaymentQrs((prev) =>
+          prev.map((qr) => (qr.id === qrId ? { ...qr, ...updated } : qr))
+        );
+      }
     } catch (e) {
+      setPaymentQrs((prev) =>
+        prev.map((qr) => (qr.id === qrId ? { ...qr, is_enabled: previous.is_enabled } : qr))
+      );
       alert(e.message || '更新状态失败');
+    } finally {
+      setPendingStatusIds((prev) => {
+        const next = new Set(prev);
+        next.delete(qrId);
+        return next;
+      });
     }
   };
 
@@ -96,22 +125,57 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
   };
 
   const handleSaveEdit = async (qrId) => {
+    if (editingQrId !== qrId || pendingNameIds.has(qrId)) {
+      return;
+    }
+
     if (!editingName.trim()) {
       alert('收款码名称不能为空');
       return;
     }
-    
-    try {
-      await apiRequest(`${staffPrefix}/payment-qrs/${qrId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editingName.trim() }),
-      });
+
+    const nextName = editingName.trim();
+    const previous = paymentQrs.find((qr) => qr.id === qrId);
+    if (!previous) {
       setEditingQrId(null);
       setEditingName('');
-      loadPaymentQrs();
+      return;
+    }
+
+    setEditingQrId(null);
+    setEditingName('');
+    setPaymentQrs((prev) =>
+      prev.map((qr) => (qr.id === qrId ? { ...qr, name: nextName } : qr))
+    );
+    setPendingNameIds((prev) => {
+      const next = new Set(prev);
+      next.add(qrId);
+      return next;
+    });
+
+    try {
+      const response = await apiRequest(`${staffPrefix}/payment-qrs/${qrId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nextName }),
+      });
+      const updated = response?.data?.payment_qr;
+      if (updated) {
+        setPaymentQrs((prev) =>
+          prev.map((qr) => (qr.id === qrId ? { ...qr, ...updated } : qr))
+        );
+      }
     } catch (e) {
+      setPaymentQrs((prev) =>
+        prev.map((qr) => (qr.id === qrId ? { ...qr, name: previous.name } : qr))
+      );
       alert(e.message || '更新收款码名称失败');
+    } finally {
+      setPendingNameIds((prev) => {
+        const next = new Set(prev);
+        next.delete(qrId);
+        return next;
+      });
     }
   };
 
@@ -119,8 +183,6 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
     setEditingQrId(null);
     setEditingName('');
   };
-
-  const enabledCount = paymentQrs.filter(qr => qr.is_enabled).length;
 
   return (
     <div className="font-sans text-gray-900">
@@ -176,6 +238,7 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
                         onBlur={() => handleSaveEdit(qr.id)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
+                            e.preventDefault();
                             handleSaveEdit(qr.id);
                           } else if (e.key === 'Escape') {
                             handleCancelEdit();
@@ -218,7 +281,7 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
                       type="checkbox"
                       checked={qr.is_enabled === 1}
                       onChange={(e) => handleUpdateStatus(qr.id, e.target.checked)}
-                      disabled={qr.is_enabled === 1 && enabledCount === 1}
+                      disabled={pendingStatusIds.has(qr.id)}
                       className="hidden"
                     />
                     <span className={`text-sm font-medium transition-colors ${qr.is_enabled ? 'text-gray-900' : 'text-gray-500'}`}>

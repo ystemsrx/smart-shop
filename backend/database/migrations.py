@@ -1,11 +1,17 @@
 import hashlib
+import io
 import json
 import os
+import re
+import secrets
 import shutil
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
+
+from PIL import Image, UnidentifiedImageError
 
 from .config import logger, settings
 from .connection import get_db_connection
@@ -882,6 +888,249 @@ def migrate_passwords_to_hash():
             conn.rollback()
 
     logger.info("密码迁移检查完成")
+
+
+PAYMENT_QR_NEW_PATH_PATTERN = re.compile(
+    r"^/public/payment-qrs/([^/]+)/([^/]+)/([0-9]{10,17}_[0-9a-f]{8}\.webp)$",
+    re.IGNORECASE,
+)
+PAYMENT_QR_OLD_NAME_PATTERN = re.compile(
+    r"^payment_qr_.+_([0-9]{10,17})_.*\.[^.]+$",
+    re.IGNORECASE,
+)
+
+
+def _safe_payment_segment(value: Any, default: str) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z_-]+", "_", str(value or "").strip())
+    return normalized or default
+
+
+def _resolve_payment_qr_source_file(public_dir: str, image_path: str) -> Optional[str]:
+    normalized = str(image_path or "").strip().replace("\\", "/")
+    if not normalized:
+        return None
+
+    candidates: List[str] = []
+    if normalized.startswith("/public/"):
+        candidates.append(os.path.join(public_dir, normalized[len("/public/"):]))
+    elif normalized.startswith("public/"):
+        candidates.append(os.path.join(public_dir, normalized[len("public/"):]))
+    elif normalized.startswith("/"):
+        candidates.append(os.path.join(public_dir, normalized[1:]))
+    else:
+        candidates.append(os.path.join(public_dir, normalized))
+
+    basename = os.path.basename(normalized)
+    if basename:
+        candidates.append(os.path.join(public_dir, basename))
+
+    public_root = os.path.normpath(public_dir)
+    checked: Set[str] = set()
+    for candidate in candidates:
+        normalized_candidate = os.path.normpath(candidate)
+        if normalized_candidate in checked:
+            continue
+        checked.add(normalized_candidate)
+        if not normalized_candidate.startswith(public_root):
+            continue
+        if os.path.isfile(normalized_candidate):
+            return normalized_candidate
+    return None
+
+
+def _convert_payment_qr_file_to_webp(file_path: str, quality: int = 80) -> bytes:
+    try:
+        with Image.open(file_path) as img:
+            if getattr(img, "is_animated", False):
+                img.seek(0)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+            output = io.BytesIO()
+            img.save(output, format="WEBP", quality=quality, method=6)
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"无法读取收款码图片: {file_path}") from exc
+
+
+def _extract_payment_qr_timestamp(name_or_path: str) -> int:
+    basename = os.path.basename(str(name_or_path or "").strip())
+    if not basename:
+        return int(time.time() * 1000)
+
+    old_match = PAYMENT_QR_OLD_NAME_PATTERN.match(basename)
+    if old_match:
+        try:
+            return int(old_match.group(1))
+        except Exception:
+            return int(time.time() * 1000)
+
+    prefix_match = re.match(r"^([0-9]{10,17})_[0-9a-f]{8}\.webp$", basename, re.IGNORECASE)
+    if prefix_match:
+        try:
+            return int(prefix_match.group(1))
+        except Exception:
+            return int(time.time() * 1000)
+
+    return int(time.time() * 1000)
+
+
+def _generate_payment_qr_filename(existing_names: Set[str], base_ts: Optional[int] = None) -> str:
+    ts = int(base_ts or time.time() * 1000)
+    for _ in range(24):
+        filename = f"{ts}_{secrets.token_hex(4)}.webp"
+        if filename not in existing_names:
+            existing_names.add(filename)
+            return filename
+        ts += 1
+    filename = f"{int(time.time() * 1000)}_{secrets.token_hex(8)}.webp"
+    existing_names.add(filename)
+    return filename
+
+
+def _cleanup_empty_dirs_upwards(start_dir: str, stop_dir: str) -> None:
+    current = os.path.normpath(start_dir)
+    limit = os.path.normpath(stop_dir)
+    while current.startswith(limit) and current != limit:
+        if not os.path.isdir(current):
+            break
+        if os.listdir(current):
+            break
+        os.rmdir(current)
+        current = os.path.dirname(current)
+
+
+def migrate_payment_qr_paths(public_dir: str) -> None:
+    """
+    迁移收款码图片到新结构并统一为 webp：
+    - 文件路径: public/payment-qrs/{owner_type}/{owner_id}/{ts}_{rand8}.webp
+    - 数据库路径: /public/payment-qrs/{owner_type}/{owner_id}/{filename}
+    """
+    logger.info("开始检查并迁移收款码路径...")
+
+    public_root = os.path.normpath(public_dir)
+    payment_root = os.path.normpath(os.path.join(public_root, "payment-qrs"))
+    os.makedirs(payment_root, exist_ok=True)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_qr_codes'")
+            if not cursor.fetchone():
+                logger.info("收款码迁移：payment_qr_codes 表不存在，跳过")
+                return
+        except sqlite3.OperationalError:
+            logger.info("收款码迁移：无法读取 payment_qr_codes 表，跳过")
+            return
+
+        cursor.execute(
+            '''
+            SELECT id, owner_id, owner_type, image_path
+            FROM payment_qr_codes
+            WHERE image_path IS NOT NULL AND TRIM(image_path) != ''
+            '''
+        )
+        rows = cursor.fetchall() or []
+        if not rows:
+            logger.info("收款码迁移：没有可迁移的数据")
+            return
+
+        existing_names: Set[str] = set()
+        for row in rows:
+            raw_path = str(row["image_path"] or "").strip().replace("\\", "/")
+            basename = os.path.basename(raw_path)
+            if basename:
+                existing_names.add(basename)
+
+        migrated_count = 0
+        skipped_count = 0
+        failed_count = 0
+
+        for row in rows:
+            qr_id = row["id"]
+            raw_owner_type = str(row["owner_type"] or "").strip().lower()
+            owner_type = "agent" if raw_owner_type == "agent" else "admin"
+            owner_id = _safe_payment_segment(row["owner_id"], "admin" if owner_type == "admin" else "unknown")
+            old_image_path = str(row["image_path"] or "").strip().replace("\\", "/")
+            if not old_image_path:
+                skipped_count += 1
+                continue
+
+            current_match = PAYMENT_QR_NEW_PATH_PATTERN.match(old_image_path)
+            if current_match:
+                path_owner_type, path_owner_id, _ = current_match.groups()
+                if path_owner_type == owner_type and path_owner_id == owner_id:
+                    needs_owner_fix = raw_owner_type != owner_type or str(row["owner_id"] or "") != owner_id
+                    if needs_owner_fix:
+                        cursor.execute(
+                            '''
+                            UPDATE payment_qr_codes
+                            SET owner_type = ?, owner_id = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            ''',
+                            (owner_type, owner_id, qr_id),
+                        )
+                    skipped_count += 1
+                    continue
+
+            source_file = _resolve_payment_qr_source_file(public_root, old_image_path)
+            if not source_file:
+                logger.warning("收款码迁移：文件不存在，跳过 id=%s path=%s", qr_id, old_image_path)
+                failed_count += 1
+                continue
+
+            target_dir = os.path.normpath(os.path.join(payment_root, owner_type, owner_id))
+            if not target_dir.startswith(payment_root):
+                logger.warning("收款码迁移：检测到不安全目录，跳过 id=%s", qr_id)
+                failed_count += 1
+                continue
+            os.makedirs(target_dir, exist_ok=True)
+
+            base_ts = _extract_payment_qr_timestamp(old_image_path)
+            new_filename = _generate_payment_qr_filename(existing_names, base_ts)
+            target_file = os.path.normpath(os.path.join(target_dir, new_filename))
+            db_path = f"/public/payment-qrs/{owner_type}/{owner_id}/{new_filename}"
+
+            try:
+                webp_bytes = _convert_payment_qr_file_to_webp(source_file, quality=80)
+                with open(target_file, "wb") as fp:
+                    fp.write(webp_bytes)
+
+                cursor.execute(
+                    '''
+                    UPDATE payment_qr_codes
+                    SET owner_type = ?, owner_id = ?, image_path = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    ''',
+                    (owner_type, owner_id, db_path, qr_id),
+                )
+
+                normalized_source = os.path.normpath(source_file)
+                if normalized_source != target_file and normalized_source.startswith(public_root):
+                    try:
+                        if os.path.exists(normalized_source):
+                            os.remove(normalized_source)
+                            _cleanup_empty_dirs_upwards(os.path.dirname(normalized_source), public_root)
+                    except Exception as cleanup_exc:
+                        logger.warning("收款码迁移：清理旧文件失败 id=%s error=%s", qr_id, cleanup_exc)
+
+                migrated_count += 1
+            except Exception as exc:
+                failed_count += 1
+                if os.path.exists(target_file):
+                    try:
+                        os.remove(target_file)
+                    except Exception:
+                        pass
+                logger.warning("收款码迁移失败 id=%s path=%s error=%s", qr_id, old_image_path, exc)
+
+        conn.commit()
+
+    logger.info(
+        "收款码迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
+        migrated_count,
+        skipped_count,
+        failed_count,
+    )
 
 
 def _compute_file_hash(file_path: str, length: int = 12) -> str:

@@ -10,6 +10,7 @@ from .migrations import (
     migrate_passwords_to_hash,
     migrate_image_paths,
     migrate_agent_image_paths,
+    migrate_payment_qr_paths,
     ImageLookupDB,
 )
 from .connection import get_db_connection, safe_execute_with_migration
@@ -49,6 +50,7 @@ __all__ = [
     "migrate_passwords_to_hash",
     "migrate_image_paths",
     "migrate_agent_image_paths",
+    "migrate_payment_qr_paths",
     "ImageLookupDB",
     "get_db_connection",
     "safe_execute_with_migration",

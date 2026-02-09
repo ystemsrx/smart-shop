@@ -16,8 +16,9 @@ from database import (
     init_database,
     migrate_image_paths,
     migrate_agent_image_paths,
+    migrate_payment_qr_paths,
 )
-from .context import EXPORTS_DIR, ITEMS_DIR, logger
+from .context import EXPORTS_DIR, ITEMS_DIR, PUBLIC_DIR, logger
 from .services.captcha import CaptchaService
 
 
@@ -269,6 +270,11 @@ async def run_startup_tasks() -> List[asyncio.Task]:
         migrate_agent_image_paths(ITEMS_DIR)
     except Exception as exc:
         logger.warning(f"迁移代理图片目录失败: {exc}")
+
+    try:
+        migrate_payment_qr_paths(PUBLIC_DIR)
+    except Exception as exc:
+        logger.warning(f"迁移收款码路径失败: {exc}")
 
     try:
         removed = CaptchaService.cleanup_generated_images(force=True)
