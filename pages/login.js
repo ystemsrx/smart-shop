@@ -101,7 +101,7 @@ export default function Login() {
           setRegistrationEnabled(result.data.enabled);
         }
       } catch (e) {
-        console.error('获取注册状态失败:', e);
+        console.error('Failed to fetch registration status:', e);
       }
     };
     checkRegistrationStatus();

@@ -51,13 +51,13 @@ class UserDB:
                         cursor.execute('UPDATE users SET user_id = rowid WHERE id = ?', (student_id,))
                         conn.commit()
 
-                logger.info("成功创建用户: %s", student_id)
+                logger.info("User created successfully: %s", student_id)
                 return True
             except sqlite3.IntegrityError as exc:
-                logger.warning("创建用户失败 - 用户已存在: %s - %s", student_id, exc)
+                logger.warning("Failed to create user - already exists: %s - %s", student_id, exc)
                 return False
             except Exception as exc:
-                logger.error("创建用户失败 - 未知错误: %s - %s", student_id, exc)
+                logger.error("Failed to create user - unexpected error: %s - %s", student_id, exc)
                 conn.rollback()
                 return False
 
@@ -102,15 +102,15 @@ class UserDB:
 
             if user_id in (None, 0):
                 try:
-                    logger.info("用户 %s 缺少 user_id，正在修复...", student_id)
+                    logger.info("User %s is missing user_id, repairing", student_id)
                     cursor.execute(
                         'UPDATE users SET user_id = rowid WHERE (user_id IS NULL OR user_id = 0) AND id = ?',
                         (student_id,),
                     )
                     conn.commit()
-                    logger.info("已为用户 %s 修复 user_id", student_id)
+                    logger.info("Repaired missing user_id for user %s", student_id)
                 except Exception as exc:
-                    logger.error("修复用户 %s 的 user_id 失败: %s", student_id, exc)
+                    logger.error("Failed to repair user_id for user %s: %s", student_id, exc)
                     conn.rollback()
                     return None
                 return UserDB.resolve_user_reference(student_id)
@@ -133,9 +133,9 @@ class UserDB:
                     try:
                         hashed = hash_password(password)
                         UserDB.update_user_password(student_id, hashed)
-                        logger.info("用户 %s 的密码已自动升级为哈希格式", student_id)
+                        logger.info("User password auto-upgraded to hash format: %s", student_id)
                     except Exception as exc:
-                        logger.error("自动升级用户 %s 密码失败: %s", student_id, exc)
+                        logger.error("Failed to auto-upgrade user password for %s: %s", student_id, exc)
                     return user
         else:
             if stored_password == password:
@@ -158,7 +158,7 @@ class UserDB:
                 conn.commit()
                 return success
             except Exception as exc:
-                logger.error("更新用户密码失败: %s", exc)
+                logger.error("Failed to update user password: %s", exc)
                 return False
 
     @staticmethod
@@ -174,7 +174,7 @@ class UserDB:
                 conn.commit()
                 return success
             except Exception as exc:
-                logger.error("更新用户姓名失败: %s", exc)
+                logger.error("Failed to update user name: %s", exc)
                 return False
 
     @staticmethod
@@ -204,7 +204,7 @@ class UserDB:
                 conn.commit()
                 return cursor.rowcount > 0
             except Exception as exc:
-                logger.error("更新用户身份证信息失败: %s", exc)
+                logger.error("Failed to update user identity info: %s", exc)
                 return False
 
     @staticmethod
@@ -221,7 +221,7 @@ class UserDB:
                 except Exception:
                     return int(row[0])
             except Exception as exc:
-                logger.error("统计用户数量失败: %s", exc)
+                logger.error("Failed to count users: %s", exc)
                 return 0
 
 
@@ -299,7 +299,7 @@ class UserProfileDB:
                 else:
                     count = int(row[0] or 0)
             except Exception as exc:
-                logger.error("统计用户配置数量失败: %s", exc)
+                logger.error("Failed to count user profiles: %s", exc)
                 return 0
 
         # 回退到 users 表计数，确保兼容旧数据
@@ -340,7 +340,7 @@ class UserProfileDB:
                 conn.commit()
                 return success
             except Exception as exc:
-                logger.error("更新用户资料失败: %s", exc)
+                logger.error("Failed to update user profile: %s", exc)
                 conn.rollback()
                 return False
 
@@ -357,7 +357,7 @@ class UserProfileDB:
                 conn.commit()
                 return cursor.rowcount > 0
             except Exception as exc:
-                logger.error("更新用户代理失败: %s", exc)
+                logger.error("Failed to update user agent mapping: %s", exc)
                 conn.rollback()
                 return False
 
@@ -392,7 +392,7 @@ class UserProfileDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("保存用户资料失败: %s", exc)
+                logger.error("Failed to save user profile: %s", exc)
                 conn.rollback()
                 return False
 
@@ -411,7 +411,7 @@ class UserProfileDB:
                 )
                 return [dict(row) for row in cursor.fetchall()]
             except Exception as exc:
-                logger.error("获取代理 %s 的用户配置失败: %s", agent_id, exc)
+                logger.error("Failed to fetch user profiles for agent %s: %s", agent_id, exc)
                 return []
 
     @staticmethod
@@ -441,9 +441,9 @@ class UserProfileDB:
                             (user_ref['user_id'], user_ref['student_id'])
                         )
                         conn.commit()
-                        logger.info("自动迁移用户配置记录: student_id=%s, user_id=%s", user_ref['student_id'], user_ref['user_id'])
+                        logger.info("Auto-migrated user profile record: student_id=%s, user_id=%s", user_ref['student_id'], user_ref['user_id'])
                     except Exception as exc:
-                        logger.warning("迁移用户配置记录失败: %s", exc)
+                        logger.warning("Failed to migrate user profile record: %s", exc)
                         conn.rollback()
 
             return dict(row) if row else None
@@ -462,7 +462,7 @@ class UserProfileDB:
         agent_id = shipping.get('agent_id')
         user_ref = UserProfileDB._resolve_user_identifier(user_identifier)
         if not user_ref:
-            logger.error("无法解析用户标识符: %s", user_identifier)
+            logger.error("Unable to resolve user identifier: %s", user_identifier)
             return False
 
         user_id = user_ref['user_id']
@@ -470,7 +470,7 @@ class UserProfileDB:
 
         # 验证必要的数据
         if not user_id or not student_id:
-            logger.error("用户数据不完整: user_id=%s, student_id=%s", user_id, student_id)
+            logger.error("Incomplete user reference data: user_id=%s, student_id=%s", user_id, student_id)
             return False
 
         with get_db_connection() as conn:

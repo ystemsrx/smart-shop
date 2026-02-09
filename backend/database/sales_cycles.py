@@ -31,7 +31,7 @@ class SalesCycleDB:
                 row = cursor.fetchone()
                 return row[0] if row and row[0] else None
         except Exception as exc:
-            logger.warning("获取最早订单时间失败: %s", exc)
+            logger.warning("Failed to fetch earliest order timestamp: %s", exc)
             return None
 
     @staticmethod
@@ -44,7 +44,7 @@ class SalesCycleDB:
                 row = cursor.fetchone()
                 return row[0] if row and row[0] else None
         except Exception as exc:
-            logger.warning("获取代理创建时间失败: %s", exc)
+            logger.warning("Failed to fetch agent creation timestamp: %s", exc)
             return None
 
     @staticmethod

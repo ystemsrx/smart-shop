@@ -91,7 +91,7 @@ export function AuthProvider({ children }) {
     } catch (err) {
       // 静默处理错误，不阻塞应用启动
       if (err.name !== 'AbortError') {
-        console.log('认证检查失败:', err.message);
+        console.error('Auth check failed:', err.message);
       }
     } finally {
       // 无论成功失败，都标记为已初始化
@@ -171,7 +171,7 @@ export function AuthProvider({ children }) {
       });
     } catch (err) {
       // 即使请求失败也要清除本地状态
-      console.log('登出请求失败:', err.message);
+      console.error('Logout request failed:', err.message);
     } finally {
       setUser(null);
       setIsLoading(false);

@@ -45,7 +45,7 @@ def search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str,
         else:
             products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
     except Exception as exc:
-        logger.error(f"搜索商品失败: {exc}")
+        logger.error("Failed to search products: %s", exc)
         return []
 
     filtered: List[Dict[str, Any]] = []
@@ -59,7 +59,7 @@ def search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str,
         try:
             variant_map = VariantDB.get_for_products(product_ids)
         except Exception as exc:
-            logger.warning(f"获取规格失败: {exc}")
+            logger.warning("Failed to fetch variants: %s", exc)
             variant_map = {}
 
     for product in products:

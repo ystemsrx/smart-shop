@@ -41,7 +41,7 @@ export function useAdminWarnings({ user, expectedRole, staffPrefix, apiRequest }
 
       setLotteryHasStockWarning(hasWarning);
     } catch (error) {
-      console.error('刷新抽奖警告检查失败:', error);
+      console.error('Failed to refresh lottery warning check:', error);
     }
   }, [user, expectedRole, staffPrefix, apiRequest]);
 
@@ -64,7 +64,7 @@ export function useAdminWarnings({ user, expectedRole, staffPrefix, apiRequest }
 
       setGiftThresholdHasStockWarning(hasWarning);
     } catch (error) {
-      console.error('刷新满额门槛警告检查失败:', error);
+      console.error('Failed to refresh threshold warning check:', error);
     }
   }, [user, expectedRole, staffPrefix, apiRequest]);
 

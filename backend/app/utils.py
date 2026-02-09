@@ -42,15 +42,10 @@ def convert_sqlite_timestamp_to_unix(created_at_str: str, order_id: str = None) 
 
         timestamp = int(dt.timestamp())
 
-        current_timestamp = int(datetime.now(tz=timezone.utc).timestamp())
-        age_minutes = (current_timestamp - timestamp) // 60
-        order_info = f"订单 {order_id}" if order_id else "时间"
-        logger.debug(f"{order_info} 时间转换: {created_at_str} (UTC) -> {timestamp}, 创建于 {age_minutes} 分钟前")
-
         return timestamp
     except Exception as exc:
-        order_info = f"订单 {order_id}" if order_id else "时间"
-        logger.warning(f"{order_info} 转换失败: {exc}, 原始时间: {created_at_str}")
+        order_info = f"order {order_id}" if order_id else "timestamp"
+        logger.warning("Failed to convert %s: %s (raw=%s)", order_info, exc, created_at_str)
         return int(datetime.now(tz=timezone.utc).timestamp() - 3600)
 
 

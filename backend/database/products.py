@@ -570,9 +570,9 @@ class CategoryDB:
                 deleted = cursor.rowcount if cursor.rowcount is not None else 0
                 conn.commit()
                 if deleted > 0:
-                    logger.info("自动清理空分类完成，删除 %s 个分类", deleted)
+                    logger.info("Automatic orphan-category cleanup removed %s categories", deleted)
                 return deleted
             except Exception as exc:
-                logger.error("清理空分类失败: %s", exc)
+                logger.error("Failed to clean orphan categories: %s", exc)
                 conn.rollback()
             return 0

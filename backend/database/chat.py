@@ -28,7 +28,7 @@ class ChatLogDB:
                     'is_error': 'INTEGER DEFAULT 0'
                 })
             except Exception as exc:
-                logger.warning("确保 chat_logs schema 时出错: %s", exc)
+                logger.warning("Failed to ensure chat_logs schema: %s", exc)
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_threads (
@@ -55,7 +55,7 @@ class ChatLogDB:
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_thread_id ON chat_logs(thread_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_tool_call_id ON chat_logs(tool_call_id)')
             except Exception as exc:
-                logger.warning("创建 chat_logs 索引时出错: %s", exc)
+                logger.warning("Failed to create chat_logs indexes: %s", exc)
 
         conn.commit()
 
@@ -319,7 +319,7 @@ def cleanup_old_chat_logs():
         try:
             ChatLogDB._ensure_chat_schema(conn)
         except Exception as exc:
-            logger.warning("清理聊天记录前确保表结构失败: %s", exc)
+            logger.warning("Failed to ensure schema before chat cleanup: %s", exc)
 
         cursor.execute('DELETE FROM chat_logs WHERE timestamp < ?', (cutoff_str,))
         deleted_logs = cursor.rowcount or 0
@@ -343,7 +343,7 @@ def cleanup_old_chat_logs():
         deleted_threads = cursor.rowcount or 0
 
         conn.commit()
-        logger.info("清理了 %s 条过期聊天记录，移除 %s 条过期会话", deleted_logs, deleted_threads)
+        logger.info("Chat cleanup removed %s expired logs and %s expired threads", deleted_logs, deleted_threads)
         return {
             "deleted_logs": deleted_logs,
             "deleted_threads": deleted_threads

@@ -59,7 +59,7 @@ async def admin_get_sales_cycles(request: Request, agent_id: Optional[str] = Non
         payload["is_deleted"] = owner["owner_type"] == "agent" and not ensure_default
         return success_response("获取销售周期成功", payload)
     except Exception as exc:
-        logger.error("获取销售周期失败: %s", exc)
+        logger.error("Failed to fetch sales cycles: %s", exc)
         return error_response("获取销售周期失败", 500)
 
 
@@ -102,7 +102,7 @@ async def admin_end_sales_cycle(request: Request, agent_id: Optional[str] = None
         payload["owner_id"] = owner["owner_id"]
         return success_response("周期已结束", payload)
     except Exception as exc:
-        logger.error("结束销售周期失败: %s", exc)
+        logger.error("Failed to end sales cycle: %s", exc)
         return error_response("结束销售周期失败", 500)
 
 
@@ -141,7 +141,7 @@ async def admin_cancel_sales_cycle_end(request: Request, agent_id: Optional[str]
         payload["owner_id"] = owner["owner_id"]
         return success_response("已取消结束周期", payload)
     except Exception as exc:
-        logger.error("取消结束周期失败: %s", exc)
+        logger.error("Failed to cancel sales cycle end: %s", exc)
         return error_response("取消结束周期失败", 500)
 
 
@@ -166,7 +166,7 @@ async def admin_start_sales_cycle(request: Request, agent_id: Optional[str] = No
         payload["owner_id"] = owner["owner_id"]
         return success_response("已开启新周期", payload)
     except Exception as exc:
-        logger.error("开启新周期失败: %s", exc)
+        logger.error("Failed to start new sales cycle: %s", exc)
         return error_response("开启新周期失败", 500)
 
 
@@ -179,7 +179,7 @@ async def agent_get_sales_cycles(request: Request):
         payload["owner_id"] = agent.get("agent_id")
         return success_response("获取销售周期成功", payload)
     except Exception as exc:
-        logger.error("代理获取销售周期失败: %s", exc)
+        logger.error("Agent failed to fetch sales cycles: %s", exc)
         return error_response("获取销售周期失败", 500)
 
 
@@ -205,7 +205,7 @@ async def agent_end_sales_cycle(request: Request):
         payload["owner_id"] = agent.get("agent_id")
         return success_response("周期已结束", payload)
     except Exception as exc:
-        logger.error("代理结束周期失败: %s", exc)
+        logger.error("Agent failed to end sales cycle: %s", exc)
         return error_response("结束周期失败", 500)
 
 
@@ -233,7 +233,7 @@ async def agent_cancel_sales_cycle_end(request: Request):
         payload["owner_id"] = agent.get("agent_id")
         return success_response("已取消结束周期", payload)
     except Exception as exc:
-        logger.error("代理取消结束周期失败: %s", exc)
+        logger.error("Agent failed to cancel sales cycle end: %s", exc)
         return error_response("取消结束周期失败", 500)
 
 
@@ -250,6 +250,6 @@ async def agent_start_sales_cycle(request: Request):
         payload["owner_id"] = agent.get("agent_id")
         return success_response("已开启新周期", payload)
     except Exception as exc:
-        logger.error("代理开启新周期失败: %s", exc)
+        logger.error("Agent failed to start new sales cycle: %s", exc)
         return error_response("开启新周期失败", 500)
 

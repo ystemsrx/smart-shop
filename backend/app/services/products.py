@@ -88,21 +88,21 @@ def delete_product_image(product_id: str, img_path: Optional[str] = None) -> boo
                 try:
                     os.remove(physical_path)
                     deleted = True
-                    logger.info(f"删除商品图片: {physical_path}")
+                    logger.info("Deleted product image: %s", physical_path)
                     
                     # 清理空的产品目录
                     product_dir = os.path.dirname(physical_path)
                     if os.path.isdir(product_dir) and not os.listdir(product_dir):
                         os.rmdir(product_dir)
-                        logger.info(f"删除空产品目录: {product_dir}")
+                        logger.info("Deleted empty product directory: %s", product_dir)
                         
                         # 清理空的 owner 目录
                         owner_dir = os.path.dirname(product_dir)
                         if os.path.isdir(owner_dir) and not os.listdir(owner_dir):
                             os.rmdir(owner_dir)
-                            logger.info(f"删除空归属目录: {owner_dir}")
+                            logger.info("Deleted empty owner directory: %s", owner_dir)
                 except Exception as exc:
-                    logger.warning(f"删除图片文件失败 {physical_path}: {exc}")
+                    logger.warning("Failed to delete image file %s: %s", physical_path, exc)
             
             # 删除 lookup 记录
             ImageLookupDB.delete_by_hash(img_path)
@@ -120,9 +120,9 @@ def delete_product_image(product_id: str, img_path: Optional[str] = None) -> boo
         try:
             os.remove(file_path)
             deleted = True
-            logger.info(f"删除商品图片(旧格式): {file_path}")
+            logger.info("Deleted product image (legacy format): %s", file_path)
         except Exception as exc:
-            logger.warning(f"删除图片文件失败(旧格式) {file_path}: {exc}")
+            logger.warning("Failed to delete image file (legacy format) %s: %s", file_path, exc)
     
     return deleted
 
@@ -188,7 +188,7 @@ async def store_product_image(
         processed_content = output_buffer.getvalue()
 
     except Exception as exc:
-        logger.error(f"图片处理失败: {exc}")
+        logger.error("Image processing failed: %s", exc)
         raise HTTPException(status_code=400, detail=f"图片处理失败: {str(exc)}")
 
     # 计算内容哈希
@@ -213,7 +213,7 @@ async def store_product_image(
         with open(file_path, "wb") as f:
             f.write(processed_content)
     except Exception as exc:
-        logger.error(f"保存图片失败: {exc}")
+        logger.error("Failed to save image: %s", exc)
         raise HTTPException(status_code=500, detail=f"保存图片失败")
 
     # 插入 image_lookup 记录
@@ -300,26 +300,21 @@ async def handle_product_creation(
             try:
                 import json
 
-                logger.info(f"收到 variants 数据: {variants}")
                 variants_list = json.loads(variants)
-                logger.info(f"解析后的 variants_list: {variants_list}")
                 if isinstance(variants_list, list) and len(variants_list) > 0:
                     for variant in variants_list:
                         if isinstance(variant, dict) and "name" in variant:
-                            variant_id = VariantDB.create_variant(
+                            VariantDB.create_variant(
                                 product_id=product_id,
                                 name=variant["name"],
                                 stock=int(variant.get("stock", 0)),
                             )
-                            logger.info(
-                                f"成功创建变体: {variant_id}, 名称: {variant['name']}, 库存: {variant.get('stock', 0)}"
-                            )
                 else:
-                    logger.warning(f"variants_list 不是有效的列表或为空: {variants_list}")
+                    logger.warning("variants payload is empty or invalid list: %s", variants_list)
             except json.JSONDecodeError as exc:
-                logger.error(f"创建商品变体失败 - JSON解析错误: {exc}, 原始数据: {variants}")
+                logger.error("Failed to parse variants JSON: %s", exc)
             except Exception as exc:
-                logger.error(f"创建商品变体失败: {exc}, 类型: {type(exc).__name__}", exc_info=True)
+                logger.error("Failed to create product variants: %s (%s)", exc, type(exc).__name__, exc_info=True)
 
         created_product = ProductDB.get_product_by_id(product_id)
         return success_response("商品创建成功", {"product_id": product_id, "product": created_product})
@@ -338,7 +333,7 @@ async def handle_product_creation(
                 os.remove(new_file_path)
             except Exception:
                 pass
-        logger.error(f"创建商品失败: {exc}")
+        logger.error("Failed to create product: %s", exc)
         return error_response("创建商品失败", 500)
 
 
@@ -408,7 +403,7 @@ async def handle_product_update(staff: Dict[str, Any], product_id: str, payload:
         if not success:
             return error_response("更新商品失败", 500)
     except Exception as exc:
-        logger.error(f"更新商品失败: {exc}")
+        logger.error("Failed to update product: %s", exc)
         return error_response("更新商品失败", 500)
 
     try:
@@ -419,9 +414,9 @@ async def handle_product_update(staff: Dict[str, Any], product_id: str, payload:
     if old_is_active == 1 and new_is_active == 0:
         try:
             removed = CartDB.remove_product_from_all_carts(product_id)
-            logger.info(f"商品 {product_id} 已下架，已从 {removed} 个购物车中移除")
+            logger.info("Product %s was deactivated and removed from %s carts", product_id, removed)
         except Exception as exc:
-            logger.warning(f"下架后移除购物车商品失败: {exc}")
+            logger.warning("Failed to remove deactivated product from carts: %s", exc)
 
     return success_response("商品更新成功")
 
@@ -452,7 +447,7 @@ async def handle_product_image_update(staff: Dict[str, Any], product_id: str, im
         ok = ProductDB.update_image_path(product_id, img_hash)
     except Exception as exc:
         ok = False
-        logger.error(f"商品图片数据库更新失败: {exc}")
+        logger.error("Failed to update product image path in database: %s", exc)
 
     if not ok:
         # 回滚：删除新上传的图片
@@ -471,7 +466,7 @@ async def handle_product_image_update(staff: Dict[str, Any], product_id: str, im
                 old_physical_path = os.path.join(ITEMS_DIR, old_lookup["physical_path"])
                 if os.path.exists(old_physical_path):
                     os.remove(old_physical_path)
-                    logger.info(f"成功删除原图片: {old_physical_path}")
+                    logger.info("Deleted old image file: %s", old_physical_path)
                 ImageLookupDB.delete_by_hash(old_img_hash)
             else:
                 # 兼容旧格式路径
@@ -482,9 +477,9 @@ async def handle_product_image_update(staff: Dict[str, Any], product_id: str, im
                 items_root = os.path.normpath(ITEMS_DIR)
                 if old_file_path.startswith(items_root) and os.path.exists(old_file_path):
                     os.remove(old_file_path)
-                    logger.info(f"成功删除原图片(旧格式): {old_file_path}")
+                    logger.info("Deleted old image file (legacy format): %s", old_file_path)
         except Exception as exc:
-            logger.warning(f"删除原图片失败 {old_img_hash}: {exc}")
+            logger.warning("Failed to delete old image %s: %s", old_img_hash, exc)
 
     return success_response(
         "图片更新成功",
@@ -620,7 +615,7 @@ async def handle_product_stock_update(staff: Dict[str, Any], product_id: str, st
     try:
         success = ProductDB.update_stock(product_id, stock_data.stock)
     except Exception as exc:
-        logger.error(f"更新库存失败: {exc}")
+        logger.error("Failed to update stock: %s", exc)
         return error_response("更新库存失败", 500)
 
     if not success:

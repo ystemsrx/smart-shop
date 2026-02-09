@@ -213,9 +213,6 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
             alt={item.name}
             className="h-full w-full object-cover object-center"
             maxRetries={3}
-            onFinalError={() => {
-              console.log(`购物车商品图片最终加载失败: ${item.name}`);
-            }}
           />
         </div>
         
@@ -820,7 +817,7 @@ export default function Cart() {
             }
           }, 10000);
         } catch (e) {
-          console.warn('预加载支付成功动画失败:', e);
+          console.warn('Failed to preload payment success animation:', e);
         }
       };
       
@@ -906,7 +903,7 @@ export default function Cart() {
           setDeliveryConfig(config);
         }
       } catch (e) {
-        console.warn('获取配送费配置失败:', e);
+        console.warn('Failed to fetch delivery fee config:', e);
       }
       // 加载我的优惠券 + 默认选择规则
       try {

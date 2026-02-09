@@ -42,9 +42,9 @@ class CartDB:
                             (user_ref['user_id'], cart_id)
                         )
                         conn.commit()
-                        logger.info("自动迁移购物车记录: cart_id=%s, user_id=%s", cart_id, user_ref['user_id'])
+                        logger.info("Auto-migrated cart record: cart_id=%s, user_id=%s", cart_id, user_ref['user_id'])
                     except Exception as exc:
-                        logger.warning("迁移购物车记录失败: %s", exc)
+                        logger.warning("Failed to migrate cart record: %s", exc)
                         conn.rollback()
 
             if row:
@@ -57,7 +57,7 @@ class CartDB:
     def update_cart(user_identifier: Union[str, int], items: Dict) -> bool:
         user_ref = CartDB._resolve_user_identifier(user_identifier)
         if not user_ref:
-            logger.error("无法解析用户标识符: %s", user_identifier)
+            logger.error("Unable to resolve user identifier: %s", user_identifier)
             return False
 
         items_json = json.dumps(items)
@@ -83,26 +83,22 @@ class CartDB:
                             SET items = ?, updated_at = CURRENT_TIMESTAMP
                             WHERE student_id = ?
                         ''', (items_json, student_id))
-
-                    logger.info("更新购物车 - user_id: %s, student_id: %s, 影响行数: %s", user_id, student_id, cursor.rowcount)
                 else:
                     cursor.execute('''
                         INSERT INTO carts (student_id, user_id, items)
                         VALUES (?, ?, ?)
                     ''', (student_id, user_id, items_json))
-                    logger.info("创建新购物车 - user_id: %s, student_id: %s, 影响行数: %s", user_id, student_id, cursor.rowcount)
 
                 conn.commit()
 
                 updated_cart = CartDB.get_cart(user_identifier)
                 if updated_cart:
-                    logger.info("购物车更新验证成功 - 当前内容: %s", updated_cart['items'])
                     return True
-                logger.error("购物车更新验证失败 - user_id: %s", user_id)
+                logger.error("Cart update verification failed for user_id=%s", user_id)
                 return False
 
             except Exception as exc:
-                logger.error("数据库操作失败 - user_id: %s, 错误: %s", user_id, exc)
+                logger.error("Cart database operation failed for user_id=%s: %s", user_id, exc)
                 conn.rollback()
                 return False
 
@@ -142,6 +138,6 @@ class CartDB:
 
                 conn.commit()
             except Exception as exc:
-                logger.error("从所有购物车移除商品失败: %s", exc)
+                logger.error("Failed to remove product from all carts: %s", exc)
                 conn.rollback()
         return removed_count

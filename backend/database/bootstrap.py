@@ -18,9 +18,9 @@ def init_database():
         if os.path.exists(config.DB_PATH):
             try:
                 os.remove(config.DB_PATH)
-                config.logger.info("数据库重置：已删除现有文件 %s", config.DB_PATH)
+                config.logger.info("Database reset: removed existing file %s", config.DB_PATH)
             except OSError as exc:
-                config.logger.error("删除数据库文件失败: %s", exc)
+                config.logger.error("Failed to delete database file: %s", exc)
                 raise
         config._DB_WAS_RESET = True
 
@@ -686,21 +686,21 @@ def init_database():
         try:
             auto_migrate_database(conn)
             migrate_chat_threads(conn)
-            config.logger.info("自动数据库迁移完成")
+            config.logger.info("Automatic database migration completed")
         except Exception as exc:
-            config.logger.warning("自动数据库迁移失败: %s", exc)
+            config.logger.warning("Automatic database migration failed: %s", exc)
 
         try:
             cursor = conn.cursor()
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_thread_id ON chat_logs(thread_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_logs_tool_call_id ON chat_logs(tool_call_id)')
-            config.logger.info("chat_logs 索引创建成功")
+            config.logger.info("chat_logs indexes created successfully")
         except sqlite3.OperationalError as exc:
-            config.logger.warning("创建 chat_logs 索引时出错: %s", exc)
+            config.logger.warning("Failed to create chat_logs indexes: %s", exc)
 
         ensure_admin_accounts(conn)
         conn.commit()
-        config.logger.info("数据库表结构初始化成功")
+        config.logger.info("Database schema initialization completed")
 
         try:
             cursor = conn.cursor()
@@ -708,7 +708,7 @@ def init_database():
             old_payment_count = cursor.fetchone()[0]
 
             if old_payment_count > 0:
-                config.logger.info("检测到 %s 个旧的收款码数据，开始清理...", old_payment_count)
+                config.logger.info("Detected %s legacy payment QR records, starting cleanup", old_payment_count)
 
                 cursor.execute('''
                     SELECT id, name, role, payment_qr_path
@@ -740,7 +740,7 @@ def init_database():
                         ''', (qr_id, actual_owner_id, role, qr_name, payment_qr_path))
 
                         migrated_count += 1
-                        config.logger.info("迁移 %s %s 的收款码到 owner_id=%s: %s", role, admin_id, actual_owner_id, payment_qr_path)
+                        config.logger.info("Migrated payment QR for %s %s to owner_id=%s: %s", role, admin_id, actual_owner_id, payment_qr_path)
 
                 cursor.execute("UPDATE admins SET payment_qr_path = NULL WHERE payment_qr_path IS NOT NULL")
 
@@ -752,12 +752,12 @@ def init_database():
                 admin_unified_count = cursor.rowcount
 
                 if admin_unified_count > 0:
-                    config.logger.info("统一了 %s 个管理员收款码的 owner_id 为 'admin'", admin_unified_count)
+                    config.logger.info("Unified owner_id to 'admin' for %s admin payment QRs", admin_unified_count)
 
                 conn.commit()
-                config.logger.info("收款码数据清理完成，已迁移 %s 个收款码，并清理了旧字段数据", migrated_count)
+                config.logger.info("Payment QR cleanup completed: migrated %s records and cleared legacy fields", migrated_count)
             else:
-                config.logger.info("未发现旧的收款码数据，无需清理")
+                config.logger.info("No legacy payment QR data found; cleanup skipped")
 
                 cursor.execute('''
                     UPDATE payment_qr_codes
@@ -767,20 +767,20 @@ def init_database():
                 admin_unified_count = cursor.rowcount
 
                 if admin_unified_count > 0:
-                    config.logger.info("统一了 %s 个现有管理员收款码的 owner_id 为 'admin'", admin_unified_count)
+                    config.logger.info("Unified owner_id to 'admin' for %s existing admin payment QRs", admin_unified_count)
                     conn.commit()
 
         except Exception as exc:
-            config.logger.warning("清理旧收款码数据失败: %s", exc)
+            config.logger.warning("Legacy payment QR cleanup failed: %s", exc)
             conn.rollback()
 
         try:
             migrate_user_profile_addresses(conn)
         except Exception as exc:
-            config.logger.warning("用户配置文件地址数据迁移失败: %s", exc)
+            config.logger.warning("User profile address migration failed: %s", exc)
 
     except Exception as exc:
-        config.logger.error("数据库初始化失败: %s", exc)
+        config.logger.error("Database initialization failed: %s", exc)
         conn.rollback()
     finally:
         conn.close()
@@ -788,4 +788,4 @@ def init_database():
     try:
         migrate_passwords_to_hash()
     except Exception as exc:
-        config.logger.warning("密码迁移失败: %s", exc)
+        config.logger.warning("Password migration failed: %s", exc)

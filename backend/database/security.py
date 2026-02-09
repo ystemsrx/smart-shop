@@ -18,7 +18,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         sha256_hash = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
         return bcrypt.verify(sha256_hash, hashed_password)
     except Exception as exc:
-        logger.error("密码验证失败: %s", exc)
+        logger.error("Password verification failed: %s", exc)
         return False
 
 

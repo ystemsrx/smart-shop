@@ -19,7 +19,7 @@ def expire_agent_tokens_for_address(address_id: str, agent_ids: Optional[List[st
         if account_id and AdminDB.bump_token_version(account_id):
             expired += 1
     if expired:
-        logger.info(f"地址 {address_id} 已使 {expired} 个代理登录状态失效")
+        logger.info("Address %s invalidated login sessions for %s agents", address_id, expired)
     return expired
 
 
@@ -78,7 +78,7 @@ def compute_registered_user_count(owner_ids: Optional[List[str]]) -> int:
             address_ids=list(address_ids), building_ids=list(building_ids), agent_id=agent_id_filter
         )
     except Exception as exc:
-        logger.error(f"计算注册用户数量失败: {exc}")
+        logger.error("Failed to compute registered user count: %s", exc)
         return 0
 
 

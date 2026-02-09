@@ -792,7 +792,7 @@ class RewardDB:
 
         user_ref = UserDB.resolve_user_reference(user_identifier)
         if not user_ref:
-            logger.warning("无法解析用户标识符: %s", user_identifier)
+            logger.warning("Unable to resolve user identifier: %s", user_identifier)
             return 0
         student_id = user_ref['student_id']
 
@@ -826,7 +826,7 @@ class RewardDB:
                 conn.commit()
                 return affected
             except Exception as exc:
-                logger.error("消费奖品失败: %s", exc)
+                logger.error("Failed to consume prize: %s", exc)
                 conn.rollback()
                 return 0
 
@@ -847,7 +847,7 @@ class RewardDB:
                 conn.commit()
                 return cnt
             except Exception as exc:
-                logger.error("取消关联奖励失败: %s", exc)
+                logger.error("Failed to clear linked rewards: %s", exc)
                 conn.rollback()
                 return 0
 
@@ -1098,7 +1098,7 @@ class CouponDB:
                 conn.commit()
                 return ok
             except Exception as exc:
-                logger.error("锁定优惠券失败: %s", exc)
+                logger.error("Failed to lock coupon: %s", exc)
                 conn.rollback()
                 return False
 
@@ -1116,7 +1116,7 @@ class CouponDB:
                 conn.commit()
                 return ok
             except Exception as exc:
-                logger.error("解锁优惠券失败: %s", exc)
+                logger.error("Failed to unlock coupon: %s", exc)
                 conn.rollback()
                 return False
 

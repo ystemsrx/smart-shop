@@ -49,7 +49,7 @@ export default function Register() {
           router.push('/login');
         }
       } catch (e) {
-        console.error('获取注册状态失败:', e);
+        console.error('Failed to fetch registration status:', e);
         router.push('/login');
       } finally {
         setCheckingStatus(false);
@@ -115,7 +115,7 @@ export default function Register() {
         return { ok: false, message: result.message || '注册失败，请稍后重试' };
       }
     } catch (err) {
-      console.error('注册失败:', err);
+      console.error('Registration failed:', err);
       setError('注册失败，请稍后重试');
       return { ok: false, message: '注册失败，请稍后重试' };
     } finally {

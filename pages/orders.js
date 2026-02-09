@@ -186,7 +186,7 @@ export default function Orders() {
     // 直接使用后端返回的时间戳（秒）
     const createdTimestamp = o.created_at_timestamp;
     if (!createdTimestamp || typeof createdTimestamp !== 'number') {
-      console.error('订单创建时间戳无效:', createdTimestamp, '订单数据:', o);
+      console.error('Invalid order creation timestamp:', createdTimestamp, o);
       return 0;
     }
     
@@ -198,22 +198,6 @@ export default function Orders() {
     
     // 计算剩余秒数
     const remainSeconds = Math.max(0, expireTimestamp - nowTimestamp);
-    
-    // 添加更详细的调试日志
-    const createdDate = new Date(createdTimestamp * 1000);
-    const expireDate = new Date(expireTimestamp * 1000);
-    const nowDate = new Date();
-    const ageMinutes = Math.floor((nowTimestamp - createdTimestamp) / 60);
-    
-    console.log(`订单 ${o.id} 倒计时详情:`, {
-      raw_timestamp: createdTimestamp,
-      created_time: createdDate.toLocaleString('zh-CN'),
-      expire_time: expireDate.toLocaleString('zh-CN'),
-      current_time: nowDate.toLocaleString('zh-CN'),
-      age_minutes: ageMinutes,
-      remain_seconds: remainSeconds,
-      remain_display: remainSeconds > 0 ? `${Math.floor(remainSeconds / 60)}:${String(remainSeconds % 60).padStart(2, '0')}` : '已过期'
-    });
     
     return remainSeconds;
   };
@@ -279,7 +263,7 @@ export default function Orders() {
         });
       }
     } catch (e) {
-      console.warn('获取收款码失败:', e);
+      console.warn('Failed to load payment QR:', e);
       setPaymentQr({
         owner_type: 'default',
         name: "无收款码"

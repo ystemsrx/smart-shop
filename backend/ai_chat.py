@@ -583,7 +583,7 @@ Current date: {time.strftime('%Y-%m-%d')}.
         
         return system_prompt
     except Exception as e:
-        logger.error(f"生成动态系统提示词失败: {e}")
+        logger.error("Failed to build dynamic system prompt: %s", e)
         # 回退到静态系统提示词
         return get_fallback_system_prompt(user_id)
 
@@ -619,7 +619,7 @@ async def stream_model_response(
     if model_config.supports_thinking:
         request_payload["reasoning"] = {"effort": "low"}
 
-    logger.info(f"调用模型: {model_config.name} ({model_config.label})")
+    logger.info("Calling model: %s (%s)", model_config.name, model_config.label)
 
     tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
     assistant_text_parts: List[str] = []
@@ -815,7 +815,7 @@ async def stream_model_response(
                 async for line in response.aiter_lines():
                     # 检查客户端是否断开连接 - 立即关闭 HTTP 连接以节省 token
                     if client_disconnected and client_disconnected.is_set():
-                        logger.info("检测到客户端断开，立即关闭HTTP连接停止生成")
+                        logger.info("Client disconnected; closing HTTP stream immediately")
                         await _close_response(sync_only=True)
                         # 计算 thinking_duration
                         interrupted_thinking_duration = thinking_duration
@@ -1295,7 +1295,7 @@ def search_products_impl(query, limit: int = 10, user_id: Optional[str] = None, 
             return {"ok": True, "query": q, "count": len(items), "items": items}
             
     except Exception as e:
-        logger.error(f"搜索商品失败: {e}")
+        logger.error("Product search failed: %s", e)
         return {"ok": False, "error": f"搜索失败: {str(e)}"}
 
 def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, Any]:
@@ -1430,7 +1430,7 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
                         }
                     )
         except Exception as e:
-            logger.warning(f"解析满额赠品失败: {e}")
+            logger.warning("Failed to parse gift-threshold data: %s", e)
         return {
             "ok": True,
             "items": cart_items,
@@ -1442,7 +1442,7 @@ def get_cart_impl(user_id: str, request: Optional[Request] = None) -> Dict[str, 
         }
 
     except Exception as e:
-        logger.error(f"获取购物车失败: {e}")
+        logger.error("Failed to fetch cart: %s", e)
         return {"ok": False, "error": f"获取购物车失败: {str(e)}"}
 
 def get_category_impl(request: Optional[Request] = None) -> Dict[str, Any]:
@@ -1488,7 +1488,7 @@ def get_category_impl(request: Optional[Request] = None) -> Dict[str, Any]:
         ]
         return {"ok": True, "count": len(items), "categories": items}
     except Exception as e:
-        logger.error(f"获取分类失败: {e}")
+        logger.error("Failed to fetch categories: %s", e)
         return {"ok": False, "error": f"获取分类失败: {str(e)}"}
 
 def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -1667,7 +1667,7 @@ def update_cart_impl(user_id: str, action: str, items_list: Optional[List[Dict[s
         return response
         
     except Exception as e:
-        logger.error(f"更新购物车失败: {e}")
+        logger.error("Failed to update cart: %s", e)
         return {"ok": False, "error": f"更新购物车失败: {str(e)}"}
 
 # ===== 工具调用处理 =====
@@ -1783,7 +1783,7 @@ def execute_tool_locally(name: str, args: Dict[str, Any], user_id: Optional[str]
         else:
             return {"ok": False, "error": f"未知的工具: {name}"}
     except Exception as e:
-        logger.error(f"工具执行异常: {e}")
+        logger.error("Tool execution failed: %s", e)
         return {"ok": False, "error": f"工具执行异常: {e}"}
 
 # ===== 参数解析（复用原有逻辑） =====
@@ -1872,7 +1872,7 @@ def _load_persisted_tool_calls(user_id: Optional[str], thread_id: Optional[str] 
     try:
         logs = ChatLogDB.get_recent_logs(user_id, limit=200, thread_id=thread_id)
     except Exception as exc:
-        logger.warning("读取工具调用历史失败: %s", exc)
+        logger.warning("Failed to load tool call history: %s", exc)
         return {}
 
     tool_call_map: Dict[str, Dict[str, Any]] = {}
@@ -2123,7 +2123,7 @@ def _prune_unsent_user_messages(
     try:
         history = ChatLogDB.get_recent_logs(user_id, limit=200, thread_id=thread_id)
     except Exception as exc:
-        logger.warning("读取聊天历史失败，跳过去重: %s", exc)
+        logger.warning("Failed to load chat history, skipping deduplication: %s", exc)
         return messages
 
     # 获取已持久化的用户消息内容（按时间顺序）
@@ -2187,7 +2187,7 @@ def _collect_failed_user_contents(
     try:
         history = ChatLogDB.get_recent_logs(user_id, limit=200, thread_id=thread_id)
     except Exception as exc:
-        logger.warning("读取聊天历史失败，跳过失败消息剔除: %s", exc)
+        logger.warning("Failed to load chat history, skipping failed-turn pruning: %s", exc)
         return []
 
     failed_user_contents: List[str] = []
@@ -2307,7 +2307,7 @@ async def handle_tool_calls_and_continue(
             if isinstance(tool_res, str):
                 tool_res = {"ok": False, "error": tool_res}
         except Exception as e:
-            logger.exception("工具执行失败")
+            logger.exception("Tool execution failed")
             tool_res = {"ok": False, "error": f"工具执行异常: {e}"}
 
         # 发送工具完成状态
@@ -2395,9 +2395,14 @@ async def handle_tool_calls_and_continue(
         except StreamResponseError as e:
             # 区分用户主动中断和真正的异常
             if e.finish_reason == "cancelled" or not e.retryable:
-                logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
+                logger.info("Generation cancelled by user (attempt %s/%s)", attempt + 1, retries + 1)
             else:
-                logger.warning(f"工具调用后继续对话异常 (尝试 {attempt+1}/{retries+1}): {e}")
+                logger.warning(
+                    "Failed to continue conversation after tool calls (attempt %s/%s): %s",
+                    attempt + 1,
+                    retries + 1,
+                    e,
+                )
             is_user_cancelled = _is_user_cancelled(e.finish_reason)
             will_retry = e.retryable and attempt < retries and not e.has_partial and not is_user_cancelled
             if will_retry:
@@ -2428,12 +2433,10 @@ async def handle_tool_calls_and_continue(
                         thinking_duration=e.thinking_duration,
                         is_error=is_error_log
                     )
-                    logger.info(f"已保存工具调用后的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}, thinking中断: {is_thinking_stopped}, 思考时长: {e.thinking_duration}")
                 elif e.tool_calls:
                     ChatLogDB.add_log(user_id, "assistant", json.dumps({
                         "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
                     }, ensure_ascii=False), thread_id=conversation_id, is_error=is_error_log)
-                    logger.info(f"已保存工具调用")
             
             # 发送完成或错误消息到前端
             if e.has_partial or is_user_cancelled:
@@ -2443,7 +2446,7 @@ async def handle_tool_calls_and_continue(
             await send(_sse("error", {"type": "error", "error": str(e)}))
             break
         except Exception as e:
-            logger.warning(f"模型响应失败 (尝试 {attempt+1}/{retries+1}): {e}")
+            logger.warning("Model response failed (attempt %s/%s): %s", attempt + 1, retries + 1, e)
             if attempt >= retries:
                 await send(_sse("error", {"type": "error", "error": f"对话失败: {e}"}))
 
@@ -2482,7 +2485,7 @@ async def stream_chat(
                 yield item
         except (asyncio.CancelledError, GeneratorExit):
             # 客户端断开连接
-            logger.info("客户端断开连接，取消生成任务")
+            logger.info("Client disconnected; canceling generation task")
             client_disconnected.set()
             if producer_task:
                 producer_task.cancel()
@@ -2512,7 +2515,7 @@ async def stream_chat(
                         user_messages_to_log.append(content)
 
             messages_with_system = _add_system_prompt(init_messages, request, user_id)
-            logger.info(f"AI聊天开始，模型: {model_config.name} ({model_config.label})")
+            logger.info("AI chat started with model: %s (%s)", model_config.name, model_config.label)
             tools = get_available_tools(user_id)
 
             retries = 2
@@ -2581,9 +2584,14 @@ async def stream_chat(
                 except StreamResponseError as e:
                     # 区分用户主动中断和真正的异常
                     if e.finish_reason == "cancelled" or not e.retryable:
-                        logger.info(f"用户中断生成 (尝试 {attempt+1}/{retries+1})")
+                        logger.info("Generation cancelled by user (attempt %s/%s)", attempt + 1, retries + 1)
                     else:
-                        logger.warning(f"模型响应异常 (尝试 {attempt+1}/{retries+1}): {e}")
+                        logger.warning(
+                            "Model response error (attempt %s/%s): %s",
+                            attempt + 1,
+                            retries + 1,
+                            e,
+                        )
                     is_user_cancelled = _is_user_cancelled(e.finish_reason)
                     will_retry = e.retryable and attempt < retries and not e.has_partial and not is_user_cancelled
                     if will_retry:
@@ -2620,12 +2628,10 @@ async def stream_chat(
                                 thinking_duration=e.thinking_duration,
                                 is_error=is_error_log
                             )
-                            logger.info(f"已保存StreamResponseError中的部分内容，文本长度: {len(e.partial_text)}, 思考长度: {len(e.partial_reasoning)}, thinking中断: {is_thinking_stopped}, 思考时长: {e.thinking_duration}")
                         elif e.tool_calls:
                             ChatLogDB.add_log(user_id, "assistant", json.dumps({
                                 "tool_calls": [e.tool_calls[i] for i in sorted(e.tool_calls.keys())]
                             }, ensure_ascii=False), thread_id=conversation_id, is_error=is_error_log)
-                            logger.info(f"已保存StreamResponseError中的工具调用")
 
                     # 发送完成或错误消息到前端
                     if e.has_partial or is_user_cancelled:
@@ -2635,12 +2641,12 @@ async def stream_chat(
                     await send(_sse("error", {"type": "error", "error": str(e)}))
                     break
                 except Exception as e:
-                    logger.warning(f"模型响应失败 (尝试 {attempt+1}/{retries+1}): {e}")
+                    logger.warning("Model response failed (attempt %s/%s): %s", attempt + 1, retries + 1, e)
                     if attempt >= retries:
                         await send(_sse("error", {"type": "error", "error": f"{e}"}))
         except asyncio.CancelledError:
             # 客户端断开连接，保存已生成的部分内容
-            logger.info("检测到客户端断开，保存部分生成内容")
+            logger.info("Client disconnected; saving partial generated content")
             if user_id:
                 # 先记录用户消息（如果还没记录）
                 if user_messages_to_log and not partial_state["user_messages_logged"]:
@@ -2648,7 +2654,7 @@ async def stream_chat(
                         try:
                             ChatLogDB.add_log(user_id, "user", content, thread_id=conversation_id)
                         except Exception as e:
-                            logger.error(f"记录用户消息失败: {e}")
+                            logger.error("Failed to persist user message: %s", e)
                 
                 # 始终保存助手消息，即使内容为空
                 try:
@@ -2673,9 +2679,8 @@ async def stream_chat(
                         thinking_duration=thinking_dur,
                         is_error=False
                     )
-                    logger.info(f"已保存部分生成内容，文本长度: {len(assistant_text)}, 思考长度: {len(reasoning_output)}, thinking中断: {is_thinking_stopped}, 思考时长: {thinking_dur}")
                 except Exception as e:
-                    logger.error(f"保存部分内容失败: {e}")
+                    logger.error("Failed to persist partial generated content: %s", e)
             raise
         finally:
             try:

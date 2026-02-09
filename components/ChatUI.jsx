@@ -184,7 +184,7 @@ const formatRelativeTime = (dateString) => {
     }
     return `${year}-${month}-${day}`;
   } catch (error) {
-    console.error('时间格式化错误:', error, dateString);
+    console.error('Failed to format timestamp:', error, dateString);
     return "未知时间";
   }
 };
@@ -1420,7 +1420,6 @@ const renderInlineMathSegments = (root, segments, cacheRef) => {
         });
         rendered = true;
       } catch (err) {
-        console.debug('Inline LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
         if (cacheEntry?.html) {
           htmlToUse = cacheEntry.html;
         } else {
@@ -1516,7 +1515,6 @@ const renderBlockMathSegments = (root, segments, cacheRef) => {
         });
         rendered = true;
       } catch (err) {
-        console.debug('Block LaTeX渲染等待中（表达式可能未完成）:', err?.message || err);
         if (cacheEntry?.html) {
           htmlToUse = cacheEntry.html;
         } else {
@@ -4472,10 +4470,8 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
               } else {
                    hideError();
                    if (!hasSuccessRender) {
-                     // 首次渲染失败，静默等待，不显示错误信息，避免流式显示时的闪烁
-                     // 只在控制台输出调试信息
-                     console.debug('Mermaid渲染等待中（代码可能未完整接收）:', err.message);
-                     // Don't show UI error yet, wait for completion or valid partial
+                     // 首次渲染失败时静默等待，避免流式渲染闪烁
+                     // Don't show UI error yet, wait for completion or valid partial.
                      hideError(); 
                    } else {
                      applyMermaidSnapshot();
@@ -4570,7 +4566,6 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           const hasOpening = /<svg[\s\S]*?>/i.test(codeContent);
           const hasClosing = /<\/svg>/i.test(codeContent);
           if (!hasOpening) {
-            console.debug('SVG渲染等待中（尚未检测到<svg>起始标签）');
             return;
           }
           
@@ -4621,7 +4616,6 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
             svgSnapshotRef.current.set(blockKey, sanitizedSvg.outerHTML);
             svgContainer.setAttribute('data-render-success', 'true');
           } catch (err) {
-            console.debug('SVG渲染等待中（代码可能未完整接收）:', err.message);
             // 渲染失败时，恢复上一次成功的快照，保持界面稳定
             applySnapshotToContainer(svgSnapshotRef.current.get(blockKey));
           }
@@ -4681,7 +4675,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
             htmlSnapshotRef.current.set(blockKey, codeContent);
             htmlContainer.setAttribute('data-render-success', 'true');
           } catch (err) {
-            console.debug('HTML渲染等待中（代码可能未完整接收）:', err.message);
+            // 流式内容不完整时保持静默，等待下一次更新
           }
         };
 
@@ -4830,7 +4824,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
               copyButton.innerHTML = BUTTON_CONTENT.COPY;
             }, 2000);
           } catch (err) {
-            console.error('复制失败:', err);
+            console.error('Failed to copy content:', err);
           }
         }
       });
@@ -4947,7 +4941,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           codeElement.classList.add('hljs');
           codeElement.setAttribute('data-highlighted-content', codeContent);
         } catch (err) {
-          console.warn('highlight.js 高亮失败，保持原始代码:', err);
+          console.warn('highlight.js failed to highlight code; keeping raw content:', err);
         }
       });
     };
@@ -6510,7 +6504,6 @@ export default function ChatModern({ user, initialConversationId = null }) {
       // 检查是否正在处理中（使用sessionStorage持久化状态，防止组件重新挂载时重复处理）
       const isProcessing = sessionStorage.getItem(processingKey);
       if (isProcessing === 'true') {
-        console.log('该消息正在处理中，跳过');
         // 跳过加载历史
         skipNextLoadRef.current = true;
         return;
@@ -6564,7 +6557,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
             const apiMessages = [{ role: "user", content: text }];
             await sendMessage(apiMessages, modelToUse, currentChatId);
           } catch (error) {
-            console.error('发送pending消息失败:', error);
+            console.error('Failed to send pending message:', error);
             push("error", `抱歉，发生了错误：${error.message}\n\n请检查网络连接或稍后重试。`);
           } finally {
             // 清理处理标记
@@ -6578,7 +6571,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         return;
       }
     } catch (err) {
-      console.error('恢复pending消息失败:', err);
+      console.error('Failed to restore pending message:', err);
     }
     
     // 如果标记为跳过，则不加载对话历史（因为当前msgs已经是最新的）
@@ -6619,7 +6612,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         try {
           sessionStorage.removeItem(`chat_processing_${activeChatId}`);
         } catch (e) {
-          console.error('清理处理标记失败:', e);
+          console.error('Failed to clear processing flag:', e);
         }
       }
       
@@ -6670,7 +6663,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         sessionStorage.removeItem(`chat_pending_${activeChatId}`);
         sessionStorage.removeItem(`chat_processing_${activeChatId}`);
       } catch (e) {
-        console.error('清理pending标记失败:', e);
+        console.error('Failed to clear pending flags:', e);
       }
     }
     
@@ -6716,7 +6709,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
       }
       return null;
     } catch (err) {
-      console.error("创建对话失败:", err);
+      console.error("Failed to create chat:", err);
       setChatError(err.message || "创建对话失败");
       return null;
     }
@@ -6866,7 +6859,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
           setModelError("未配置可用模型");
         }
       } catch (err) {
-        console.error("加载模型列表失败:", err);
+        console.error("Failed to load model list:", err);
         if (!cancelled) {
           setModelError("模型列表加载失败，请稍后重试");
           setModels([]);
@@ -7332,7 +7325,6 @@ export default function ChatModern({ user, initialConversationId = null }) {
       
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log('Stream generation stopped by user.');
         // 【性能优化】刷新所有pending的更新
         flushPendingUpdate();
         return; 
@@ -7350,7 +7342,6 @@ export default function ChatModern({ user, initialConversationId = null }) {
           reader.releaseLock();
         } catch (e) {
           // 如果 reader 已经被释放或关闭，忽略错误
-          console.log('Reader already released:', e.message);
         }
       }
       // 【性能优化】最终确保所有pending更新都被刷新
@@ -7388,7 +7379,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
           skipLoad: true
         }));
       } catch (err) {
-        console.error('存储pending消息失败:', err);
+        console.error('Failed to store pending message:', err);
       }
       
       // 立即跳转到新对话URL

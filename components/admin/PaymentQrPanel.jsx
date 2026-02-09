@@ -22,7 +22,7 @@ export const PaymentQrPanel = ({ staffPrefix, apiRequest: injectedApiRequest }) 
       const response = await apiRequest(`${staffPrefix}/payment-qrs`);
       setPaymentQrs(response?.data?.payment_qrs || []);
     } catch (e) {
-      console.error('加载收款码失败:', e);
+      console.error('Failed to load payment QRs:', e);
       setPaymentQrs([]);
     } finally {
       setLoading(false);

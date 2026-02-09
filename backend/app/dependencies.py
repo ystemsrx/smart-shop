@@ -15,7 +15,6 @@ from database import (
     UserProfileDB,
     get_db_connection,
 )
-from .context import logger
 
 
 def build_staff_scope(staff: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -161,17 +160,12 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
 
     user = get_current_user_from_cookie(request)
     if user:
-        logger.info(f"resolve_shopping_scope - 用户: {user['id']}")
         profile = UserProfileDB.get_shipping(user["id"])
-        logger.info(f"resolve_shopping_scope - 用户配置: {profile}")
         if profile:
             if not resolved_address_id:
                 resolved_address_id = profile.get("address_id") or profile.get("dormitory")
             if not resolved_building_id:
                 resolved_building_id = profile.get("building_id")
-        logger.info(f"resolve_shopping_scope - 解析后地址: {resolved_address_id}, 楼栋: {resolved_building_id}")
-    else:
-        logger.warning("resolve_shopping_scope - 未获取到用户信息")
 
     if resolved_address_id or resolved_building_id:
         validation = check_address_and_building(resolved_address_id, resolved_building_id)
@@ -214,7 +208,6 @@ def resolve_shopping_scope(request: Request, address_id: Optional[str] = None, b
         "owner_ids": owner_ids,
         "address_validation": validation,
     }
-    logger.info(f"resolve_shopping_scope - 最终结果: {result}")
     return result
 
 

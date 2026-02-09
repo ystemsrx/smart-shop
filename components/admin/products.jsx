@@ -939,7 +939,7 @@ export const CategoryInput = ({ value, onChange, required = false, disabled = fa
         }
         setCategories(cats);
       } catch (error) {
-        console.error('获取分类失败:', error);
+        console.error('Failed to fetch categories:', error);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -1257,7 +1257,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
           current: JSON.parse(JSON.stringify(variants))
         });
       } catch (err) {
-        console.error('加载规格失败:', err);
+        console.error('Failed to load variants:', err);
         setVariantsState({
           loaded: true,
           original: [],
@@ -1352,7 +1352,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
           try {
             await onRefreshProduct(product.id);
           } catch (refreshErr) {
-            console.error('刷新商品数据失败:', refreshErr);
+            console.error('Failed to refresh product data:', refreshErr);
           }
         }
         
@@ -1360,7 +1360,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
           try {
             await onStatsRefresh();
           } catch (refreshErr) {
-            console.error('刷新统计数据失败:', refreshErr);
+            console.error('Failed to refresh statistics:', refreshErr);
           }
         }
         
@@ -1368,7 +1368,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
           onCancel();
         }
       } catch (err) {
-        console.error('应用规格变更失败:', err);
+        console.error('Failed to apply variant changes:', err);
         alert('商品信息已保存，但规格更新失败：' + (err.message || '未知错误'));
         if (onRefreshProduct) {
           try {
@@ -1406,7 +1406,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
         stock: normalizeVariantStockValue(v.stock)
       }));
     } catch (err) {
-      console.error('获取最新规格失败，使用本地缓存继续:', err);
+      console.error('Failed to fetch latest variants, continuing with local cache:', err);
       serverOriginal = (variantsState.original || []).map(v => ({
         ...v,
         stock: normalizeVariantStockValue(v.stock)
@@ -1935,11 +1935,11 @@ export const VariantStockModal = ({ product, onClose, apiPrefix, onProductVarian
       }
 
       if (typeof onStatsRefresh === 'function') {
-        onStatsRefresh().catch(err => console.error('刷新统计数据失败:', err));
+        onStatsRefresh().catch(err => console.error('Failed to refresh statistics:', err));
       }
 
       if (typeof onWarningsRefresh === 'function') {
-        onWarningsRefresh().catch(err => console.error('刷新警告状态失败:', err));
+        onWarningsRefresh().catch(err => console.error('Failed to refresh warning state:', err));
       }
 
       return nextStock;

@@ -25,7 +25,7 @@ async def get_shop_settings(request: Request):
         show_inactive = SettingsDB.get("show_inactive_in_shop", "false") == "true"
         return success_response("获取商城设置成功", {"show_inactive_in_shop": show_inactive})
     except Exception as exc:
-        logger.error(f"获取商城设置失败: {exc}")
+        logger.error("Failed to fetch shop settings: %s", exc)
         return error_response("获取商城设置失败", 500)
 
 
@@ -40,7 +40,7 @@ async def update_shop_settings(request: Request):
         SettingsDB.set("show_inactive_in_shop", "true" if show_inactive else "false")
         return success_response("商城设置更新成功", {"show_inactive_in_shop": show_inactive})
     except Exception as exc:
-        logger.error(f"更新商城设置失败: {exc}")
+        logger.error("Failed to update shop settings: %s", exc)
         return error_response("更新商城设置失败", 500)
 
 
@@ -62,7 +62,7 @@ async def get_shop_status():
             },
         )
     except Exception as exc:
-        logger.error(f"获取店铺状态失败: {exc}")
+        logger.error("Failed to fetch shop status: %s", exc)
         return error_response("获取店铺状态失败", 500)
 
 
@@ -78,7 +78,7 @@ async def update_shop_status(payload: ShopStatusUpdate, request: Request):
             SettingsDB.set("shop_closed_note", payload.note)
         return success_response("店铺状态已更新", {"is_open": payload.is_open})
     except Exception as exc:
-        logger.error(f"更新店铺状态失败: {exc}")
+        logger.error("Failed to update shop status: %s", exc)
         return error_response("更新店铺状态失败", 500)
 
 
@@ -102,7 +102,7 @@ async def get_agent_status(request: Request):
             },
         )
     except Exception as exc:
-        logger.error(f"获取代理状态失败: {exc}")
+        logger.error("Failed to fetch agent status: %s", exc)
         return error_response("获取代理状态失败", 500)
 
 
@@ -131,7 +131,7 @@ async def update_agent_status(payload: AgentStatusUpdateRequest, request: Reques
         else:
             return error_response("更新代理状态失败", 500)
     except Exception as exc:
-        logger.error(f"更新代理状态失败: {exc}")
+        logger.error("Failed to update agent status: %s", exc)
         return error_response("更新代理状态失败", 500)
 
 
@@ -172,5 +172,5 @@ async def get_user_agent_status(request: Request, address_id: Optional[str] = No
             },
         )
     except Exception as exc:
-        logger.error(f"获取用户代理状态失败: {exc}")
+        logger.error("Failed to fetch user agent status: %s", exc)
         return error_response("获取状态失败", 500)

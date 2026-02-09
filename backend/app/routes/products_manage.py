@@ -50,7 +50,7 @@ async def list_variants(product_id: str, request: Request):
             return error_response("无权访问该商品", 403)
         return success_response("获取规格成功", {"variants": VariantDB.get_by_product(product_id)})
     except Exception as exc:
-        logger.error(f"获取规格失败: {exc}")
+        logger.error("Failed to fetch variants: %s", exc)
         return error_response("获取规格失败", 500)
 
 
@@ -72,7 +72,7 @@ async def create_variant(product_id: str, payload: VariantCreate, request: Reque
         vid = VariantDB.create_variant(product_id, payload.name, payload.stock)
         return success_response("规格创建成功", {"variant_id": vid})
     except Exception as exc:
-        logger.error(f"规格创建失败: {exc}")
+        logger.error("Failed to create variant: %s", exc)
         return error_response("规格创建失败", 500)
 
 
@@ -97,7 +97,7 @@ async def update_variant(variant_id: str, payload: VariantUpdate, request: Reque
             return error_response("无有效更新项", 400)
         return success_response("规格已更新")
     except Exception as exc:
-        logger.error(f"规格更新失败: {exc}")
+        logger.error("Failed to update variant: %s", exc)
         return error_response("规格更新失败", 500)
 
 
@@ -122,7 +122,7 @@ async def delete_variant(variant_id: str, request: Request):
             return error_response("规格不存在", 404)
         return success_response("规格已删除")
     except Exception as exc:
-        logger.error(f"规格删除失败: {exc}")
+        logger.error("Failed to delete variant: %s", exc)
         return error_response("规格删除失败", 500)
 
 
@@ -270,7 +270,7 @@ async def agent_get_categories(request: Request):
         return success_response("获取分类成功", {"categories": categories})
 
     except Exception as exc:
-        logger.error(f"获取代理分类失败: {exc}")
+        logger.error("Failed to fetch agent categories: %s", exc)
         return error_response("获取分类失败", 500)
 
 
@@ -335,7 +335,7 @@ async def get_admin_stats(request: Request, owner_id: Optional[str] = None):
         return success_response("获取统计信息成功", stats)
 
     except Exception as exc:
-        logger.error(f"获取统计信息失败: {exc}")
+        logger.error("Failed to fetch statistics: %s", exc)
         return error_response("获取统计信息失败", 500)
 
 
@@ -371,7 +371,7 @@ async def get_users_count(request: Request, owner_id: Optional[str] = None, agen
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"获取注册人数失败: {exc}")
+        logger.error("Failed to fetch registration count: %s", exc)
         return error_response("获取注册人数失败", 500)
 
 
@@ -397,7 +397,7 @@ async def get_product_details(product_id: str, request: Request):
 
 
     except Exception as exc:
-        logger.error(f"获取商品详情失败: {exc}")
+        logger.error("Failed to fetch product details: %s", exc)
         return error_response("获取商品详情失败", 500)
 
 
@@ -456,7 +456,7 @@ async def bulk_update_products(payload: BulkProductUpdateRequest, request: Reque
                 updated += 1
         return success_response("批量更新完成", {"updated": updated, "not_found": not_found, "blocked": blocked})
     except Exception as exc:
-        logger.error(f"批量更新商品失败: {exc}")
+        logger.error("Failed to bulk update products: %s", exc)
         return error_response("批量更新商品失败", 500)
 
 
@@ -503,7 +503,7 @@ async def delete_products(product_id: str, request: Request, delete_request: Opt
                     return error_response("已删除代理的商品不可删除", 400)
                 return error_response("无权删除指定商品", 403)
 
-            logger.info(f"工作人员 {staff['id']} 请求批量删除商品: {allowed_ids}")
+            logger.info("Staff %s requested bulk product deletion: %s", staff["id"], allowed_ids)
             # 先删除图片
             delete_products_images(allowed_ids)
             # 再删除数据库记录
@@ -528,7 +528,7 @@ async def delete_products(product_id: str, request: Request, delete_request: Opt
             else:
                 return error_response("删除失败或商品不存在", 400)
     except Exception as exc:
-        logger.error(f"删除商品失败: {exc}")
+        logger.error("Failed to delete product: %s", exc)
         return error_response("删除商品失败", 500)
 
 
@@ -581,7 +581,7 @@ async def get_admin_categories(request: Request, owner_id: Optional[str] = None)
         categories = CategoryDB.get_categories_with_products(owner_ids=owner_ids, include_unassigned=False)
         return success_response("获取分类成功", {"categories": categories})
     except Exception as exc:
-        logger.error(f"获取分类失败: {exc}")
+        logger.error("Failed to fetch categories: %s", exc)
         return error_response("获取分类失败", 500)
 
 
@@ -602,7 +602,7 @@ async def create_category(request: Request, payload: CategoryCreateRequest):
             return success_response("分类创建成功", {"category_id": category_id})
         return error_response("创建分类失败", 500)
     except Exception as exc:
-        logger.error(f"创建分类失败: {exc}")
+        logger.error("Failed to create category: %s", exc)
         return error_response("创建分类失败", 500)
 
 
@@ -632,7 +632,7 @@ async def update_category(category_id: str, payload: CategoryUpdateRequest, requ
             return success_response("分类更新成功")
         return error_response("无可更新字段或分类不存在", 400)
     except Exception as exc:
-        logger.error(f"更新分类失败: {exc}")
+        logger.error("Failed to update category: %s", exc)
         return error_response("更新分类失败", 500)
 
 
@@ -654,5 +654,5 @@ async def delete_category(category_id: str, request: Request):
         else:
             return error_response("分类不存在或删除失败", 400)
     except Exception as exc:
-        logger.error(f"删除分类失败: {exc}")
+        logger.error("Failed to delete category: %s", exc)
         return error_response("删除分类失败", 500)

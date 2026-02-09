@@ -26,19 +26,24 @@ async def daily_cleanup_task():
             
             # 计算等待时间
             wait_seconds = (target_datetime - now).total_seconds()
-            logger.info(f"下次清理任务将在 {target_datetime} 执行，等待 {wait_seconds:.0f} 秒")
+            logger.info(
+                "Next cleanup scheduled at %s, waiting %.0f seconds",
+                target_datetime,
+                wait_seconds,
+            )
             
             # 等待到指定时间
             await asyncio.sleep(wait_seconds)
             
             # 执行清理任务
-            logger.info("开始执行清理任务")
+            logger.info("Starting scheduled cleanup task")
             
             # 清理聊天记录
             cleanup_result = cleanup_old_chat_logs()
             logger.info(
-                f"聊天记录清理完成，删除了 {cleanup_result.get('deleted_logs', 0)} 条过期记录，"
-                f"移除了 {cleanup_result.get('deleted_threads', 0)} 条会话"
+                "Chat cleanup completed: deleted %s expired logs and %s expired threads",
+                cleanup_result.get("deleted_logs", 0),
+                cleanup_result.get("deleted_threads", 0),
             )
             
             # 清理过期导出文件
@@ -46,14 +51,12 @@ async def daily_cleanup_task():
                 if os.path.exists(EXPORTS_DIR):
                     removed_exports = OrderExportDB.cleanup_expired_files(EXPORTS_DIR)
                     if removed_exports:
-                        logger.info(f"清理过期导出文件 {removed_exports} 个")
-                    else:
-                        logger.info("无过期导出文件需要清理")
+                        logger.info("Removed %s expired export files", removed_exports)
             except Exception as e:
-                logger.error(f"清理过期导出文件失败: {e}")
+                logger.error("Failed to clean expired export files: %s", e)
             
         except Exception as e:
-            logger.error(f"清理任务执行失败: {e}")
+            logger.error("Scheduled cleanup task failed: %s", e)
             # 出错后等待1小时再重试
             await asyncio.sleep(3600)
 

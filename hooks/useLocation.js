@@ -99,7 +99,7 @@ export function LocationProvider({ children }) {
       addressesLoadedRef.current = true;
       return list;
     } catch (err) {
-      console.error('获取地址列表失败:', err.message);
+      console.error('Failed to load address list:', err.message);
       setAddressesLoaded(false);
       addressesLoadedRef.current = false;
       return [];
@@ -126,7 +126,7 @@ export function LocationProvider({ children }) {
       setBuildingOptions(list);
       return list;
     } catch (err) {
-      console.error('获取楼栋列表失败:', err.message);
+      console.error('Failed to load building list:', err.message);
       setBuildingOptions([]);
       return [];
     }
@@ -202,7 +202,7 @@ export function LocationProvider({ children }) {
     const task = loadProfile();
     if (task && typeof task.catch === 'function') {
       task.catch((err) => {
-        console.error('加载收货资料失败:', err);
+        console.error('Failed to load shipping profile:', err);
         setError(err?.message || '加载收货资料失败');
         setForceSelection(true);
         setModalOpen(true);

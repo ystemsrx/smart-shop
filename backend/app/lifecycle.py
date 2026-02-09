@@ -27,7 +27,7 @@ settings = get_settings()
 
 def fix_legacy_product_ownership():
     """修复旧系统遗留的owner_id为None的商品，分配给统一的'admin'。"""
-    logger.info("开始检查并修复旧商品的归属...")
+    logger.info("Checking and repairing legacy product ownership")
 
     try:
         with get_db_connection() as conn:
@@ -36,17 +36,17 @@ def fix_legacy_product_ownership():
             count = cursor.fetchone()[0]
 
             if count == 0:
-                logger.info("没有发现需要修复的商品")
+                logger.info("No products require ownership repair")
                 return
 
-            logger.info(f"发现 {count} 个需要修复归属的商品")
+            logger.info("Found %s products with missing ownership", count)
             cursor.execute(
                 "SELECT COUNT(*) FROM admins WHERE (role = 'super_admin' OR role = 'admin') AND is_active = 1"
             )
             admin_count = cursor.fetchone()[0]
 
             if admin_count > 0:
-                logger.info("将使用统一的'admin'作为默认归属")
+                logger.info("Using unified owner_id 'admin' as default ownership")
                 cursor.execute(
                     "UPDATE products SET owner_id = ? WHERE owner_id IS NULL OR owner_id = ''",
                     ("admin",),
@@ -54,18 +54,18 @@ def fix_legacy_product_ownership():
 
                 updated_count = cursor.rowcount
                 conn.commit()
-                logger.info(f"成功修复 {updated_count} 个商品的归属")
+                logger.info("Repaired ownership for %s products", updated_count)
             else:
-                logger.warning("未找到可用的管理员账户，跳过商品归属修复")
+                logger.warning("No active admin account found; skipping product ownership repair")
 
     except Exception as exc:
-        logger.error(f"修复商品归属时发生错误: {exc}")
+        logger.error("Failed to repair legacy product ownership: %s", exc)
         raise
 
 
 def migrate_admin_products_to_unified_owner():
     """将现有admin拥有的商品迁移到统一的'admin'owner_id。"""
-    logger.info("开始迁移现有admin商品到统一的owner_id...")
+    logger.info("Migrating existing admin-owned products to unified owner_id")
 
     try:
         with get_db_connection() as conn:
@@ -76,7 +76,7 @@ def migrate_admin_products_to_unified_owner():
             admin_ids = [row[0] for row in cursor.fetchall()]
 
             if not admin_ids:
-                logger.info("没有找到活跃的管理员，跳过迁移")
+                logger.info("No active admins found; skipping migration")
                 return
 
             placeholders = ", ".join(["?" for _ in admin_ids])
@@ -84,10 +84,10 @@ def migrate_admin_products_to_unified_owner():
             count = cursor.fetchone()[0]
 
             if count == 0:
-                logger.info("没有发现需要迁移的管理员商品")
+                logger.info("No admin-owned products require migration")
                 return
 
-            logger.info(f"发现 {count} 个需要迁移到统一owner_id的管理员商品")
+            logger.info("Found %s admin-owned products to migrate", count)
             cursor.execute(
                 f"UPDATE products SET owner_id = ? WHERE owner_id IN ({placeholders})",
                 ["admin"] + admin_ids,
@@ -95,16 +95,16 @@ def migrate_admin_products_to_unified_owner():
 
             updated_count = cursor.rowcount
             conn.commit()
-            logger.info(f"成功迁移 {updated_count} 个管理员商品到统一的'admin'归属")
+            logger.info("Migrated %s admin-owned products to owner_id 'admin'", updated_count)
 
     except Exception as exc:
-        logger.error(f"迁移管理员商品归属时发生错误: {exc}")
+        logger.error("Failed to migrate admin product ownership: %s", exc)
         raise
 
 
 def fix_legacy_config_ownership():
     """修复旧系统遗留的配置数据owner_id为None的问题，分配给统一的'admin'。"""
-    logger.info("开始检查并修复旧配置数据的归属...")
+    logger.info("Checking and repairing legacy config ownership")
 
     try:
         with get_db_connection() as conn:
@@ -127,7 +127,7 @@ def fix_legacy_config_ownership():
                     columns = [row[1] for row in cursor.fetchall()]
 
                     if "owner_id" not in columns:
-                        logger.debug(f"表 {table} 没有 owner_id 列，跳过")
+                        logger.debug("Skipping %s table because owner_id column is missing", table)
                         continue
 
                     cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE owner_id IS NULL OR owner_id = ''")
@@ -138,20 +138,20 @@ def fix_legacy_config_ownership():
                         fixed_count = cursor.rowcount
                         total_fixed += fixed_count
                         fix_summary.append(f"{description}: {fixed_count}项")
-                        logger.info(f"修复 {table} 表中 {fixed_count} 项配置的owner_id")
+                        logger.info("Repaired owner_id for %s rows in %s", fixed_count, table)
 
                 except Exception as exc:
-                    logger.warning(f"修复表 {table} 时出错: {exc}")
+                    logger.warning("Failed while repairing table %s: %s", table, exc)
                     continue
 
             if total_fixed > 0:
                 conn.commit()
-                logger.info(f"配置数据修复完成，共修复 {total_fixed} 项：{', '.join(fix_summary)}")
+                logger.info("Config ownership repair completed: %s rows fixed (%s)", total_fixed, ", ".join(fix_summary))
             else:
-                logger.info("没有发现需要修复的配置数据")
+                logger.info("No config data requires ownership repair")
 
     except Exception as exc:
-        logger.error(f"修复配置数据归属时发生错误: {exc}")
+        logger.error("Failed to repair legacy config ownership: %s", exc)
         raise
 
 
@@ -169,17 +169,17 @@ def log_model_configuration_snapshot() -> None:
     configured_names = [cfg.name for cfg in configured_models]
 
     if not configured_models:
-        logger.error("模型选择器没有可用模型，请检查 MODEL/MODEL_NAME 环境变量。")
+        logger.error("No models available in selector; check MODEL/MODEL_NAME environment variables")
         return
 
     if env_models:
         duplicate_models = [name for name, count in Counter(env_models).items() if count > 1]
         if duplicate_models:
-            logger.warning("MODEL 环境变量中存在重复模型: %s", duplicate_models)
+            logger.warning("Duplicate model names found in MODEL environment variable: %s", duplicate_models)
 
         if len(env_models) != len(env_labels):
             logger.warning(
-                "MODEL 与 MODEL_NAME 的数量不一致：MODEL=%d, MODEL_NAME=%d。多余的模型将不会出现在选择器中。",
+                "MODEL and MODEL_NAME counts do not match: MODEL=%d, MODEL_NAME=%d. Extra entries will be ignored.",
                 len(env_models),
                 len(env_labels),
             )
@@ -187,13 +187,13 @@ def log_model_configuration_snapshot() -> None:
         missing_models = [name for name in env_models if name not in configured_names]
         if missing_models:
             logger.warning(
-                "以下模型在环境变量中配置但未被加载：%s。"
-                "请确认模型名称与 MODEL_NAME 一一对应，并在修改 .env 后重新启动后端服务。",
+                "These models are configured in env but not loaded: %s. "
+                "Ensure MODEL and MODEL_NAME are aligned and restart backend after updating .env.",
                 missing_models,
             )
 
     logger.info(
-        "模型选择器当前可用模型：%s",
+        "Current model selector options: %s",
         [
             {"model": cfg.name, "label": cfg.label, "supports_thinking": cfg.supports_thinking}
             for cfg in configured_models
@@ -201,7 +201,7 @@ def log_model_configuration_snapshot() -> None:
     )
 
     logger.debug(
-        "模型配置原始环境变量：MODEL=%r, MODEL_NAME=%r, SUPPORTS_THINKING=%r（解析后=%s）。最终加载模型=%s，supports_thinking=%s。",
+        "Model env snapshot: MODEL=%r, MODEL_NAME=%r, SUPPORTS_THINKING=%r (parsed=%s). Loaded models=%s, supports_thinking=%s.",
         env_models_raw,
         env_labels_raw,
         supports_raw,
@@ -210,78 +210,63 @@ def log_model_configuration_snapshot() -> None:
         [cfg.supports_thinking for cfg in configured_models],
     )
 
-    logger.debug("settings 对象 ID: %s, model_order 列表 ID: %s", id(settings), id(settings.model_order))
-    logger.debug("get_settings() 缓存状态: %s", get_settings.cache_info())
-
-    fresh_settings = get_settings()
-    logger.debug(
-        "get_settings() 返回对象 ID: %s, 是否为同一对象: %s",
-        id(fresh_settings),
-        fresh_settings is settings,
-    )
-    logger.debug(
-        "get_settings().model_order 长度: %d, 列表: %s",
-        len(fresh_settings.model_order),
-        [cfg.name for cfg in fresh_settings.model_order],
-    )
-
     if env_models:
         stale_models = [name for name in configured_names if name not in env_models]
         if stale_models:
             logger.debug(
-                "模型列表包含未在当前 MODEL 环境变量中的条目：%s。"
-                "若该情况出乎意料，请清理配置缓存或确认运行环境中没有其他来源的默认模型。",
+                "Loaded models include entries missing from current MODEL env: %s. "
+                "If unexpected, verify config cache and runtime defaults.",
                 stale_models,
             )
 
 
 async def run_startup_tasks() -> List[asyncio.Task]:
     """应用启动时初始化并启动后台任务，返回需要在关闭时清理的任务列表。"""
-    logger.info("正在启动宿舍智能小商城API...")
+    logger.info("Starting dorm shop API")
 
     init_database()
 
     try:
         CategoryDB.cleanup_orphan_categories()
     except Exception as exc:
-        logger.warning(f"启动时清理空分类失败: {exc}")
+        logger.warning("Startup orphan-category cleanup failed: %s", exc)
 
     try:
         fix_legacy_product_ownership()
     except Exception as exc:
-        logger.warning(f"修复旧商品归属失败: {exc}")
+        logger.warning("Legacy product ownership repair failed: %s", exc)
 
     try:
         migrate_admin_products_to_unified_owner()
     except Exception as exc:
-        logger.warning(f"迁移admin商品归属失败: {exc}")
+        logger.warning("Admin product ownership migration failed: %s", exc)
 
     try:
         fix_legacy_config_ownership()
     except Exception as exc:
-        logger.warning(f"修复旧配置数据归属失败: {exc}")
+        logger.warning("Legacy config ownership repair failed: %s", exc)
 
     try:
         migrate_image_paths(ITEMS_DIR)
     except Exception as exc:
-        logger.warning(f"迁移商品图片路径失败: {exc}")
+        logger.warning("Product image path migration failed: %s", exc)
 
     try:
         migrate_agent_image_paths(ITEMS_DIR)
     except Exception as exc:
-        logger.warning(f"迁移代理图片目录失败: {exc}")
+        logger.warning("Agent image directory migration failed: %s", exc)
 
     try:
         migrate_payment_qr_paths(PUBLIC_DIR)
     except Exception as exc:
-        logger.warning(f"迁移收款码路径失败: {exc}")
+        logger.warning("Payment QR path migration failed: %s", exc)
 
     try:
         removed = CaptchaService.cleanup_generated_images(force=True)
         if removed:
-            logger.info(f"启动时清理验证码历史图片 {removed} 个")
+            logger.info("Startup captcha image cleanup removed %s files", removed)
     except Exception as exc:
-        logger.warning(f"启动时清理验证码历史图片失败: {exc}")
+        logger.warning("Startup captcha image cleanup failed: %s", exc)
 
     maintenance_tasks: List[asyncio.Task] = []
     maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))
@@ -289,7 +274,7 @@ async def run_startup_tasks() -> List[asyncio.Task]:
     maintenance_tasks.append(asyncio.create_task(captcha_cleanup(), name="captcha_cleanup"))
 
     log_model_configuration_snapshot()
-    logger.info("宿舍智能小商城API启动完成")
+    logger.info("Dorm shop API startup completed")
     return maintenance_tasks
 
 
@@ -302,15 +287,15 @@ async def periodic_cleanup():
             try:
                 CategoryDB.cleanup_orphan_categories()
             except Exception as exc:
-                logger.warning(f"定时清理空分类失败: {exc}")
+                logger.warning("Periodic orphan-category cleanup failed: %s", exc)
             try:
                 removed_exports = OrderExportDB.cleanup_expired_files(EXPORTS_DIR)
                 if removed_exports:
-                    logger.info(f"清理过期导出文件 {removed_exports} 个")
+                    logger.info("Removed %s expired export files", removed_exports)
             except Exception as exc:
-                logger.warning(f"清理导出文件失败: {exc}")
+                logger.warning("Export cleanup failed: %s", exc)
         except Exception as exc:
-            logger.error(f"定时清理任务失败: {exc}")
+            logger.error("Periodic cleanup task failed: %s", exc)
 
 
 async def expired_unpaid_cleanup():
@@ -320,9 +305,9 @@ async def expired_unpaid_cleanup():
             await asyncio.sleep(60)
             deleted = OrderDB.purge_expired_unpaid_orders(15)
             if deleted:
-                logger.info(f"清理过期未付款订单: 删除 {deleted} 笔")
+                logger.info("Purged %s expired unpaid orders", deleted)
         except Exception as exc:
-            logger.error(f"清理过期未付款订单任务失败: {exc}")
+            logger.error("Expired unpaid order cleanup task failed: %s", exc)
 
 
 async def captcha_cleanup():
@@ -332,9 +317,9 @@ async def captcha_cleanup():
             await asyncio.sleep(30)
             removed = CaptchaService.cleanup_generated_images()
             if removed:
-                logger.info(f"清理验证码临时图片 {removed} 个")
+                logger.info("Removed %s temporary captcha images", removed)
         except Exception as exc:
-            logger.error(f"验证码图片清理任务失败: {exc}")
+            logger.error("Captcha image cleanup task failed: %s", exc)
 
 
 @asynccontextmanager

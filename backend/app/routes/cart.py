@@ -17,9 +17,7 @@ async def get_cart(request: Request):
     user = get_current_user_required_from_cookie(request)
 
     try:
-        logger.info(f"获取购物车请求 - 用户ID: {user['id']}, 用户信息: {user}")
-        user_ref = UserDB.resolve_user_reference(user["id"])
-        logger.info(f"获取购物车 - 用户解析结果: {user_ref}")
+        _user_ref = UserDB.resolve_user_reference(user["id"])
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
@@ -30,7 +28,6 @@ async def get_cart(request: Request):
 
         cart_data = CartDB.get_cart(user["id"])
         if not cart_data:
-            logger.info(f"用户 {user['id']} 没有购物车数据，返回空购物车")
             return success_response(
                 "获取购物车成功",
                 {
@@ -45,7 +42,6 @@ async def get_cart(request: Request):
             )
 
         items_dict = cart_data["items"]
-        logger.info(f"购物车原始数据: {items_dict}")
 
         all_products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
         product_dict = {p["id"]: p for p in all_products}
@@ -113,8 +109,6 @@ async def get_cart(request: Request):
                     item["stock"] = "∞"
                 cart_items.append(item)
 
-        logger.info(f"处理后的购物车数据 - 商品数: {len(cart_items)}, 总数量: {total_quantity}, 总价: {total_price}")
-
         delivery_scope = scope
         owner_id = get_owner_id_from_scope(delivery_scope)
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
@@ -151,7 +145,7 @@ async def get_cart(request: Request):
         return success_response("获取购物车成功", cart_result)
 
     except Exception as exc:
-        logger.error(f"获取购物车失败: {exc}")
+        logger.error("Failed to fetch cart: %s", exc)
         return error_response("获取购物车失败", 500)
 
 
@@ -160,25 +154,17 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
     user = get_current_user_required_from_cookie(request)
 
     try:
-        logger.info(
-            f"购物车更新请求 - 用户ID: {user['id']}, 用户信息: {user}, 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}"
-        )
-
-        user_ref = UserDB.resolve_user_reference(user["id"])
-        logger.info(f"用户解析结果: {user_ref}")
+        _user_ref = UserDB.resolve_user_reference(user["id"])
 
         scope = resolve_shopping_scope(request)
         owner_ids = scope["owner_ids"]
         include_unassigned = False if owner_ids else True
-        logger.info(f"购物车更新 - 权限范围: {scope}")
 
         accessible_products = ProductDB.get_all_products(owner_ids=owner_ids, include_unassigned=include_unassigned)
         product_dict = {p["id"]: p for p in accessible_products}
-        logger.info(f"购物车更新 - 可访问商品数量: {len(accessible_products)}")
 
         current_cart = CartDB.get_cart(user["id"])
         items = current_cart["items"] if current_cart else {}
-        logger.info(f"当前购物车内容: {items}")
 
         if cart_request.action == "clear":
             items = {}
@@ -189,17 +175,9 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
             items.pop(key, None)
         elif cart_request.action in ["add", "update"] and cart_request.product_id and cart_request.quantity is not None:
             product = product_dict.get(cart_request.product_id)
-            logger.info(f"商品权限检查 - 商品ID: {cart_request.product_id}, 找到商品: {product is not None}")
-
-            if product:
-                logger.info(
-                    f"商品详情 - ID: {product.get('id')}, 名称: {product.get('name')}, 上架状态: {product.get('is_active')}, 拥有者: {product.get('owner_id')}"
-                )
 
             if not product:
-                logger.error(
-                    f"商品无权访问或不存在: {cart_request.product_id}, 可访问商品列表: {list(product_dict.keys())[:10]}..."
-                )
+                logger.error("Product not accessible or does not exist: %s", cart_request.product_id)
                 return error_response("商品不在当前地址的可售范围内", 403)
 
             try:
@@ -221,23 +199,31 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
 
             if cart_request.action == "add":
                 if cart_request.quantity <= 0:
-                    logger.error(f"无效的数量: {cart_request.quantity}")
+                    logger.error("Invalid quantity for add action: %s", cart_request.quantity)
                     return error_response("数量必须大于0", 400)
 
                 current_quantity = items.get(key, 0)
                 new_quantity = current_quantity + cart_request.quantity
                 if limit_stock is not None and new_quantity > limit_stock:
                     logger.error(
-                        f"库存不足 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 当前购物车数量: {current_quantity}, 尝试添加: {cart_request.quantity}, 库存: {limit_stock}"
+                        "Insufficient stock when adding to cart: product=%s variant=%s current=%s requested=%s stock=%s",
+                        cart_request.product_id,
+                        cart_request.variant_id or "-",
+                        current_quantity,
+                        cart_request.quantity,
+                        limit_stock,
                     )
                     return error_response(f"库存不足，当前库存: {limit_stock}，购物车中已有: {current_quantity}", 400)
                 items[key] = new_quantity
-                logger.info(f"添加商品后的购物车: {items}")
             else:
                 if cart_request.quantity > 0:
                     if limit_stock is not None and cart_request.quantity > limit_stock:
                         logger.error(
-                            f"更新数量超过库存 - 商品: {cart_request.product_id}, 规格: {cart_request.variant_id or '-'}, 尝试设置: {cart_request.quantity}, 库存: {limit_stock}"
+                            "Insufficient stock when updating cart: product=%s variant=%s requested=%s stock=%s",
+                            cart_request.product_id,
+                            cart_request.variant_id or "-",
+                            cart_request.quantity,
+                            limit_stock,
                         )
                         return error_response(f"数量超过库存，最大可设置: {limit_stock}", 400)
                     items[key] = cart_request.quantity
@@ -245,7 +231,10 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
                     items.pop(key, None)
         else:
             logger.error(
-                f"购物车更新条件不匹配 - 动作: {cart_request.action}, 商品ID: {cart_request.product_id}, 数量: {cart_request.quantity}"
+                "Invalid cart update request: action=%s product_id=%s quantity=%s",
+                cart_request.action,
+                cart_request.product_id,
+                cart_request.quantity,
             )
             return error_response("无效的购物车更新请求", 400)
 
@@ -253,10 +242,9 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
         for k, v in items.items():
             pid = k.split("@@", 1)[0] if isinstance(k, str) else k
             p = product_dict.get(pid)
-            logger.info(f"清理检查 - 商品ID: {pid}, 数量: {v}, 商品信息: {p is not None}")
 
             if p is None:
-                logger.warning(f"商品 {pid} 不在可访问商品列表中，将被过滤")
+                logger.warning("Filtering inaccessible product from cart: %s", pid)
                 continue
 
             try:
@@ -264,21 +252,12 @@ async def update_cart(cart_request: CartUpdateRequest, request: Request):
             except Exception:
                 active = 1
 
-            logger.info(f"商品 {pid} - 上架状态: {active}, 数量: {v}")
-
             if active == 1 and v > 0:
                 cleaned[k] = v
-            else:
-                logger.info(f"商品 {pid} 被过滤 - 上架状态: {active}, 数量: {v}")
-
-        logger.info(f"清理前购物车内容: {items}")
-        logger.info(f"清理后购物车内容: {cleaned}")
-
-        update_result = CartDB.update_cart(user["id"], cleaned)
-        logger.info(f"数据库更新结果: {update_result}, 保存到数据库的内容: {cleaned}")
+        CartDB.update_cart(user["id"], cleaned)
 
         return success_response("购物车更新成功", {"action": cart_request.action, "items": cleaned, "scope": scope})
 
     except Exception as exc:
-        logger.error(f"更新购物车失败: {exc}")
+        logger.error("Failed to update cart: %s", exc)
         return error_response("更新购物车失败", 500)

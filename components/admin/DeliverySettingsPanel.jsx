@@ -49,7 +49,7 @@ export const DeliverySettingsPanel = ({ apiPrefix, apiRequest: injectedApiReques
         }
       }
     } catch (e) {
-      console.warn('加载配送费设置失败:', e);
+      console.warn('Failed to load delivery settings:', e);
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ export const DeliverySettingsPanel = ({ apiPrefix, apiRequest: injectedApiReques
       })
       .catch((e) => {
         // 失败：回滚状态
-        console.error('保存配送费设置失败:', e);
+        console.error('Failed to save delivery settings:', e);
         setAlwaysCharge(prevAlwaysCharge);
         setSavedThreshold(prevThreshold);
         alert(e.message || '保存失败，请重试');

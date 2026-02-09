@@ -39,7 +39,7 @@ async def admin_get_lottery_config(request: Request, owner_id: Optional[str] = N
         config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"]})
     except Exception as exc:
-        logger.error(f"读取抽奖配置失败: {exc}")
+        logger.error("Failed to read lottery config: %s", exc)
         return error_response("读取抽奖配置失败", 500)
 
 
@@ -52,7 +52,7 @@ async def agent_get_lottery_config(request: Request):
         config = LotteryConfigDB.get_config(owner_id)
         return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"]})
     except Exception as exc:
-        logger.error(f"代理读取抽奖配置失败: {exc}")
+        logger.error("Agent failed to read lottery config: %s", exc)
         return error_response("读取抽奖配置失败", 500)
 
 
@@ -75,7 +75,7 @@ async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"更新抽奖配置失败: {exc}")
+        logger.error("Failed to update lottery config: %s", exc)
         return error_response("更新抽奖配置失败", 500)
 
 
@@ -98,7 +98,7 @@ async def agent_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"代理更新抽奖配置失败: {exc}")
+        logger.error("Agent failed to update lottery config: %s", exc)
         return error_response("更新抽奖配置失败", 500)
 
 
@@ -112,7 +112,7 @@ async def admin_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"更新抽奖门槛失败: {exc}")
+        logger.error("Failed to update lottery threshold: %s", exc)
         return error_response("更新抽奖门槛失败", 500)
 
 
@@ -126,7 +126,7 @@ async def agent_update_lottery_threshold(payload: LotteryThresholdUpdateRequest,
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"代理更新抽奖门槛失败: {exc}")
+        logger.error("Agent failed to update lottery threshold: %s", exc)
         return error_response("更新抽奖门槛失败", 500)
 
 
@@ -138,7 +138,7 @@ async def admin_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, req
         is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
         return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
     except Exception as exc:
-        logger.error(f"更新抽奖启用状态失败: {exc}")
+        logger.error("Failed to update lottery enable status: %s", exc)
         return error_response("更新抽奖启用状态失败", 500)
 
 
@@ -150,7 +150,7 @@ async def agent_update_lottery_enabled(payload: LotteryEnabledUpdateRequest, req
         is_enabled = LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
         return success_response("抽奖启用状态已更新", {"is_enabled": is_enabled})
     except Exception as exc:
-        logger.error(f"代理更新抽奖启用状态失败: {exc}")
+        logger.error("Agent failed to update lottery enable status: %s", exc)
         return error_response("更新抽奖启用状态失败", 500)
 
 
@@ -162,7 +162,7 @@ async def admin_get_auto_gifts(request: Request):
         items = AutoGiftDB.list_items(owner_id)
         return success_response("获取满额赠品配置成功", {"items": items})
     except Exception as exc:
-        logger.error(f"读取满额赠品配置失败: {exc}")
+        logger.error("Failed to read gift-threshold config: %s", exc)
         return error_response("读取满额赠品配置失败", 500)
 
 
@@ -184,7 +184,7 @@ async def admin_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Reque
         refreshed = AutoGiftDB.list_items(owner_id)
         return success_response("满额赠品配置已更新", {"items": refreshed})
     except Exception as exc:
-        logger.error(f"更新满额赠品配置失败: {exc}")
+        logger.error("Failed to update gift-threshold config: %s", exc)
         return error_response("更新满额赠品配置失败", 500)
 
 
@@ -196,7 +196,7 @@ async def admin_search_auto_gift_items(request: Request, query: Optional[str] = 
         results = search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"搜索满额赠品候选失败: {exc}")
+        logger.error("Failed to search gift-threshold candidates: %s", exc)
         return error_response("搜索满额赠品候选失败", 500)
 
 
@@ -208,7 +208,7 @@ async def agent_get_auto_gifts(request: Request):
         items = AutoGiftDB.list_items(owner_id)
         return success_response("获取满额赠品配置成功", {"items": items})
     except Exception as exc:
-        logger.error(f"代理读取满额赠品配置失败: {exc}")
+        logger.error("Agent failed to read gift-threshold config: %s", exc)
         return error_response("读取满额赠品配置失败", 500)
 
 
@@ -230,7 +230,7 @@ async def agent_update_auto_gifts(payload: AutoGiftUpdateRequest, request: Reque
         refreshed = AutoGiftDB.list_items(owner_id)
         return success_response("满额赠品配置已更新", {"items": refreshed})
     except Exception as exc:
-        logger.error(f"代理更新满额赠品配置失败: {exc}")
+        logger.error("Agent failed to update gift-threshold config: %s", exc)
         return error_response("更新满额赠品配置失败", 500)
 
 
@@ -241,7 +241,7 @@ async def agent_search_auto_gift_items(request: Request, query: Optional[str] = 
         results = search_inventory_for_selector(query, staff=agent)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"代理搜索满额赠品候选失败: {exc}")
+        logger.error("Agent failed to search gift-threshold candidates: %s", exc)
         return error_response("搜索满额赠品候选失败", 500)
 
 
@@ -298,7 +298,7 @@ async def public_get_auto_gifts():
 
         return success_response("获取满额赠品成功", {"items": items})
     except Exception as exc:
-        logger.error(f"获取满额赠品失败: {exc}")
+        logger.error("Failed to fetch gift-threshold items: %s", exc)
         return error_response("获取满额赠品失败", 500)
 
 
@@ -339,7 +339,7 @@ async def public_get_gift_thresholds(request: Request):
 
         return success_response("获取满额门槛配置成功", {"thresholds": simplified_thresholds, "owner_id": owner_id})
     except Exception as exc:
-        logger.error(f"获取满额门槛配置失败: {exc}")
+        logger.error("Failed to fetch threshold config: %s", exc)
         return error_response("获取满额门槛配置失败", 500)
 
 
@@ -351,7 +351,7 @@ async def get_delivery_config(request: Request):
         delivery_config = DeliverySettingsDB.get_delivery_config(owner_id)
         return success_response("获取配送费配置成功", {"delivery_config": delivery_config})
     except Exception as exc:
-        logger.error(f"获取配送费配置失败: {exc}")
+        logger.error("Failed to fetch delivery fee config: %s", exc)
         return error_response("获取配送费配置失败", 500)
 
 
@@ -363,7 +363,7 @@ async def admin_get_delivery_settings(request: Request, owner_id: Optional[str] 
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("获取配送费设置成功", {"settings": settings})
     except Exception as exc:
-        logger.error(f"获取配送费设置失败: {exc}")
+        logger.error("Failed to fetch delivery settings: %s", exc)
         return error_response("获取配送费设置失败", 500)
 
 
@@ -383,7 +383,7 @@ async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCrea
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("配送费设置保存成功", {"settings": settings})
     except Exception as exc:
-        logger.error(f"保存配送费设置失败: {exc}")
+        logger.error("Failed to save delivery settings: %s", exc)
         return error_response("保存配送费设置失败", 500)
 
 
@@ -395,7 +395,7 @@ async def agent_get_delivery_settings(request: Request):
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("获取配送费设置成功", {"settings": settings})
     except Exception as exc:
-        logger.error(f"获取配送费设置失败: {exc}")
+        logger.error("Failed to fetch delivery settings: %s", exc)
         return error_response("获取配送费设置失败", 500)
 
 
@@ -415,7 +415,7 @@ async def agent_create_or_update_delivery_settings(payload: DeliverySettingsCrea
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("配送费设置保存成功", {"settings": settings})
     except Exception as exc:
-        logger.error(f"保存配送费设置失败: {exc}")
+        logger.error("Failed to save delivery settings: %s", exc)
         return error_response("保存配送费设置失败", 500)
 
 
@@ -430,7 +430,7 @@ async def admin_create_lottery_prize(payload: LotteryPrizeInput, request: Reques
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"创建抽奖奖项失败: {exc}")
+        logger.error("Failed to create lottery prize: %s", exc)
         return error_response("创建抽奖奖项失败", 500)
 
 
@@ -445,7 +445,7 @@ async def agent_create_lottery_prize(payload: LotteryPrizeInput, request: Reques
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"代理创建抽奖奖项失败: {exc}")
+        logger.error("Agent failed to create lottery prize: %s", exc)
         return error_response("创建抽奖奖项失败", 500)
 
 
@@ -462,7 +462,7 @@ async def admin_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, 
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"更新抽奖奖项失败: {exc}")
+        logger.error("Failed to update lottery prize: %s", exc)
         return error_response("更新抽奖奖项失败", 500)
 
 
@@ -479,7 +479,7 @@ async def agent_update_lottery_prize(prize_id: str, payload: LotteryPrizeInput, 
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
-        logger.error(f"代理更新抽奖奖项失败: {exc}")
+        logger.error("Agent failed to update lottery prize: %s", exc)
         return error_response("更新抽奖奖项失败", 500)
 
 
@@ -493,7 +493,7 @@ async def admin_delete_lottery_prize(prize_id: str, request: Request, owner_id: 
             return error_response("奖项不存在", 404)
         return success_response("抽奖奖项已删除")
     except Exception as exc:
-        logger.error(f"删除抽奖奖项失败: {exc}")
+        logger.error("Failed to delete lottery prize: %s", exc)
         return error_response("删除抽奖奖项失败", 500)
 
 
@@ -507,7 +507,7 @@ async def agent_delete_lottery_prize(prize_id: str, request: Request):
             return error_response("奖项不存在", 404)
         return success_response("抽奖奖项已删除")
     except Exception as exc:
-        logger.error(f"代理删除抽奖奖项失败: {exc}")
+        logger.error("Agent failed to delete lottery prize: %s", exc)
         return error_response("删除抽奖奖项失败", 500)
 
 
@@ -519,7 +519,7 @@ async def admin_search_lottery_prize_items(request: Request, query: Optional[str
         results = search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"搜索抽奖候选商品失败: {exc}")
+        logger.error("Failed to search lottery product candidates: %s", exc)
         return error_response("搜索抽奖候选商品失败", 500)
 
 
@@ -530,7 +530,7 @@ async def agent_search_lottery_prize_items(request: Request, query: Optional[str
         results = search_inventory_for_selector(query, staff=agent)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"代理搜索抽奖候选商品失败: {exc}")
+        logger.error("Agent failed to search lottery product candidates: %s", exc)
         return error_response("搜索抽奖候选商品失败", 500)
 
 
@@ -542,7 +542,7 @@ async def admin_get_gift_thresholds(request: Request, include_inactive: bool = F
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=include_inactive)
         return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
     except Exception as exc:
-        logger.error(f"获取满额门槛配置失败: {exc}")
+        logger.error("Failed to fetch threshold config: %s", exc)
         return error_response("获取满额门槛配置失败", 500)
 
 
@@ -554,7 +554,7 @@ async def agent_get_gift_thresholds(request: Request, include_inactive: bool = F
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=include_inactive)
         return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
     except Exception as exc:
-        logger.error(f"代理获取满额门槛配置失败: {exc}")
+        logger.error("Agent failed to fetch threshold config: %s", exc)
         return error_response("获取满额门槛配置失败", 500)
 
 
@@ -595,7 +595,7 @@ async def admin_create_gift_threshold(payload: GiftThresholdCreate, request: Req
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛创建成功", {"thresholds": thresholds})
     except Exception as exc:
-        logger.error(f"创建满额门槛失败: {exc}")
+        logger.error("Failed to create threshold: %s", exc)
         return error_response("创建满额门槛失败", 500)
 
 
@@ -636,7 +636,7 @@ async def agent_create_gift_threshold(payload: GiftThresholdCreate, request: Req
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛创建成功", {"thresholds": thresholds})
     except Exception as exc:
-        logger.error(f"代理创建满额门槛失败: {exc}")
+        logger.error("Agent failed to create threshold: %s", exc)
         return error_response("创建满额门槛失败", 500)
 
 
@@ -678,7 +678,7 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         updated_thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛更新成功", {"thresholds": updated_thresholds})
     except Exception as exc:
-        logger.error(f"更新满额门槛失败: {exc}")
+        logger.error("Failed to update threshold: %s", exc)
         return error_response("更新满额门槛失败", 500)
 
 
@@ -720,7 +720,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         updated_thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
         return success_response("满额门槛更新成功", {"thresholds": updated_thresholds})
     except Exception as exc:
-        logger.error(f"代理更新满额门槛失败: {exc}")
+        logger.error("Agent failed to update threshold: %s", exc)
         return error_response("更新满额门槛失败", 500)
 
 
@@ -734,7 +734,7 @@ async def admin_delete_gift_threshold(threshold_id: str, request: Request, owner
             return error_response("门槛不存在", 404)
         return success_response("满额门槛已删除")
     except Exception as exc:
-        logger.error(f"删除满额门槛失败: {exc}")
+        logger.error("Failed to delete threshold: %s", exc)
         return error_response("删除满额门槛失败", 500)
 
 
@@ -748,7 +748,7 @@ async def agent_delete_gift_threshold(threshold_id: str, request: Request):
             return error_response("门槛不存在", 404)
         return success_response("满额门槛已删除")
     except Exception as exc:
-        logger.error(f"代理删除满额门槛失败: {exc}")
+        logger.error("Agent failed to delete threshold: %s", exc)
         return error_response("删除满额门槛失败", 500)
 
 
@@ -761,7 +761,7 @@ async def admin_search_gift_threshold_items(request: Request, query: Optional[st
         results = search_inventory_for_selector(query, staff=admin, owner_override=owner_id)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"搜索满额门槛赠品候选失败: {exc}")
+        logger.error("Failed to search threshold gift candidates: %s", exc)
         return error_response("搜索满额门槛赠品候选失败", 500)
 
 
@@ -773,7 +773,7 @@ async def agent_search_gift_threshold_items(request: Request, query: Optional[st
         results = search_inventory_for_selector(query, staff=agent)
         return success_response("搜索成功", {"items": results})
     except Exception as exc:
-        logger.error(f"代理搜索满额门槛赠品候选失败: {exc}")
+        logger.error("Agent failed to search threshold gift candidates: %s", exc)
         return error_response("搜索满额门槛赠品候选失败", 500)
 
 

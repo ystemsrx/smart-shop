@@ -80,8 +80,6 @@ def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
 async def list_ai_models():
     """返回可用模型列表及其能力，用于前端渲染模型选择器。"""
     configs = get_settings().model_order
-    logger.info(f"/ai/models API调用 - 配置中的模型数量: {len(configs)}")
-    logger.info(f"/ai/models API调用 - 配置中的模型列表: {[(cfg.name, cfg.label) for cfg in configs]}")
     result = {
         "models": [
             {
@@ -92,7 +90,6 @@ async def list_ai_models():
             for cfg in configs
         ]
     }
-    logger.info(f"/ai/models API调用 - 返回结果中的模型数量: {len(result['models'])}")
     return result
 
 
@@ -107,7 +104,7 @@ async def list_chat_history(request: Request, limit: int = 100):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"获取聊天历史失败: {exc}")
+        logger.error("Failed to list chat history: %s", exc)
         raise HTTPException(status_code=500, detail="无法获取聊天历史")
 
 
@@ -121,7 +118,7 @@ async def create_chat_history(payload: ChatThreadCreateRequest, request: Request
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        logger.error(f"创建聊天会话失败: {exc}")
+        logger.error("Failed to create chat thread: %s", exc)
         raise HTTPException(status_code=500, detail="创建聊天会话失败")
 
 
@@ -138,7 +135,7 @@ async def get_chat_history(chat_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"获取聊天会话失败: {exc}")
+        logger.error("Failed to fetch chat thread: %s", exc)
         raise HTTPException(status_code=500, detail="获取聊天会话失败")
 
 
@@ -155,7 +152,7 @@ async def rename_chat_history(chat_id: str, payload: ChatThreadUpdateRequest, re
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"更新聊天会话失败: {exc}")
+        logger.error("Failed to update chat thread: %s", exc)
         raise HTTPException(status_code=500, detail="更新聊天会话失败")
 
 
@@ -166,9 +163,8 @@ async def ai_chat(request: ChatRequest, http_request: Request):
         user = None
         try:
             user = get_current_user_from_cookie(http_request)
-            logger.info(f"AI聊天请求 - 用户ID: {user['id'] if user else 'anonymous'}")
-        except Exception as exc:
-            logger.info(f"AI聊天请求 - 用户未登录: {exc}")
+        except Exception:
+            user = None
 
         conversation_id = (request.conversation_id or "").strip() or None
         if conversation_id and not user:
@@ -194,5 +190,5 @@ async def ai_chat(request: ChatRequest, http_request: Request):
         selected_model = (request.model or "").strip()
         return await stream_chat(user, messages, http_request, selected_model, conversation_id)
     except Exception as exc:
-        logger.error(f"AI聊天失败: {exc}")
+        logger.error("AI chat request failed: %s", exc)
         raise HTTPException(status_code=500, detail="AI聊天服务暂时不可用")

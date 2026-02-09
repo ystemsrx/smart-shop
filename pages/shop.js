@@ -246,9 +246,6 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
-            onFinalError={() => {
-              console.log(`商品图片最终加载失败: ${product.name}`);
-            }}
           />
         ) : (
           <div className={`h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center ${
@@ -859,7 +856,6 @@ export default function Shop() {
     // 获取购物车图标位置
     const cartIcon = document.getElementById('floating-cart-icon');
     if (!startEl || !cartIcon) {
-      console.log('[flyToCart] 缺少起始元素或购物车图标');
       return;
     }
     
@@ -907,7 +903,7 @@ export default function Shop() {
         try { 
           cartWidgetRef.current?.shake(); 
         } catch (e) {
-          console.log('[flyToCart] shake 调用失败:', e);
+          console.warn('[flyToCart] shake invocation failed:', e);
         }
         // 安全移除小球
         if (ball.parentNode) {
@@ -970,7 +966,7 @@ export default function Shop() {
       });
       setCartItemsMap(itemsMap);
     } catch (err) {
-      console.error('加载购物车失败:', err);
+      console.error('Failed to load cart:', err);
       setCart({ items: [], total_quantity: 0, total_price: 0 });
       setCartItemsMap({});
     }
@@ -991,7 +987,7 @@ export default function Shop() {
       // 注意：不在这里自动选择优惠券，而是等cart数据加载完成后
       // 通过useEffect来处理自动选择逻辑
     } catch (err) {
-      console.error('加载优惠券失败:', err);
+      console.error('Failed to load coupons:', err);
       setCoupons([]);
     }
   };
@@ -1465,7 +1461,7 @@ export default function Shop() {
             }
           }, 10000);
         } catch (e) {
-          console.warn('预加载支付成功动画失败:', e);
+          console.warn('Failed to preload payment success animation:', e);
         }
       };
       
@@ -1549,7 +1545,7 @@ export default function Shop() {
           setBaseDeliveryFee(fee !== undefined && fee !== null ? parseFloat(fee) : 1);
         }
       } catch (e) {
-        console.warn('获取配送费设置失败，使用默认值:', e);
+        console.warn('Failed to fetch delivery settings, using defaults:', e);
       }
     })();
   }, []);

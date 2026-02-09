@@ -204,7 +204,7 @@ async def admin_search_students(request: Request, q: str = "", limit: int = 20):
             })
         return success_response("搜索成功", {"students": items})
     except Exception as exc:
-        logger.error(f"搜索学号失败: {exc}")
+        logger.error("Failed to search student IDs: %s", exc)
         return error_response("搜索失败", 500)
 
 
@@ -231,7 +231,7 @@ async def admin_list_agents(request: Request, include_inactive: bool = False):
                     try:
                         deleted_at_timestamp = convert_sqlite_timestamp_to_unix(deleted_at_raw, agent_id)
                     except Exception as exc:
-                        logger.warning(f"转换删除时间失败 {agent_id}: {exc}")
+                        logger.warning("Failed to convert deleted timestamp for %s: %s", agent_id, exc)
                 agent = AdminDB.get_admin_by_agent_id(agent_id, include_disabled=True, include_deleted=True)
 
                 deleted_buildings: List[Dict[str, Any]] = []
@@ -281,7 +281,7 @@ async def admin_list_agents(request: Request, include_inactive: bool = False):
                 )
         return success_response("获取代理列表成功", {"agents": data, "deleted_agents": deleted_agents})
     except Exception as exc:
-        logger.error(f"获取代理列表失败: {exc}")
+        logger.error("Failed to fetch agent list: %s", exc)
         return error_response("获取代理列表失败", 500)
 
 
@@ -313,7 +313,7 @@ async def admin_create_agent(payload: AgentCreateRequest, request: Request):
         data["invalid_buildings"] = invalid_buildings
         return success_response("代理创建成功", {"agent": data})
     except Exception as exc:
-        logger.error(f"创建代理失败: {exc}")
+        logger.error("Failed to create agent: %s", exc)
         return error_response("创建代理失败", 500)
 
 
@@ -386,7 +386,7 @@ async def admin_update_agent(agent_id: str, payload: AgentUpdateRequest, request
             data["invalid_buildings"] = invalid_buildings
         return success_response("代理更新成功", {"agent": data})
     except Exception as exc:
-        logger.error(f"更新代理失败: {exc}")
+        logger.error("Failed to update agent: %s", exc)
         return error_response("更新代理失败", 500)
 
 
@@ -406,12 +406,12 @@ async def admin_delete_agent(agent_id: str, request: Request):
         address_ids = [item.get("address_id") for item in assignments or []]
         building_ids = [item.get("building_id") for item in assignments or []]
         if not AgentDeletionDB.record_deletion(agent_id, agent.get("name") or agent_id, agent.get("id"), address_ids, building_ids):
-            logger.warning(f"记录代理删除信息失败: {agent_id}")
+            logger.warning("Failed to record agent deletion metadata: %s", agent_id)
         if not AgentAssignmentDB.set_agent_buildings(agent_id, []):
-            logger.warning(f"清空代理 {agent_id} 的楼栋关联失败")
+            logger.warning("Failed to clear building assignments for agent %s", agent_id)
         return success_response("代理已删除")
     except Exception as exc:
-        logger.error(f"删除代理失败: {exc}")
+        logger.error("Failed to delete agent: %s", exc)
         return error_response("删除代理失败", 500)
 
 
@@ -425,7 +425,7 @@ async def admin_get_payment_qrs(request: Request, owner_id: Optional[str] = None
         qrs = [_present_payment_qr(item) for item in PaymentQrDB.get_payment_qrs(target_owner_id, owner_type, include_disabled=True)]
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as exc:
-        logger.error(f"获取管理员收款码列表失败: {exc}")
+        logger.error("Failed to fetch admin payment QR list: %s", exc)
         return error_response("获取收款码列表失败", 500)
 
 
@@ -439,7 +439,7 @@ async def agent_get_payment_qrs(request: Request):
         qrs = [_present_payment_qr(item) for item in PaymentQrDB.get_payment_qrs(staff.get("agent_id"), "agent", include_disabled=True)]
         return success_response("获取收款码列表成功", {"payment_qrs": qrs})
     except Exception as exc:
-        logger.error(f"获取代理收款码列表失败: {exc}")
+        logger.error("Failed to fetch agent payment QR list: %s", exc)
         return error_response("获取收款码列表失败", 500)
 
 
@@ -483,7 +483,7 @@ async def admin_create_payment_qr(
     except ValueError as exc:
         return error_response(str(exc), 400)
     except Exception as exc:
-        logger.error(f"创建管理员收款码失败: {exc}")
+        logger.error("Failed to create admin payment QR: %s", exc)
         return error_response("创建收款码失败", 500)
 
 
@@ -521,7 +521,7 @@ async def agent_create_payment_qr(request: Request, name: str = Form(...), file:
     except ValueError as exc:
         return error_response(str(exc), 400)
     except Exception as exc:
-        logger.error(f"创建代理收款码失败: {exc}")
+        logger.error("Failed to create agent payment QR: %s", exc)
         return error_response("创建收款码失败", 500)
 
 
@@ -542,7 +542,7 @@ async def admin_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
-        logger.error(f"更新管理员收款码失败: {exc}")
+        logger.error("Failed to update admin payment QR: %s", exc)
         return error_response("更新收款码失败", 500)
 
 
@@ -563,7 +563,7 @@ async def agent_update_payment_qr(qr_id: str, payload: PaymentQrUpdateRequest, r
         updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
-        logger.error(f"更新代理收款码失败: {exc}")
+        logger.error("Failed to update agent payment QR: %s", exc)
         return error_response("更新收款码失败", 500)
 
 
@@ -582,7 +582,7 @@ async def admin_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
-        logger.error(f"更新管理员收款码状态失败: {exc}")
+        logger.error("Failed to update admin payment QR status: %s", exc)
         return error_response("更新收款码状态失败", 500)
 
 
@@ -601,7 +601,7 @@ async def agent_update_payment_qr_status(qr_id: str, payload: PaymentQrStatusReq
         updated_qr = _present_payment_qr(PaymentQrDB.get_payment_qr(qr_id))
         return success_response("收款码状态更新成功", {"payment_qr": updated_qr})
     except Exception as exc:
-        logger.error(f"更新代理收款码状态失败: {exc}")
+        logger.error("Failed to update agent payment QR status: %s", exc)
         return error_response("更新收款码状态失败", 500)
 
 
@@ -622,13 +622,13 @@ async def admin_delete_payment_qr(qr_id: str, request: Request, owner_id: Option
                 os.remove(file_path)
                 _cleanup_empty_payment_qr_dirs(file_path)
         except Exception as exc:
-            logger.warning(f"删除收款码文件失败: {exc}")
+            logger.warning("Failed to remove payment QR file: %s", exc)
 
         PaymentQrDB.delete_payment_qr(qr_id)
 
         return success_response("收款码删除成功")
     except Exception as exc:
-        logger.error(f"删除管理员收款码失败: {exc}")
+        logger.error("Failed to delete admin payment QR: %s", exc)
         return error_response("删除收款码失败", 500)
 
 
@@ -649,13 +649,13 @@ async def agent_delete_payment_qr(qr_id: str, request: Request):
                 os.remove(file_path)
                 _cleanup_empty_payment_qr_dirs(file_path)
         except Exception as exc:
-            logger.warning(f"删除收款码文件失败: {exc}")
+            logger.warning("Failed to remove payment QR file: %s", exc)
 
         PaymentQrDB.delete_payment_qr(qr_id)
 
         return success_response("收款码删除成功")
     except Exception as exc:
-        logger.error(f"删除代理收款码失败: {exc}")
+        logger.error("Failed to delete agent payment QR: %s", exc)
         return error_response("删除收款码失败", 500)
 
 
@@ -729,7 +729,7 @@ async def get_payment_qr(address_id: str = None, building_id: str = None, reques
         return success_response("获取收款码成功", {"payment_qr": _present_payment_qr(qr)})
 
     except Exception as exc:
-        logger.error(f"获取收款码失败: {exc}")
+        logger.error("Failed to fetch payment QR: %s", exc)
         return error_response("获取收款码失败", 500)
 
 
@@ -751,5 +751,5 @@ async def get_order_payment_qr(order_id: str, request: Request):
         return await get_payment_qr(address_id=order.get("address_id"), building_id=order.get("building_id"), request=request)
 
     except Exception as exc:
-        logger.error(f"获取订单收款码失败: {exc}")
+        logger.error("Failed to fetch order payment QR: %s", exc)
         return error_response("获取收款码失败", 500)

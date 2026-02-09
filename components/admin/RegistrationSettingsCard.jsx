@@ -23,7 +23,7 @@ export const RegistrationSettingsCard = () => {
         setCycleLocked(!!response.data.cycle_locked);
       }
     } catch (e) {
-      console.error('获取注册状态失败:', e);
+      console.error('Failed to fetch registration status:', e);
     } finally {
       setLoading(false);
     }
@@ -50,7 +50,7 @@ export const RegistrationSettingsCard = () => {
         throw new Error(response.message || '更新失败');
       }
     } catch (e) {
-      console.error('更新注册设置失败:', e);
+      console.error('Failed to update registration settings:', e);
       setEnabled(prevEnabled);
       setReservationEnabled(prevReservation);
       alert('更新注册/预约设置失败');

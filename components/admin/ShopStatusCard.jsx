@@ -33,7 +33,7 @@ export const ShopStatusCard = () => {
     try { 
       await updateStatus(isOpen, note);
     } catch (e) {
-      console.error('保存提示失败:', e);
+      console.error('Failed to save closed note:', e);
     }
   };
 

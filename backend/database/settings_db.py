@@ -25,6 +25,6 @@ class SettingsDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("保存设置失败: %s", exc)
+                logger.error("Failed to save setting: %s", exc)
                 conn.rollback()
                 return False

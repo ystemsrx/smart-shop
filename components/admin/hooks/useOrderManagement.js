@@ -112,7 +112,7 @@ export function useOrderManagement({
         setOrderCycleId('all');
       }
     } catch (err) {
-      console.error('加载周期失败', err);
+      console.error('Failed to load sales cycles', err);
       setOrderCycles([]);
       setOrderCycleId('all');
     } finally {
@@ -277,7 +277,7 @@ export function useOrderManagement({
       setExportHistory(historyList);
       return historyList;
     } catch (e) {
-      console.error('获取导出记录失败', e);
+      console.error('Failed to load export history', e);
       return [];
     }
   }, [apiRequest, staffPrefix]);
@@ -366,11 +366,11 @@ export function useOrderManagement({
             stopExportStream();
           }
         } catch (err) {
-          console.error('解析导出进度失败', err);
+          console.error('Failed to parse export progress payload', err);
         }
       };
       source.onerror = (err) => {
-        console.error('导出进度连接异常', err);
+        console.error('Export progress stream connection failed', err);
         setExportState((prev) => ({
           ...prev,
           status: 'failed',
@@ -381,7 +381,7 @@ export function useOrderManagement({
       };
       return data;
     } catch (error) {
-      console.error('导出订单失败:', error);
+      console.error('Order export failed:', error);
       if (showToast) {
         showToast(error?.message || '导出订单失败，请稍后重试');
       } else {

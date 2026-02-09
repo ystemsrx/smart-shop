@@ -47,7 +47,7 @@ async def get_products(request: Request, category: Optional[str] = None, address
         return success_response("获取商品列表成功", {"products": products, "scope": scope})
 
     except Exception as exc:
-        logger.error(f"获取商品失败: {exc}")
+        logger.error("Failed to fetch products: %s", exc)
         return error_response("获取商品失败", 500)
 
 
@@ -82,7 +82,7 @@ async def search_products(request: Request, q: str, address_id: Optional[str] = 
 
 
     except Exception as exc:
-        logger.error(f"搜索商品失败: {exc}")
+        logger.error("Failed to search products: %s", exc)
         return error_response("搜索失败", 500)
 
 
@@ -111,5 +111,5 @@ async def get_categories(request: Request, address_id: Optional[str] = None, bui
         return success_response("获取分类成功", {"categories": categories, "scope": scope})
 
     except Exception as exc:
-        logger.error(f"获取分类失败: {exc}")
+        logger.error("Failed to fetch categories: %s", exc)
         return error_response("获取分类失败", 500)

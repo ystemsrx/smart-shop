@@ -109,7 +109,7 @@ class AddressDB:
                 conn.commit()
                 return ok
             except Exception as exc:
-                logger.error("删除地址失败: %s", exc)
+                logger.error("Failed to delete address: %s", exc)
                 conn.rollback()
                 return False
 
@@ -126,7 +126,7 @@ class AddressDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("重排地址失败: %s", exc)
+                logger.error("Failed to reorder addresses: %s", exc)
                 conn.rollback()
                 return False
 
@@ -239,6 +239,6 @@ class BuildingDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("重排楼栋失败: %s", exc)
+                logger.error("Failed to reorder buildings: %s", exc)
                 conn.rollback()
                 return False

@@ -77,7 +77,7 @@ def _cors_config() -> Tuple[List[str], bool]:
     allow_origins = ["*"] if ALLOW_ALL_ORIGINS else ALLOWED_ORIGINS
     allow_credentials = not ALLOW_ALL_ORIGINS
     if ALLOW_ALL_ORIGINS and not allow_credentials:
-        logger.warning("检测到通配符跨域设置，已禁用凭据共享以符合CORS规范。")
+        logger.warning("Wildcard CORS detected; credentials sharing disabled to comply with CORS rules.")
     return allow_origins, allow_credentials
 
 

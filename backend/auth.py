@@ -48,10 +48,10 @@ class AuthManager:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             return payload
         except jwt.ExpiredSignatureError:
-            logger.warning("Token已过期")
+            logger.warning("Token expired")
             return None
         except jwt.JWTError as e:
-            logger.warning(f"Token验证失败: {e}")
+            logger.warning("Token validation failed: %s", e)
             return None
     
     @staticmethod
@@ -80,30 +80,20 @@ class AuthManager:
                  timeout=10.0,
                  follow_redirects=True  # 跟随重定向
              ) as client:
-                logger.info(f"登录API地址: {LOGIN_API}")
                 response = await client.post(
                     LOGIN_API,
                     json=payload,
                     headers=headers
                 )
                 
-                # 记录响应的基本信息用于调试
-                logger.debug(f"API响应状态: {response.status_code}")
-                logger.debug(f"API响应头: {dict(response.headers)}")
-                
                 if response.status_code == 200:
                     try:
                         # 获取原始响应内容
                         raw_content = response.content
                         response_headers = response.headers
-                        
-                        # 记录原始内容的十六进制信息用于调试
-                        hex_preview = ' '.join(f'{b:02x}' for b in raw_content[:20])
-                        logger.debug(f"响应内容前20字节(hex): {hex_preview}")
-                        
+
                         # 检查是否为压缩响应
                         content_encoding = response_headers.get('content-encoding', '').lower()
-                        logger.debug(f"Content-Encoding: {content_encoding}")
                         
                         # 处理压缩内容 - 优先尝试解压缩
                         if content_encoding in ['gzip', 'deflate', 'br']:
@@ -111,41 +101,35 @@ class AuthManager:
                             try:
                                 if content_encoding == 'gzip':
                                     import gzip
-                                    logger.info("检测到gzip压缩，正在解压缩...")
                                     decompressed_content = gzip.decompress(raw_content)
                                     decompression_success = True
                                     
                                 elif content_encoding == 'deflate':
                                     import zlib
-                                    logger.info("检测到deflate压缩，正在解压缩...")
                                     decompressed_content = zlib.decompress(raw_content)
                                     decompression_success = True
                                     
                                 elif content_encoding == 'br':
                                     try:
                                         import brotli
-                                        logger.info("检测到brotli压缩，正在解压缩...")
                                         decompressed_content = brotli.decompress(raw_content)
                                         decompression_success = True
                                     except ImportError:
-                                        logger.error("brotli包未安装！请安装: pip install brotli")
-                                        logger.info("尝试使用原始数据...")
+                                        logger.error("Brotli package is missing; install it with: pip install brotli")
                                 
                                 if decompression_success:
                                     raw_content = decompressed_content
-                                    logger.info(f"✅ 解压缩成功，内容长度: {len(raw_content)}")
                                 
                             except Exception as decompress_error:
-                                logger.warning(f"❌ 解压缩失败: {decompress_error}")
-                                logger.info("🔄 尝试使用原始数据...")
+                                logger.warning("Response decompression failed: %s", decompress_error)
                                 
                                 # 检查原始数据是否看起来像未压缩的JSON
                                 if (len(raw_content) > 0 and 
                                     raw_content[0:1] in [b'{', b'['] and 
                                     raw_content[-1:] in [b'}', b']']):
-                                    logger.info("💡 原始数据似乎是未压缩的JSON，可能是服务器配置错误")
+                                    logger.info("Raw response looks like uncompressed JSON; upstream may be misconfigured")
                                 else:
-                                    logger.error("⚠️  原始数据不是有效的JSON格式")
+                                    logger.error("Raw response is not valid JSON")
                         
                         # 不再对未声明编码的内容进行启发式解压，交由 httpx/default 处理
                         
@@ -153,27 +137,25 @@ class AuthManager:
                         try:
                             # 首先尝试以UTF-8解码
                             response_text = raw_content.decode('utf-8')
-                            logger.debug("成功使用UTF-8解码响应")
                         except UnicodeDecodeError:
                             # 如果UTF-8失败，尝试其他编码
-                            logger.warning("UTF-8解码失败，尝试其他编码...")
+                            logger.warning("UTF-8 decoding failed, trying fallback encodings")
                             
                             # 尝试常见的中文编码
                             for encoding in ['gb2312', 'gbk', 'big5', 'latin-1']:
                                 try:
                                     response_text = raw_content.decode(encoding)
-                                    logger.info(f"成功使用 {encoding} 编码解码响应")
                                     break
                                 except UnicodeDecodeError:
                                     continue
                             else:
                                 # 所有编码都失败，使用错误替换模式
                                 response_text = raw_content.decode('utf-8', errors='replace')
-                                logger.warning("使用错误替换模式解码响应")
+                                logger.warning("Decoded response using replacement characters")
                         
                         # 检查响应内容是否为空或损坏
                         if not response_text.strip():
-                            logger.error("API返回空响应")
+                            logger.error("Login API returned an empty response")
                             return None
                         
                         # 尝试解析JSON
@@ -181,8 +163,7 @@ class AuthManager:
                             import json
                             data = json.loads(response_text)
                         except json.JSONDecodeError as e:
-                            logger.error(f"API响应JSON解析失败: {e}")
-                            logger.error(f"响应内容前100字符: {response_text[:100]}")
+                            logger.error("Failed to parse login API JSON: %s", e)
                             return None
                         
                         # 检查API返回的success字段
@@ -199,38 +180,35 @@ class AuthManager:
                             }
                         else:
                             # 登录失败（账号密码错误等）
-                            error_msg = data.get("msg") or data.get("message") or "登录失败"
+                            error_msg = data.get("msg") or data.get("message") or "Login failed"
                             logger.warning(
-                                f"API登录失败: {student_id} - {error_msg}; status={response.status_code}; body={response_text[:200]}"
+                                "Login API rejected credentials for %s: %s (status=%s)",
+                                student_id,
+                                error_msg,
+                                response.status_code,
                             )
                             return None
                             
                     except Exception as decode_error:
-                        logger.error(f"处理 API响应时发生错误: {decode_error}")
-                        logger.error(f"响应状态码: {response.status_code}")
-                        logger.error(f"响应头: {dict(response.headers)}")
-                        # 记录原始字节内容的十六进制表示（仅前50字节）
-                        raw_bytes = response.content[:50]
-                        hex_content = ' '.join(f'{b:02x}' for b in raw_bytes)
-                        logger.error(f"响应内容(hex前50字节): {hex_content}")
+                        logger.error("Failed to process login API response: %s", decode_error)
                         return None
                         
                 elif response.status_code == 401:
-                    logger.warning(f"API返回401: {student_id}")
+                    logger.warning("Login API returned 401 for %s", student_id)
                     return None
                 else:
-                    logger.error(f"API异常响应: {response.status_code}")
+                    logger.error("Unexpected login API status: %s", response.status_code)
                     try:
-                        logger.error(f"错误响应内容: {response.text}")
+                        logger.error("Login API error response: %s", response.text[:200])
                     except Exception:
-                        logger.error(f"无法解码错误响应内容")
+                        logger.error("Failed to decode login API error response")
                     return None
                     
         except httpx.TimeoutException:
-            logger.error("API超时")
+            logger.error("Login API timeout")
             return None
         except Exception as e:
-            logger.error(f"API调用失败: {e}")
+            logger.error("Login API request failed: %s", e)
             return None
     
     @staticmethod
@@ -267,19 +245,19 @@ class AuthManager:
             return new_status
         
         if local_user and is_local_password_valid:
-            logger.info(f"用户 {student_id} 使用本地凭据登录成功")
+            logger.info("User %s logged in with local credentials", student_id)
             if id_status == 0:
                 # 老数据：本地密码正确，但需要获取身份证号
                 id_status = await _ensure_identity(local_user, None)
                 local_user = UserDB.get_user(student_id)
         else:
             # 本地密码不匹配或用户不存在，尝试第三方API验证
-            logger.info(f"用户 {student_id} 需要第三方API验证")
+            logger.info("User %s requires third-party API verification", student_id)
             api_result = await AuthManager.verify_login(student_id, password)
             if not api_result:
-                logger.warning(f"用户 {student_id} 第三方API验证失败")
+                logger.warning("Third-party API verification failed for %s", student_id)
                 return None
-            logger.info(f"用户 {student_id} 第三方API验证成功")
+            logger.info("Third-party API verification succeeded for %s", student_id)
             # 远端成功后，首次登录/凭据失效：无论原状态为何都重新写入身份证状态
             id_number_value = _clean_id_number(api_result.get('id_number'))
             new_status = 1 if id_number_value else 2
@@ -289,7 +267,7 @@ class AuthManager:
         # 3. 第三方验证成功，更新或创建本地用户记录
         if local_user:
             if not is_local_password_valid and api_result:
-                logger.info(f"更新用户 {student_id} 的本地密码")
+                logger.info("Updating local password for %s", student_id)
                 UserDB.update_user_password(student_id, password)
                 if local_user['name'] != api_result['name']:
                     UserDB.update_user_name(student_id, api_result['name'])
@@ -303,7 +281,7 @@ class AuthManager:
             local_user = UserDB.get_user(student_id)
         else:
             # 用户不存在，创建新用户
-            logger.info(f"创建新用户 {student_id}")
+            logger.info("Creating new user %s", student_id)
             id_number_value = _clean_id_number(api_result.get('id_number') if api_result else None)
             create_status = 1 if id_number_value else 2
             success = UserDB.create_user(
@@ -314,7 +292,7 @@ class AuthManager:
                 id_status=create_status
             )
             if not success:
-                logger.error(f"创建用户失败: {student_id}")
+                logger.error("Failed to create user %s", student_id)
                 return None
             local_user = UserDB.get_user(student_id)
         
@@ -548,7 +526,10 @@ def _load_staff_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict
                 has_active_assignment = True
                 break
         if not has_active_assignment:
-            logger.warning(f"代理 {admin_id} 没有可用的启用地址/楼栋，强制登出")
+            logger.warning(
+                "Agent %s has no active address/building assignment; forcing logout",
+                admin_id,
+            )
             AdminDB.bump_token_version(admin_id)
             return None
 

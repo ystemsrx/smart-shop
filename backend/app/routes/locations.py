@@ -31,16 +31,11 @@ async def get_enabled_addresses():
         addrs = AddressDB.get_enabled_addresses_with_buildings()
 
         if not addrs:
-            all_enabled_addrs = AddressDB.get_enabled_addresses()
-            if all_enabled_addrs:
-                logger.info(f"发现 {len(all_enabled_addrs)} 个启用地址但无可用楼栋，不向用户显示")
-            else:
-                logger.info("没有找到任何启用的地址")
             addrs = []
 
         return success_response("获取地址成功", {"addresses": addrs})
     except Exception as exc:
-        logger.error(f"获取地址失败: {exc}")
+        logger.error("Failed to fetch addresses: %s", exc)
         return error_response("获取地址失败", 500)
 
 
@@ -63,7 +58,7 @@ async def admin_get_addresses(request: Request):
                 pass
         return success_response("获取地址成功", {"addresses": addrs})
     except Exception as exc:
-        logger.error(f"管理员获取地址失败: {exc}")
+        logger.error("Admin failed to fetch addresses: %s", exc)
         return error_response("获取地址失败", 500)
 
 
@@ -79,7 +74,7 @@ async def admin_create_address(payload: AddressCreateRequest, request: Request):
             return error_response("创建地址失败，名称可能冲突", 400)
         return success_response("地址创建成功", {"address_id": addr_id})
     except Exception as exc:
-        logger.error(f"创建地址失败: {exc}")
+        logger.error("Failed to create address: %s", exc)
         return error_response("创建地址失败", 500)
 
 
@@ -110,7 +105,7 @@ async def admin_update_address(address_id: str, payload: AddressUpdateRequest, r
             expire_agent_tokens_for_address(address_id, agent_ids_to_expire)
         return success_response("地址更新成功")
     except Exception as exc:
-        logger.error(f"更新地址失败: {exc}")
+        logger.error("Failed to update address: %s", exc)
         return error_response("更新地址失败", 500)
 
 
@@ -130,7 +125,7 @@ async def admin_delete_address(address_id: str, request: Request):
             expire_agent_tokens_for_address(address_id, agent_ids_to_expire)
         return success_response("地址删除成功")
     except Exception as exc:
-        logger.error(f"删除地址失败: {exc}")
+        logger.error("Failed to delete address: %s", exc)
         return error_response("删除地址失败", 500)
 
 
@@ -146,7 +141,7 @@ async def admin_reorder_addresses(payload: AddressReorderRequest, request: Reque
             return error_response("重排失败", 400)
         return success_response("重排成功")
     except Exception as exc:
-        logger.error(f"地址重排失败: {exc}")
+        logger.error("Failed to reorder addresses: %s", exc)
         return error_response("地址重排失败", 500)
 
 
@@ -177,7 +172,7 @@ async def get_enabled_buildings(address_id: Optional[str] = None, address_name: 
             ]
         return success_response("获取楼栋成功", {"buildings": buildings})
     except Exception as exc:
-        logger.error(f"获取楼栋失败: {exc}")
+        logger.error("Failed to fetch buildings: %s", exc)
         return error_response("获取楼栋失败", 500)
 
 
@@ -189,7 +184,7 @@ async def admin_get_buildings(request: Request, address_id: Optional[str] = None
         blds = BuildingDB.get_all_buildings(address_id=address_id, include_disabled=True)
         return success_response("获取楼栋成功", {"buildings": blds})
     except Exception as exc:
-        logger.error(f"管理员获取楼栋失败: {exc}")
+        logger.error("Admin failed to fetch buildings: %s", exc)
         return error_response("获取楼栋失败", 500)
 
 
@@ -208,7 +203,7 @@ async def admin_create_building(payload: BuildingCreateRequest, request: Request
             return error_response("创建楼栋失败，名称冲突", 400)
         return success_response("楼栋创建成功", {"building_id": bld_id})
     except Exception as exc:
-        logger.error(f"创建楼栋失败: {exc}")
+        logger.error("Failed to create building: %s", exc)
         return error_response("创建楼栋失败", 500)
 
 
@@ -228,7 +223,7 @@ async def admin_update_building(building_id: str, payload: BuildingUpdateRequest
             return error_response("更新楼栋失败", 400)
         return success_response("楼栋更新成功")
     except Exception as exc:
-        logger.error(f"更新楼栋失败: {exc}")
+        logger.error("Failed to update building: %s", exc)
         return error_response("更新楼栋失败", 500)
 
 
@@ -245,7 +240,7 @@ async def admin_delete_building(building_id: str, request: Request):
             return error_response("删除楼栋失败", 400)
         return success_response("楼栋删除成功")
     except Exception as exc:
-        logger.error(f"删除楼栋失败: {exc}")
+        logger.error("Failed to delete building: %s", exc)
         return error_response("删除楼栋失败", 500)
 
 
@@ -264,5 +259,5 @@ async def admin_reorder_buildings(payload: BuildingReorderRequest, request: Requ
             return error_response("重排失败", 400)
         return success_response("重排成功")
     except Exception as exc:
-        logger.error(f"楼栋重排失败: {exc}")
+        logger.error("Failed to reorder buildings: %s", exc)
         return error_response("楼栋重排失败", 500)

@@ -126,7 +126,7 @@ export function PaymentQrProvider({ children }) {
       
       return paymentQr;
     } catch (error) {
-      console.warn('预加载收款码失败:', error);
+      console.warn('Failed to preload payment QR:', error);
       const fallbackQr = {
         owner_type: 'default',
         name: "无收款码"

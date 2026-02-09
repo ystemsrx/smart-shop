@@ -62,7 +62,7 @@ export function useProductManagement({
         throw new Error(response.message || '更新设置失败');
       }
     } catch (err) {
-      console.error('更新商城设置失败:', err);
+      console.error('Failed to update shop settings:', err);
       alert('更新设置失败: ' + err.message);
     } finally {
       setIsLoadingShopSetting(false);
@@ -213,7 +213,7 @@ export function useProductManagement({
       }
     } catch (err) {
       setError(err.message || '加载数据失败');
-      console.error(err);
+      console.error('Failed to load admin product data:', err);
     } finally {
       setIsLoading(false);
     }
@@ -246,7 +246,7 @@ export function useProductManagement({
         total_revenue: 0
       });
     } catch (err) {
-      console.error('刷新统计数据失败:', err);
+      console.error('Failed to refresh statistics:', err);
     }
   };
 
@@ -297,11 +297,11 @@ export function useProductManagement({
         setProducts(prevProducts => [normalizedNewProduct, ...prevProducts]);
         setShowAddModal(false);
         await refreshStats();
-        safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+        safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
       } else {
         setShowAddModal(false);
         await loadData();
-        safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+        safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
       }
 
     } catch (err) {
@@ -364,7 +364,7 @@ export function useProductManagement({
       if (!skipCloseModal) {
         if (needsFullRefresh) {
           await loadData();
-          safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+          safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
         } else {
           try {
             const refreshedProduct = await apiRequest(`${staffPrefix}/products/${editingProduct.id}`);
@@ -388,11 +388,11 @@ export function useProductManagement({
             });
             setProducts(updatedProducts);
             await refreshStats();
-            safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+            safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
           } catch (refreshErr) {
-            console.error('重新获取商品数据失败，执行完整刷新:', refreshErr);
+            console.error('Failed to refetch product data, performing full refresh:', refreshErr);
             await loadData();
-            safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+            safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
           }
         }
       }
@@ -428,7 +428,7 @@ export function useProductManagement({
         setProducts(updatedProducts);
       }
     } catch (err) {
-      console.error('刷新商品数据失败:', err);
+      console.error('Failed to refresh product data:', err);
     }
   };
 
@@ -494,7 +494,7 @@ export function useProductManagement({
 
     try {
       await apiRequest(`${staffPrefix}/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_active: target }) });
-      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+      safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
     } catch (e) {
       const revertedProducts = products.map(p =>
         p.id === product.id ? { ...p, is_active: product.is_active } : p
@@ -623,8 +623,8 @@ export function useProductManagement({
         p.id === productId ? applyLatestSnapshot(p, nextStock) : p
       ));
 
-      refreshStats().catch(err => console.error('刷新统计数据失败:', err));
-      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+      refreshStats().catch(err => console.error('Failed to refresh statistics:', err));
+      safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
 
       return nextStock;
     } catch (err) {
@@ -679,7 +679,7 @@ export function useProductManagement({
       });
 
       alert('商品删除成功！');
-      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+      safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
     } catch (err) {
       setProducts(originalProducts);
       alert(err.message || '删除商品失败');
@@ -733,7 +733,7 @@ export function useProductManagement({
       });
 
       alert(`成功删除 ${productIds.length} 件商品！`);
-      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+      safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
 
     } catch (err) {
       setProducts(originalProducts);
@@ -768,10 +768,10 @@ export function useProductManagement({
       );
 
       await Promise.all(promises);
-      safeRefreshAllWarnings().catch(err => console.error('刷新警告状态失败:', err));
+      safeRefreshAllWarnings().catch(err => console.error('Failed to refresh warning state:', err));
     } catch (err) {
       setProducts(originalProducts);
-      console.error('批量操作失败:', err);
+      console.error('Batch operation failed:', err);
     } finally {
       setIsSubmitting(false);
     }

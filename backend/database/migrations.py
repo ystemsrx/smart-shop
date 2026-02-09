@@ -32,20 +32,20 @@ def ensure_table_columns(conn, table_name: str, required_columns: Dict[str, str]
                     safe_definition = column_definition.replace('DEFAULT CURRENT_TIMESTAMP', 'DEFAULT NULL')
                     alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {safe_definition}"
                     cursor.execute(alter_sql)
-                    logger.info("自动添加列: %s.%s", table_name, column_name)
+                    logger.info("Auto-added column: %s.%s", table_name, column_name)
                     if 'CURRENT_TIMESTAMP' in column_definition:
                         try:
                             cursor.execute(
                                 f"UPDATE {table_name} SET {column_name} = datetime('now') WHERE {column_name} IS NULL"
                             )
-                            logger.info("初始化时间戳列: %s.%s", table_name, column_name)
+                            logger.info("Initialized timestamp column: %s.%s", table_name, column_name)
                         except sqlite3.OperationalError:
                             pass
                 except sqlite3.OperationalError as exc:
-                    logger.warning("无法添加列 %s.%s: %s", table_name, column_name, exc)
+                    logger.warning("Failed to add column %s.%s: %s", table_name, column_name, exc)
         conn.commit()
     except sqlite3.OperationalError as exc:
-        logger.warning("检查表 %s 列时出错: %s", table_name, exc)
+        logger.warning("Error while checking columns for table %s: %s", table_name, exc)
 
 
 def ensure_user_id_schema(conn) -> None:
@@ -73,7 +73,7 @@ def ensure_user_id_schema(conn) -> None:
 
         try:
             if not has_user_id_primary:
-                logger.info("检测到 users 表缺少 user_id 主键，开始重建...")
+                logger.info("Detected missing user_id primary key in users table, rebuilding")
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS __users_new (
                         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,7 +131,7 @@ def ensure_user_id_schema(conn) -> None:
                 cursor.execute('ALTER TABLE users RENAME TO __users_old')
                 cursor.execute('ALTER TABLE __users_new RENAME TO users')
                 cursor.execute('DROP TABLE __users_old')
-                logger.info("users 表重建完成")
+                logger.info("users table rebuild completed")
             else:
                 cursor.execute('UPDATE users SET user_id = rowid WHERE user_id IS NULL OR user_id = 0')
 
@@ -144,9 +144,9 @@ def ensure_user_id_schema(conn) -> None:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)')
             conn.commit()
         except sqlite3.OperationalError as exc:
-            logger.warning("重建 users 表失败: %s", exc)
+            logger.warning("Failed to rebuild users table: %s", exc)
         except Exception as exc:
-            logger.error("重建 users 表时发生异常: %s", exc)
+            logger.error("Unexpected error while rebuilding users table: %s", exc)
             conn.rollback()
             raise
 
@@ -156,7 +156,7 @@ def ensure_user_id_schema(conn) -> None:
             column_names = {row[1] for row in columns}
             if 'user_id' not in column_names:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
-                logger.info("为 %s 表添加 user_id 列", table)
+                logger.info("Adding user_id column for table %s", table)
             cursor.execute(f'''
                 UPDATE {table}
                 SET user_id = (
@@ -181,9 +181,9 @@ def ensure_user_id_schema(conn) -> None:
                 cursor.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_user_id_unique ON {table}(user_id)')
             conn.commit()
         except sqlite3.OperationalError as exc:
-            logger.warning("为表 %s 添加 user_id 列失败: %s", table, exc)
+            logger.warning("Failed to add user_id column for table %s: %s", table, exc)
         except Exception as exc:
-            logger.error("回填 %s.user_id 时出错: %s", table, exc)
+            logger.error("Error while backfilling %s.user_id: %s", table, exc)
             conn.rollback()
 
     _ensure_user_table()
@@ -206,7 +206,7 @@ def ensure_agent_id_schema(conn) -> Dict[str, str]:
     try:
         cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_agent_id ON admins(agent_id)')
     except sqlite3.OperationalError as exc:
-        logger.warning("创建 admins.agent_id 索引失败: %s", exc)
+        logger.warning("Failed to create admins.agent_id index: %s", exc)
 
     def _row_value(row: Any, key: str, index: int) -> Any:
         if isinstance(row, sqlite3.Row):
@@ -419,15 +419,15 @@ def migrate_user_profile_addresses(conn):
         need_migration_count = cursor.fetchone()[0]
 
         if need_migration_count == 0:
-            logger.info("用户配置文件地址数据无需迁移")
+            logger.info("User profile address data does not require migration")
             return
 
-        logger.info("发现 %s 个用户配置需要地址数据迁移", need_migration_count)
+        logger.info("Detected %s user profiles requiring address migration", need_migration_count)
         cursor.execute("SELECT id, name FROM addresses WHERE enabled = 1")
         address_map = {name: id for id, name in cursor.fetchall()}
 
         if not address_map:
-            logger.warning("地址表为空，无法进行迁移")
+            logger.warning("Address table is empty, cannot run migration")
             return
 
         cursor.execute("SELECT id, address_id, name FROM buildings WHERE enabled = 1")
@@ -437,7 +437,7 @@ def migrate_user_profile_addresses(conn):
             building_map[(address_id, building_name)] = building_id
 
         if not building_map:
-            logger.warning("楼栋表为空，无法进行迁移")
+            logger.warning("Building table is empty, cannot run migration")
             return
 
         cursor.execute("""
@@ -458,13 +458,13 @@ def migrate_user_profile_addresses(conn):
             try:
                 address_id = address_map.get(dormitory.strip())
                 if not address_id:
-                    logger.warning("用户 %s 的宿舍区 '%s' 在地址表中未找到", student_id, dormitory)
+                    logger.warning("User %s dormitory '%s' not found in address table", student_id, dormitory)
                     failed_count += 1
                     continue
 
                 building_id = building_map.get((address_id, building.strip()))
                 if not building_id:
-                    logger.warning("用户 %s 的楼栋 '%s' 在地址 '%s' 下未找到", student_id, building, dormitory)
+                    logger.warning("User %s building '%s' not found under address '%s'", student_id, building, dormitory)
                     failed_count += 1
                     continue
 
@@ -475,13 +475,13 @@ def migrate_user_profile_addresses(conn):
                 """, (address_id, building_id, student_id))
                 migrated_count += 1
             except Exception as exc:
-                logger.error("迁移用户 %s 地址数据失败: %s", student_id, exc)
+                logger.error("Failed to migrate address data for user %s: %s", student_id, exc)
                 failed_count += 1
 
         conn.commit()
-        logger.info("用户配置文件地址数据迁移完成: 成功 %s 个, 失败 %s 个", migrated_count, failed_count)
+        logger.info("User profile address migration completed: success=%s, failed=%s", migrated_count, failed_count)
     except Exception as exc:
-        logger.error("用户配置文件地址数据迁移失败: %s", exc)
+        logger.error("User profile address migration failed: %s", exc)
         conn.rollback()
         raise
 
@@ -496,7 +496,7 @@ def migrate_chat_threads(conn):
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_logs'")
         if not cursor.fetchone():
-            logger.info("聊天记录迁移：chat_logs 表不存在，跳过迁移")
+            logger.info("Chat migration: chat_logs table not found, skipping")
             return
         try:
             ensure_table_columns(conn, 'chat_logs', {
@@ -505,13 +505,13 @@ def migrate_chat_threads(conn):
             })
             conn.commit()
         except Exception as exc:
-            logger.error("聊天记录迁移：无法添加必要的列: %s", exc)
+            logger.error("Chat migration: failed to add required columns: %s", exc)
             return
 
         cursor.execute("PRAGMA table_info(chat_logs)")
         columns = {row[1] for row in cursor.fetchall()}
         if 'thread_id' not in columns:
-            logger.error("聊天记录迁移：thread_id 列不存在且无法添加")
+            logger.error("Chat migration: thread_id column missing and could not be added")
             return
 
         ChatLogDB._ensure_chat_schema(conn)
@@ -521,7 +521,7 @@ def migrate_chat_threads(conn):
         cursor.execute('SELECT COUNT(1) FROM chat_logs WHERE thread_id IS NULL OR TRIM(COALESCE(thread_id, "")) = ""')
         pending = cursor.fetchone()[0]
         if pending == 0 and has_threads:
-            logger.info("聊天记录迁移：没有需要补充 thread_id 的旧数据")
+            logger.info("Chat migration: no legacy rows require thread_id backfill")
             return
 
         cursor.execute('''
@@ -581,7 +581,7 @@ def migrate_chat_threads(conn):
                     except Exception:
                         current_timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
                 except Exception as exc:
-                    logger.warning("无法解析时间戳 %s: %s，跳过该记录", timestamp_str, exc)
+                    logger.warning("Failed to parse timestamp %s: %s, skipping row", timestamp_str, exc)
                     continue
 
                 should_start_new_session = False
@@ -650,10 +650,10 @@ def migrate_chat_threads(conn):
                 migrated_logs_count += len(log_ids)
 
         conn.commit()
-        logger.info("聊天记录迁移完成：创建 %s 个会话，迁移 %s 条记录", migrated_threads, migrated_logs_count)
+        logger.info("Chat migration completed: created %s threads and migrated %s logs", migrated_threads, migrated_logs_count)
     except Exception as exc:
         conn.rollback()
-        logger.error("聊天记录迁移失败: %s", exc)
+        logger.error("Chat migration failed: %s", exc)
 
 
 def auto_migrate_database(conn) -> None:
@@ -763,13 +763,13 @@ def auto_migrate_database(conn) -> None:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner ON payment_qr_codes(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_owner_type ON payment_qr_codes(owner_type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_payment_qr_codes_enabled ON payment_qr_codes(is_enabled)')
-        logger.info("创建依赖新列的索引完成")
+        logger.info("Completed creation of indexes depending on new columns")
     except sqlite3.OperationalError as exc:
-        logger.warning("创建新索引时出错: %s", exc)
+        logger.warning("Error while creating new indexes: %s", exc)
 
     cursor = conn.cursor()
     try:
-        logger.info("开始修复旧配置数据的 owner_id...")
+        logger.info("Starting repair for legacy config owner_id values")
         cursor.execute("UPDATE lottery_prizes SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
         lottery_fixed = cursor.rowcount
         cursor.execute("UPDATE auto_gift_items SET owner_id = 'admin' WHERE owner_id IS NULL OR owner_id = ''")
@@ -788,11 +788,11 @@ def auto_migrate_database(conn) -> None:
                 lottery_fixed, gift_fixed, threshold_fixed, coupon_fixed, settings_fixed
             )
         else:
-            logger.info("未发现需要修复的配置数据")
+            logger.info("No legacy config data requires repair")
     except sqlite3.OperationalError as exc:
-        logger.warning("修复配置数据时出错: %s", exc)
+        logger.warning("Error while repairing config data: %s", exc)
     except Exception as exc:
-        logger.error("修复配置数据失败: %s", exc)
+        logger.error("Failed to repair config data: %s", exc)
 
     try:
         cursor.execute('''
@@ -819,12 +819,12 @@ def auto_migrate_database(conn) -> None:
     except sqlite3.OperationalError:
         pass
     except Exception as exc:
-        logger.warning("回填抽奖归属失败: %s", exc)
+        logger.warning("Failed to backfill lottery ownership: %s", exc)
 
     try:
         ensure_agent_id_schema(conn)
     except Exception as exc:
-        logger.warning("迁移代理 agent_id 失败: %s", exc)
+        logger.warning("Failed to migrate agent_id for agents: %s", exc)
 
 
 def migrate_passwords_to_hash():
@@ -832,10 +832,10 @@ def migrate_passwords_to_hash():
     自动迁移明文密码到哈希格式。
     """
     if not settings.enable_password_hash:
-        logger.info("密码加密功能未启用，跳过密码迁移")
+        logger.info("Password encryption is disabled, skipping password migration")
         return
 
-    logger.info("开始检查并迁移密码...")
+    logger.info("Starting password migration check")
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -850,17 +850,17 @@ def migrate_passwords_to_hash():
                         hashed = hash_password(password)
                         cursor.execute('UPDATE users SET password = ? WHERE id = ?', (hashed, user_id))
                         user_migrated_count += 1
-                        logger.info("用户 %s 的密码已迁移为哈希格式", user_id)
+                        logger.info("Migrated user password to hash format: %s", user_id)
                     except Exception as exc:
-                        logger.error("迁移用户 %s 密码失败: %s", user_id, exc)
+                        logger.error("Failed to migrate user password for %s: %s", user_id, exc)
 
             if user_migrated_count > 0:
                 conn.commit()
-                logger.info("成功迁移 %s 个用户密码", user_migrated_count)
+                logger.info("Migrated %s user passwords", user_migrated_count)
             else:
-                logger.info("所有用户密码已经是哈希格式，无需迁移")
+                logger.info("All user passwords are already hashed, no migration needed")
         except Exception as exc:
-            logger.error("迁移用户密码时出错: %s", exc)
+            logger.error("Error while migrating user passwords: %s", exc)
             conn.rollback()
 
         try:
@@ -874,20 +874,20 @@ def migrate_passwords_to_hash():
                         hashed = hash_password(password)
                         cursor.execute('UPDATE admins SET password = ? WHERE id = ?', (hashed, admin_id))
                         admin_migrated_count += 1
-                        logger.info("管理员/代理 %s 的密码已迁移为哈希格式", admin_id)
+                        logger.info("Migrated admin/agent password to hash format: %s", admin_id)
                     except Exception as exc:
-                        logger.error("迁移管理员 %s 密码失败: %s", admin_id, exc)
+                        logger.error("Failed to migrate admin password for %s: %s", admin_id, exc)
 
             if admin_migrated_count > 0:
                 conn.commit()
-                logger.info("成功迁移 %s 个管理员/代理密码", admin_migrated_count)
+                logger.info("Migrated %s admin/agent passwords", admin_migrated_count)
             else:
-                logger.info("所有管理员/代理密码已经是哈希格式，无需迁移")
+                logger.info("All admin/agent passwords are already hashed, no migration needed")
         except Exception as exc:
-            logger.error("迁移管理员密码时出错: %s", exc)
+            logger.error("Error while migrating admin passwords: %s", exc)
             conn.rollback()
 
-    logger.info("密码迁移检查完成")
+    logger.info("Password migration check completed")
 
 
 PAYMENT_QR_NEW_PATH_PATTERN = re.compile(
@@ -1005,7 +1005,7 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
     - 文件路径: public/payment-qrs/{owner_type}/{owner_id}/{ts}_{rand8}.webp
     - 数据库路径: /public/payment-qrs/{owner_type}/{owner_id}/{filename}
     """
-    logger.info("开始检查并迁移收款码路径...")
+    logger.info("Starting payment QR path migration check")
 
     public_root = os.path.normpath(public_dir)
     payment_root = os.path.normpath(os.path.join(public_root, "payment-qrs"))
@@ -1016,10 +1016,10 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
         try:
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_qr_codes'")
             if not cursor.fetchone():
-                logger.info("收款码迁移：payment_qr_codes 表不存在，跳过")
+                logger.info("Payment QR migration: payment_qr_codes table not found, skipping")
                 return
         except sqlite3.OperationalError:
-            logger.info("收款码迁移：无法读取 payment_qr_codes 表，跳过")
+            logger.info("Payment QR migration: unable to read payment_qr_codes table, skipping")
             return
 
         cursor.execute(
@@ -1031,7 +1031,7 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
         )
         rows = cursor.fetchall() or []
         if not rows:
-            logger.info("收款码迁移：没有可迁移的数据")
+            logger.info("Payment QR migration: no rows to migrate")
             return
 
         existing_names: Set[str] = set()
@@ -1074,13 +1074,13 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
 
             source_file = _resolve_payment_qr_source_file(public_root, old_image_path)
             if not source_file:
-                logger.warning("收款码迁移：文件不存在，跳过 id=%s path=%s", qr_id, old_image_path)
+                logger.warning("Payment QR migration: file not found, skipping id=%s path=%s", qr_id, old_image_path)
                 failed_count += 1
                 continue
 
             target_dir = os.path.normpath(os.path.join(payment_root, owner_type, owner_id))
             if not target_dir.startswith(payment_root):
-                logger.warning("收款码迁移：检测到不安全目录，跳过 id=%s", qr_id)
+                logger.warning("Payment QR migration: unsafe directory detected, skipping id=%s", qr_id)
                 failed_count += 1
                 continue
             os.makedirs(target_dir, exist_ok=True)
@@ -1111,7 +1111,7 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
                             os.remove(normalized_source)
                             _cleanup_empty_dirs_upwards(os.path.dirname(normalized_source), public_root)
                     except Exception as cleanup_exc:
-                        logger.warning("收款码迁移：清理旧文件失败 id=%s error=%s", qr_id, cleanup_exc)
+                        logger.warning("Payment QR migration: failed to clean old file id=%s error=%s", qr_id, cleanup_exc)
 
                 migrated_count += 1
             except Exception as exc:
@@ -1121,12 +1121,12 @@ def migrate_payment_qr_paths(public_dir: str) -> None:
                         os.remove(target_file)
                     except Exception:
                         pass
-                logger.warning("收款码迁移失败 id=%s path=%s error=%s", qr_id, old_image_path, exc)
+                logger.warning("Payment QR migration failed id=%s path=%s error=%s", qr_id, old_image_path, exc)
 
         conn.commit()
 
     logger.info(
-        "收款码迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
+        "Payment QR migration completed: %s migrated, %s skipped, %s failed",
         migrated_count,
         skipped_count,
         failed_count,
@@ -1150,14 +1150,14 @@ def migrate_image_paths(items_dir: str) -> None:
        - 数据库 img_path 只存储 hash12
        - image_lookup 表存储 hash → 物理路径映射
     """
-    logger.info("开始检查并迁移商品图片路径...")
+    logger.info("Starting product image path migration check")
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
             agent_mapping = ensure_agent_id_schema(conn)
         except Exception as exc:
-            logger.warning("读取代理映射失败: %s", exc)
+            logger.warning("Failed to read agent mapping: %s", exc)
             agent_mapping = {}
 
         # 检查是否有需要迁移的图片
@@ -1171,7 +1171,7 @@ def migrate_image_paths(items_dir: str) -> None:
         products_to_migrate = cursor.fetchall()
 
         if not products_to_migrate:
-            logger.info("没有发现需要迁移的商品图片")
+            logger.info("No product images require migration")
             return
 
         migrated_count = 0
@@ -1220,14 +1220,14 @@ def migrate_image_paths(items_dir: str) -> None:
                 old_file_path = os.path.normpath(os.path.join(items_dir, rel_path))
 
                 if not os.path.exists(old_file_path):
-                    logger.warning("图片文件不存在，跳过迁移: %s -> %s", old_img_path, old_file_path)
+                    logger.warning("Image file not found, skipping migration: %s -> %s", old_img_path, old_file_path)
                     failed_count += 1
                     continue
 
                 # 验证路径安全性
                 items_root = os.path.normpath(items_dir)
                 if not old_file_path.startswith(items_root):
-                    logger.warning("图片路径不安全，跳过迁移: %s", old_file_path)
+                    logger.warning("Unsafe image path detected, skipping migration: %s", old_file_path)
                     failed_count += 1
                     continue
 
@@ -1254,7 +1254,7 @@ def migrate_image_paths(items_dir: str) -> None:
                 # 移动文件
                 if old_file_path != new_file_path:
                     shutil.move(old_file_path, new_file_path)
-                    logger.debug("移动图片: %s -> %s", old_file_path, new_file_path)
+                    logger.debug("Moving image: %s -> %s", old_file_path, new_file_path)
 
                 # 插入 image_lookup 记录
                 cursor.execute("""
@@ -1266,10 +1266,10 @@ def migrate_image_paths(items_dir: str) -> None:
                 cursor.execute("UPDATE products SET img_path = ? WHERE id = ?", (file_hash, product_id))
 
                 migrated_count += 1
-                logger.debug("迁移商品 %s 图片: %s -> %s", product_id, old_img_path, file_hash)
+                logger.debug("Migrated product image %s: %s -> %s", product_id, old_img_path, file_hash)
 
             except Exception as exc:
-                logger.error("迁移商品 %s 的图片失败: %s", product_id, exc)
+                logger.error("Failed to migrate image for product %s: %s", product_id, exc)
                 failed_count += 1
                 continue
 
@@ -1279,7 +1279,7 @@ def migrate_image_paths(items_dir: str) -> None:
         try:
             _cleanup_empty_category_dirs(items_dir)
         except Exception as exc:
-            logger.warning("清理空分类目录失败: %s", exc)
+            logger.warning("Failed to clean empty category directories: %s", exc)
 
     logger.info(
         "商品图片路径迁移完成: 成功 %s 个, 跳过 %s 个, 失败 %s 个",
@@ -1342,7 +1342,7 @@ def migrate_agent_image_paths(items_dir: str) -> None:
             try:
                 shutil.move(old_dir, new_dir)
             except Exception as exc:
-                logger.warning("迁移代理图片目录失败: %s -> %s (%s)", old_dir, new_dir, exc)
+                logger.warning("Failed to migrate agent image directory: %s -> %s (%s)", old_dir, new_dir, exc)
             continue
 
         try:
@@ -1355,7 +1355,7 @@ def migrate_agent_image_paths(items_dir: str) -> None:
             if not os.listdir(old_dir):
                 os.rmdir(old_dir)
         except Exception as exc:
-            logger.warning("合并代理图片目录失败: %s -> %s (%s)", old_dir, new_dir, exc)
+            logger.warning("Failed to merge agent image directories: %s -> %s (%s)", old_dir, new_dir, exc)
 
 
 def _cleanup_empty_category_dirs(items_dir: str) -> None:
@@ -1371,7 +1371,7 @@ def _cleanup_empty_category_dirs(items_dir: str) -> None:
             try:
                 if not os.listdir(entry_path):
                     os.rmdir(entry_path)
-                    logger.debug("删除空分类目录: %s", entry_path)
+                    logger.debug("Deleted empty category directory: %s", entry_path)
             except Exception:
                 pass
 

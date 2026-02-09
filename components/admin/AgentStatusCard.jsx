@@ -19,7 +19,7 @@ export const AgentStatusCard = () => {
         setAllowReservation(!!s.data?.allow_reservation);
         setCycleLocked(!!s.data?.cycle_locked);
       } catch (e) {
-        console.error("获取代理状态失败:", e);
+        console.error("Failed to fetch agent status:", e);
       } finally {
         setLoading(false);
       }
@@ -33,7 +33,7 @@ export const AgentStatusCard = () => {
     try {
       await updateStatus(next, closedNote, allowReservation);
     } catch (e) {
-      console.error("更新代理状态失败:", e);
+      console.error("Failed to update agent status:", e);
       setIsOpen(!next);
     }
   };
@@ -42,7 +42,7 @@ export const AgentStatusCard = () => {
     try {
       await updateStatus(isOpen, closedNote, allowReservation);
     } catch (e) {
-      console.error("保存提示失败:", e);
+      console.error("Failed to save closed note:", e);
     }
   };
 
@@ -53,7 +53,7 @@ export const AgentStatusCard = () => {
     try {
       await updateStatus(isOpen, closedNote, next);
     } catch (e) {
-      console.error("更新预约状态失败:", e);
+      console.error("Failed to update reservation status:", e);
       setAllowReservation(!next);
     }
   };

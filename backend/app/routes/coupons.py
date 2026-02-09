@@ -32,7 +32,7 @@ async def my_coupons(request: Request):
         coupons = CouponDB.get_active_for_student(user["id"], owner_id=owner_id, restrict_owner=True) or []
         return success_response("获取优惠券成功", {"coupons": coupons})
     except Exception as exc:
-        logger.error(f"获取优惠券失败: {exc}")
+        logger.error("Failed to fetch coupons: %s", exc)
         return error_response("获取优惠券失败", 500)
 
 
@@ -44,7 +44,7 @@ async def admin_list_coupons(request: Request, student_id: Optional[str] = None,
         items = CouponDB.list_all(student_id, owner_id=owner_id)
         return success_response("获取优惠券列表成功", {"coupons": items})
     except Exception as exc:
-        logger.error(f"管理员获取优惠券失败: {exc}")
+        logger.error("Failed to fetch coupons for admin: %s", exc)
         return error_response("获取优惠券失败", 500)
 
 
@@ -56,7 +56,7 @@ async def agent_list_coupons(request: Request, student_id: Optional[str] = None)
         items = CouponDB.list_all(student_id, owner_id=owner_id)
         return success_response("获取优惠券列表成功", {"coupons": items})
     except Exception as exc:
-        logger.error(f"代理获取优惠券失败: {exc}")
+        logger.error("Failed to fetch coupons for agent: %s", exc)
         return error_response("获取优惠券失败", 500)
 
 
@@ -88,7 +88,7 @@ async def admin_issue_coupons(payload: CouponIssueRequest, request: Request, own
             return error_response("发放失败，学号不存在或其他错误", 400)
         return success_response("发放成功", {"issued": len(ids), "coupon_ids": ids})
     except Exception as exc:
-        logger.error(f"发放优惠券失败: {exc}")
+        logger.error("Failed to issue coupons: %s", exc)
         return error_response("发放优惠券失败", 500)
 
 
@@ -120,7 +120,7 @@ async def agent_issue_coupons(payload: CouponIssueRequest, request: Request):
             return error_response("发放失败，学号不存在或其他错误", 400)
         return success_response("发放成功", {"issued": len(ids), "coupon_ids": ids})
     except Exception as exc:
-        logger.error(f"代理发放优惠券失败: {exc}")
+        logger.error("Agent failed to issue coupons: %s", exc)
         return error_response("发放优惠券失败", 500)
 
 
@@ -134,7 +134,7 @@ async def admin_revoke_coupon(coupon_id: str, request: Request, owner_id: Option
             return error_response("撤回失败或已撤回/不存在", 400)
         return success_response("已撤回")
     except Exception as exc:
-        logger.error(f"撤回优惠券失败: {exc}")
+        logger.error("Failed to revoke coupon: %s", exc)
         return error_response("撤回失败", 500)
 
 
@@ -148,7 +148,7 @@ async def agent_revoke_coupon(coupon_id: str, request: Request):
             return error_response("撤回失败或已撤回/不存在", 400)
         return success_response("已撤回")
     except Exception as exc:
-        logger.error(f"代理撤回优惠券失败: {exc}")
+        logger.error("Agent failed to revoke coupon: %s", exc)
         return error_response("撤回失败", 500)
 
 
@@ -162,7 +162,7 @@ async def admin_delete_coupon(coupon_id: str, request: Request, owner_id: Option
             return error_response("删除失败，可能优惠券不存在或未撤回", 400)
         return success_response("已删除")
     except Exception as exc:
-        logger.error(f"删除优惠券失败: {exc}")
+        logger.error("Failed to delete coupon: %s", exc)
         return error_response("删除失败", 500)
 
 
@@ -176,5 +176,5 @@ async def agent_delete_coupon(coupon_id: str, request: Request):
             return error_response("删除失败，可能优惠券不存在或未撤回", 400)
         return success_response("已删除")
     except Exception as exc:
-        logger.error(f"代理删除优惠券失败: {exc}")
+        logger.error("Agent failed to delete coupon: %s", exc)
         return error_response("删除失败", 500)

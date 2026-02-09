@@ -17,7 +17,7 @@ async def get_profile_shipping(request: Request):
         prof = UserProfileDB.get_shipping(user["id"])
         return success_response("获取收货资料成功", {"shipping": prof})
     except Exception as exc:
-        logger.error(f"获取收货资料失败: {exc}")
+        logger.error("Failed to fetch shipping profile: %s", exc)
         return error_response("获取收货资料失败", 500)
 
 
@@ -59,9 +59,9 @@ async def update_profile_location(payload: LocationUpdateRequest, request: Reque
         try:
             CartDB.update_cart(user["id"], {})
         except Exception as exc:
-            logger.warning(f"切换地址时清空购物车失败: {exc}")
+            logger.warning("Failed to clear cart after location change: %s", exc)
 
         return success_response("配送地址已更新", {"shipping": updated_profile})
     except Exception as exc:
-        logger.error(f"更新配送地址失败: {exc}")
+        logger.error("Failed to update delivery location: %s", exc)
         return error_response("更新配送地址失败", 500)

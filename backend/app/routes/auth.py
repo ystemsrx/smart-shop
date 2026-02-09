@@ -38,7 +38,7 @@ async def create_captcha_challenge(request: Request, payload: CaptchaChallengeRe
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"创建验证码挑战失败: {exc}")
+        logger.error("Failed to create captcha challenge: %s", exc)
         return error_response("创建验证码挑战失败", 500)
 
 
@@ -62,7 +62,7 @@ async def verify_captcha_challenge(request: Request, payload: CaptchaVerifyReque
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"验证码验证失败: {exc}")
+        logger.error("Captcha verification failed: %s", exc)
         return error_response("验证码验证失败", 500)
 
 
@@ -79,7 +79,7 @@ async def discard_captcha_challenge(request: Request, payload: CaptchaDiscardReq
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"验证码挑战废弃失败: {exc}")
+        logger.error("Failed to discard captcha challenge: %s", exc)
         return error_response("验证码挑战废弃失败", 500)
 
 
@@ -109,7 +109,7 @@ async def login(http_request: Request, request: LoginRequest, response: Response
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"登录失败: {exc}")
+        logger.error("User login failed: %s", exc)
         return error_response("登录失败，请稍后重试", 500)
 
 
@@ -134,7 +134,7 @@ async def admin_login(http_request: Request, request: AdminLoginRequest, respons
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"管理员登录失败: {exc}")
+        logger.error("Admin login failed: %s", exc)
         return error_response("管理员登录失败，请稍后重试", 500)
 
 
@@ -200,7 +200,7 @@ async def get_registration_status():
             },
         )
     except Exception as exc:
-        logger.error(f"获取注册状态失败: {exc}")
+        logger.error("Failed to fetch registration status: %s", exc)
         return error_response("获取注册状态失败", 500)
 
 
@@ -254,7 +254,7 @@ async def register_user(http_request: Request, request: RegisterRequest, respons
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
-        logger.error(f"用户注册失败: {exc}")
+        logger.error("User registration failed: %s", exc)
         return error_response("注册失败，请稍后重试", 500)
 
 
@@ -307,5 +307,5 @@ async def update_registration_settings(request: Request):
             {"enabled": current_enabled, "reservation_enabled": current_reservation},
         )
     except Exception as exc:
-        logger.error(f"更新注册设置失败: {exc}")
+        logger.error("Failed to update registration settings: %s", exc)
         return error_response("更新注册设置失败", 500)

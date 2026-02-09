@@ -447,11 +447,11 @@ class CaptchaService:
             if count_after == 1:
                 await redis_client.expire(key, CHALLENGE_RATE_WINDOW_SECONDS)
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，验证码挑战限流降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, captcha challenge rate limiting downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，验证码挑战限流降级到内存: {exc}")
+            logger.warning(f"Redis connection error, captcha challenge rate limiting downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"验证码挑战限流Redis读取失败，降级到内存: {exc}")
+            logger.warning(f"Failed to read captcha challenge rate limit from Redis, downgraded to memory: {exc}")
 
         if count_after is None:
             now = time.time()
@@ -519,11 +519,11 @@ class CaptchaService:
                 old_payload = await cls._pop_challenge_from_redis(str(old_challenge_id))
                 cls._remove_challenge_files(old_payload)
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，验证码挑战降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, captcha challenge storage downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，验证码挑战降级到内存: {exc}")
+            logger.warning(f"Redis connection error, captcha challenge storage downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis写入验证码挑战失败，降级到内存: {exc}")
+            logger.warning(f"Failed to write captcha challenge to Redis, downgraded to memory: {exc}")
 
         with _store_lock:
             cls._cleanup_challenges(now)
@@ -569,11 +569,11 @@ class CaptchaService:
             redis_client = await cls._get_redis()
             await redis_client.set(cls._login_captcha_required_key(client_key), "1")
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，登录验证码锁定降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, login captcha lock downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，登录验证码锁定降级到内存: {exc}")
+            logger.warning(f"Redis connection error, login captcha lock downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis写入登录验证码锁定失败，降级到内存: {exc}")
+            logger.warning(f"Failed to write login captcha lock to Redis, downgraded to memory: {exc}")
 
     @classmethod
     async def _is_login_captcha_required(cls, client_key: str) -> bool:
@@ -586,11 +586,11 @@ class CaptchaService:
             cls._clear_login_captcha_required_fallback(client_key)
             return False
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，登录验证码锁定检查降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, login captcha lock check downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，登录验证码锁定检查降级到内存: {exc}")
+            logger.warning(f"Redis connection error, login captcha lock check downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis读取登录验证码锁定失败，降级到内存: {exc}")
+            logger.warning(f"Failed to read login captcha lock from Redis, downgraded to memory: {exc}")
         return cls._is_login_captcha_required_fallback(client_key)
 
     @classmethod
@@ -603,11 +603,11 @@ class CaptchaService:
             pipeline.delete(cls._login_attempt_key(client_key))
             await pipeline.execute()
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，登录验证码解锁降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, login captcha unlock downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，登录验证码解锁降级到内存: {exc}")
+            logger.warning(f"Redis connection error, login captcha unlock downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis清理登录验证码锁定失败，已降级到内存: {exc}")
+            logger.warning(f"Failed to clear login captcha lock in Redis, downgraded to memory: {exc}")
 
     @classmethod
     def _record_login_attempt_fallback(cls, client_key: str) -> Tuple[int, int]:
@@ -635,11 +635,11 @@ class CaptchaService:
                 await redis_client.expire(key, LOGIN_WINDOW_SECONDS)
             return max(0, count_after - 1), count_after
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，登录尝试计数降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, login attempt counting downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，登录尝试计数降级到内存: {exc}")
+            logger.warning(f"Redis connection error, login attempt counting downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis登录尝试计数失败，降级到内存: {exc}")
+            logger.warning(f"Failed to count login attempts in Redis, downgraded to memory: {exc}")
         return cls._record_login_attempt_fallback(client_key)
 
     @classmethod
@@ -761,7 +761,7 @@ class CaptchaService:
                     "total_users": total_users,
                 }
         except Exception as exc:
-            logger.error(f"写入验证码统计失败: {exc}")
+            logger.error(f"Failed to write captcha metrics: {exc}")
             raise CaptchaError("验证码统计服务异常，请稍后重试", 500)
 
     @classmethod
@@ -893,9 +893,9 @@ class CaptchaService:
             await redis_client.setex(cls._pass_token_key(token), PASS_TOKEN_TTL_SECONDS, json.dumps(payload))
             issued_in_redis = True
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，验证码凭证降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, captcha token storage downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，验证码凭证降级到内存: {exc}")
+            logger.warning(f"Redis connection error, captcha token storage downgraded to memory: {exc}")
 
         if not issued_in_redis:
             cls._set_pass_token_fallback(token, payload)
@@ -921,11 +921,11 @@ class CaptchaService:
                 with _store_lock:
                     _challenge_store.pop(challenge_id, None)
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，验证码挑战读取降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, captcha challenge read downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，验证码挑战读取降级到内存: {exc}")
+            logger.warning(f"Redis connection error, captcha challenge read downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis读取验证码挑战失败，降级到内存: {exc}")
+            logger.warning(f"Failed to read captcha challenge from Redis, downgraded to memory: {exc}")
 
         if challenge is None:
             with _store_lock:
@@ -959,9 +959,9 @@ class CaptchaService:
             beat_percent_raw = stat.get("beat_percent")
             beat_percent = float(beat_percent_raw) if beat_percent_raw is not None else None
         except CaptchaError as exc:
-            logger.warning(f"验证码统计写入失败，已降级返回基础结果: {exc.message}")
+            logger.warning(f"Captcha metrics write failed, returning fallback result: {exc.message}")
         except Exception as exc:
-            logger.warning(f"验证码统计写入失败，已降级返回基础结果: {exc}")
+            logger.warning(f"Captcha metrics write failed, returning fallback result: {exc}")
 
         summary_text = f"{duration_seconds:.2f}秒完成"
         if beat_percent is not None:
@@ -1000,11 +1000,11 @@ class CaptchaService:
                 with _store_lock:
                     _pass_token_store.pop(token_value, None)
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，改用内存消费验证码凭证: {exc.message}")
+            logger.warning(f"Redis unavailable, consuming captcha token from memory fallback: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，改用内存消费验证码凭证: {exc}")
+            logger.warning(f"Redis connection error, consuming captcha token from memory fallback: {exc}")
         except Exception as exc:
-            logger.warning(f"解析Redis验证码凭证失败，改用内存消费: {exc}")
+            logger.warning(f"Failed to parse captcha token from Redis, consuming from memory fallback: {exc}")
 
         if payload is None:
             payload = cls._consume_pass_token_fallback(token_value)
@@ -1033,11 +1033,11 @@ class CaptchaService:
         try:
             challenge = await cls._get_challenge_from_redis(token)
         except CaptchaError as exc:
-            logger.warning(f"Redis不可用，验证码挑战废弃降级到内存: {exc.message}")
+            logger.warning(f"Redis unavailable, captcha challenge discard downgraded to memory: {exc.message}")
         except RedisError as exc:
-            logger.warning(f"Redis连接异常，验证码挑战废弃降级到内存: {exc}")
+            logger.warning(f"Redis connection error, captcha challenge discard downgraded to memory: {exc}")
         except Exception as exc:
-            logger.warning(f"Redis读取验证码挑战失败，降级到内存废弃: {exc}")
+            logger.warning(f"Failed to read captcha challenge from Redis for discard, downgraded to memory: {exc}")
 
         if challenge:
             expected_scene = cls.normalize_scene(scene or challenge.get("scene"))
@@ -1048,13 +1048,13 @@ class CaptchaService:
             try:
                 await cls._delete_challenge_from_redis(challenge)
             except CaptchaError as exc:
-                logger.warning(f"Redis不可用，验证码挑战删除异常: {exc.message}")
+                logger.warning(f"Redis unavailable while deleting captcha challenge: {exc.message}")
                 return False
             except RedisError as exc:
-                logger.warning(f"Redis连接异常，验证码挑战删除异常: {exc}")
+                logger.warning(f"Redis connection error while deleting captcha challenge: {exc}")
                 return False
             except Exception as exc:
-                logger.warning(f"Redis删除验证码挑战失败: {exc}")
+                logger.warning(f"Failed to delete captcha challenge in Redis: {exc}")
                 return False
 
             with _store_lock:

@@ -185,7 +185,11 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
 
         try:
             applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal, owner_scope_id)
-            logger.info(f"订单金额 {items_subtotal} 元，适用门槛: {[t.get('threshold_amount') for t in applicable_thresholds]}")
+            logger.info(
+                "Order subtotal %.2f applies thresholds: %s",
+                items_subtotal,
+                [t.get("threshold_amount") for t in applicable_thresholds],
+            )
 
             for threshold in applicable_thresholds:
                 threshold_id = threshold.get("id")
@@ -226,12 +230,17 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                                     gift_item["variant_name"] = gift.get("variant_name")
                             order_items.append(gift_item)
                     except Exception as exc:
-                        logger.warning(f"生成满额赠品失败 (门槛{threshold_amount}): {exc}")
+                        logger.warning("Failed to generate threshold gifts (threshold=%s): %s", threshold_amount, exc)
 
                 if gift_coupon and coupon_amount > 0 and applicable_times > 0:
-                    logger.info(f"记录满额优惠券待发放：{applicable_times} 张 {coupon_amount} 元（门槛{threshold_amount}）")
+                    logger.info(
+                        "Queued threshold coupons: count=%s amount=%s threshold=%s",
+                        applicable_times,
+                        coupon_amount,
+                        threshold_amount,
+                    )
         except Exception as exc:
-            logger.warning(f"处理满额赠品配置失败: {exc}")
+            logger.warning("Failed to process gift-threshold config: %s", exc)
 
         rewards_attached_ids: List[str] = []
         lottery_enabled = LotteryConfigDB.get_enabled(owner_scope_id)
@@ -276,7 +285,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                     order_items.append(lottery_item)
                     rewards_attached_ids.append(r.get("id"))
             except Exception as exc:
-                logger.warning(f"附加抽奖奖品失败: {exc}")
+                logger.warning("Failed to append lottery prize: %s", exc)
 
         user_confirms_reservation = bool(order_request.reservation_requested)
         if items_require_reservation and not user_confirms_reservation:
@@ -327,7 +336,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                         discount_amount = round(amt, 2)
                         used_coupon_id = coupon.get("id")
             except Exception as exc:
-                logger.warning(f"校验优惠券失败: {exc}")
+                logger.warning("Coupon validation failed: %s", exc)
 
         total_amount = round(max(0.0, items_subtotal - discount_amount) + shipping_fee, 2)
 
@@ -353,19 +362,19 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
             try:
                 CouponDB.lock_for_order(used_coupon_id, order_id)
             except Exception as exc:
-                logger.warning(f"锁定优惠券失败: {exc}")
+                logger.warning("Failed to lock coupon: %s", exc)
         if rewards_attached_ids:
             try:
                 RewardDB.consume_rewards(user["id"], rewards_attached_ids, order_id, owner_scope_id)
             except Exception as exc:
-                logger.warning(f"标记抽奖奖品消费失败: {exc}")
+                logger.warning("Failed to mark lottery prize as consumed: %s", exc)
 
         try:
             shipping_profile = dict(shipping_info)
             UserProfileDB.upsert_shipping(user["id"], shipping_profile)
-            logger.info(f"已更新用户 {user['id']} 的最新收货信息")
+            logger.info("Updated latest shipping info for user %s", user["id"])
         except Exception as exc:
-            logger.warning(f"更新用户收货信息失败: {exc}")
+            logger.warning("Failed to update user shipping info: %s", exc)
 
         return success_response(
             "订单创建成功",
@@ -373,7 +382,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
         )
 
     except Exception as exc:
-        logger.error(f"创建订单失败: {exc}")
+        logger.error("Failed to create order: %s", exc)
         return error_response("创建订单失败", 500)
 
 
@@ -432,7 +441,7 @@ async def get_my_orders(request: Request):
         return success_response("获取订单列表成功", {"orders": orders})
 
     except Exception as exc:
-        logger.error(f"获取订单列表失败: {exc}")
+        logger.error("Failed to fetch order list: %s", exc)
         return error_response("获取订单列表失败", 500)
 
 
@@ -456,7 +465,7 @@ async def get_order_detail(order_id: str, request: Request):
         return success_response("获取订单详情成功", {"order": order})
 
     except Exception as exc:
-        logger.error(f"获取订单详情失败: {exc}")
+        logger.error("Failed to fetch order details: %s", exc)
         return error_response("获取订单详情失败", 500)
 
 
@@ -560,7 +569,7 @@ async def get_all_orders(
         )
 
     except Exception as exc:
-        logger.error(f"获取订单列表失败: {exc}")
+        logger.error("Failed to fetch order list: %s", exc)
         return error_response("获取订单列表失败", 500)
 
 
@@ -637,7 +646,7 @@ async def get_agent_orders(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"代理获取订单列表失败: {exc}")
+        logger.error("Agent failed to fetch order list: %s", exc)
         return error_response("获取订单列表失败", 500)
 
 
@@ -911,7 +920,7 @@ async def stream_export_for_staff(request: Request, staff: Dict[str, Any], staff
             )
             yield {"data": json.dumps(final_job)}
         except Exception as exc:
-            logger.error(f"导出订单失败({job_id}): {exc}")
+            logger.error("Order export failed (%s): %s", job_id, exc)
             OrderExportDB.update_job(job_id, status="failed", message=str(exc))
             yield {"data": json.dumps({"status": "failed", "message": str(exc) or "导出失败"})}
 
@@ -1046,9 +1055,9 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                         try:
                             restore_ok = OrderDB.restore_stock_from_order(od.get("id"))
                             if not restore_ok:
-                                logger.warning(f"批量删除时恢复库存失败: order_id={od.get('id')}")
+                                logger.warning("Failed to restore stock during bulk deletion: order_id=%s", od.get("id"))
                         except Exception as exc:
-                            logger.warning(f"批量删除时恢复库存异常: {exc}")
+                            logger.warning("Stock restoration error during bulk deletion: %s", exc)
                     if payment_status != "succeeded":
                         try:
                             c_id = od.get("coupon_id")
@@ -1058,7 +1067,7 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                         except Exception:
                             continue
             except Exception as exc:
-                logger.warning(f"批量删除后处理失败: {exc}")
+                logger.warning("Post-processing after bulk deletion failed: %s", exc)
             result["blocked_ids"] = blocked_ids
             return success_response(result.get("message", "批量删除成功"), result)
         else:
@@ -1074,9 +1083,9 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                         try:
                             restore_ok = OrderDB.restore_stock_from_order(order_id)
                             if not restore_ok:
-                                logger.warning(f"删除订单时恢复库存失败: order_id={order_id}")
+                                logger.warning("Failed to restore stock during order deletion: order_id=%s", order_id)
                         except Exception as exc:
-                            logger.warning(f"删除订单时恢复库存异常: {exc}")
+                            logger.warning("Stock restoration error during order deletion: %s", exc)
                     if payment_status != "succeeded":
                         try:
                             c_id = od.get("coupon_id")
@@ -1086,13 +1095,13 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                         except Exception:
                             pass
             except Exception as exc:
-                logger.warning(f"单笔删除前处理失败: {exc}")
+                logger.warning("Pre-processing for single deletion failed: %s", exc)
             ok = OrderDB.delete_order(order_id)
             if not ok:
                 return error_response("删除订单失败或订单不存在", 400)
             return success_response("订单删除成功")
     except Exception as exc:
-        logger.error(f"删除订单失败: {exc}")
+        logger.error("Failed to delete order: %s", exc)
         return error_response("删除订单失败", 500)
 
 
@@ -1120,7 +1129,7 @@ async def update_order_status(order_id: str, status_request: OrderStatusUpdateRe
 
         return success_response("订单状态更新成功", {"order_id": order_id, "new_status": status_request.status})
     except Exception as exc:
-        logger.error(f"更新订单状态失败: {exc}")
+        logger.error("Failed to update order status: %s", exc)
         return error_response("更新订单状态失败", 500)
 
 
@@ -1162,7 +1171,7 @@ async def get_order_statistics(request: Request, agent_id: Optional[str] = None)
         stats["selected_agent_filter"] = resolved_filter
         return success_response("获取订单统计成功", stats)
     except Exception as exc:
-        logger.error(f"获取订单统计失败: {exc}")
+        logger.error("Failed to fetch order statistics: %s", exc)
         return error_response("获取订单统计失败", 500)
 
 
@@ -1230,7 +1239,7 @@ async def get_dashboard_statistics(
         stats["selected_agent_id"] = selected_agent_id
         return success_response("获取仪表盘统计成功", stats)
     except Exception as exc:
-        logger.error(f"获取仪表盘统计失败: {exc}")
+        logger.error("Failed to fetch dashboard statistics: %s", exc)
         return error_response("获取仪表盘统计失败", 500)
 
 
@@ -1274,7 +1283,7 @@ async def get_agent_dashboard_statistics(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"代理获取仪表盘统计失败: {exc}")
+        logger.error("Agent failed to fetch dashboard statistics: %s", exc)
         return error_response("获取仪表盘统计失败", 500)
 
 
@@ -1373,7 +1382,7 @@ async def get_customers_with_purchases(
         customers_data["scope"] = scope
         return success_response("获取客户列表成功", customers_data)
     except Exception as exc:
-        logger.error(f"获取客户列表失败: {exc}")
+        logger.error("Failed to fetch customer list: %s", exc)
         return error_response("获取客户列表失败", 500)
 
 
@@ -1402,7 +1411,7 @@ async def mark_order_paid_pending(order_id: str, request: Request):
             return error_response("更新订单支付状态失败", 500)
         return success_response("已标记为待验证", {"order_id": order_id, "payment_status": "processing"})
     except Exception as exc:
-        logger.error(f"用户标记订单待验证失败: {exc}")
+        logger.error("User failed to mark order pending verification: %s", exc)
         return error_response("操作失败", 500)
 
 
@@ -1553,7 +1562,7 @@ async def draw_lottery(order_id: str, request: Request):
             },
         )
     except Exception as exc:
-        logger.error(f"抽奖失败: {exc}")
+        logger.error("Lottery draw failed: %s", exc)
         return error_response("抽奖失败", 500)
 
 
@@ -1576,7 +1585,7 @@ async def get_eligible_rewards(request: Request, owner_id: Optional[str] = None,
         rewards = RewardDB.get_eligible_rewards(user["id"], normalized_owner, restrict_owner=restrict_flag) or []
         return success_response("获取奖品成功", {"rewards": rewards})
     except Exception as exc:
-        logger.error(f"获取奖品失败: {exc}")
+        logger.error("Failed to fetch prizes: %s", exc)
         return error_response("获取奖品失败", 500)
 
 
@@ -1614,7 +1623,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                     try:
                         UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
                     except Exception as exc:
-                        logger.warning(f"缓存用户收货信息失败: {exc}")
+                        logger.warning("Failed to cache user shipping info: %s", exc)
                 try:
                     draw = LotteryDB.get_draw_by_order(order_id)
                     if draw and draw.get("prize_name") != "谢谢参与":
@@ -1632,7 +1641,7 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                             prize_unit_price=draw.get("prize_unit_price"),
                         )
                 except Exception as exc:
-                    logger.warning(f"生成抽奖奖品失败: {exc}")
+                    logger.warning("Failed to generate lottery prize: %s", exc)
                 try:
                     items = order.get("items") or []
                     items_subtotal = 0.0
@@ -1658,18 +1667,23 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                                     owner_id=order_owner_id,
                                 )
                                 if coupon_ids:
-                                    logger.info(f"支付成功后为用户 {order['student_id']} 发放满额优惠券 {coupon_amount} 元（门槛{threshold_amount}）")
+                                    logger.info(
+                                        "Issued threshold coupon after payment: user=%s amount=%s threshold=%s",
+                                        order["student_id"],
+                                        coupon_amount,
+                                        threshold_amount,
+                                    )
                 except Exception as exc:
-                    logger.warning(f"发放满额优惠券失败: {exc}")
+                    logger.warning("Failed to issue threshold coupon: %s", exc)
                 try:
                     c_id = order.get("coupon_id")
                     d_amt = float(order.get("discount_amount") or 0)
                     if c_id and d_amt > 0:
                         CouponDB.delete_coupon(c_id)
                 except Exception as exc:
-                    logger.warning(f"删除已用优惠券失败: {exc}")
+                    logger.warning("Failed to delete consumed coupon: %s", exc)
             except Exception as exc:
-                logger.warning(f"清空购物车失败: {exc}")
+                logger.warning("Failed to clear cart: %s", exc)
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
 
         current_status = order.get("payment_status")
@@ -1677,9 +1691,9 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
             try:
                 restore_ok = OrderDB.restore_stock_from_order(order_id)
                 if not restore_ok:
-                    logger.warning(f"恢复库存失败，但继续处理状态更新: order_id={order_id}")
+                    logger.warning("Failed to restore stock, continuing status update: order_id=%s", order_id)
             except Exception as exc:
-                logger.warning(f"恢复库存异常: {exc}")
+                logger.warning("Stock restoration error: %s", exc)
 
         ok = OrderDB.update_payment_status(order_id, new_status)
         if not ok:
@@ -1691,8 +1705,8 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                 if c_id and d_amt > 0:
                     CouponDB.unlock_for_order(c_id, order_id)
         except Exception as exc:
-            logger.warning(f"返还优惠券失败: {exc}")
+            logger.warning("Failed to return coupon: %s", exc)
         return success_response("支付状态已更新", {"order_id": order_id, "payment_status": new_status})
     except Exception as exc:
-        logger.error(f"管理员更新支付状态失败: {exc}")
+        logger.error("Admin failed to update payment status: %s", exc)
         return error_response("更新支付状态失败", 500)

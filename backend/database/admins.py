@@ -67,7 +67,7 @@ class AdminDB:
                 conn.commit()
                 return candidate if cursor.rowcount > 0 else None
             except Exception as exc:
-                logger.error("归档代理账号失败: %s", exc)
+                logger.error("Failed to archive agent account: %s", exc)
                 return None
 
     @staticmethod
@@ -89,9 +89,9 @@ class AdminDB:
                     try:
                         hashed = hash_password(password)
                         AdminDB.update_admin_password(admin_id, hashed)
-                        logger.info("管理员 %s 的密码已自动升级为哈希格式", admin_id)
+                        logger.info("Admin password auto-upgraded to hash format: %s", admin_id)
                     except Exception as exc:
-                        logger.error("自动升级管理员 %s 密码失败: %s", admin_id, exc)
+                        logger.error("Failed to auto-upgrade admin password for %s: %s", admin_id, exc)
                     return admin
         else:
             if stored_password == password:
@@ -122,7 +122,7 @@ class AdminDB:
                         pass
                 return data
             except Exception as exc:
-                logger.error("获取管理员信息失败: %s", exc)
+                logger.error("Failed to fetch admin info: %s", exc)
                 return None
 
     @staticmethod
@@ -155,7 +155,7 @@ class AdminDB:
                         pass
                 return data
             except Exception as exc:
-                logger.error("获取代理信息失败: %s", exc)
+                logger.error("Failed to fetch agent info: %s", exc)
                 return None
 
     @staticmethod
@@ -176,7 +176,7 @@ class AdminDB:
                 row = cursor.fetchone()
                 return row['agent_id'] if row else None
             except Exception as exc:
-                logger.error("获取代理 agent_id 失败: %s", exc)
+                logger.error("Failed to fetch agent_id: %s", exc)
                 return None
 
     @staticmethod
@@ -190,7 +190,7 @@ class AdminDB:
                 row = cursor.fetchone()
                 return row['id'] if row else None
             except Exception as exc:
-                logger.error("获取代理账号失败: %s", exc)
+                logger.error("Failed to fetch agent account: %s", exc)
                 return None
 
     @staticmethod
@@ -223,7 +223,7 @@ class AdminDB:
                     results.append(data)
                 return results
             except Exception as exc:
-                logger.error("获取管理员列表失败: %s", exc)
+                logger.error("Failed to fetch admin list: %s", exc)
                 return []
 
     @staticmethod
@@ -275,7 +275,7 @@ class AdminDB:
                 conn.commit()
                 return cursor.rowcount > 0
             except Exception as exc:
-                logger.error("更新管理员信息失败: %s", exc)
+                logger.error("Failed to update admin info: %s", exc)
                 return False
 
     @staticmethod
@@ -295,7 +295,7 @@ class AdminDB:
                 conn.commit()
                 return cursor.rowcount > 0
             except Exception as exc:
-                logger.error("更新代理账号失败: %s", exc)
+                logger.error("Failed to update agent account: %s", exc)
                 return False
 
     @staticmethod
@@ -311,7 +311,7 @@ class AdminDB:
                 conn.commit()
                 return success
             except Exception as exc:
-                logger.error("更新管理员密码失败: %s", exc)
+                logger.error("Failed to update admin password: %s", exc)
                 return False
 
     @staticmethod
@@ -332,7 +332,7 @@ class AdminDB:
                 conn.commit()
                 return cursor.rowcount > 0
             except Exception as exc:
-                logger.error("提升管理员 token_version 失败: %s", exc)
+                logger.error("Failed to bump admin token_version: %s", exc)
                 return False
 
     @staticmethod
@@ -402,7 +402,7 @@ class AgentAssignmentDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("更新代理楼栋失败: %s", exc)
+                logger.error("Failed to update agent buildings: %s", exc)
                 conn.rollback()
                 return False
 
@@ -590,7 +590,7 @@ class AgentDeletionDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("记录代理删除信息失败: %s", exc)
+                logger.error("Failed to record agent deletion: %s", exc)
                 conn.rollback()
                 return False
 
@@ -622,7 +622,7 @@ class AgentDeletionDB:
                     results.append(data)
                 return results
             except Exception as exc:
-                logger.error("获取删除代理记录失败: %s", exc)
+                logger.error("Failed to fetch deleted-agent records: %s", exc)
                 return []
 
     @staticmethod
@@ -693,7 +693,7 @@ class AgentDeletionDB:
                 conn.commit()
                 return updated
             except Exception as exc:
-                logger.error("标记删除代理已被接替失败: %s", exc)
+                logger.error("Failed to mark deleted agent as replaced: %s", exc)
                 conn.rollback()
                 return 0
 
@@ -704,7 +704,7 @@ class AgentDeletionDB:
         new_agent_id: str,
         new_agent_name: Optional[str]
     ) -> int:
-        logger.info("已删除代理的数据不再自动继承到新代理: %s", new_agent_id)
+        logger.info("Deleted agent data is no longer auto-inherited by new agents: %s", new_agent_id)
         return 0
 
 
@@ -729,7 +729,7 @@ class AgentStatusDB:
                     'created_at': None
                 }
             except Exception as exc:
-                logger.error("获取代理状态失败: %s", exc)
+                logger.error("Failed to fetch agent status: %s", exc)
                 return {
                     'agent_id': agent_id,
                     'is_open': 1,
@@ -762,7 +762,7 @@ class AgentStatusDB:
                 conn.commit()
                 return True
             except Exception as exc:
-                logger.error("更新代理状态失败: %s", exc)
+                logger.error("Failed to update agent status: %s", exc)
                 conn.rollback()
                 return False
 
@@ -796,7 +796,7 @@ class AgentStatusDB:
                 ''')
                 return [dict(row) for row in cursor.fetchall()]
             except Exception as exc:
-                logger.error("获取所有代理状态失败: %s", exc)
+                logger.error("Failed to fetch all agent statuses: %s", exc)
                 return []
 
 
@@ -994,7 +994,7 @@ class PaymentQrDB:
                     PaymentQrDB.create_payment_qr(owner_id, role, qr_name, payment_qr_path)
                     migrated_count += 1
 
-                    logger.info("迁移 %s %s 的收款码: %s", role, admin_id, payment_qr_path)
+                    logger.info("Migrated payment QR for %s %s: %s", role, admin_id, payment_qr_path)
 
-            logger.info("收款码数据迁移完成，共迁移 %s 条记录", migrated_count)
+            logger.info("Payment QR migration completed, %s records migrated", migrated_count)
             return migrated_count

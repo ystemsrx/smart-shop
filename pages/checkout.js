@@ -542,7 +542,7 @@ export default function Checkout() {
         setPaymentQr(null);
         return;
       }
-      console.warn('获取收款码失败:', error);
+      console.warn('Failed to load payment QR:', error);
       setPaymentQr({
         owner_type: 'default',
         name: "无收款码"
@@ -686,7 +686,7 @@ export default function Checkout() {
             }
           }, 5000);
         } catch (e) {
-          console.warn('预加载动画失败:', e);
+          console.warn('Animation preload failed:', e);
         }
       };
       
@@ -727,7 +727,7 @@ export default function Checkout() {
           setDeliveryConfig(config);
         }
       } catch (e) {
-        console.warn('获取配送费配置失败:', e);
+        console.warn('Failed to fetch delivery fee config:', e);
       }
     })();
   }, [user, locationRevision, location?.address_id, location?.building_id]);

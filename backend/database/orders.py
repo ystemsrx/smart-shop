@@ -184,22 +184,22 @@ class OrderDB:
 
     @staticmethod
     def complete_payment_and_update_stock(order_id: str) -> Tuple[bool, List[str]]:
-        logger.info("开始处理支付成功订单: %s", order_id)
+        logger.info("Starting payment-success processing for order: %s", order_id)
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
             row = cursor.fetchone()
             if not row:
-                logger.error("订单不存在: %s", order_id)
+                logger.error("Order not found: %s", order_id)
                 return False, ["订单不存在"]
 
             order_data = dict(row)
             current_status = order_data['payment_status']
-            logger.info("订单 %s 当前支付状态: %s", order_id, current_status)
+            logger.info("Current payment status for order %s: %s", order_id, current_status)
 
             if order_data['payment_status'] not in ['pending', 'processing']:
-                logger.warning("订单 %s 状态异常，无法处理支付: %s", order_id, current_status)
+                logger.warning("Order %s has unexpected status, cannot process payment: %s", order_id, current_status)
                 return False, ["订单状态异常"]
 
             items = json.loads(order_data['items'])
@@ -233,17 +233,17 @@ class OrderDB:
                     actual_product_id = item.get('lottery_product_id') or item.get('product_id')
                     actual_variant_id = item.get('lottery_variant_id') or item.get('variant_id')
                     if not actual_product_id:
-                        logger.warning("抽奖奖品缺少产品ID，跳过库存扣减: %s", item)
+                        logger.warning("Lottery item missing product ID, skipping stock deduction: %s", item)
                         continue
                     if actual_variant_id:
                         cursor.execute('SELECT product_id, stock, name FROM product_variants WHERE id = ?', (actual_variant_id,))
                         var_row = cursor.fetchone()
                         if not var_row:
-                            logger.info("抽奖奖品规格不存在，跳过库存扣减: %s (item: %s)", actual_variant_id, item.get('name', 'Unknown'))
+                            logger.info("Lottery variant not found, skipping stock deduction: %s (item: %s)", actual_variant_id, item.get('name', 'Unknown'))
                             continue
                         current_stock = int(var_row['stock'])
                         if current_stock < quantity:
-                            logger.warning("抽奖奖品规格库存不足，跳过扣减: %s (需要: %s, 可用: %s)", actual_variant_id, quantity, current_stock)
+                            logger.warning("Insufficient stock for lottery variant, skipping deduction: %s (required: %s, available: %s)", actual_variant_id, quantity, current_stock)
                             continue
                         new_stock = current_stock - quantity
                         deductions.append(('variant', actual_variant_id, new_stock))
@@ -251,18 +251,18 @@ class OrderDB:
                         cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
                         product_row = cursor.fetchone()
                         if not product_row:
-                            logger.info("抽奖奖品商品不存在，跳过库存扣减: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
+                            logger.info("Lottery product not found, skipping stock deduction: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
                             continue
                         current_stock = int(product_row['stock'])
                         if current_stock < quantity:
-                            logger.warning("抽奖奖品库存不足，跳过扣减: %s (需要: %s, 可用: %s)", actual_product_id, quantity, current_stock)
+                            logger.warning("Insufficient stock for lottery product, skipping deduction: %s (required: %s, available: %s)", actual_product_id, quantity, current_stock)
                             continue
                         new_stock = current_stock - quantity
                         deductions.append(('product', actual_product_id, new_stock))
                     continue
 
                 if non_sellable_item:
-                    logger.info("订单 %s 包含非卖品 %s，跳过库存扣减", order_id, item.get('name', 'Unknown'))
+                    logger.info("Order %s includes non-sellable item %s, skipping stock deduction", order_id, item.get('name', 'Unknown'))
                     continue
 
                 product_id = item['product_id']
@@ -297,9 +297,9 @@ class OrderDB:
                                 '赠品' in str(item.get('category', ''))
                             )
                             if is_gift_item:
-                                logger.info("跳过赠品库存扣减: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
+                                logger.info("Skipping gift stock deduction: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
                                 continue
-                        logger.error("商品不存在无法扣减库存: product_id=%s, item=%s", product_id, item)
+                        logger.error("Product not found, cannot deduct stock: product_id=%s, item=%s", product_id, item)
                         missing_items.append(f"{item.get('name') or product_id} 库存数据缺失")
                         continue
                     current_stock = int(product_row['stock'])
@@ -330,27 +330,27 @@ class OrderDB:
             updated_rows = cursor.rowcount
             conn.commit()
 
-            logger.info("订单 %s 支付处理完成，库存已扣减，支付状态已更新为 succeeded，影响行数: %s", order_id, updated_rows)
+            logger.info("Order %s payment processing completed; stock deducted and status updated to succeeded, affected rows: %s", order_id, updated_rows)
             return True, []
 
     @staticmethod
     def restore_stock_from_order(order_id: str) -> bool:
-        logger.info("开始恢复订单库存: %s", order_id)
+        logger.info("Starting stock restoration for order: %s", order_id)
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
             row = cursor.fetchone()
             if not row:
-                logger.error("订单不存在: %s", order_id)
+                logger.error("Order not found: %s", order_id)
                 return False
 
             order_data = dict(row)
             current_status = order_data['payment_status']
-            logger.info("订单 %s 当前支付状态: %s", order_id, current_status)
+            logger.info("Current payment status for order %s: %s", order_id, current_status)
 
             if order_data['payment_status'] != 'succeeded':
-                logger.info("订单 %s 未成功支付，无需恢复库存", order_id)
+                logger.info("Order %s was not paid successfully, stock restore not required", order_id)
                 return True
 
             items = json.loads(order_data['items'])
@@ -386,9 +386,9 @@ class OrderDB:
                             current_stock = int(var_row[0])
                             new_stock = current_stock + quantity
                             cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
-                            logger.info("恢复抽奖奖品规格库存: variant_id=%s, +%s -> %s", actual_variant_id, quantity, new_stock)
+                            logger.info("Restored lottery variant stock: variant_id=%s, +%s -> %s", actual_variant_id, quantity, new_stock)
                         else:
-                            logger.warning("抽奖奖品规格不存在，无法恢复库存: %s", actual_variant_id)
+                            logger.warning("Lottery variant not found, cannot restore stock: %s", actual_variant_id)
                     else:
                         cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
                         product_row = cursor.fetchone()
@@ -396,13 +396,13 @@ class OrderDB:
                             current_stock = int(product_row[0])
                             new_stock = current_stock + quantity
                             cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
-                            logger.info("恢复抽奖奖品库存: product_id=%s, +%s -> %s", actual_product_id, quantity, new_stock)
+                            logger.info("Restored lottery product stock: product_id=%s, +%s -> %s", actual_product_id, quantity, new_stock)
                         else:
-                            logger.info("抽奖奖品商品不存在，跳过库存恢复: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
+                            logger.info("Lottery product not found, skipping stock restore: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
                     continue
 
                 if non_sellable_item:
-                    logger.info("订单 %s 包含非卖品 %s，无需恢复库存", order_id, item.get('name', 'Unknown'))
+                    logger.info("Order %s includes non-sellable item %s, no stock restore needed", order_id, item.get('name', 'Unknown'))
                     continue
 
                 product_id = item['product_id']
@@ -415,9 +415,9 @@ class OrderDB:
                         current_stock = int(var_row[0])
                         new_stock = current_stock + quantity
                         cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, variant_id))
-                        logger.info("恢复规格库存: variant_id=%s, +%s -> %s", variant_id, quantity, new_stock)
+                        logger.info("Restored variant stock: variant_id=%s, +%s -> %s", variant_id, quantity, new_stock)
                     else:
-                        logger.warning("规格不存在，无法恢复库存: variant_id=%s", variant_id)
+                        logger.warning("Variant not found, cannot restore stock: variant_id=%s", variant_id)
                 else:
                     cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
                     product_row = cursor.fetchone()
@@ -425,7 +425,7 @@ class OrderDB:
                         current_stock = int(product_row[0])
                         new_stock = current_stock + quantity
                         cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
-                        logger.info("恢复商品库存: product_id=%s, +%s -> %s", product_id, quantity, new_stock)
+                        logger.info("Restored product stock: product_id=%s, +%s -> %s", product_id, quantity, new_stock)
                     else:
                         if isinstance(item, dict):
                             is_gift_item = (
@@ -436,13 +436,13 @@ class OrderDB:
                                 '赠品' in str(item.get('category', ''))
                             )
                             if is_gift_item:
-                                logger.info("跳过赠品库存恢复: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
+                                logger.info("Skipping gift stock restore: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
                                 continue
-                        logger.error("商品不存在无法恢复库存: product_id=%s, item=%s", product_id, item)
+                        logger.error("Product not found, cannot restore stock: product_id=%s, item=%s", product_id, item)
                         return False
 
             conn.commit()
-            logger.info("订单 %s 库存恢复完成", order_id)
+            logger.info("Stock restoration completed for order %s", order_id)
             return True
 
     @staticmethod
@@ -692,9 +692,9 @@ class OrderDB:
                             [user_ref['user_id']] + order_ids
                         )
                         conn.commit()
-                        logger.info("自动迁移%s个订单记录到user_id=%s", len(order_ids), user_ref['user_id'])
+                        logger.info("Auto-migrated %s order records to user_id=%s", len(order_ids), user_ref['user_id'])
                     except Exception as exc:
-                        logger.warning("迁移订单记录失败: %s", exc)
+                        logger.warning("Failed to migrate order records: %s", exc)
                         conn.rollback()
 
                 orders = [dict(row) for row in old_orders]
@@ -881,10 +881,10 @@ class OrderDB:
                         except Exception:
                             pass
                 except Exception as exc:
-                    logger.warning("返还过期订单优惠券失败: %s", exc)
+                    logger.warning("Failed to return coupons for expired orders: %s", exc)
                 return deleted
             except Exception as exc:
-                logger.error("清理过期未付款订单失败: %s", exc)
+                logger.error("Failed to clean expired unpaid orders: %s", exc)
                 conn.rollback()
                 return 0
 
@@ -2202,7 +2202,7 @@ class OrderExportDB:
                             os.remove(abs_path)
                             removed += 1
                     except Exception as exc:
-                        logger.warning("清理过期导出文件失败(%s): %s", job_id, exc)
+                        logger.warning("Failed to clean expired export file (%s): %s", job_id, exc)
                 cursor.execute('''
                     UPDATE order_exports
                     SET status = 'expired',
