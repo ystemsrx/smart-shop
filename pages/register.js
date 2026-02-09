@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
 import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
+import SliderCaptchaModal from '../components/SliderCaptchaModal';
+import { getDeviceId } from '../utils/deviceId';
 
 export default function Register() {
   const router = useRouter();
@@ -14,12 +16,14 @@ export default function Register() {
     username: '',
     password: '',
     confirmPassword: '',
-    nickname: ''  // 昵称字段
+    nickname: ''
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
+  const [captchaOpen, setCaptchaOpen] = useState(false);
+  const [pendingRegisterPayload, setPendingRegisterPayload] = useState(null);
 
   // 如果已登录，重定向到AI聊天界面
   useEffect(() => {
@@ -37,7 +41,6 @@ export default function Register() {
         if (result.success) {
           setRegistrationEnabled(result.data.enabled);
           if (!result.data.enabled) {
-            // 如果注册未启用，3秒后跳转到登录页
             setTimeout(() => {
               router.push('/login');
             }, 3000);
@@ -55,40 +58,72 @@ export default function Register() {
     checkRegistrationStatus();
   }, [router]);
 
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     const { username, password, confirmPassword } = formData;
 
-    // 用户名验证
     if (username.trim().length < 2) {
       setError('用户名至少需要2个字符');
       return false;
     }
 
-    // 密码长度验证
     if (password.length < 6) {
       setError('密码至少需要6个字符');
       return false;
     }
 
-    // 密码复杂度验证
     const hasLetter = /[a-zA-Z]/.test(password);
     const hasDigit = /\d/.test(password);
-    
     if (!hasLetter || !hasDigit) {
       setError('密码必须包含数字和字母');
       return false;
     }
 
-    // 确认密码验证
     if (password !== confirmPassword) {
       setError('两次输入的密码不一致');
       return false;
     }
 
     return true;
-  };
+  }, [formData]);
 
-  const handleSubmit = async (e) => {
+  const submitRegistration = useCallback(async (payload, captchaToken) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-ID': getDeviceId(),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...payload,
+          captcha_token: captchaToken,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await checkAuth();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        router.push('/c');
+        return { ok: true };
+      } else {
+        setError(result.message || '注册失败，请稍后重试');
+        return { ok: false, message: result.message || '注册失败，请稍后重试' };
+      }
+    } catch (err) {
+      console.error('注册失败:', err);
+      setError('注册失败，请稍后重试');
+      return { ok: false, message: '注册失败，请稍后重试' };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [checkAuth, router]);
+
+  const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
 
@@ -96,44 +131,23 @@ export default function Register() {
       return;
     }
 
-    setIsLoading(true);
+    const payload = {
+      username: formData.username.trim(),
+      password: formData.password,
+      nickname: formData.nickname.trim() || null
+    };
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          username: formData.username.trim(),
-          password: formData.password,
-          nickname: formData.nickname.trim() || null  // 只有非空时才发送
-        }),
-      });
+    setPendingRegisterPayload(payload);
+    setCaptchaOpen(true);
+  };
 
-      const result = await response.json();
-
-      if (result.success) {
-        // 注册成功并已自动登录
-        // 等待一下然后刷新认证状态，确保前端能检测到登录状态
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // 刷新认证状态
-        await checkAuth();
-        
-        // 等待状态更新后跳转到AI聊天界面
-        await new Promise(resolve => setTimeout(resolve, 200));
-        router.push('/c');
-      } else {
-        setError(result.message || '注册失败，请稍后重试');
-      }
-    } catch (err) {
-      console.error('注册失败:', err);
-      setError('注册失败，请稍后重试');
-    } finally {
-      setIsLoading(false);
+  const handleCaptchaSuccess = (captchaToken) => {
+    const payload = pendingRegisterPayload;
+    if (!payload) {
+      return;
     }
+    // 验证码通过后立即关闭弹窗，注册请求在弹窗外执行并由页面展示 loading。
+    void submitRegistration(payload, captchaToken);
   };
 
   const handleInputChange = (e) => {
@@ -141,13 +155,11 @@ export default function Register() {
       ...formData,
       [e.target.name]: e.target.value
     });
-    // 清除错误信息
     if (error) {
       setError('');
     }
   };
 
-  // 检查状态中的加载页面
   if (checkingStatus) {
     return (
       <>
@@ -167,7 +179,6 @@ export default function Register() {
     );
   }
 
-  // 注册未启用的提示页面
   if (!registrationEnabled) {
     return (
       <>
@@ -189,6 +200,7 @@ export default function Register() {
                 3秒后自动跳转到登录页面...
               </p>
               <button
+                type="button"
                 onClick={() => router.push('/login')}
                 className="btn-primary text-white px-6 py-2 rounded-lg"
               >
@@ -367,6 +379,7 @@ export default function Register() {
 
                 <div className="mt-6">
                   <button
+                    type="button"
                     onClick={() => router.push('/login')}
                     className="w-full btn-glass text-gray-700 hover:text-gray-900 transform hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
                   >
@@ -409,6 +422,20 @@ export default function Register() {
           </div>
         </div>
       </PastelBackground>
+
+      <SliderCaptchaModal
+        open={captchaOpen}
+        scene="register"
+        title="注册安全验证"
+        description="请先完成滑块验证，再提交注册信息"
+        onClose={(reason) => {
+          setCaptchaOpen(false);
+          if (reason !== 'success') {
+            setPendingRegisterPayload(null);
+          }
+        }}
+        onSuccess={handleCaptchaSuccess}
+      />
     </>
   );
 }

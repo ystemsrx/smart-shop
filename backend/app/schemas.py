@@ -5,17 +5,39 @@ from pydantic import BaseModel
 class LoginRequest(BaseModel):
     student_id: str
     password: str
+    captcha_token: Optional[str] = None
 
 
 class AdminLoginRequest(BaseModel):
     admin_id: str
     password: str
+    captcha_token: Optional[str] = None
 
 
 class RegisterRequest(BaseModel):
     username: str
     password: str
     nickname: Optional[str] = None
+    captcha_token: Optional[str] = None
+
+
+class CaptchaChallengeRequest(BaseModel):
+    scene: Optional[str] = "login"
+
+
+class CaptchaVerifyRequest(BaseModel):
+    challenge_id: str
+    scene: Optional[str] = None
+    x: float
+    y: float
+    slider_offset_x: float
+    duration: float
+    trail: List[List[float]] = []
+
+
+class CaptchaDiscardRequest(BaseModel):
+    challenge_id: str
+    scene: Optional[str] = None
 
 
 class ProductCreate(BaseModel):

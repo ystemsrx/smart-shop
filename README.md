@@ -251,6 +251,9 @@ SUPPORTS_THINKING=openai/gpt-oss-20b:free,z-ai/glm-4.5-air:free
 # 第三方登录 API (可选)
 LOGIN_API=https://your-login-api.com
 
+# Redis 配置 (可选)
+REDIS_URL=redis://localhost:6379/0
+
 # 后端服务器配置
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=9099

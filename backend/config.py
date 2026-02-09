@@ -166,6 +166,7 @@ class Settings:
     jwt_secret_key: str
     jwt_algorithm: str
     access_token_expire_days: int
+    redis_url: str
     login_api: str
     admin_accounts: List[AdminAccount]
     allowed_origins: List[str]
@@ -211,6 +212,7 @@ def get_settings() -> Settings:
     login_api = _strip_quotes(os.getenv("LOGIN_API"))
     if not login_api:
         raise RuntimeError("LOGIN_API environment variable is required")
+    redis_url = (_strip_quotes(os.getenv("REDIS_URL")) or "redis://127.0.0.1:6379/0").strip()
 
     usernames = _split_csv(os.getenv("ADMIN_USERNAME"))
     passwords = _split_csv(os.getenv("ADMIN_PASSWORD"))
@@ -282,7 +284,8 @@ def get_settings() -> Settings:
         jwt_secret_key=jwt_secret,
         jwt_algorithm=jwt_algorithm,
         access_token_expire_days=access_days,
-    login_api=login_api,
+        redis_url=redis_url,
+        login_api=login_api,
         admin_accounts=admin_accounts,
         allowed_origins=allowed_origins,
         static_cache_max_age=cache_max_age,

@@ -8,12 +8,15 @@ package-lock.json
 q.txt
 __pycache__
 venv/
+.venv
 chatapi/
 AGENTS.md
 lottery_config.json
 tencent*.txt
 public/*
 !public/icons/
+!public/captcha/
+public/captcha/generated/
 items/
 logs/
 .pytest_cache/

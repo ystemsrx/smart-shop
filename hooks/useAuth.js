@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { getApiBaseUrl } from '../utils/runtimeConfig';
+import { getDeviceId } from '../utils/deviceId';
 
 const DEFAULT_AUTH_CONTEXT = {
   user: null,
@@ -99,35 +100,61 @@ export function AuthProvider({ children }) {
   };
 
   // 用户登录
-  const login = async (accountId, password) => {
+  const login = async (accountId, password, options = {}) => {
     setIsLoading(true);
     setError('');
 
     try {
+      const captchaToken = options?.captchaToken ? String(options.captchaToken).trim() : '';
       const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Device-ID': getDeviceId(),
         },
         credentials: 'include',
-        body: JSON.stringify({ student_id: accountId, password }),
+        body: JSON.stringify({
+          student_id: accountId,
+          password,
+          captcha_token: captchaToken || undefined,
+        }),
       });
 
-      const data = await response.json();
-
-      if (data.success) {
-        const account = normalizeAccount(data.data);
-        if (!account) {
-          throw new Error('无法识别登录身份');
-        }
-        setUser(account);
-        return account;
-      } else {
-        throw new Error(data.message || '登录失败');
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (_err) {
+        data = {};
       }
+
+      if (!response.ok || !data.success) {
+        const apiError = new Error(data.message || '登录失败');
+        apiError.status = response.status;
+        apiError.code = data.code;
+        throw apiError;
+      }
+
+      const account = normalizeAccount(data.data);
+      if (!account) {
+        const identityError = new Error('无法识别登录身份');
+        identityError.status = response.status;
+        throw identityError;
+      }
+      setUser(account);
+      return account;
     } catch (err) {
       const errorMessage = err.message || '网络错误，请稍后重试';
-      setError(errorMessage);
+      const statusCode = Number(err?.status || 0);
+      const suppressStatuses = Array.isArray(options?.suppressErrorStatuses)
+        ? options.suppressErrorStatuses.map((item) => Number(item))
+        : [];
+      const shouldSuppressError = suppressStatuses.includes(statusCode);
+      if (!shouldSuppressError) {
+        setError(errorMessage);
+      }
+      if (err instanceof Error) {
+        throw err;
+      }
       throw new Error(errorMessage);
     } finally {
       setIsLoading(false);

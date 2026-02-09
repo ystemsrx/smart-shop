@@ -4,6 +4,15 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
 import { getShopName } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
+import SliderCaptchaModal from '../components/SliderCaptchaModal';
+
+const isCaptchaRequiredError = (err) => {
+  const status = Number(err?.status || 0);
+  const code = Number(err?.code || 0);
+  const message = String(err?.message || '').toLowerCase();
+  if (status === 429 || code === 429) return true;
+  return ['验证码', 'captcha', '频繁', 'too many', 'rate'].some((keyword) => message.includes(keyword));
+};
 
 export default function Login() {
   const router = useRouter();
@@ -15,6 +24,9 @@ export default function Login() {
     password: ''
   });
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [captchaOpen, setCaptchaOpen] = useState(false);
+  const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
+
   const getSafeRedirect = useCallback(() => {
     if (!router.isReady) return null;
     const redirectPath = router.query?.redirect;
@@ -24,7 +36,43 @@ export default function Login() {
     return null;
   }, [router]);
 
-  // 如果已登录，重定向到对应页面（带回原始入口）
+  const redirectAfterLogin = useCallback((account) => {
+    const redirectPath = getSafeRedirect();
+    if (account?.type === 'admin') {
+      router.push('/admin/dashboard');
+      return;
+    }
+    if (account?.type === 'agent') {
+      router.push('/agent/dashboard');
+      return;
+    }
+    if (redirectPath) {
+      router.push(redirectPath);
+      return;
+    }
+    router.push('/c');
+  }, [router, getSafeRedirect]);
+
+  const processLogin = useCallback(async (payload, captchaToken = '') => {
+    try {
+      const account = await login(payload.accountId, payload.password, {
+        captchaToken,
+        suppressErrorStatuses: [429],
+      });
+      setPendingLoginPayload(null);
+      redirectAfterLogin(account);
+      return { ok: true, needsCaptcha: false };
+    } catch (err) {
+      if (isCaptchaRequiredError(err)) {
+        setPendingLoginPayload(payload);
+        setCaptchaOpen(true);
+        return { ok: false, needsCaptcha: true, message: err?.message || '需要验证码' };
+      }
+      setPendingLoginPayload(null);
+      return { ok: false, needsCaptcha: false, message: err?.message || '登录失败' };
+    }
+  }, [login, redirectAfterLogin]);
+
   useEffect(() => {
     if (!router.isReady || !isInitialized || !user) return;
     const redirectPath = getSafeRedirect();
@@ -40,11 +88,9 @@ export default function Login() {
       router.replace(redirectPath);
       return;
     }
-    // 普通用户登录后默认跳转到AI聊天界面
     router.replace('/c');
   }, [user, isInitialized, router, getSafeRedirect]);
 
-  // 检查注册功能是否启用
   useEffect(() => {
     const checkRegistrationStatus = async () => {
       try {
@@ -63,23 +109,23 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      const account = await login(formData.student_id.trim(), formData.password);
+    const payload = {
+      accountId: formData.student_id.trim(),
+      password: formData.password,
+    };
 
-      const redirectPath = getSafeRedirect();
-      if (account?.type === 'admin') {
-        router.push('/admin/dashboard');
-      } else if (account?.type === 'agent') {
-        router.push('/agent/dashboard');
-      } else if (redirectPath) {
-        router.push(redirectPath);
-      } else {
-        // 普通用户登录后默认跳转到AI聊天界面
-        router.push('/c');
-      }
-    } catch (err) {
-      // 错误处理在useAuth中完成
+    if (!payload.accountId || !payload.password) return;
+    setPendingLoginPayload(payload);
+    await processLogin(payload);
+  };
+
+  const handleCaptchaSuccess = (captchaToken) => {
+    const payload = pendingLoginPayload;
+    if (!payload) {
+      return;
     }
+    // 验证码通过后立即关闭弹窗，登录请求在弹窗外执行并由页面展示 loading。
+    void processLogin(payload, captchaToken);
   };
 
   const handleInputChange = (e) => {
@@ -217,6 +263,7 @@ export default function Login() {
                 {registrationEnabled && (
                   <div className="mt-6">
                     <button
+                      type="button"
                       onClick={() => router.push('/register')}
                       className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium"
                     >
@@ -228,6 +275,7 @@ export default function Login() {
 
                 <div className={registrationEnabled ? "mt-4" : "mt-6"}>
                   <button
+                    type="button"
                     onClick={() => router.push('/')}
                     className="w-full btn-glass text-gray-700 hover:text-gray-900 transform hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
                   >
@@ -270,6 +318,20 @@ export default function Login() {
           </div>
         </div>
       </PastelBackground>
+
+      <SliderCaptchaModal
+        open={captchaOpen}
+        scene="login"
+        title="登录安全验证"
+        description="请完成滑块验证后继续登录"
+        onClose={(reason) => {
+          setCaptchaOpen(false);
+          if (reason !== 'success') {
+            setPendingLoginPayload(null);
+          }
+        }}
+        onSuccess={handleCaptchaSuccess}
+      />
     </>
   );
 }

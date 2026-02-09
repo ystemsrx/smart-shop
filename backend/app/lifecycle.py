@@ -18,6 +18,7 @@ from database import (
     migrate_agent_image_paths,
 )
 from .context import EXPORTS_DIR, ITEMS_DIR, logger
+from .services.captcha import CaptchaService
 
 
 settings = get_settings()
@@ -269,9 +270,17 @@ async def run_startup_tasks() -> List[asyncio.Task]:
     except Exception as exc:
         logger.warning(f"迁移代理图片目录失败: {exc}")
 
+    try:
+        removed = CaptchaService.cleanup_generated_images(force=True)
+        if removed:
+            logger.info(f"启动时清理验证码历史图片 {removed} 个")
+    except Exception as exc:
+        logger.warning(f"启动时清理验证码历史图片失败: {exc}")
+
     maintenance_tasks: List[asyncio.Task] = []
     maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))
     maintenance_tasks.append(asyncio.create_task(expired_unpaid_cleanup(), name="expired_unpaid_cleanup"))
+    maintenance_tasks.append(asyncio.create_task(captcha_cleanup(), name="captcha_cleanup"))
 
     log_model_configuration_snapshot()
     logger.info("宿舍智能小商城API启动完成")
@@ -308,6 +317,18 @@ async def expired_unpaid_cleanup():
                 logger.info(f"清理过期未付款订单: 删除 {deleted} 笔")
         except Exception as exc:
             logger.error(f"清理过期未付款订单任务失败: {exc}")
+
+
+async def captcha_cleanup():
+    """高频清理验证码生成图片，防止临时文件堆积。"""
+    while True:
+        try:
+            await asyncio.sleep(30)
+            removed = CaptchaService.cleanup_generated_images()
+            if removed:
+                logger.info(f"清理验证码临时图片 {removed} 个")
+        except Exception as exc:
+            logger.error(f"验证码图片清理任务失败: {exc}")
 
 
 @asynccontextmanager

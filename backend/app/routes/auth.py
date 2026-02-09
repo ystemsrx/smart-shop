@@ -14,17 +14,83 @@ from auth import (
 )
 from database import AdminDB, SalesCycleDB, SettingsDB, UserDB
 from ..context import logger
-from ..schemas import AdminLoginRequest, LoginRequest, RegisterRequest
+from ..schemas import (
+    AdminLoginRequest,
+    CaptchaDiscardRequest,
+    CaptchaChallengeRequest,
+    CaptchaVerifyRequest,
+    LoginRequest,
+    RegisterRequest,
+)
+from ..services.captcha import CaptchaError, CaptchaService
 from ..utils import is_truthy
 
 
 router = APIRouter()
 
 
+@router.post("/auth/captcha/challenge")
+async def create_captcha_challenge(request: Request, payload: CaptchaChallengeRequest):
+    """创建验证码挑战。"""
+    try:
+        result = await CaptchaService.create_challenge(request, payload.scene)
+        return success_response("获取验证码挑战成功", result)
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
+    except Exception as exc:
+        logger.error(f"创建验证码挑战失败: {exc}")
+        return error_response("创建验证码挑战失败", 500)
+
+
+@router.post("/auth/captcha/verify")
+async def verify_captcha_challenge(request: Request, payload: CaptchaVerifyRequest):
+    """验证验证码挑战并签发一次性凭证。"""
+    try:
+        result = await CaptchaService.verify_challenge_and_issue_token(
+            request=request,
+            challenge_id=payload.challenge_id,
+            scene=payload.scene,
+            verify_payload={
+                "x": payload.x,
+                "y": payload.y,
+                "slider_offset_x": payload.slider_offset_x,
+                "duration": payload.duration,
+                "trail": payload.trail,
+            },
+        )
+        return success_response("验证码验证成功", result)
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
+    except Exception as exc:
+        logger.error(f"验证码验证失败: {exc}")
+        return error_response("验证码验证失败", 500)
+
+
+@router.post("/auth/captcha/discard")
+async def discard_captcha_challenge(request: Request, payload: CaptchaDiscardRequest):
+    """主动废弃验证码挑战并清理相关图片。"""
+    try:
+        removed = await CaptchaService.discard_challenge(
+            request=request,
+            challenge_id=payload.challenge_id,
+            scene=payload.scene,
+        )
+        return success_response("验证码挑战已处理", {"removed": removed})
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
+    except Exception as exc:
+        logger.error(f"验证码挑战废弃失败: {exc}")
+        return error_response("验证码挑战废弃失败", 500)
+
+
 @router.post("/auth/login")
-async def login(request: LoginRequest, response: Response):
+async def login(http_request: Request, request: LoginRequest, response: Response):
     """用户登录。"""
     try:
+        requires_captcha = await CaptchaService.should_require_login_captcha(http_request)
+        if requires_captcha:
+            await CaptchaService.consume_pass_token(http_request, request.captcha_token, scene="login")
+
         try:
             staff_result = AuthManager.login_admin(request.student_id, request.password)
         except AuthError as exc:
@@ -40,15 +106,21 @@ async def login(request: LoginRequest, response: Response):
         set_auth_cookie(response, result["access_token"])
         return success_response("登录成功", result)
 
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
     except Exception as exc:
         logger.error(f"登录失败: {exc}")
         return error_response("登录失败，请稍后重试", 500)
 
 
 @router.post("/auth/admin-login")
-async def admin_login(request: AdminLoginRequest, response: Response):
+async def admin_login(http_request: Request, request: AdminLoginRequest, response: Response):
     """管理员登录。"""
     try:
+        requires_captcha = await CaptchaService.should_require_login_captcha(http_request)
+        if requires_captcha:
+            await CaptchaService.consume_pass_token(http_request, request.captcha_token, scene="login")
+
         try:
             result = AuthManager.login_admin(request.admin_id, request.password)
         except AuthError as exc:
@@ -59,6 +131,8 @@ async def admin_login(request: AdminLoginRequest, response: Response):
         set_auth_cookie(response, result["access_token"])
         return success_response("管理员登录成功", result)
 
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
     except Exception as exc:
         logger.error(f"管理员登录失败: {exc}")
         return error_response("管理员登录失败，请稍后重试", 500)
@@ -131,9 +205,11 @@ async def get_registration_status():
 
 
 @router.post("/auth/register")
-async def register_user(request: RegisterRequest, response: Response):
+async def register_user(http_request: Request, request: RegisterRequest, response: Response):
     """用户注册。"""
     try:
+        await CaptchaService.consume_pass_token(http_request, request.captcha_token, scene="register")
+
         enabled = SettingsDB.get("registration_enabled", "false").lower() == "true"
         if not enabled:
             return error_response("注册功能未启用", 403)
@@ -175,6 +251,8 @@ async def register_user(request: RegisterRequest, response: Response):
         else:
             return error_response("注册成功但自动登录失败，请手动登录", 500)
 
+    except CaptchaError as exc:
+        return error_response(exc.message, exc.status_code)
     except Exception as exc:
         logger.error(f"用户注册失败: {exc}")
         return error_response("注册失败，请稍后重试", 500)
