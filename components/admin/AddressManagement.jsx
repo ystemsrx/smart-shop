@@ -26,14 +26,14 @@ export const AddressManagement = ({
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col items-start md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">智能地址管理</h2>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">地址管理</h2>
           <p className="text-sm text-gray-500 mt-1">管理配送地址、楼栋和代理分配，让配送更高效精准</p>
         </div>
         <button 
           onClick={loadAddresses} 
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+          className="inline-flex self-start md:self-auto items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
         >
           <i className="fas fa-sync-alt text-xs"></i>
           刷新数据
