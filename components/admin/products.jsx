@@ -1169,13 +1169,13 @@ export const LocalVariantManager = ({ variants, loading, onChange }) => {
             <p className="text-xs text-gray-400 mt-1">添加规格后，总库存将自动计算</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[300px] overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar">
             {variants.map((v) => (
               <div key={v.id} className="relative group bg-white rounded-xl border border-gray-200 p-3 hover:shadow-md hover:border-indigo-200 transition-all">
                 <button
                   type="button"
                   onClick={() => removeVariant(v.id)}
-                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 shadow-sm flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 shadow-sm flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"
                   title="删除规格"
                 >
                   <X size={14} />
@@ -1183,7 +1183,7 @@ export const LocalVariantManager = ({ variants, loading, onChange }) => {
                 
                 <div className="space-y-2">
                   <input 
-                    className="w-full px-2 py-1 bg-transparent border-b border-transparent hover:border-gray-200 focus:border-indigo-500 text-sm font-medium text-gray-900 focus:outline-none transition-colors" 
+                    className="w-full pl-2 pr-8 py-1 bg-transparent border-b border-transparent hover:border-gray-200 focus:border-indigo-500 text-sm font-medium text-gray-900 focus:outline-none transition-colors" 
                     value={v.name} 
                     onChange={(e) => updateVariant(v.id, 'name', e.target.value)}
                     placeholder="规格名称"

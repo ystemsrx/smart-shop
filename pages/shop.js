@@ -13,6 +13,7 @@ import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName, getApiBaseUrl, getLogo } from '../utils/runtimeConfig';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { preExtractEdgeColors } from '../utils/edgeColorCache';
 
 // 延迟加载 InfiniteMenu (包含 WebGL 和 gl-matrix)
 const InfiniteMenu = dynamic(
@@ -31,49 +32,13 @@ const InfiniteMenu = dynamic(
 import FloatingCart from '../components/FloatingCart';
 
 // 延迟加载模态框组件
-const PastelBackground = dynamic(
-  () => import(/* webpackChunkName: "modal-card" */ '../components/ModalCard'),
-  { ssr: false }
-);
-
 const ProductDetailModal = dynamic(
   () => import(/* webpackChunkName: "product-detail" */ '../components/ProductDetailModal'),
   { ssr: false }
 );
 
-// 格式化预约截止时间显示
-const formatReservationCutoff = (cutoffTime) => {
-  if (!cutoffTime) return '需提前预约';
-  
-  // 获取当前时间
-  const now = new Date();
-  const [hours, minutes] = cutoffTime.split(':').map(Number);
-  
-  // 创建今天的截止时间
-  const todayCutoff = new Date();
-  todayCutoff.setHours(hours, minutes, 0, 0);
-  
-  // 如果当前时间已过今天的截止时间，显示明日配送
-  if (now > todayCutoff) {
-    return `明日 ${cutoffTime} 后配送`;
-  }
-  
-  return `今日 ${cutoffTime} 后配送`;
-};
-
-const getPricingMeta = (product = {}) => {
-  const basePrice = typeof product.price === 'number' ? product.price : parseFloat(product.price || '0');
-  const rawDiscount = product.discount;
-  const discountZhe =
-    typeof rawDiscount === 'number'
-      ? rawDiscount
-      : rawDiscount
-        ? parseFloat(rawDiscount)
-        : 10;
-  const hasDiscount = Boolean(discountZhe && discountZhe > 0 && discountZhe < 10);
-  const finalPrice = hasDiscount ? Math.round(basePrice * (discountZhe / 10) * 100) / 100 : basePrice;
-  return { discountZhe, hasDiscount, finalPrice };
-};
+import SpecSelectionModal from '../components/SpecSelectionModal';
+import { formatPriceDisplay, getPricingMeta, formatReservationCutoff, normalizeDescription } from '../utils/formatters';
 
 const isProductDown = (product = {}) => product.is_active === 0 || product.is_active === false;
 
@@ -95,19 +60,6 @@ const isProductOutOfStock = (product = {}) => {
   return (product.stock || 0) === 0;
 };
 
-const formatPriceDisplay = (value) => {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return '0';
-  return Number.isInteger(amount) ? amount.toString() : amount.toFixed(2);
-};
-
-const normalizeDescription = (value, maxLength = 48) => {
-  if (!value) return '';
-  const plain = String(value).replace(/\s+/g, ' ').trim();
-  if (plain.length <= maxLength) return plain;
-  return `${plain.slice(0, maxLength)}…`;
-};
-
 const buildSphereSubtitle = (product = {}) => {
   const { finalPrice, hasDiscount, discountZhe } = getPricingMeta(product);
   const parts = [`¥${formatPriceDisplay(finalPrice)}`];
@@ -126,6 +78,125 @@ const buildSphereSubtitle = (product = {}) => {
   return parts.join(' · ');
 };
 
+const sortProductsByPrice = (products = []) => {
+  const available = [];
+  const deferred = [];
+
+  products.forEach((p) => {
+    if (isProductDown(p) || isProductOutOfStock(p)) {
+      deferred.push(p);
+    } else {
+      available.push(p);
+    }
+  });
+
+  const sortByPriority = (arr) => {
+    const hotItems = [];
+    const normalItems = [];
+    arr.forEach((item) => (Boolean(item.is_hot) ? hotItems : normalItems).push(item));
+    const byPrice = (a, b) => getPricingMeta(a).finalPrice - getPricingMeta(b).finalPrice;
+    hotItems.sort(byPrice);
+    normalItems.sort(byPrice);
+    return [...hotItems, ...normalItems];
+  };
+
+  return [...sortByPriority(available), ...sortByPriority(deferred)];
+};
+
+const sortCategoriesByLocale = (categories = []) => {
+  const cats = Array.isArray(categories) ? [...categories] : [];
+  const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
+  const firstSigChar = (s) => {
+    const str = String(s || '');
+    for (let i = 0; i < str.length; i += 1) {
+      const ch = str[i];
+      if (/[A-Za-z\u4e00-\u9fff]/.test(ch)) return ch;
+    }
+    return '';
+  };
+  const typeRank = (s) => {
+    const ch = firstSigChar(s);
+    if (!ch) return 2;
+    return /[A-Za-z]/.test(ch) ? 0 : 1;
+  };
+  const bucket = (s, collator) => {
+    const name = String(s || '');
+    if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
+    let b = 25;
+    for (let i = 0; i < 26; i += 1) {
+      const cur = letters[i];
+      const next = i < 25 ? letters[i + 1] : null;
+      if (collator.compare(name, cur) < 0) {
+        b = 0;
+        break;
+      }
+      if (!next || (collator.compare(name, cur) >= 0 && collator.compare(name, next) < 0)) {
+        b = i;
+        break;
+      }
+    }
+    return b;
+  };
+
+  try {
+    const collator = new Intl.Collator(
+      ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
+      { sensitivity: 'base', numeric: true }
+    );
+    cats.sort((a, b) => {
+      const aName = String(a?.name || '');
+      const bName = String(b?.name || '');
+      const ab = bucket(aName, collator);
+      const bb = bucket(bName, collator);
+      if (ab !== bb) return ab - bb;
+      const ar = typeRank(aName);
+      const br = typeRank(bName);
+      if (ar !== br) return ar - br;
+      return collator.compare(aName, bName);
+    });
+  } catch (e) {
+    cats.sort((a, b) => {
+      const aName = String(a?.name || '');
+      const bName = String(b?.name || '');
+      const aCh = firstSigChar(aName).toLowerCase();
+      const bCh = firstSigChar(bName).toLowerCase();
+      const aIsEn = /^[a-z]$/.test(aCh);
+      const bIsEn = /^[a-z]$/.test(bCh);
+      const ab = aIsEn ? (aCh.charCodeAt(0) - 97) : 26;
+      const bb = bIsEn ? (bCh.charCodeAt(0) - 97) : 26;
+      if (ab !== bb) return ab - bb;
+      const ar = aIsEn ? 0 : 1;
+      const br = bIsEn ? 0 : 1;
+      if (ar !== br) return ar - br;
+      return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
+    });
+  }
+
+  return cats;
+};
+
+const filterProducts = (allProducts = [], selectedCategory = 'all', searchQuery = '') => {
+  if (!Array.isArray(allProducts) || allProducts.length === 0) return [];
+
+  let filtered = [...allProducts];
+
+  if (searchQuery.trim()) {
+    const query = searchQuery.toLowerCase().trim();
+    filtered = filtered.filter((p) =>
+      (p.name && p.name.toLowerCase().includes(query)) ||
+      (p.description && p.description.toLowerCase().includes(query)) ||
+      (p.category && p.category.toLowerCase().includes(query))
+    );
+  } else if (selectedCategory === 'hot') {
+    filtered = filtered.filter((p) => Boolean(p.is_hot));
+  } else if (selectedCategory && selectedCategory.startsWith('category:')) {
+    const categoryName = selectedCategory.slice('category:'.length);
+    filtered = filtered.filter((p) => p.category === categoryName);
+  }
+
+  return sortProductsByPrice(filtered);
+};
+
 // 简洁的头部动画变体
 const headerVariants = {
   hidden: { opacity: 0 },
@@ -135,51 +206,40 @@ const headerVariants = {
   }
 };
 
-// 商品卡片组件
-const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, onOpenDetailModal, itemsMap = {}, isLoading }) => {
+// 商品卡片组件 —— examples/商品浏览页面 style
+const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, onOpenDetailModal, itemsMap = {}, isLoading, enterIndex = 0 }) => {
   const { user } = useAuth();
   const [showReservationInfo, setShowReservationInfo] = useState(true);
-  
+
   const handleAddToCart = (e) => {
     if (!user) {
       alert('请先登录才能添加商品到购物车');
       return;
     }
-    // 有规格时需先选择
     if (product.has_variants) {
       onOpenSpecModal(product);
       return;
     }
-    // 点击加号时隐藏预约信息
     setShowReservationInfo(false);
-    // 触发飞入动画（从按钮位置）
     onStartFly && onStartFly(e.currentTarget, product, { type: 'add' });
     onAddToCart(product.id, null);
   };
 
   const handleQuantityChange = (newQuantity, e, variantId = null) => {
     if (!user) return;
-    // 仅在增加数量时触发飞入动画
     const currentQty = variantId ? (itemsMap[`${product.id}@@${variantId}`] || 0) : (itemsMap[`${product.id}`] || 0);
     if (e && newQuantity > currentQty) {
-      // 点击加号时隐藏预约信息
       setShowReservationInfo(false);
       onStartFly && onStartFly(e.currentTarget, product, { type: 'increment' });
     } else if (newQuantity < currentQty) {
-      // 减少数量时恢复显示预约信息
       setShowReservationInfo(true);
     }
     onUpdateQuantity(product.id, newQuantity, variantId);
   };
 
-  // 规格与数量
   const isVariant = isVariantProduct(product);
-  const cartQuantity = isVariant
-    ? 0 // 有规格的商品不在卡片中显示数量调整
-    : (itemsMap[`${product.id}`] || 0);
-  // 是否在购物车中
+  const cartQuantity = isVariant ? 0 : (itemsMap[`${product.id}`] || 0);
   const isInCart = cartQuantity > 0;
-  // 是否下架/缺货
   const isDown = isProductDown(product);
   const isOutOfStock = isProductOutOfStock(product);
   const imageSrc = getProductImage(product) || getLogo();
@@ -198,51 +258,38 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
   const limitReached = effectiveStock !== null && effectiveStock > 0 && cartQuantity >= effectiveStock;
 
   return (
-    <div 
-      className={`card-modern group overflow-hidden h-[420px] flex flex-col animate-card-fade-in ${
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      whileHover={{ y: -8 }}
+      transition={{
+        duration: 0.2,
+        ease: 'easeOut',
+        delay: Math.min(enterIndex * 0.015, 0.12),
+      }}
+      className={`shop-product-card group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col ${
         (isOutOfStock || isDown)
           ? 'opacity-60 grayscale cursor-not-allowed'
           : 'cursor-pointer'
       }`}
       onClick={(e) => {
-        // 如果点击的是按钮或其子元素，不打开详情
         if (e.target.closest('button')) return;
-        // 打开详情弹窗
         onOpenDetailModal && onOpenDetailModal(product);
       }}
     >
-      <div className="aspect-square w-full overflow-hidden relative bg-gradient-to-br from-gray-50 to-gray-100">
-        {/* 折扣角标 */}
-        {hasDiscount && (
-          <div className="absolute left-3 top-3 z-20">
-            <div className="relative">
-              {/* 模糊背景层 */}
-              <div className="absolute inset-0 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl blur opacity-30"></div>
-              {/* 主要角标 */}
-              <div className="relative z-10 w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center shadow-xl transform rotate-12 group-hover:rotate-6 transition-transform duration-300">
-                <div className="text-center relative z-10">
-                  <div className="text-white text-xs font-bold drop-shadow-sm">{discountZhe}折</div>
-                  <div className="text-white text-xs font-medium drop-shadow-sm">特惠</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {Boolean(product.is_hot) && (
-          <div className="absolute right-3 top-3 z-20">
-            <span className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-full shadow-lg">
-              <i className="fas fa-fire"></i>
-              热销中
-            </span>
-          </div>
-        )}
-
+      {/* 图片区域 — aspect-square, hover scale */}
+      <div className="relative aspect-square overflow-hidden">
+        <motion.div 
+            className="w-full h-full"
+            whileHover={{ scale: 1.1 }}
+            transition={{ duration: 0.6 }}
+        >
         {imageSrc ? (
           <RetryImage
             src={imageSrc}
             alt={product.name}
-            className={`h-full w-full object-cover object-center transition-transform duration-500 ${
+            className={`w-full h-full object-cover ${
               (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
@@ -251,199 +298,138 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           <div className={`h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center ${
             (isOutOfStock || isDown) ? 'opacity-50' : ''
           }`}>
-            <div className="text-center">
-              <i className="fas fa-image text-gray-400 text-2xl mb-2"></i>
-              <span className="text-gray-400 text-sm">暂无图片</span>
-            </div>
+            <span className="text-gray-400 text-sm">暂无图片</span>
           </div>
         )}
-        
+        </motion.div>
+
+        {/* hover 渐变 */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+
+        {/* 折扣 / 热销角标 */}
+        {hasDiscount && (
+          <div className="absolute top-3 left-3 bg-primary/90 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider z-10">
+            {discountZhe}折
+          </div>
+        )}
+        {Boolean(product.is_hot) && (
+          <div className="absolute top-3 right-3 z-10">
+            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-full uppercase tracking-wider">
+              🔥 热销
+            </span>
+          </div>
+        )}
+
         {/* 缺货/下架遮罩 */}
         {(isOutOfStock || isDown) && (
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-20">
             {isDown ? (
               <div className="bg-gray-800/90 text-white px-4 py-2 rounded-xl text-sm font-medium backdrop-blur-sm border border-white/20">
-                <i className="fas fa-pause mr-2"></i>暂时下架
+                暂时下架
               </div>
             ) : (
               <div className="bg-red-600/90 text-white px-4 py-2 rounded-xl text-sm font-medium backdrop-blur-sm border border-white/20">
-                <i className="fas fa-exclamation-triangle mr-2"></i>缺货
+                缺货
               </div>
             )}
           </div>
         )}
       </div>
-      
-      <div className="p-4 bg-gradient-to-t from-gray-50/50 to-transparent flex-1 flex flex-col">
-        {/* 商品信息区域 */}
-        <div className="flex-1 flex flex-col mb-4">
-          {/* 标题、分类和价格行 */}
-          <div className="flex items-start justify-between gap-3 mb-2">
-            {/* 左侧：标题和分类 */}
-            <div className="flex-1 min-w-0">
-              {/* 商品标题 */}
-              <h3 className={`text-sm font-semibold leading-tight line-clamp-2 mb-2 ${
-                (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
-              }`}>
-                {product.name}
-              </h3>
-              
-              {/* 分类标签 */}
-              <div className="flex items-center gap-2">
-                <span className={`tag-modern text-xs ${
-                  (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
-                }`}>
-                  <i className="fas fa-tag mr-1"></i>{product.category}
-                </span>
-              </div>
-            </div>
-            
-            {/* 右侧：价格信息 */}
-            <div className="flex flex-col items-end text-right shrink-0">
-              {/* 当前价格 */}
-              <div className="mb-1 flex items-center gap-1.5">
-                {requiresReservation && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold shadow-sm flex-shrink-0">
-                    预
-                  </span>
-                )}
-                <span className={`text-lg font-bold whitespace-nowrap ${
-                  (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
-                }`}>
-                  ¥{finalPrice}
-                </span>
-              </div>
-              
-              {/* 原价 */}
-              {hasDiscount && (
-                <span className="text-xs text-gray-400 line-through whitespace-nowrap">¥{product.price}</span>
-              )}
-            </div>
-          </div>
-          
-          {/* 商品描述 - 独占一行，不被价格挤压 */}
-          {product.description && (
-            <p className={`text-xs line-clamp-2 leading-relaxed mb-2 break-words overflow-hidden ${
-              (isOutOfStock || isDown) ? 'text-gray-400' : 'text-gray-600'
-            }`}>
-              {product.description}
-            </p>
-          )}
-          
-          {/* 库存信息 */}
-          {!isDown && (
-            <div className="text-xs flex items-center justify-between gap-2">
-              <div className={`flex items-center gap-1 ${
-                isOutOfStock ? 'text-red-500 font-medium' : 'text-gray-500'
-              }`}>
-                <i className="fas fa-box-open"></i>
-                <span>
-                  {isNonSellable
-                    ? '库存 ∞'
-                    : (isVariant
-                        ? (product.total_variant_stock !== undefined ? `库存 ${product.total_variant_stock}` : '多规格')
-                        : `库存 ${normalizedStock ?? 0}`)}
-                </span>
-              </div>
-              {isNonSellable && (
-                <span className="px-2 py-0.5 text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full flex-shrink-0">
-                  非卖品
-                </span>
-              )}
-            </div>
-          )}
+
+      {/* 信息区域 */}
+      <div className="p-4 flex flex-col justify-between flex-grow">
+        <div>
+          {/* 商品名 — serif 字体 */}
+          <h3 className={`font-serif text-lg font-semibold leading-tight mb-1 line-clamp-2 group-hover:text-primary transition-colors ${
+            (isOutOfStock || isDown) ? 'text-gray-500' : 'text-gray-900'
+          }`}>
+            {product.name}
+          </h3>
+          {/* 描述/分类 */}
+          <p className="text-xs text-gray-500 mb-2 line-clamp-1">
+            {product.description || product.category || ''}
+          </p>
         </div>
-        
-        {/* 操作按钮区域 */}
-        <div className="flex flex-col gap-2">
-          {/* 预约信息 */}
-          {requiresReservation && reservationNote && showReservationInfo && (
-            <div className="text-[11px] text-blue-500 leading-snug break-words">
-              {reservationNote}
-            </div>
-          )}
-          
-          <div className="flex items-center gap-2">
-          {/* 预约时间信息 */}
-          {requiresReservation && showReservationInfo && (
-            <div className="flex-1 text-[11px] text-blue-600 flex items-center gap-1">
-              <i className="fas fa-calendar-check"></i>
-              <span className="truncate">{formatReservationCutoff(reservationCutoff)}</span>
-            </div>
-          )}
-          
+
+        {/* 底部 — 价格 + 按钮 */}
+        <div className="flex items-center justify-between mt-auto">
+          <div className="flex flex-col">
+            <span className={`text-primary font-bold font-display ${
+              (isOutOfStock || isDown) ? 'text-gray-500' : ''
+            }`}>
+              ¥{formatPriceDisplay(finalPrice)}
+            </span>
+            {hasDiscount && (
+              <span className="text-[10px] text-gray-400 line-through">¥{product.price}</span>
+            )}
+          </div>
+
+          {/* 操作按钮 */}
           {!user ? (
             <button
               disabled
-              className="flex-1 btn-secondary opacity-50 cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-8 h-8 bg-gray-300 text-gray-500 rounded-full flex items-center justify-center cursor-not-allowed"
+              title="需登录"
             >
-              <i className="fas fa-sign-in-alt"></i>
-              <span>需登录</span>
+              <i className="fas fa-lock text-sm"></i>
             </button>
           ) : (isOutOfStock || isDown) ? (
-            <button
-              disabled
-              className={`flex-1 cursor-not-allowed flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${
-                isDown 
-                  ? 'bg-gray-100 text-gray-600 border border-gray-200' 
-                  : 'bg-red-100 text-red-600 border border-red-200'
-              }`}
-            >
-              <i className={isDown ? 'fas fa-pause' : 'fas fa-exclamation-triangle'}></i>
-              <span>{isDown ? '暂时下架' : '缺货'}</span>
-            </button>
+            null
           ) : isVariant ? (
             <button
               onClick={() => onOpenSpecModal(product)}
               disabled={isLoading}
-              className="flex-1 btn-glass hover:bg-blue-50 text-blue-600 border-blue-200 flex items-center justify-center gap-2 disabled:opacity-50"
+              aria-label="选规格"
+              className={`w-8 h-8 text-white rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform disabled:opacity-50 ${
+                requiresReservation ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' : 'bg-primary hover:bg-orange-600 shadow-primary/30'
+              }`}
             >
-              <i className="fas fa-list-ul"></i>
-              {/* 如果有规格且是预约商品，在手机端只显示图标 */}
-              <span className={requiresReservation ? "hidden sm:inline" : ""}>选规格</span>
+              <i className="fas fa-list-ul text-sm"></i>
             </button>
           ) : isInCart ? (
-            // 购物车中商品的数量调整控件
-            <div className="flex items-center justify-center sm:justify-end gap-2 flex-1">
-              <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-1">
-                <button
-                  onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
-                  disabled={isLoading}
-                  className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                  aria-label="减少"
-                >
-                  <i className="fas fa-minus text-xs"></i>
-                </button>
-                <span className="min-w-6 text-center text-sm font-semibold text-gray-900">
-                  {cartQuantity}
-                </span>
-                <button
-                  onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
-                  disabled={
-                    isLoading || limitReached
-                  }
-                  className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-sm`}
-                  aria-label="增加"
-                >
-                  <i className="fas fa-plus text-xs"></i>
-                </button>
-              </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
+                disabled={isLoading}
+                className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors"
+                aria-label="减少"
+              >
+                <i className="fas fa-minus text-sm"></i>
+              </button>
+              <span className="min-w-[20px] text-center text-sm font-bold text-gray-900">{cartQuantity}</span>
+              <button
+                onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
+                disabled={isLoading || limitReached}
+                className={`w-7 h-7 flex items-center justify-center ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary hover:bg-orange-600'} text-white rounded-full shadow-md disabled:opacity-50 transition-all`}
+                aria-label="增加"
+              >
+                <i className="fas fa-plus text-sm"></i>
+              </button>
             </div>
           ) : (
-            // 未在购物车中的商品显示添加按钮
             <button
               onClick={handleAddToCart}
               disabled={isLoading}
               aria-label="加入购物车"
-              className={`w-10 h-10 rounded-full flex-shrink-0 ml-auto ${requiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500'} text-white shadow-lg hover:shadow-xl transform transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center`}
+              className={`w-8 h-8 ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary'} text-white rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform disabled:opacity-50`}
             >
-              <i className="fas fa-plus"></i>
+              <i className="fas fa-plus text-sm"></i>
             </button>
           )}
-          </div>
         </div>
+
+        {/* 预约信息 — 紧凑显示 */}
+        {requiresReservation && showReservationInfo && (
+          <div className="mt-2 text-[10px] text-blue-500 leading-snug flex items-center gap-1">
+            <i className="fas fa-clock text-xs"></i>
+            <span className="truncate">{formatReservationCutoff(reservationCutoff)}</span>
+          </div>
+        )}
+        {requiresReservation && reservationNote && showReservationInfo && (
+          <div className="text-[10px] text-blue-500 leading-snug break-words">{reservationNote}</div>
+        )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -461,142 +447,70 @@ const CategoryFilter = ({
   const isSphere = viewMode === 'sphere';
   const toggleAriaLabel = isSphere ? '切换为网格视图' : '切换为球形视图';
   const toggleButtonIcon = isSphere ? 'fa-border-all' : 'fa-globe';
-  const toggleButtonLabel = isSphere ? '网格视图' : '球形视图';
-
-  // 容器动画：控制子元素交错出现
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.06,
-        delayChildren: 0.1
-      }
-    }
-  };
-
-  // 标签动画：弹性上浮
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20, scale: 0.8 },
-    visible: { 
-      opacity: 1, 
-      y: 0, 
-      scale: 1,
-      transition: {
-        type: "spring",
-        stiffness: 400,
-        damping: 25,
-        mass: 0.8
-      }
-    }
-  };
 
   return (
-    <div className="mb-8">
-      {/* 标题栏 */}
-      <motion.div 
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="flex flex-wrap items-center gap-3 mb-4"
-      >
-        <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md">
-          <i className="fas fa-layer-group text-white text-sm"></i>
-        </div>
-        <h3 className="text-lg font-semibold text-gray-900">商品分类</h3>
-        {onToggleView && (
-          <div className="ml-auto mt-3 sm:mt-0">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              type="button"
-              onClick={onToggleView}
-              disabled={disableSphereToggle}
-              aria-pressed={isSphere}
-              aria-label={toggleAriaLabel}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors duration-200 text-sm font-medium ${
-                isSphere
-                  ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white border-transparent shadow-lg'
-                  : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
-              } ${disableSphereToggle ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-              title={toggleAriaLabel}
-            >
-              <i className={`fas ${toggleButtonIcon}`}></i>
-              <span className="hidden sm:inline">{toggleButtonLabel}</span>
-            </motion.button>
-          </div>
-        )}
-      </motion.div>
-
-      {/* 分类标签列表 */}
-      <motion.div 
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="flex flex-wrap gap-3"
-      >
+    <div>
+      <div className="flex overflow-x-auto hide-scrollbar space-x-2.5 md:justify-center px-1.5 py-1">
         {hasHotProducts && (
-          <motion.button
-            variants={itemVariants}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={() => onCategoryChange('hot')}
-            className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
+            className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
               isActive('hot')
-                ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent shadow-lg'
-                : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
+                ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
             }`}
           >
-            <div className="flex items-center gap-2">
-              <i className="fas fa-fire"></i>
-              <span>热销</span>
-            </div>
-          </motion.button>
+            🔥 热销
+          </button>
         )}
-        <motion.button
-          variants={itemVariants}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+        <button
           onClick={() => onCategoryChange('all')}
-          className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
+          className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
             isActive('all')
-              ? 'bg-gradient-to-r from-orange-500 to-pink-600 text-white border-transparent shadow-lg'
-              : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
+              ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
           }`}
         >
-          <div className="flex items-center gap-2">
-            <i className="fas fa-th-large"></i>
-            <span>全部</span>
-          </div>
-        </motion.button>
-        {categories.map((category, index) => {
+          全部
+        </button>
+        {categories.map((category) => {
           const value = `category:${category.name}`;
           return (
-            <motion.button
+            <button
               key={category.id}
-              variants={itemVariants}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
               onClick={() => onCategoryChange(value)}
-              className={`px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors duration-200 ${
+              className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
                 isActive(value)
-                  ? 'bg-gradient-to-r from-emerald-500 to-cyan-600 text-white border-transparent shadow-lg'
-                  : 'bg-white/90 text-gray-700 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm'
+                  ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
               }`}
             >
-              <div className="flex items-center gap-2">
-                <i className="fas fa-tag"></i>
-                <span>{category.name}</span>
-              </div>
-            </motion.button>
+              {category.name}
+            </button>
           );
         })}
-      </motion.div>
+        {onToggleView && (
+          <button
+            type="button"
+            onClick={onToggleView}
+            disabled={disableSphereToggle}
+            aria-pressed={isSphere}
+            aria-label={toggleAriaLabel}
+            className={`flex-shrink-0 px-3.5 py-2 rounded-full border whitespace-nowrap text-xs md:text-sm transition-all duration-300 ${
+              isSphere
+                ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:scale-[1.03]'
+            } ${disableSphereToggle ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <i className={`fas ${toggleButtonIcon}`}></i>
+          </button>
+        )}
+      </div>
     </div>
   );
 };
 
-// 搜索栏组件
+// 搜索栏组件 —— examples/商品浏览页面 style
 const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -605,52 +519,102 @@ const SearchBar = ({ searchQuery, onSearchChange, onSearch }) => {
 
   return (
     <motion.div 
-      variants={headerVariants}
-      initial="hidden"
-      animate="visible"
-      className="mb-8"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: 0.2, duration: 0.5 }}
+      className="mb-6"
     >
-      <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto">
-        <motion.div 
-          whileHover={{ scale: 1.02 }}
-          className="relative group"
-        >
-           {/* 背景光晕 */}
-           <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-pink-600 rounded-2xl blur opacity-30 group-hover:opacity-50 transition-opacity duration-300"></div>
-          
-          {/* 搜索框主体 */}
-          <div className="relative flex items-center bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-lg hover:shadow-xl transition-shadow pr-2">
-            {/* 搜索图标 */}
-            <div className="absolute left-4 text-gray-400 group-focus-within:text-orange-500 transition-colors">
-              <i className="fas fa-search"></i>
-            </div>
-            
-            {/* 输入框 */}
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="搜索您喜欢的商品..."
-              className="flex-1 pl-12 pr-4 py-4 bg-transparent text-gray-900 placeholder-gray-400 outline-none text-lg"
-            />
-            
-            {/* 搜索按钮 */}
-             <motion.button
-               whileHover={{ scale: 1.05 }}
-               whileTap={{ scale: 0.95 }}
-               type="submit"
-               className="flex-shrink-0 w-10 h-10 my-auto bg-gradient-to-r from-orange-500 to-pink-600 text-white font-medium rounded-xl hover:from-orange-600 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 shadow-lg flex items-center justify-center"
-             >
-              <i className="fas fa-search"></i>
-            </motion.button>
-          </div>
-        </motion.div>
+      <form onSubmit={handleSubmit} className="relative w-full md:w-1/2 md:mx-auto">
+        <div className="shop-search-shell flex items-center bg-white border border-gray-200 rounded-full px-4 py-3 shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+          <i className="fas fa-search text-gray-400 mr-3 text-lg"></i>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="搜索您喜欢的商品..."
+            className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-400 font-display text-sm"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              className="ml-2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <i className="fas fa-times text-base"></i>
+            </button>
+          )}
+        </div>
       </form>
     </motion.div>
   );
 };
 
-export default function Shop() {
+export async function getServerSideProps(context) {
+  const API_BASE = getApiBaseUrl();
+  const headers = { 'Content-Type': 'application/json' };
+  const cookieHeader = context?.req?.headers?.cookie;
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
+  }
+
+  const parseJsonSafe = async (response) => {
+    try {
+      return await response.json();
+    } catch (error) {
+      return {};
+    }
+  };
+
+  try {
+    const [productsResponse, categoriesResponse] = await Promise.all([
+      fetch(`${API_BASE}/products`, { method: 'GET', headers }),
+      fetch(`${API_BASE}/products/categories`, { method: 'GET', headers })
+    ]);
+
+    const [productsPayload, categoriesPayload] = await Promise.all([
+      parseJsonSafe(productsResponse),
+      parseJsonSafe(categoriesResponse)
+    ]);
+
+    if (!productsResponse.ok || !categoriesResponse.ok) {
+      throw new Error(productsPayload?.message || categoriesPayload?.message || 'SSR data fetch failed');
+    }
+
+    const allProducts = sortProductsByPrice(productsPayload?.data?.products || []);
+    const categories = sortCategoriesByLocale(categoriesPayload?.data?.categories || []);
+    const hasHotProducts = allProducts.some((p) => Boolean(p.is_hot));
+    const selectedCategory = hasHotProducts ? 'hot' : 'all';
+    const initialProducts = filterProducts(allProducts, selectedCategory, '');
+
+    return {
+      props: {
+        initialShopData: {
+          allProducts,
+          categories,
+          products: initialProducts,
+          hasHotProducts,
+          selectedCategory,
+          ssrLoaded: true
+        }
+      }
+    };
+  } catch (error) {
+    return {
+      props: {
+        initialShopData: {
+          allProducts: [],
+          categories: [],
+          products: [],
+          hasHotProducts: false,
+          selectedCategory: 'hot',
+          ssrLoaded: false
+        }
+      }
+    };
+  }
+}
+
+export default function Shop({ initialShopData }) {
   const router = useRouter();
   const { user } = useAuth();
   const { getProducts, searchProducts, getCategories, getShopStatus } = useProducts();
@@ -662,13 +626,14 @@ export default function Shop() {
   const shopName = getShopName();
   
   const cartWidgetRef = useRef(null);
-  const [allProducts, setAllProducts] = useState([]); // 所有商品（用于前端过滤）
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('hot');
-  const [initialCategorySet, setInitialCategorySet] = useState(false);
+  const ssrLoaded = Boolean(initialShopData?.ssrLoaded);
+  const [allProducts, setAllProducts] = useState(initialShopData?.allProducts || []); // 所有商品（用于前端过滤）
+  const [products, setProducts] = useState(initialShopData?.products || []);
+  const [categories, setCategories] = useState(initialShopData?.categories || []);
+  const [selectedCategory, setSelectedCategory] = useState(initialShopData?.selectedCategory || 'hot');
+  const [initialCategorySet, setInitialCategorySet] = useState(ssrLoaded);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!ssrLoaded);
   const [cartLoading, setCartLoading] = useState(false);
   const [error, setError] = useState('');
   const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0 });
@@ -679,7 +644,7 @@ export default function Shop() {
   const [shopNote, setShopNote] = useState('');
   const [cycleLocked, setCycleLocked] = useState(false);
   const [isAgent, setIsAgent] = useState(false); // 是否为代理区域
-  const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(false); // 全局是否有热销商品
+  const [hasGlobalHotProducts, setHasGlobalHotProducts] = useState(Boolean(initialShopData?.hasHotProducts)); // 全局是否有热销商品
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(10); // 免配送费门槛
   const [baseDeliveryFee, setBaseDeliveryFee] = useState(1); // 基础配送费
   const [viewMode, setViewMode] = useState('grid'); // grid | sphere
@@ -690,6 +655,10 @@ export default function Shop() {
   const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
   const [showCouponDropdown, setShowCouponDropdown] = useState(false); // 优惠券下拉框状态
   const couponAutoSelectedRef = useRef(false); // 追踪是否已自动选择过优惠券
+  const categorySectionRef = useRef(null);
+  const productSectionAnchorRef = useRef(null);
+  const skipFirstClientLoadRef = useRef(ssrLoaded);
+  const loadDataRequestIdRef = useRef(0);
   const { toast, showToast, hideToast } = useToast();
   
   const displayLocation = location
@@ -848,6 +817,26 @@ export default function Shop() {
   // 商品详情弹窗状态
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailModalProduct, setDetailModalProduct] = useState(null);
+  const [slideDirection, setSlideDirection] = useState('up');
+
+  // Handle switching products in detail modal
+  const handleSwitchProduct = (direction) => {
+    if (!products.length) return;
+
+    setDetailModalProduct((currentProduct) => {
+      if (!currentProduct) return currentProduct;
+      const currentIndex = products.findIndex((p) => p.id === currentProduct.id);
+      if (currentIndex === -1) return currentProduct;
+
+      if (direction === 'next') {
+        setSlideDirection('up');
+        return products[(currentIndex + 1) % products.length];
+      }
+
+      setSlideDirection('down');
+      return products[(currentIndex - 1 + products.length) % products.length];
+    });
+  };
 
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
   const flyToCart = (startEl) => {
@@ -992,43 +981,27 @@ export default function Shop() {
     }
   };
 
-  // 商品排序函数 - 可购(上架且有货)优先按价格升序；“下架”或“无货”统一放到最后并按价格升序
-  const sortProductsByPrice = (products) => {
-    const available = [];
-    const deferred = [];
-
-    products.forEach(p => {
-      if (isProductDown(p) || isProductOutOfStock(p)) {
-        deferred.push(p);
-      } else {
-        available.push(p);
-      }
-    });
-
-    const sortByPriority = (arr) => {
-      const hotItems = [];
-      const normalItems = [];
-      arr.forEach(item => (Boolean(item.is_hot) ? hotItems : normalItems).push(item));
-      const byPrice = (a, b) => getPricingMeta(a).finalPrice - getPricingMeta(b).finalPrice;
-      hotItems.sort(byPrice);
-      normalItems.sort(byPrice);
-      return [...hotItems, ...normalItems];
-    };
-
-    return [...sortByPriority(available), ...sortByPriority(deferred)];
-  };
-
   // 加载商品和分类（只在首次加载或位置变化时调用）
   const loadData = async () => {
+    const requestId = ++loadDataRequestIdRef.current;
+    const hasRenderableData = allProducts.length > 0 || categories.length > 0;
+
     if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
-      setAllProducts([]);
-      setProducts([]);
-      setCategories([]);
+      if (requestId !== loadDataRequestIdRef.current) return;
+      // 地址相关信息尚未就绪或正在强制选址时，不清空当前列表，避免首屏二次闪烁
+      if (!hasRenderableData) {
+        setAllProducts([]);
+        setProducts([]);
+        setCategories([]);
+      }
       setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
+    // 已有可展示数据时，后台静默刷新，避免列表闪烁
+    if (!hasRenderableData) {
+      setIsLoading(true);
+    }
     setError('');
 
     try {
@@ -1040,6 +1013,7 @@ export default function Shop() {
       
       const fetchedProducts = allProductsData.data.products || [];
       const hasHotProducts = fetchedProducts.some(p => Boolean(p.is_hot));
+      if (requestId !== loadDataRequestIdRef.current) return;
       setHasGlobalHotProducts(hasHotProducts);
 
       // 首次加载时，如果选择了热销但没有热销商品，切换到全部
@@ -1054,72 +1028,17 @@ export default function Shop() {
       const sortedAllProducts = sortProductsByPrice([...fetchedProducts]);
       setAllProducts(sortedAllProducts);
 
-      // 分类按拼音/英文排序
-      const cats = categoriesData.data.categories || [];
-      const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
-      const firstSigChar = (s) => {
-        const str = String(s || '');
-        for (let i = 0; i < str.length; i++) {
-          const ch = str[i];
-          if (/[A-Za-z\u4e00-\u9fff]/.test(ch)) return ch;
-        }
-        return '';
-      };
-      const typeRank = (s) => {
-        const ch = firstSigChar(s);
-        if (!ch) return 2;
-        return /[A-Za-z]/.test(ch) ? 0 : 1;
-      };
-      const bucket = (s, collator) => {
-        const name = String(s || '');
-        if (!/[A-Za-z\u4e00-\u9fff]/.test(name)) return 26;
-        let b = 25;
-        for (let i = 0; i < 26; i++) {
-          const cur = letters[i];
-          const next = i < 25 ? letters[i + 1] : null;
-          if (collator.compare(name, cur) < 0) { b = 0; break; }
-          if (!next || (collator.compare(name, cur) >= 0 && collator.compare(name, next) < 0)) { b = i; break; }
-        }
-        return b;
-      };
-      try {
-        const collator = new Intl.Collator(
-          ['zh-Hans-u-co-pinyin', 'zh-Hans', 'zh', 'en', 'en-US'],
-          { sensitivity: 'base', numeric: true }
-        );
-        cats.sort((a, b) => {
-          const aName = String(a.name || '');
-          const bName = String(b.name || '');
-          const ab = bucket(aName, collator);
-          const bb = bucket(bName, collator);
-          if (ab !== bb) return ab - bb;
-          const ar = typeRank(aName);
-          const br = typeRank(bName);
-          if (ar !== br) return ar - br;
-          return collator.compare(aName, bName);
-        });
-      } catch (e) {
-        cats.sort((a, b) => {
-          const aName = String(a.name || '');
-          const bName = String(b.name || '');
-          const aCh = firstSigChar(aName).toLowerCase();
-          const bCh = firstSigChar(bName).toLowerCase();
-          const aIsEn = /^[a-z]$/.test(aCh);
-          const bIsEn = /^[a-z]$/.test(bCh);
-          const ab = aIsEn ? (aCh.charCodeAt(0) - 97) : 26;
-          const bb = bIsEn ? (bCh.charCodeAt(0) - 97) : 26;
-          if (ab !== bb) return ab - bb;
-          const ar = aIsEn ? 0 : 1;
-          const br = bIsEn ? 0 : 1;
-          if (ar !== br) return ar - br;
-          return aName.localeCompare(bName, 'en', { sensitivity: 'base', numeric: true });
-        });
-      }
-      setCategories(cats);
+      // 后台预处理所有商品图片的边缘颜色（用于详情页全屏背景）
+      preExtractEdgeColors(sortedAllProducts);
+
+      setCategories(sortCategoriesByLocale(categoriesData.data.categories || []));
     } catch (err) {
+      if (requestId !== loadDataRequestIdRef.current) return;
       setError(err.message || '加载数据失败');
     } finally {
-      setIsLoading(false);
+      if (requestId === loadDataRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -1130,30 +1049,7 @@ export default function Shop() {
       return;
     }
 
-    let filtered = [...allProducts];
-
-    // 搜索过滤
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(p => 
-        (p.name && p.name.toLowerCase().includes(query)) ||
-        (p.description && p.description.toLowerCase().includes(query)) ||
-        (p.category && p.category.toLowerCase().includes(query))
-      );
-    } else {
-      // 分类过滤
-      if (selectedCategory === 'hot') {
-        filtered = filtered.filter(p => Boolean(p.is_hot));
-      } else if (selectedCategory && selectedCategory.startsWith('category:')) {
-        const categoryName = selectedCategory.slice('category:'.length);
-        filtered = filtered.filter(p => p.category === categoryName);
-      }
-      // 'all' 不过滤
-    }
-
-    // 重新排序过滤后的结果
-    const sortedFiltered = sortProductsByPrice(filtered);
-    setProducts(sortedFiltered);
+    setProducts(filterProducts(allProducts, selectedCategory, searchQuery));
   }, [allProducts, selectedCategory, searchQuery]);
 
   // 搜索商品（现在只需要触发前端过滤，不需要请求后端）
@@ -1168,6 +1064,27 @@ export default function Shop() {
   const handleCategoryChange = (category) => {
     setSelectedCategory(category);
     setSearchQuery(''); // 清除搜索
+  };
+
+  const scrollToCategories = () => {
+    if (typeof window === 'undefined') return;
+
+    const navHeight = 64;
+    const stickyOverlap = 1;
+    const safeGap = 12;
+    const categoryHeight = categorySectionRef.current?.getBoundingClientRect().height || 0;
+    const anchorElement = productSectionAnchorRef.current || categorySectionRef.current;
+    if (!anchorElement) return;
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const anchorTop = window.scrollY + anchorRect.top;
+    const stickyStackHeight = navHeight + Math.max(0, categoryHeight - stickyOverlap);
+
+    // 以商品区首行为锚点滚动，避免被吸顶分类栏遮挡
+    const targetTop = anchorTop - stickyStackHeight - safeGap;
+    window.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: 'smooth',
+    });
   };
 
   // 打开规格选择弹窗
@@ -1476,11 +1393,15 @@ export default function Shop() {
 
   // 初始化时加载数据（位置或用户变化时重新加载）
   useEffect(() => {
+    if (skipFirstClientLoadRef.current) {
+      skipFirstClientLoadRef.current = false;
+      return;
+    }
     loadData();
   }, [
     locationRevision,
-    user,
-    forceSelection,
+    user?.id,
+    user?.type,
     location?.address_id,
     location?.building_id,
   ]);
@@ -1575,9 +1496,9 @@ export default function Shop() {
       {/* 顶部导航（移动端优化） */}
       <Nav active={navActive} />
 
-      <PastelBackground className="pt-16">
+      <div className="pt-16 min-h-screen bg-[#FDFBF7]">
         {/* 主要内容 */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 font-display">
           {!shopOpen && (
             <div className="mb-6 card-glass p-4 border border-orange-300/50 shadow-sm opacity-0 animate-apple-fade-in">
               <div className="flex items-start gap-3">
@@ -1594,81 +1515,66 @@ export default function Shop() {
             </div>
           )}
           
-          {/* 页面标题区域 */}
+          {/* 页面标题区域（对齐 examples/浏览页面顶部） */}
           <motion.div 
             variants={headerVariants}
             initial="hidden"
             animate="visible"
-            className="mb-12 text-center"
+            className="mb-0 text-center px-4 pt-3 pb-0 md:pt-4 md:pb-0"
           >
-            <div className="flex justify-center mb-6">
-              <motion.div 
-                whileHover={{ rotate: 10, scale: 1.1 }}
-                transition={{ type: "spring", stiffness: 300 }}
-                className="relative"
-              >
-                <div className="absolute -inset-4 bg-gradient-to-r from-orange-500 to-pink-600 rounded-3xl blur-2xl opacity-30"></div>
-                <div className="relative w-20 h-20 bg-gradient-to-br from-orange-500 via-pink-600 to-purple-500 rounded-3xl flex items-center justify-center shadow-2xl">
-                  <i className="fas fa-store text-white text-2xl"></i>
-                </div>
-              </motion.div>
-            </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 bg-clip-text text-transparent mb-3">
-              {shopName}
+            <h1
+              className="text-4xl md:text-6xl font-bold mb-6 tracking-tight leading-tight text-gray-900 animate-snack-fade-in-up"
+              style={{ animationDelay: '0.2s' }}
+            >
+              不止
+              <span className="text-[#FF6B6B] relative inline-block">
+                美味
+                <svg className="absolute w-full h-3 bottom-1 left-0 text-[#FF6B6B] opacity-30 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none">
+                  <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" />
+                </svg>
+              </span>
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              精选优质零食，为您提供贴心配送服务，让美味触手可及
+            <p
+              className="text-lg md:text-xl text-gray-500 mb-8 max-w-2xl mx-auto animate-snack-fade-in-up"
+              style={{ animationDelay: '0.4s' }}
+            >
+              精选优质零食，为您提供贴心配送服务
+              <br />
+              让美味触手可及
             </p>
-            
-              {/* 统计信息 */}
-            <div className="flex justify-center items-center gap-8 mt-8 text-sm text-gray-700">
-              <div className="flex items-center gap-2">
-                <i className="fas fa-truck text-green-500"></i>
-                <span>{
-                  baseDeliveryFee === 0 || freeDeliveryThreshold === 0
-                    ? '免费配送'
-                    : freeDeliveryThreshold >= 999999999
-                      ? `配送费 ¥${baseDeliveryFee}`
-                      : `满${freeDeliveryThreshold}免费配送`
-                }</span>
-              </div>
-              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-              <div className="flex items-center gap-2">
-                <i className="fas fa-clock text-blue-500"></i>
-                <span>急速送达</span>
-              </div>
-              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-              <div className="flex items-center gap-2">
-                <i className="fas fa-star text-yellow-500"></i>
-                <span>商品优质保证</span>
-              </div>
-            </div>
 
-            {user?.type === 'user' && (
-              <div className="mt-6 flex justify-center">
+            <div className="mb-6 min-h-[52px] flex justify-center animate-snack-fade-in-up" style={{ animationDelay: '0.5s' }}>
+              {user?.type === 'user' ? (
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={openLocationModal}
                   className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/90 text-gray-700 border border-gray-200/60 shadow-md hover:shadow-lg transition-all duration-300 hover:bg-white"
                 >
                   <span className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-600">
                     <i className="fas fa-location-dot"></i>
                   </span>
-                  <div className="text-left">
-                    <div className="text-xs text-gray-500">当前配送地址</div>
-                    <div className="text-sm font-semibold text-gray-900 mt-0.5">{displayLocation}</div>
-                  </div>
-                  <span className="text-xs text-emerald-600 font-medium ml-2">更改</span>
+                  <div className="text-sm font-semibold text-gray-900">{displayLocation}</div>
                 </motion.button>
-              </div>
-            )}
+              ) : (
+                <div aria-hidden="true" className="h-10" />
+              )}
+            </div>
 
-            {user?.type === 'user' && forceSelection && (
-              <div className="mt-3 text-sm text-orange-600 flex justify-center">
-                为了展示可售商品，请先选择您的配送地址。
-              </div>
-            )}
+            <div className="animate-snack-fade-in-up" style={{ animationDelay: '0.6s' }}>
+              <button
+                onClick={scrollToCategories}
+                className="hero-explore-btn bg-[#2D3436] text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-[#FF6B6B] hover:shadow-lg hover:shadow-[#FF6B6B]/40 transition-all duration-300 transform hover:-translate-y-1"
+              >
+                开始探索 <i className="fas fa-arrow-down ml-2 animate-bounce"></i>
+              </button>
+            </div>
+
+            <div className="mt-1 min-h-[20px] text-sm flex justify-center">
+              {user?.type === 'user' && forceSelection ? (
+                <div className="text-orange-600">为了展示可售商品，请先选择您的配送地址。</div>
+              ) : null}
+            </div>
           </motion.div>
 
           {/* 搜索栏 */}
@@ -1678,17 +1584,24 @@ export default function Shop() {
             onSearch={handleSearch}
           />
 
-          {/* 分类过滤器 */}
+          {/* 分类过滤器（下滑后常驻顶部） */}
           {categories.length > 0 && (
-            <CategoryFilter
-              categories={categories}
-              selectedCategory={selectedCategory}
-              onCategoryChange={handleCategoryChange}
-              hasHotProducts={hasGlobalHotProducts}
-              viewMode={viewMode}
-              onToggleView={handleToggleView}
-              disableSphereToggle={sphereToggleDisabled}
-            />
+            <div
+              id="product-section"
+              ref={categorySectionRef}
+              className="shop-category-sticky shop-category-enter sticky z-30 bg-[#FDFBF7] py-3 mb-6"
+              style={{ top: 'calc(64px - 1px)' }}
+            >
+              <CategoryFilter
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onCategoryChange={handleCategoryChange}
+                hasHotProducts={hasGlobalHotProducts}
+                viewMode={viewMode}
+                onToggleView={handleToggleView}
+                disableSphereToggle={sphereToggleDisabled}
+              />
+            </div>
           )}
 
           {/* 错误提示 */}
@@ -1701,6 +1614,7 @@ export default function Shop() {
           {/* 商品列表 - 加载时显示空白背景，加载完成后卡片淡入 */}
           {!isLoading && (
             <>
+              <div ref={productSectionAnchorRef} aria-hidden="true" className="h-0" />
               {/* 商品列表 */}
               {products.length > 0 ? (
                 isSphereView ? (
@@ -1726,19 +1640,20 @@ export default function Shop() {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15, ease: "easeInOut" }}
                     >
-                      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 product-grid-stagger">
+                      <div className="shop-product-grid grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                         {products.map((product, index) => (
                           <ProductCard
-                              key={product.id}
-                              product={product}
-                              onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
-                              onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
-                              onStartFly={(el) => flyToCart(el)}
-                              onOpenSpecModal={openSpecModal}
-                              onOpenDetailModal={openDetailModal}
-                              itemsMap={cartItemsMap}
-                              isLoading={cartLoading}
-                            />
+                            key={product.id}
+                            product={product}
+                            onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
+                            onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
+                            onStartFly={(el) => flyToCart(el)}
+                            onOpenSpecModal={openSpecModal}
+                            onOpenDetailModal={openDetailModal}
+                            itemsMap={cartItemsMap}
+                            isLoading={cartLoading}
+                            enterIndex={index}
+                          />
                         ))}
                       </div>
                     
@@ -2089,182 +2004,27 @@ export default function Shop() {
             </div>
           </>
         )}
-      </PastelBackground>
+      </div>
 
-      {/* 规格选择弹窗 */}
-      {showSpecModal && specModalProduct && (() => {
-        const isModalNonSellable = Boolean(specModalProduct.is_not_for_sale);
-        return (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 animate-apple-fade-in"
-          onClick={(e) => {
-            // 点击背景关闭弹窗
-            if (e.target === e.currentTarget) {
-              closeSpecModal();
-            }
-          }}
-        >
-          <div className="card-glass max-w-md w-full mx-4 pt-6 px-6 pb-2 shadow-2xl border border-gray-200/50 opacity-0 animate-apple-scale-in">
-            {/* 弹窗头部 */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h4 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                  <i className="fas fa-list-ul text-blue-500"></i>
-                  选择规格
-                </h4>
-                <p className="text-sm text-gray-600 mt-1">{specModalProduct.name}</p>
-                {modalRequiresReservation && (
-                  <div className="mt-2 text-xs text-blue-600 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold shadow-sm">预</span>
-                    <span>{formatReservationCutoff(modalReservationCutoff)}</span>
-                  </div>
-                )}
-                {modalRequiresReservation && modalReservationNote && (
-                  <div className="text-[11px] text-blue-500 mt-1 leading-snug break-words">{modalReservationNote}</div>
-                )}
-              </div>
-              <button 
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors" 
-                onClick={closeSpecModal}
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-
-            {/* 规格选项 */}
-            <div className="space-y-3 max-h-80 overflow-y-auto mb-2">
-              {(specModalProduct.variants || [])
-                .sort((a, b) => (b.stock || 0) - (a.stock || 0)) // 按库存倒序排列，库存高的在前
-                .map((variant, index) => {
-                  const isVariantOutOfStock = isModalNonSellable ? false : (variant.stock === 0);
-                  return (
-                <label 
-                  key={variant.id} 
-                  className={`block transform transition-all duration-200 opacity-0 animate-apple-slide-up ${
-                    isVariantOutOfStock 
-                      ? 'cursor-not-allowed' 
-                      : 'cursor-pointer hover:scale-105'
-                  }`}
-                  style={{ animationDelay: `${index * 0.05}s` }}
-                >
-                  <div className={`p-4 rounded-xl border-2 transition-all duration-200 ${
-                    isVariantOutOfStock
-                      ? 'border-gray-200 bg-gray-50'
-                      : selectedVariant === variant.id 
-                      ? 'border-blue-500 bg-blue-50 shadow-md' 
-                      : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          isVariantOutOfStock
-                            ? 'border-gray-300 bg-gray-100'
-                            : selectedVariant === variant.id 
-                            ? 'border-blue-500 bg-blue-500' 
-                            : 'border-gray-300'
-                        }`}>
-                          {selectedVariant === variant.id && !isVariantOutOfStock && (
-                            <i className="fas fa-check text-white text-xs"></i>
-                          )}
-                          {isVariantOutOfStock && (
-                            <i className="fas fa-times text-gray-400 text-xs"></i>
-                          )}
-                        </div>
-                        <div>
-                          <span className={`text-sm font-medium ${
-                            isVariantOutOfStock ? 'text-gray-500' : 'text-gray-900'
-                          }`}>{variant.name}</span>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-xs flex items-center gap-1 ${
-                              (isModalNonSellable || variant.stock > 0) ? 'text-green-600' : 'text-red-500'
-                            }`}>
-                              <i className="fas fa-box-open"></i>
-                              库存 {isModalNonSellable ? '∞' : variant.stock}
-                            </span>
-                            {isVariantOutOfStock && (
-                              <span className="text-xs text-red-500 font-medium">已售罄</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <input 
-                      type="radio" 
-                      name={`spec_${specModalProduct.id}`} 
-                      value={variant.id} 
-                      checked={selectedVariant === variant.id}
-                      onChange={() => !isVariantOutOfStock && setSelectedVariant(variant.id)}
-                      disabled={isVariantOutOfStock}
-                      className="sr-only"
-                    />
-                  </div>
-                </label>
-                  );
-                })}
-            </div>
-
-            {/* 操作区域 */}
-            <div className="pt-2 border-t border-gray-200/50">
-              {selectedVariant ? (
-                (() => {
-                  const qty = cartItemsMap[`${specModalProduct.id}@@${selectedVariant}`] || 0;
-                  const stock = (specModalProduct.variants || []).find(v => v.id === selectedVariant)?.stock ?? 0;
-                  const hasStock = isModalNonSellable || stock > 0;
-                  if (qty > 0) {
-                    return (
-                      <div className="flex items-center justify-center gap-4">
-                        <button
-                          onClick={() => handleUpdateQuantity(specModalProduct.id, qty - 1, selectedVariant)}
-                          className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full transition-colors"
-                          aria-label="减少"
-                        >
-                          <i className="fas fa-minus text-sm"></i>
-                        </button>
-                        <div className="px-4 py-2 bg-gray-50 rounded-xl">
-                          <span className="text-lg font-semibold text-gray-900">{qty}</span>
-                        </div>
-                        <button
-                          onClick={(e) => { flyToCart(e.currentTarget); handleUpdateQuantity(specModalProduct.id, qty + 1, selectedVariant); }}
-                          disabled={!isModalNonSellable && qty >= stock}
-                          className={`w-10 h-10 flex items-center justify-center ${modalRequiresReservation ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
-                          aria-label="增加"
-                        >
-                          <i className="fas fa-plus text-sm"></i>
-                        </button>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      onClick={(e) => { flyToCart(e.currentTarget); handleAddToCart(specModalProduct.id, selectedVariant); }}
-                      disabled={!hasStock}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto transition-all duration-200 ${
-                        !hasStock
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : (modalRequiresReservation
-                              ? 'bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-                              : 'bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105')
-                      }`}
-                      title={!hasStock ? '库存不足' : '添加到购物车'}
-                    >
-                      <i className="fas fa-plus"></i>
-                    </button>
-                  );
-                })()
-              ) : (
-                <div className="text-center py-1">
-                  <i className="fas fa-hand-pointer text-gray-400 text-xl"></i>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        );
-      })()}
+      {/* 规格选择弹窗 — 桌面: 居中浮层卡片 / 移动: 底部上滑 */}
+      <AnimatePresence>
+        {showSpecModal && specModalProduct && (
+          <SpecSelectionModal
+            product={specModalProduct}
+            onClose={closeSpecModal}
+            onAddToCart={handleAddToCart}
+            onUpdateQuantity={handleUpdateQuantity}
+            cartItemsMap={cartItemsMap}
+            onStartFly={flyToCart}
+            user={user}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 商品详情弹窗 */}
       <ProductDetailModal
         product={detailModalProduct}
+        products={products}
         isOpen={showDetailModal}
         onClose={closeDetailModal}
         onAddToCart={handleAddToCart}
@@ -2273,6 +2033,7 @@ export default function Shop() {
         onStartFly={flyToCart}
         isLoading={cartLoading}
         user={user}
+        onSwitchProduct={handleSwitchProduct}
       />
 
       <Toast message={toast.message} show={toast.visible} onClose={hideToast} />

@@ -49,9 +49,6 @@ const FloatingCart = forwardRef(function FloatingCart({ count = 0, onClick }, re
       transition={{ type: "spring", stiffness: 400, damping: 17 }}
       className="fixed bottom-6 right-6 z-40 group cursor-pointer select-none"
     >
-        {/* 背景光晕效果 - 静态 */}
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full blur-lg opacity-40 group-hover:opacity-60 transition-opacity duration-300"></div>
-        
         {/* 主要购物车图标 */}
         <motion.div 
           animate={controls}

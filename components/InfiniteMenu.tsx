@@ -1317,12 +1317,18 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
   const isQuantityMode = supportsQuantityControl && quantity > 0;
   const limitReached = supportsQuantityControl ? Boolean(activeItem?.limitReached) : false;
   const actionButtonLabel = activeItem?.ctaLabel ?? '+';
+  const isSpecSelectAction =
+    !isQuantityMode &&
+    !activeItem?.disabled &&
+    actionButtonLabel === '选规格';
   const isMutedState = activeItem?.visualState === 'down' || activeItem?.visualState === 'out_of_stock';
   const actionButtonAriaLabel = isQuantityMode
     ? `${activeItem?.title || '当前商品'} 数量调整`
     : activeItem
     ? activeItem.disabled
       ? `${activeItem.title || '当前商品'}：${actionButtonLabel}`
+      : isSpecSelectAction
+      ? `选择规格：${activeItem.title || '当前商品'}`
       : `加入购物车：${activeItem.title || '当前商品'}`
     : '加入购物车';
   const labelLength = actionButtonLabel.length;
@@ -1486,7 +1492,11 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
               </button>
             </div>
           ) : (
-            <span className={actionButtonTextClass}>{actionButtonLabel}</span>
+            isSpecSelectAction ? (
+              <i className="fas fa-list-ul text-base" aria-hidden="true"></i>
+            ) : (
+              <span className={actionButtonTextClass}>{actionButtonLabel}</span>
+            )
           )}
         </div>
       )}

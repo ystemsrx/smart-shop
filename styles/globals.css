@@ -345,10 +345,10 @@ body {
 
 /* 导航栏样式 */
 .nav-glass {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(253, 251, 247, 0.8);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -2276,6 +2276,36 @@ body {
   animation: apple-slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes snack-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-snack-fade-in-up {
+  opacity: 0;
+  animation: snack-fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Mobile: prevent sticky hover after tap; keep desktop hover behavior */
+@media (hover: none), (pointer: coarse) {
+  .hero-explore-btn:hover {
+    background-color: #2D3436 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  .hero-explore-btn:active {
+    background-color: #FF6B6B !important;
+  }
+}
+
 @keyframes bounce-slow {
 
   0%,
@@ -2409,4 +2439,82 @@ body {
 
 .product-grid-stagger>*:nth-child(n+9) {
   animation-delay: 140ms;
+}
+
+/* Spec modal slide-up animation (examples/规格选择) */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* No-scrollbar utility (examples design) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes shop-search-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.shop-search-shell {
+  animation: shop-search-enter 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.shop-category-sticky {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.shop-product-grid {
+  contain: layout paint style;
+}
+
+.shop-product-card {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  opacity: 0;
+  animation: shop-card-enter 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes shop-category-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.shop-category-enter {
+  animation: shop-category-enter 0.28s ease-out both;
+}
+
+@keyframes shop-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
