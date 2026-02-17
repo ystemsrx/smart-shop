@@ -158,6 +158,12 @@ const ProductDetailSlide = ({
     onUpdateQuantity(product.id, newQuantity, isVariant ? selectedVariant : null);
   };
 
+  const handleMobileClosePress = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClose && onClose();
+  };
+
   const currentQuantity = getCartQuantity(isVariant ? selectedVariant : null);
   const currentStock = getCurrentStock();
   const isInCart = currentQuantity > 0;
@@ -254,7 +260,7 @@ const ProductDetailSlide = ({
                             isVariantOutOfStock
                               ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed line-through'
                               : isSelected
-                                ? 'bg-primary text-white border-primary shadow-md shadow-orange-500/20'
+                                ? 'bg-primary text-white border-primary ring-1 ring-inset ring-primary/90'
                                 : 'bg-white text-stone-600 border-stone-200 hover:border-stone-300'
                           }`}
                         >
@@ -373,7 +379,11 @@ const ProductDetailSlide = ({
       {/* ============ 顶部操作栏 ============ */}
       <div className="absolute top-0 left-0 right-0 z-20 px-5 pt-12 pb-6 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
         <button 
-          onClick={onClose}
+          onPointerDown={handleMobileClosePress}
+          onClick={(e) => {
+            // Keep keyboard accessibility while avoiding duplicate close on touch/mouse.
+            if (e.detail === 0) handleMobileClosePress(e);
+          }}
           className="w-10 h-10 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-white hover:bg-black/50 active:scale-95 transition-all"
           aria-label="关闭"
         >
@@ -461,7 +471,7 @@ const ProductDetailSlide = ({
         {isVariant && product.variants && product.variants.length > 0 && (
           <div className="mb-5">
             <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">选择规格</p>
-            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto no-scrollbar">
+            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto no-scrollbar py-1 pr-1">
               {product.variants
                 .sort((a, b) => (b.stock || 0) - (a.stock || 0))
                 .map((variant) => {
@@ -476,7 +486,7 @@ const ProductDetailSlide = ({
                         isVariantOutOfStock
                           ? 'bg-white/5 text-gray-500 border-white/10 cursor-not-allowed line-through'
                           : isSelected
-                            ? 'bg-primary text-white border-primary shadow-lg shadow-primary/30'
+                            ? 'bg-primary text-white border-primary ring-1 ring-inset ring-primary/90'
                             : 'bg-black/40 text-white border-white/20 hover:border-white/40 backdrop-blur'
                       }`}
                     >

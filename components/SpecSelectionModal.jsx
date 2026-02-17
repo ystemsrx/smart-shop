@@ -130,7 +130,7 @@ const SpecSelectionModal = ({
         >
           <div>
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">选择规格</h3>
-            <div className="flex flex-wrap gap-3 max-h-52 overflow-y-auto no-scrollbar">
+            <div className="flex flex-wrap gap-3 max-h-52 overflow-y-auto no-scrollbar py-1 pr-1">
               {(product.variants || [])
                 .sort((a, b) => (b.stock || 0) - (a.stock || 0))
                 .map((variant) => {
@@ -146,8 +146,8 @@ const SpecSelectionModal = ({
                           ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed line-through'
                           : isSelected
                             ? modalRequiresReservation
-                              ? 'bg-blue-500 text-white border-blue-500 shadow-lg shadow-blue-500/25 ring-1 ring-blue-500 hover:translate-y-[-1px]'
-                              : 'bg-primary text-white border-primary shadow-lg shadow-primary/25 ring-1 ring-primary hover:translate-y-[-1px]'
+                              ? 'bg-blue-500 text-white border-blue-500 ring-1 ring-inset ring-blue-500'
+                              : 'bg-primary text-white border-primary ring-1 ring-inset ring-primary'
                             : modalRequiresReservation
                               ? 'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-500/30 hover:bg-white hover:text-blue-500'
                               : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-primary/30 hover:bg-white hover:text-primary'

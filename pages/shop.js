@@ -210,6 +210,13 @@ const headerVariants = {
 const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpenSpecModal, onOpenDetailModal, itemsMap = {}, isLoading, enterIndex = 0 }) => {
   const { user } = useAuth();
   const [showReservationInfo, setShowReservationInfo] = useState(true);
+  const touchTapRef = useRef({ active: false, x: 0, y: 0 });
+  const suppressNextClickRef = useRef(false);
+
+  const tryOpenDetail = (target) => {
+    if (target?.closest?.('button')) return;
+    onOpenDetailModal && onOpenDetailModal(product);
+  };
 
   const handleAddToCart = (e) => {
     if (!user) {
@@ -273,9 +280,36 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
           ? 'opacity-60 grayscale cursor-not-allowed'
           : 'cursor-pointer'
       }`}
+      onPointerDown={(e) => {
+        if (e.pointerType !== 'touch') return;
+        touchTapRef.current = { active: true, x: e.clientX, y: e.clientY };
+      }}
+      onPointerMove={(e) => {
+        if (e.pointerType !== 'touch' || !touchTapRef.current.active) return;
+        if (Math.abs(e.clientX - touchTapRef.current.x) > 10 || Math.abs(e.clientY - touchTapRef.current.y) > 10) {
+          touchTapRef.current.active = false;
+        }
+      }}
+      onPointerCancel={() => {
+        touchTapRef.current.active = false;
+      }}
+      onPointerUp={(e) => {
+        if (e.pointerType !== 'touch') return;
+        const isTap = touchTapRef.current.active;
+        touchTapRef.current.active = false;
+        if (!isTap) return;
+        suppressNextClickRef.current = true;
+        setTimeout(() => {
+          suppressNextClickRef.current = false;
+        }, 350);
+        tryOpenDetail(e.target);
+      }}
       onClick={(e) => {
-        if (e.target.closest('button')) return;
-        onOpenDetailModal && onOpenDetailModal(product);
+        if (suppressNextClickRef.current) {
+          suppressNextClickRef.current = false;
+          return;
+        }
+        tryOpenDetail(e.target);
       }}
     >
       {/* 图片区域 — aspect-square, hover scale */}
