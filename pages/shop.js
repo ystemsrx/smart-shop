@@ -1019,6 +1019,8 @@ export default function Shop({ initialShopData }) {
   const loadData = async () => {
     const requestId = ++loadDataRequestIdRef.current;
     const hasRenderableData = allProducts.length > 0 || categories.length > 0;
+    const scopedAddressId = user?.type === 'user' ? (location?.address_id || null) : null;
+    const scopedBuildingId = user?.type === 'user' ? (location?.building_id || null) : null;
 
     if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
       if (requestId !== loadDataRequestIdRef.current) return;
@@ -1041,8 +1043,8 @@ export default function Shop({ initialShopData }) {
     try {
       // 加载所有商品和分类
       const [allProductsData, categoriesData] = await Promise.all([
-        getProducts({ hotOnly: false }),
-        getCategories()
+        getProducts({ hotOnly: false, addressId: scopedAddressId, buildingId: scopedBuildingId }),
+        getCategories({ addressId: scopedAddressId, buildingId: scopedBuildingId })
       ]);
       
       const fetchedProducts = allProductsData.data.products || [];
@@ -1429,7 +1431,10 @@ export default function Shop({ initialShopData }) {
   useEffect(() => {
     if (skipFirstClientLoadRef.current) {
       skipFirstClientLoadRef.current = false;
-      return;
+      const shouldKeepSSRForFirstPaint = !user;
+      if (shouldKeepSSRForFirstPaint) {
+        return;
+      }
     }
     loadData();
   }, [

@@ -274,7 +274,16 @@ export function useApi() {
 export function useProducts() {
   const { apiRequest } = useApi();
 
-  const getProducts = async ({ category = null, hotOnly = false } = {}) => {
+  const appendScopeParams = (params, addressId = null, buildingId = null) => {
+    if (addressId) {
+      params.append('address_id', addressId);
+    }
+    if (buildingId) {
+      params.append('building_id', buildingId);
+    }
+  };
+
+  const getProducts = async ({ category = null, hotOnly = false, addressId = null, buildingId = null } = {}) => {
     const params = new URLSearchParams();
     if (category) {
       params.append('category', category);
@@ -282,17 +291,25 @@ export function useProducts() {
     if (hotOnly) {
       params.append('hot_only', '1');
     }
+    appendScopeParams(params, addressId, buildingId);
     const query = params.toString();
     const url = query ? `/products?${query}` : '/products';
     return await apiRequest(url);
   };
 
-  const searchProducts = async (query) => {
-    return await apiRequest(`/products/search?q=${encodeURIComponent(query)}`);
+  const searchProducts = async (query, { addressId = null, buildingId = null } = {}) => {
+    const params = new URLSearchParams();
+    params.append('q', query);
+    appendScopeParams(params, addressId, buildingId);
+    return await apiRequest(`/products/search?${params.toString()}`);
   };
 
-  const getCategories = async () => {
-    return await apiRequest('/products/categories');
+  const getCategories = async ({ addressId = null, buildingId = null } = {}) => {
+    const params = new URLSearchParams();
+    appendScopeParams(params, addressId, buildingId);
+    const query = params.toString();
+    const url = query ? `/products/categories?${query}` : '/products/categories';
+    return await apiRequest(url);
   };
 
   const getShopStatus = async () => {
