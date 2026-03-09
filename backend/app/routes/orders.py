@@ -1050,10 +1050,18 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                 for od in orders_before or []:
                     if not od:
                         continue
+                    if od.get("id") not in accessible_ids:
+                        continue
                     payment_status = od.get("payment_status") or "pending"
-                    if payment_status == "succeeded":
+                    try:
+                        stock_deducted = int(od.get("stock_deducted") or 0) == 1
+                    except Exception:
+                        stock_deducted = False
+                    if not stock_deducted and payment_status == "succeeded":
+                        stock_deducted = True
+                    if stock_deducted:
                         try:
-                            restore_ok = OrderDB.restore_stock_from_order(od.get("id"))
+                            restore_ok = OrderDB.restore_stock_from_items_snapshot(od.get("id"), od.get("items"))
                             if not restore_ok:
                                 logger.warning("Failed to restore stock during bulk deletion: order_id=%s", od.get("id"))
                         except Exception as exc:
@@ -1079,7 +1087,13 @@ async def admin_delete_orders(order_id: str, request: Request, delete_request: O
                     return error_response("已删除代理的订单不可删除", 400)
                 if od:
                     payment_status = od.get("payment_status") or "pending"
-                    if payment_status == "succeeded":
+                    try:
+                        stock_deducted = int(od.get("stock_deducted") or 0) == 1
+                    except Exception:
+                        stock_deducted = False
+                    if not stock_deducted and payment_status == "succeeded":
+                        stock_deducted = True
+                    if stock_deducted:
                         try:
                             restore_ok = OrderDB.restore_stock_from_order(order_id)
                             if not restore_ok:
@@ -1123,9 +1137,14 @@ async def update_order_status(order_id: str, status_request: OrderStatusUpdateRe
         if order.get("agent_id") and AdminDB.is_agent_deleted(order.get("agent_id")):
             return error_response("已删除代理的订单不可修改", 400)
 
-        success = OrderDB.update_order_status(order_id, status_request.status)
+        success, missing_items = OrderDB.update_order_status_with_inventory(order_id, status_request.status)
         if not success:
-            return error_response("更新订单状态失败", 500)
+            message = "更新订单状态失败"
+            details: Dict[str, Any] = {}
+            if missing_items:
+                message = f"库存校验失败：{'、'.join(missing_items)}"
+                details["out_of_stock_items"] = missing_items
+            return error_response(message, 400, details)
 
         return success_response("订单状态更新成功", {"order_id": order_id, "new_status": status_request.status})
     except Exception as exc:
@@ -1406,9 +1425,12 @@ async def mark_order_paid_pending(order_id: str, request: Request):
         if current not in ["pending", "failed"]:
             return error_response("当前订单支付状态不允许此操作", 400)
 
-        ok = OrderDB.update_payment_status(order_id, "processing")
+        ok, missing_items = OrderDB.update_payment_status_with_inventory(order_id, "processing")
         if not ok:
-            return error_response("更新订单支付状态失败", 500)
+            message = "更新订单支付状态失败"
+            if missing_items:
+                message = f"库存校验失败：{'、'.join(missing_items)}"
+            return error_response(message, 400)
         return success_response("已标记为待验证", {"order_id": order_id, "payment_status": "processing"})
     except Exception as exc:
         logger.error("User failed to mark order pending verification: %s", exc)
@@ -1610,11 +1632,14 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
         if new_status == "succeeded":
             ok, missing_items = OrderDB.complete_payment_and_update_stock(order_id)
             if not ok:
-                message = "处理支付成功失败，可能库存不足或状态异常"
+                message = "处理支付成功失败"
                 details: Dict[str, Any] = {}
                 if missing_items:
-                    message = f"以下商品库存不足：{'、'.join(missing_items)}"
-                    details["out_of_stock_items"] = missing_items
+                    if any("库存" in str(it) for it in missing_items):
+                        message = f"以下商品库存不足：{'、'.join(missing_items)}"
+                        details["out_of_stock_items"] = missing_items
+                    else:
+                        message = "；".join(str(it) for it in missing_items if str(it).strip())
                 return error_response(message, 400, details)
             order_owner_id = LotteryConfigDB.normalize_owner(order.get("agent_id"))
             try:
@@ -1686,18 +1711,14 @@ async def admin_update_payment_status(order_id: str, payload: PaymentStatusUpdat
                 logger.warning("Failed to clear cart: %s", exc)
             return success_response("已标记为已支付", {"order_id": order_id, "payment_status": "succeeded"})
 
-        current_status = order.get("payment_status")
-        if current_status == "succeeded" and new_status in ["pending", "processing", "failed"]:
-            try:
-                restore_ok = OrderDB.restore_stock_from_order(order_id)
-                if not restore_ok:
-                    logger.warning("Failed to restore stock, continuing status update: order_id=%s", order_id)
-            except Exception as exc:
-                logger.warning("Stock restoration error: %s", exc)
-
-        ok = OrderDB.update_payment_status(order_id, new_status)
+        ok, missing_items = OrderDB.update_payment_status_with_inventory(order_id, new_status)
         if not ok:
-            return error_response("更新支付状态失败", 500)
+            message = "更新支付状态失败"
+            details: Dict[str, Any] = {}
+            if missing_items:
+                message = f"库存校验失败：{'、'.join(missing_items)}"
+                details["out_of_stock_items"] = missing_items
+            return error_response(message, 400, details)
         try:
             if new_status in ["pending", "failed"]:
                 c_id = order.get("coupon_id")

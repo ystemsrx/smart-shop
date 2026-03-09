@@ -183,155 +183,346 @@ class OrderDB:
             return cursor.rowcount > 0
 
     @staticmethod
-    def complete_payment_and_update_stock(order_id: str) -> Tuple[bool, List[str]]:
-        logger.info("Starting payment-success processing for order: %s", order_id)
+    def _format_item_label(base_name: str, variant_name: Optional[str] = None) -> str:
+        name = (base_name or "").strip() or "未知商品"
+        variant = (variant_name or "").strip()
+        return f"{name}（{variant}）" if variant else name
 
+    @staticmethod
+    def _is_non_sellable_item(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        flag = item.get('is_not_for_sale')
+        try:
+            if isinstance(flag, str):
+                return flag.strip().lower() in ('1', 'true', 'yes', 'on')
+            return bool(flag)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_gift_item(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        return bool(
+            item.get('is_lottery')
+            or item.get('is_auto_gift')
+            or item.get('category') == '满额赠品'
+            or '赠品' in str(item.get('name', ''))
+            or '赠品' in str(item.get('category', ''))
+        )
+
+    @staticmethod
+    def _compute_unified_status(payment_status: Optional[str], order_status: Optional[str]) -> str:
+        ps = str(payment_status or '').strip()
+        st = str(order_status or '').strip()
+        if ps == 'processing':
+            return '待确认'
+        if ps != 'succeeded':
+            return '未付款'
+        if st == 'shipped':
+            return '配送中'
+        if st == 'delivered':
+            return '已完成'
+        return '待配送'
+
+    @staticmethod
+    def _collect_inventory_adjustments(
+        cursor: sqlite3.Cursor,
+        order_id: str,
+        items: List[Any],
+        *,
+        restore: bool = False
+    ) -> Tuple[List[str], List[Tuple[str, str, int]]]:
+        aggregated: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+        for raw_item in (items or []):
+            if not isinstance(raw_item, dict):
+                continue
+            if OrderDB._is_non_sellable_item(raw_item):
+                continue
+
+            try:
+                quantity = int(raw_item.get('quantity') or 0)
+            except Exception:
+                quantity = 0
+            if quantity <= 0:
+                continue
+
+            is_lottery_item = bool(raw_item.get('is_lottery'))
+            is_gift_item = OrderDB._is_gift_item(raw_item)
+
+            product_id = raw_item.get('product_id')
+            variant_id = raw_item.get('variant_id')
+            if is_lottery_item:
+                product_id = raw_item.get('lottery_product_id') or product_id
+                variant_id = raw_item.get('lottery_variant_id') or variant_id
+
+            if not product_id:
+                logger.warning("Order %s item missing product_id, skip inventory adjust: %s", order_id, raw_item)
+                continue
+
+            target_type = 'variant' if variant_id else 'product'
+            target_id = variant_id if variant_id else product_id
+            if not target_id:
+                continue
+
+            item_name = (
+                raw_item.get('name')
+                or raw_item.get('lottery_product_name')
+                or raw_item.get('auto_gift_product_name')
+                or str(product_id)
+            )
+            variant_name = (
+                raw_item.get('variant_name')
+                or raw_item.get('lottery_variant_name')
+                or raw_item.get('auto_gift_variant_name')
+            )
+            label = OrderDB._format_item_label(item_name, variant_name if target_type == 'variant' else None)
+
+            key = (target_type, target_id)
+            entry = aggregated.setdefault(
+                key,
+                {
+                    'quantity': 0,
+                    'label': label,
+                    'optional_missing': bool(is_lottery_item or is_gift_item),
+                },
+            )
+            entry['quantity'] += quantity
+            if not entry.get('label'):
+                entry['label'] = label
+            if not (is_lottery_item or is_gift_item):
+                entry['optional_missing'] = False
+
+        missing_items: List[str] = []
+        adjustments: List[Tuple[str, str, int]] = []
+
+        for (target_type, target_id), meta in aggregated.items():
+            quantity = int(meta.get('quantity') or 0)
+            if quantity <= 0:
+                continue
+
+            optional_missing = bool(meta.get('optional_missing'))
+            label = str(meta.get('label') or target_id)
+
+            if target_type == 'variant':
+                cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (target_id,))
+            else:
+                cursor.execute('SELECT stock FROM products WHERE id = ?', (target_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                if optional_missing:
+                    action_name = 'restore' if restore else 'deduct'
+                    logger.info(
+                        "Order %s optional item missing, skip inventory %s: %s (%s)",
+                        order_id,
+                        action_name,
+                        label,
+                        target_id,
+                    )
+                    continue
+                missing_items.append(f"{label} 库存数据缺失")
+                continue
+
+            try:
+                current_stock = int(row['stock'] or 0)
+            except Exception:
+                current_stock = 0
+
+            if restore:
+                new_stock = current_stock + quantity
+            else:
+                if current_stock < quantity:
+                    missing_items.append(f"{label} 库存不足(剩余 {current_stock}, 需要 {quantity})")
+                    continue
+                new_stock = current_stock - quantity
+
+            adjustments.append((target_type, target_id, new_stock))
+
+        return list(dict.fromkeys(missing_items)), adjustments
+
+    @staticmethod
+    def _apply_inventory_adjustments(cursor: sqlite3.Cursor, adjustments: List[Tuple[str, str, int]]) -> None:
+        for target_type, target_id, new_stock in adjustments:
+            if target_type == 'variant':
+                cursor.execute(
+                    'UPDATE product_variants SET stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (new_stock, target_id),
+                )
+            else:
+                cursor.execute(
+                    'UPDATE products SET stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (new_stock, target_id),
+                )
+
+    @staticmethod
+    def _sync_inventory_on_status_transition(
+        order_id: str,
+        *,
+        next_payment_status: Optional[str] = None,
+        next_order_status: Optional[str] = None,
+    ) -> Tuple[bool, List[str], Dict[str, Any]]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
-            row = cursor.fetchone()
+            try:
+                cursor.execute(
+                    'SELECT id, items, payment_status, status, stock_deducted FROM orders WHERE id = ?',
+                    (order_id,),
+                )
+                row = cursor.fetchone()
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    'SELECT id, items, payment_status, status FROM orders WHERE id = ?',
+                    (order_id,),
+                )
+                row = cursor.fetchone()
             if not row:
-                logger.error("Order not found: %s", order_id)
-                return False, ["订单不存在"]
+                return False, ["订单不存在"], {}
 
             order_data = dict(row)
-            current_status = order_data['payment_status']
-            logger.info("Current payment status for order %s: %s", order_id, current_status)
+            if 'stock_deducted' not in order_data:
+                order_data['stock_deducted'] = 1 if (order_data.get('payment_status') == 'succeeded') else 0
+            current_payment_status = str(order_data.get('payment_status') or 'pending').strip() or 'pending'
+            current_order_status = str(order_data.get('status') or 'pending').strip() or 'pending'
+            current_unified_status = OrderDB._compute_unified_status(current_payment_status, current_order_status)
 
-            if order_data['payment_status'] not in ['pending', 'processing']:
-                logger.warning("Order %s has unexpected status, cannot process payment: %s", order_id, current_status)
-                return False, ["订单状态异常"]
+            target_payment_status = current_payment_status
+            target_order_status = current_order_status
+            if next_payment_status is not None:
+                target_payment_status = str(next_payment_status).strip() or current_payment_status
+            if next_order_status is not None:
+                target_order_status = str(next_order_status).strip() or current_order_status
+            target_unified_status = OrderDB._compute_unified_status(target_payment_status, target_order_status)
 
-            items = json.loads(order_data['items'])
-            missing_items: List[str] = []
-            deductions: List[Tuple[str, str, int]] = []
+            try:
+                stock_deducted = int(order_data.get('stock_deducted') or 0) == 1
+            except Exception:
+                stock_deducted = False
 
-            def format_item_label(base_name: str, variant_name: str = None) -> str:
-                return f"{base_name or '未知商品'}（{variant_name}）" if variant_name else (base_name or "未知商品")
+            try:
+                items = json.loads(order_data.get('items') or '[]')
+            except Exception:
+                items = []
+            if not isinstance(items, list):
+                items = []
 
-            for item in items:
-                non_sellable_item = False
-                if isinstance(item, dict):
-                    flag = item.get('is_not_for_sale')
-                    try:
-                        if isinstance(flag, str):
-                            non_sellable_item = flag.strip().lower() in ('1', 'true', 'yes', 'on')
-                        else:
-                            non_sellable_item = bool(flag)
-                    except Exception:
-                        non_sellable_item = False
-                is_lottery_item = False
-                try:
-                    is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
-                except Exception:
-                    is_lottery_item = False
+            should_deduct = (
+                not stock_deducted
+                and current_unified_status == '待确认'
+                and target_unified_status == '待配送'
+            )
+            should_restore = stock_deducted and target_unified_status in {'待确认', '未付款'}
 
-                if is_lottery_item and isinstance(item, dict):
-                    quantity = int(item.get('quantity', 0))
-                    if quantity <= 0:
-                        continue
-                    actual_product_id = item.get('lottery_product_id') or item.get('product_id')
-                    actual_variant_id = item.get('lottery_variant_id') or item.get('variant_id')
-                    if not actual_product_id:
-                        logger.warning("Lottery item missing product ID, skipping stock deduction: %s", item)
-                        continue
-                    if actual_variant_id:
-                        cursor.execute('SELECT product_id, stock, name FROM product_variants WHERE id = ?', (actual_variant_id,))
-                        var_row = cursor.fetchone()
-                        if not var_row:
-                            logger.info("Lottery variant not found, skipping stock deduction: %s (item: %s)", actual_variant_id, item.get('name', 'Unknown'))
-                            continue
-                        current_stock = int(var_row['stock'])
-                        if current_stock < quantity:
-                            logger.warning("Insufficient stock for lottery variant, skipping deduction: %s (required: %s, available: %s)", actual_variant_id, quantity, current_stock)
-                            continue
-                        new_stock = current_stock - quantity
-                        deductions.append(('variant', actual_variant_id, new_stock))
-                    else:
-                        cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
-                        product_row = cursor.fetchone()
-                        if not product_row:
-                            logger.info("Lottery product not found, skipping stock deduction: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
-                            continue
-                        current_stock = int(product_row['stock'])
-                        if current_stock < quantity:
-                            logger.warning("Insufficient stock for lottery product, skipping deduction: %s (required: %s, available: %s)", actual_product_id, quantity, current_stock)
-                            continue
-                        new_stock = current_stock - quantity
-                        deductions.append(('product', actual_product_id, new_stock))
-                    continue
+            inventory_action = 'none'
+            next_stock_deducted = 1 if stock_deducted else 0
 
-                if non_sellable_item:
-                    logger.info("Order %s includes non-sellable item %s, skipping stock deduction", order_id, item.get('name', 'Unknown'))
-                    continue
+            if should_deduct:
+                missing_items, adjustments = OrderDB._collect_inventory_adjustments(
+                    cursor,
+                    order_id,
+                    items,
+                    restore=False,
+                )
+                if missing_items:
+                    conn.rollback()
+                    return False, missing_items, {
+                        'inventory_action': 'none',
+                        'before_unified_status': current_unified_status,
+                        'after_unified_status': target_unified_status,
+                        'stock_deducted': next_stock_deducted,
+                    }
+                OrderDB._apply_inventory_adjustments(cursor, adjustments)
+                next_stock_deducted = 1
+                inventory_action = 'deduct'
+            elif should_restore:
+                missing_items, adjustments = OrderDB._collect_inventory_adjustments(
+                    cursor,
+                    order_id,
+                    items,
+                    restore=True,
+                )
+                if missing_items:
+                    logger.warning(
+                        "Order %s stock restore has missing inventory records: %s",
+                        order_id,
+                        "；".join(missing_items),
+                    )
+                OrderDB._apply_inventory_adjustments(cursor, adjustments)
+                next_stock_deducted = 0
+                inventory_action = 'restore'
 
-                product_id = item['product_id']
-                quantity = int(item['quantity'])
-                variant_id = item.get('variant_id')
-                if variant_id:
-                    cursor.execute('SELECT stock, name, product_id FROM product_variants WHERE id = ?', (variant_id,))
-                    var_row = cursor.fetchone()
-                    if not var_row:
-                        label = format_item_label(item.get('name'), item.get('variant_name'))
-                        missing_items.append(f"{label} 库存数据缺失")
-                        continue
-                    current_stock = int(var_row['stock'])
-                    variant_name = item.get('variant_name') or var_row['name']
-                    product_name = item.get('name')
-                    if current_stock < quantity:
-                        label = format_item_label(product_name, variant_name)
-                        missing_items.append(f"{label} 库存不足(剩余 {current_stock}, 需要 {quantity})")
-                        continue
-                    new_stock = current_stock - quantity
-                    deductions.append(('variant', variant_id, new_stock))
-                else:
-                    cursor.execute('SELECT stock, name FROM products WHERE id = ?', (product_id,))
-                    product_row = cursor.fetchone()
-                    if not product_row:
-                        if isinstance(item, dict):
-                            is_gift_item = (
-                                item.get('is_lottery') or
-                                item.get('is_auto_gift') or
-                                item.get('category') == '满额赠品' or
-                                '赠品' in str(item.get('name', '')) or
-                                '赠品' in str(item.get('category', ''))
-                            )
-                            if is_gift_item:
-                                logger.info("Skipping gift stock deduction: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
-                                continue
-                        logger.error("Product not found, cannot deduct stock: product_id=%s, item=%s", product_id, item)
-                        missing_items.append(f"{item.get('name') or product_id} 库存数据缺失")
-                        continue
-                    current_stock = int(product_row['stock'])
-                    product_name = item.get('name') or product_row['name'] or product_id
-                    if current_stock < quantity:
-                        missing_items.append(f"{product_name} 库存不足(剩余 {current_stock}, 需要 {quantity})")
-                        continue
-                    new_stock = current_stock - quantity
-                    deductions.append(('product', product_id, new_stock))
+            update_fields = ['updated_at = CURRENT_TIMESTAMP']
+            params: List[Any] = []
 
-            if missing_items:
-                missing_items = list(dict.fromkeys(missing_items))
-                conn.rollback()
-                return False, missing_items
+            if next_payment_status is not None:
+                update_fields.append('payment_status = ?')
+                params.append(target_payment_status)
+            if next_order_status is not None:
+                update_fields.append('status = ?')
+                params.append(target_order_status)
 
-            for target_type, target_id, new_stock in deductions:
-                if target_type == 'variant':
-                    cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, target_id))
-                else:
-                    cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, target_id))
+            if next_stock_deducted != (1 if stock_deducted else 0):
+                update_fields.append('stock_deducted = ?')
+                params.append(next_stock_deducted)
 
-            cursor.execute('''
-                UPDATE orders
-                SET payment_status = 'succeeded', updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (order_id,))
-
-            updated_rows = cursor.rowcount
+            params.append(order_id)
+            cursor.execute(
+                f"UPDATE orders SET {', '.join(update_fields)} WHERE id = ?",
+                params,
+            )
             conn.commit()
+            return True, [], {
+                'inventory_action': inventory_action,
+                'before_unified_status': current_unified_status,
+                'after_unified_status': target_unified_status,
+                'stock_deducted': next_stock_deducted,
+            }
 
-            logger.info("Order %s payment processing completed; stock deducted and status updated to succeeded, affected rows: %s", order_id, updated_rows)
-            return True, []
+    @staticmethod
+    def update_payment_status_with_inventory(order_id: str, payment_status: str) -> Tuple[bool, List[str]]:
+        ok, missing_items, _meta = OrderDB._sync_inventory_on_status_transition(
+            order_id,
+            next_payment_status=payment_status,
+        )
+        return ok, missing_items
+
+    @staticmethod
+    def update_order_status_with_inventory(order_id: str, status: str) -> Tuple[bool, List[str]]:
+        ok, missing_items, _meta = OrderDB._sync_inventory_on_status_transition(
+            order_id,
+            next_order_status=status,
+        )
+        return ok, missing_items
+
+    @staticmethod
+    def complete_payment_and_update_stock(order_id: str) -> Tuple[bool, List[str]]:
+        logger.info("Starting payment-success processing for order: %s", order_id)
+        order = OrderDB.get_order_by_id(order_id)
+        if not order:
+            logger.error("Order not found: %s", order_id)
+            return False, ["订单不存在"]
+
+        current_payment_status = str(order.get('payment_status') or 'pending').strip() or 'pending'
+        current_order_status = str(order.get('status') or 'pending').strip() or 'pending'
+        current_unified_status = OrderDB._compute_unified_status(current_payment_status, current_order_status)
+
+        if current_payment_status not in ['processing']:
+            logger.warning(
+                "Order %s payment state cannot move to succeeded directly: payment=%s unified=%s",
+                order_id,
+                current_payment_status,
+                current_unified_status,
+            )
+            return False, ["请先将订单状态设置为待确认"]
+
+        ok, missing_items = OrderDB.update_payment_status_with_inventory(order_id, 'succeeded')
+        if not ok:
+            return False, missing_items
+
+        logger.info("Order %s payment moved to succeeded with inventory synced", order_id)
+        return True, []
 
     @staticmethod
     def restore_stock_from_order(order_id: str) -> bool:
@@ -339,111 +530,87 @@ class OrderDB:
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
-            row = cursor.fetchone()
+            try:
+                cursor.execute('SELECT items, stock_deducted, payment_status FROM orders WHERE id = ?', (order_id,))
+                row = cursor.fetchone()
+            except sqlite3.OperationalError:
+                cursor.execute('SELECT items, payment_status FROM orders WHERE id = ?', (order_id,))
+                row = cursor.fetchone()
             if not row:
                 logger.error("Order not found: %s", order_id)
                 return False
 
             order_data = dict(row)
-            current_status = order_data['payment_status']
-            logger.info("Current payment status for order %s: %s", order_id, current_status)
-
-            if order_data['payment_status'] != 'succeeded':
-                logger.info("Order %s was not paid successfully, stock restore not required", order_id)
+            if 'stock_deducted' not in order_data:
+                order_data['stock_deducted'] = 1 if (order_data.get('payment_status') == 'succeeded') else 0
+            try:
+                stock_deducted = int(order_data.get('stock_deducted') or 0) == 1
+            except Exception:
+                stock_deducted = False
+            if not stock_deducted:
+                logger.info("Order %s has no deducted stock, skip restore", order_id)
                 return True
 
-            items = json.loads(order_data['items'])
+            try:
+                items = json.loads(order_data.get('items') or '[]')
+            except Exception:
+                items = []
+            if not isinstance(items, list):
+                items = []
 
-            for item in items:
-                non_sellable_item = False
-                if isinstance(item, dict):
-                    flag = item.get('is_not_for_sale')
-                    try:
-                        if isinstance(flag, str):
-                            non_sellable_item = flag.strip().lower() in ('1', 'true', 'yes', 'on')
-                        else:
-                            non_sellable_item = bool(flag)
-                    except Exception:
-                        non_sellable_item = False
-                is_lottery_item = False
-                try:
-                    is_lottery_item = bool(item.get('is_lottery')) if isinstance(item, dict) else False
-                except Exception:
-                    is_lottery_item = False
-
-                if is_lottery_item and isinstance(item, dict):
-                    quantity = int(item.get('quantity', 0))
-                    if quantity <= 0:
-                        continue
-                    actual_product_id = item.get('lottery_product_id') or item.get('product_id')
-                    actual_variant_id = item.get('lottery_variant_id') or item.get('variant_id')
-
-                    if actual_variant_id:
-                        cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (actual_variant_id,))
-                        var_row = cursor.fetchone()
-                        if var_row:
-                            current_stock = int(var_row[0])
-                            new_stock = current_stock + quantity
-                            cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, actual_variant_id))
-                            logger.info("Restored lottery variant stock: variant_id=%s, +%s -> %s", actual_variant_id, quantity, new_stock)
-                        else:
-                            logger.warning("Lottery variant not found, cannot restore stock: %s", actual_variant_id)
-                    else:
-                        cursor.execute('SELECT stock FROM products WHERE id = ?', (actual_product_id,))
-                        product_row = cursor.fetchone()
-                        if product_row:
-                            current_stock = int(product_row[0])
-                            new_stock = current_stock + quantity
-                            cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, actual_product_id))
-                            logger.info("Restored lottery product stock: product_id=%s, +%s -> %s", actual_product_id, quantity, new_stock)
-                        else:
-                            logger.info("Lottery product not found, skipping stock restore: %s (item: %s)", actual_product_id, item.get('name', 'Unknown'))
-                    continue
-
-                if non_sellable_item:
-                    logger.info("Order %s includes non-sellable item %s, no stock restore needed", order_id, item.get('name', 'Unknown'))
-                    continue
-
-                product_id = item['product_id']
-                quantity = int(item['quantity'])
-                variant_id = item.get('variant_id')
-                if variant_id:
-                    cursor.execute('SELECT stock FROM product_variants WHERE id = ?', (variant_id,))
-                    var_row = cursor.fetchone()
-                    if var_row:
-                        current_stock = int(var_row[0])
-                        new_stock = current_stock + quantity
-                        cursor.execute('UPDATE product_variants SET stock = ? WHERE id = ?', (new_stock, variant_id))
-                        logger.info("Restored variant stock: variant_id=%s, +%s -> %s", variant_id, quantity, new_stock)
-                    else:
-                        logger.warning("Variant not found, cannot restore stock: variant_id=%s", variant_id)
-                else:
-                    cursor.execute('SELECT stock FROM products WHERE id = ?', (product_id,))
-                    product_row = cursor.fetchone()
-                    if product_row:
-                        current_stock = int(product_row[0])
-                        new_stock = current_stock + quantity
-                        cursor.execute('UPDATE products SET stock = ? WHERE id = ?', (new_stock, product_id))
-                        logger.info("Restored product stock: product_id=%s, +%s -> %s", product_id, quantity, new_stock)
-                    else:
-                        if isinstance(item, dict):
-                            is_gift_item = (
-                                item.get('is_lottery') or
-                                item.get('is_auto_gift') or
-                                item.get('category') == '满额赠品' or
-                                '赠品' in str(item.get('name', '')) or
-                                '赠品' in str(item.get('category', ''))
-                            )
-                            if is_gift_item:
-                                logger.info("Skipping gift stock restore: %s (product_id: %s)", item.get('name', 'Unknown'), product_id)
-                                continue
-                        logger.error("Product not found, cannot restore stock: product_id=%s, item=%s", product_id, item)
-                        return False
+            missing_items, adjustments = OrderDB._collect_inventory_adjustments(
+                cursor,
+                order_id,
+                items,
+                restore=True,
+            )
+            if missing_items:
+                logger.warning(
+                    "Order %s stock restore has missing inventory records: %s",
+                    order_id,
+                    "；".join(missing_items),
+                )
+            OrderDB._apply_inventory_adjustments(cursor, adjustments)
+            cursor.execute(
+                'UPDATE orders SET stock_deducted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                (order_id,),
+            )
 
             conn.commit()
             logger.info("Stock restoration completed for order %s", order_id)
-            return True
+            return len(missing_items) == 0
+
+    @staticmethod
+    def restore_stock_from_items_snapshot(order_id: str, items: Any) -> bool:
+        parsed_items: List[Any]
+        if isinstance(items, str):
+            try:
+                parsed = json.loads(items)
+            except Exception:
+                parsed = []
+            parsed_items = parsed if isinstance(parsed, list) else []
+        elif isinstance(items, list):
+            parsed_items = items
+        else:
+            parsed_items = []
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            missing_items, adjustments = OrderDB._collect_inventory_adjustments(
+                cursor,
+                order_id,
+                parsed_items,
+                restore=True,
+            )
+            if missing_items:
+                logger.warning(
+                    "Order %s stock snapshot-restore has missing inventory records: %s",
+                    order_id,
+                    "；".join(missing_items),
+                )
+            OrderDB._apply_inventory_adjustments(cursor, adjustments)
+            conn.commit()
+            return len(missing_items) == 0
 
     @staticmethod
     def get_order_by_id(order_id: str) -> Optional[Dict]:
@@ -712,16 +879,8 @@ class OrderDB:
 
     @staticmethod
     def update_order_status(order_id: str, status: str) -> bool:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE orders
-                SET status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (status, order_id))
-            success = cursor.rowcount > 0
-            conn.commit()
-            return success
+        ok, _missing_items = OrderDB.update_order_status_with_inventory(order_id, status)
+        return ok
 
     @staticmethod
     def delete_order(order_id: str) -> bool:

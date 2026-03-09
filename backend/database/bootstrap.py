@@ -141,6 +141,7 @@ def init_database():
                 student_id TEXT NOT NULL,
                 status TEXT DEFAULT 'pending',
                 payment_status TEXT DEFAULT 'pending',
+                stock_deducted INTEGER DEFAULT 0,
                 total_amount REAL NOT NULL,
                 shipping_info TEXT NOT NULL,
                 items TEXT NOT NULL,
@@ -407,6 +408,19 @@ def init_database():
             pass
         try:
             cursor.execute('ALTER TABLE orders ADD COLUMN coupon_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE orders ADD COLUMN stock_deducted INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("""
+                UPDATE orders
+                SET stock_deducted = 1
+                WHERE payment_status = 'succeeded'
+                  AND (stock_deducted IS NULL OR stock_deducted = 0)
+            """)
         except sqlite3.OperationalError:
             pass
         try:

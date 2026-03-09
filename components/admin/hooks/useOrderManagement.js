@@ -495,6 +495,10 @@ export function useOrderManagement({
         await handleUpdateOrderStatus(order.id, 'pending');
       } else if (newUnified === '待配送') {
         if (order.payment_status !== 'succeeded') {
+          const currentPayment = order.payment_status || 'pending';
+          if (currentPayment !== 'processing') {
+            await handleUpdatePaymentStatus(order.id, 'processing');
+          }
           await handleUpdatePaymentStatus(order.id, 'succeeded');
         }
         await handleUpdateOrderStatus(order.id, 'confirmed');

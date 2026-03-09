@@ -686,6 +686,7 @@ def auto_migrate_database(conn) -> None:
             'address_id': 'TEXT',
             'building_id': 'TEXT',
             'agent_id': 'TEXT',
+            'stock_deducted': 'INTEGER DEFAULT 0',
             'is_reservation': 'INTEGER DEFAULT 0',
             'reservation_reason': 'TEXT'
         },
@@ -745,6 +746,20 @@ def auto_migrate_database(conn) -> None:
     }
     for table_name, columns in table_migrations.items():
         ensure_table_columns(conn, table_name, columns)
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE orders
+            SET stock_deducted = 1
+            WHERE payment_status = 'succeeded'
+              AND (stock_deducted IS NULL OR stock_deducted = 0)
+        """)
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    except Exception as exc:
+        logger.warning("Failed to backfill stock_deducted flag: %s", exc)
 
     cursor = conn.cursor()
     try:
