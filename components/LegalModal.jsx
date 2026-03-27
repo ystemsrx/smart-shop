@@ -117,7 +117,7 @@ function TermsContent({ shopName }) {
 
       <section>
         <h3 className="font-semibold text-gray-800 mb-2">九、联系方式</h3>
-        <p>如对本服务条款有任何疑问或建议，请通过联系平台管理员进行咨询。</p>
+        <p>如对本服务条款有任何疑问或建议，请联系平台管理员进行咨询。</p>
       </section>
     </div>
   );
@@ -330,7 +330,9 @@ export default function LegalModal({ open, onClose, initialTab = "terms" }) {
                 <motion.div
                   className="absolute top-1 bottom-1 bg-white rounded-lg shadow-sm"
                   style={{ width: `calc(50% - 4px)` }}
-                  animate={{ x: activeTab === "terms" ? 0 : "calc(100% + 4px)" }}
+                  animate={{
+                    x: activeTab === "terms" ? 0 : "100%",
+                  }}
                   transition={{ type: "spring", stiffness: 400, damping: 35 }}
                 />
                 {TABS.map((tab) => (
