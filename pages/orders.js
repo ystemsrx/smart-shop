@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import Nav from '../components/Nav';
+
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import { getShopName } from '../utils/runtimeConfig';
@@ -335,8 +335,6 @@ export default function Orders() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      {/* 顶部导航（移动端优化） */}
-      <Nav active="orders" />
 
       <div className="min-h-screen bg-[#F5F5F7] pt-20 pb-12 selection:bg-orange-100 selection:text-orange-900">
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">

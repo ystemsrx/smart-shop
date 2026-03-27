@@ -24,10 +24,12 @@ export default function Login() {
     student_id: '',
     password: ''
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
   const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
+  const [focusedField, setFocusedField] = useState(null);
 
   const getSafeRedirect = useCallback(() => {
     if (!router.isReady) return null;
@@ -126,7 +128,6 @@ export default function Login() {
     if (!payload) {
       return;
     }
-    // 验证码通过后立即关闭弹窗，登录请求在弹窗外执行并由页面展示 loading。
     void processLogin(payload, captchaToken);
   };
 
@@ -137,63 +138,110 @@ export default function Login() {
     });
   };
 
+  if (!isInitialized) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <PastelBackground>
+          <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+            {/* Header skeleton */}
+            <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mb-8">
+              <div className="flex flex-col items-center gap-2.5">
+                <div className="skeleton-shimmer bg-[#e8e3e0] rounded-full h-6 w-28" />
+                <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-4 w-44" />
+              </div>
+            </div>
+
+            {/* Card skeleton */}
+            <div className="sm:mx-auto sm:w-full sm:max-w-[400px]">
+              <div className="auth-card p-6 sm:p-8 space-y-5">
+                {/* Account input */}
+                <div className="space-y-2">
+                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-10" />
+                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                </div>
+
+                {/* Password input */}
+                <div className="space-y-2">
+                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-10" />
+                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                </div>
+
+                {/* Login button */}
+                <div className="skeleton-shimmer bg-[#d9ccc7] rounded-full h-11 w-full mt-2" />
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="flex-1 h-px bg-black/5" />
+                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-4" />
+                  <div className="flex-1 h-px bg-black/5" />
+                </div>
+
+                {/* Alt buttons */}
+                <div className="flex gap-3">
+                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 flex-1" />
+                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 flex-1" />
+                </div>
+
+                {/* Legal */}
+                <div className="flex justify-center gap-1 pt-1">
+                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-52" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </PastelBackground>
+      </>
+    );
+  }
+
   return (
     <>
       <Head>
         <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
-      
+
       <PastelBackground>
-        <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-          {/* 顶部Logo和标题 */}
-          <div className="sm:mx-auto sm:w-full sm:max-w-md opacity-0 animate-apple-fade-in">
-            <div className="flex justify-center mb-8">
-              <div className="relative group">
-                <div className="absolute -inset-2 bg-gradient-to-r from-pink-500 to-violet-500 rounded-2xl blur opacity-60 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
-                <div className="relative w-20 h-20 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl">
-                  <i className="fas fa-shopping-bag text-white text-2xl"></i>
-                  <div className="absolute -top-2 -right-2 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center">
-                    <i className="fas fa-sparkles text-white text-xs"></i>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
+        <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+          {/* Logo & Header */}
+          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] opacity-0 animate-apple-fade-in">
             <div className="text-center opacity-0 animate-apple-slide-up animate-delay-200">
-              <h1 className="text-4xl font-bold text-gray-800 mb-2">
+              <h1 className="text-2xl font-semibold text-gray-800 tracking-tight">
                 欢迎回来
               </h1>
-              <p className="text-lg text-gray-700 mb-2">
-                {shopName}
-              </p>
-              <p className="text-sm text-gray-600">
-                使用学号和密码登录您的账户
+              <p className="text-[14px] text-gray-400 mt-1.5">
+                登录 {shopName} 继续购物
               </p>
             </div>
           </div>
 
-          {/* 登录表单 */}
-          <div className="sm:mx-auto sm:w-full sm:max-w-md mt-8 opacity-0 animate-apple-scale-in animate-delay-400">
-            <div className="card-glass p-8 shadow-2xl border border-gray-200/50">
-              <form className="space-y-6" onSubmit={handleSubmit}>
+          {/* Login Form */}
+          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-400">
+            <div className="auth-card p-6 sm:p-8">
+              <form className="space-y-5" onSubmit={handleSubmit}>
                 {error && (
-                  <div className="bg-red-500/90 border-2 border-red-400/60 text-white px-4 py-3 rounded-xl text-sm shadow-xl animate-apple-fade-in relative overflow-hidden">
-                    {/* 背景光效 */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-red-500/80 to-red-600/80 rounded-xl"></div>
-                    <div className="relative z-10 flex items-center gap-2 font-medium">
-                      <i className="fas fa-exclamation-triangle text-yellow-200"></i>
-                      <span className="text-white drop-shadow-sm">{error}</span>
+                  <div className="auth-error animate-apple-fade-in">
+                    <div className="flex items-center gap-2.5">
+                      <i className="fas fa-info-circle text-red-300 text-sm"></i>
+                      <span className="text-[13px] text-red-400 font-medium leading-snug">{error}</span>
                     </div>
                   </div>
                 )}
 
                 <div className="space-y-4">
+                  {/* Account Field */}
                   <div>
-                    <label htmlFor="student_id" className="block text-sm font-medium text-gray-800 mb-2">
-                      <i className="fas fa-user mr-2"></i>账号
+                    <label htmlFor="student_id" className="auth-label">
+                      账号
                     </label>
-                    <div className="relative">
+                    <div className={`auth-input-wrapper ${focusedField === 'student_id' ? 'auth-input-focused' : ''}`}>
+                      <div className="auth-input-icon">
+                        <i className="fas fa-user"></i>
+                      </div>
                       <input
                         id="student_id"
                         name="student_id"
@@ -201,120 +249,116 @@ export default function Login() {
                         required
                         value={formData.student_id}
                         onChange={handleInputChange}
-                        className="input-glass w-full pl-4 pr-12 text-gray-800 placeholder-gray-500"
+                        onFocus={() => setFocusedField('student_id')}
+                        onBlur={() => setFocusedField(null)}
+                        className="auth-input"
                         placeholder="请输入学号"
                       />
-                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500">
-                        <i className="fas fa-id-card"></i>
-                      </div>
                     </div>
                   </div>
 
+                  {/* Password Field */}
                   <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-800 mb-2">
-                      <i className="fas fa-lock mr-2"></i>密码
+                    <label htmlFor="password" className="auth-label">
+                      密码
                     </label>
-                    <div className="relative">
+                    <div className={`auth-input-wrapper ${focusedField === 'password' ? 'auth-input-focused' : ''}`}>
+                      <div className="auth-input-icon">
+                        <i className="fas fa-lock"></i>
+                      </div>
                       <input
                         id="password"
                         name="password"
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         required
                         value={formData.password}
                         onChange={handleInputChange}
-                        className="input-glass w-full pl-4 pr-12 text-gray-800 placeholder-gray-500"
-                        placeholder="请输入办事大厅密码"
+                        onFocus={() => setFocusedField('password')}
+                        onBlur={() => setFocusedField(null)}
+                        className="auth-input pr-11"
+                        placeholder="请输入密码"
                       />
-                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500">
-                        <i className="fas fa-key"></i>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="auth-toggle-password"
+                        tabIndex={-1}
+                      >
+                        <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4">
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full btn-primary text-white shadow-2xl transform hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                  >
-                    {isLoading ? (
-                      <div className="flex items-center justify-center">
-                        <div className="loading-dots text-white mr-2"></div>
-                        登录中...
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center gap-2">
-                        <i className="fas fa-sign-in-alt"></i>
-                        立即登录
-                      </div>
-                    )}
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="auth-submit-btn mt-2"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span>登录中...</span>
+                    </div>
+                  ) : (
+                    '登录'
+                  )}
+                </button>
               </form>
 
-              {/* 分隔线和其他选项 */}
-              <div className="mt-8">
-                <div className="flex items-center">
-                  <div className="flex-1 border-t border-gray-300/60" />
-                  <span className="px-4 text-sm text-gray-600">或者</span>
-                  <div className="flex-1 border-t border-gray-300/60" />
+              {/* Divider & Actions */}
+              <div className="mt-6">
+                <div className="auth-divider">
+                  <span>或</span>
                 </div>
 
-                {/* 注册按钮 - 仅在启用时显示 */}
-                {registrationEnabled && (
-                  <div className="mt-6">
+                <div className={`mt-5 ${registrationEnabled ? 'flex gap-3' : ''}`}>
+                  {registrationEnabled && (
                     <button
                       type="button"
                       onClick={() => router.push('/register')}
-                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium"
+                      className="auth-alt-btn auth-alt-btn-accent flex-1"
                     >
-                      <i className="fas fa-user-plus"></i>
-                      立即注册
+                      <i className="fas fa-user-plus text-[13px]"></i>
+                      <span>创建账户</span>
                     </button>
-                  </div>
-                )}
+                  )}
 
-                <div className={registrationEnabled ? "mt-4" : "mt-6"}>
                   <button
                     type="button"
-                    onClick={() => router.push('/')}
-                    className="w-full btn-glass text-gray-700 hover:text-gray-900 transform hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                    onClick={() => router.push('/c')}
+                    className={`auth-alt-btn ${registrationEnabled ? 'flex-1' : 'w-full'}`}
                   >
-                    <i className="fas fa-comments"></i>
-                    先试用聊天功能（仅限商品搜索）
+                    <i className="fas fa-comments text-[13px]"></i>
+                    <span>先试用</span>
                   </button>
                 </div>
               </div>
 
-              {/* 底部提示 */}
-              <div className="mt-8 text-center">
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  登录即表示您同意我们的
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'terms' })}>服务条款</span>
-                  和
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}>隐私政策</span>
-                </p>
-              </div>
+              {/* Legal */}
+              <p className="mt-6 text-center text-[11px] text-gray-400 leading-relaxed">
+                登录即表示您同意
+                <span className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors" onClick={() => setLegalModal({ open: true, tab: 'terms' })}>服务条款</span>
+                和
+                <span className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}>隐私政策</span>
+              </p>
             </div>
           </div>
 
-          {/* 底部装饰 */}
-          <div className="text-center mt-8 opacity-0 animate-apple-fade-in animate-delay-600">
-            <div className="flex justify-center items-center gap-4 text-gray-500 text-sm">
+          {/* Footer */}
+          <div className="text-center mt-6 opacity-0 animate-apple-fade-in animate-delay-600">
+            <div className="flex justify-center items-center gap-3 text-gray-400 text-[11px]">
               <div className="flex items-center gap-1">
-                <i className="fas fa-shield-alt"></i>
-                <span>安全登录</span>
+                <i className="fas fa-shield-alt text-[10px]"></i>
+                <span>安全加密</span>
               </div>
-              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+              <span className="text-gray-300">·</span>
               <div className="flex items-center gap-1">
-                <i className="fas fa-clock"></i>
-                <span>24/7 服务</span>
-              </div>
-              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-              <div className="flex items-center gap-1">
-                <i className="fas fa-mobile-alt"></i>
-                <span>响应式设计</span>
+                <i className="fas fa-lock text-[10px]"></i>
+                <span>数据保护</span>
               </div>
             </div>
           </div>

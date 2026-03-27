@@ -8,7 +8,7 @@ import { useProducts } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import { usePaymentQr } from '../hooks/usePaymentQr';
 import { useRouter } from 'next/router';
-import Nav from '../components/Nav';
+
 import AnimatedPrice from '../components/AnimatedPrice';
 import { getShopName } from '../utils/runtimeConfig';
 import LegalModal from '../components/LegalModal';
@@ -782,8 +782,6 @@ export default function Checkout() {
          background: 'linear-gradient(135deg, rgba(147, 197, 253, 0.2) 0%, rgba(252, 231, 243, 0.25) 50%, rgba(191, 219, 254, 0.2) 100%), #fafafa'
        }}>
 
-        {/* 统一导航栏 */}
-        <Nav active="checkout" />
 
         {/* 主要内容 */}
         <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
