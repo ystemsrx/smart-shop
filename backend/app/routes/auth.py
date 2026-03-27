@@ -23,7 +23,7 @@ from ..schemas import (
     RegisterRequest,
 )
 from ..services.captcha import CaptchaError, CaptchaService
-from ..services.registration_validation import (
+from ..services.registration_validation_runtime import (
     get_registration_username_placeholder,
     validate_registration_username,
 )
