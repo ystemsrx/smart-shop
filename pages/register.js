@@ -7,10 +7,14 @@ import PastelBackground from "../components/ModalCard";
 import SliderCaptchaModal from "../components/SliderCaptchaModal";
 import { getDeviceId } from "../utils/deviceId";
 import LegalModal from "../components/LegalModal";
+import Toast from "../components/Toast";
+import { useToast } from "../hooks/useToast";
+
+const DEFAULT_USERNAME_PLACEHOLDER = "登录名";
 
 function PasswordStrength({ password }) {
   const { score, label, color } = useMemo(() => {
-    if (!password) return { score: 0, label: "", color: "" };
+    if (!password) return { score: 0, label: "未设置", color: "bg-gray-200" };
     let s = 0;
     if (password.length >= 6) s++;
     if (password.length >= 10) s++;
@@ -24,8 +28,6 @@ function PasswordStrength({ password }) {
     if (s <= 4) return { score: 4, label: "强", color: "bg-emerald-400" };
     return { score: 5, label: "很强", color: "bg-emerald-500" };
   }, [password]);
-
-  if (!password) return null;
 
   return (
     <div className="mt-2 flex items-center gap-2">
@@ -57,8 +59,11 @@ export default function Register() {
     confirmPassword: "",
     nickname: "",
   });
+  const [usernamePlaceholder, setUsernamePlaceholder] = useState(
+    DEFAULT_USERNAME_PLACEHOLDER,
+  );
+  const { toast, showToast, hideToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [captchaOpen, setCaptchaOpen] = useState(false);
@@ -83,6 +88,12 @@ export default function Register() {
         const result = await response.json();
         if (result.success) {
           setRegistrationEnabled(result.data.enabled);
+          if (typeof result.data.username_placeholder === "string") {
+            const nextPlaceholder = result.data.username_placeholder.trim();
+            setUsernamePlaceholder(
+              nextPlaceholder || DEFAULT_USERNAME_PLACEHOLDER,
+            );
+          }
           if (!result.data.enabled) {
             setTimeout(() => {
               router.push("/login");
@@ -104,30 +115,30 @@ export default function Register() {
   const validateForm = useCallback(() => {
     const { username, password, confirmPassword } = formData;
 
-    if (username.trim().length < 2) {
-      setError("用户名至少需要2个字符");
+    if (!username.trim()) {
+      showToast("请输入账号");
       return false;
     }
 
     if (password.length < 6) {
-      setError("密码至少需要6个字符");
+      showToast("密码至少需要6个字符");
       return false;
     }
 
     const hasLetter = /[a-zA-Z]/.test(password);
     const hasDigit = /\d/.test(password);
     if (!hasLetter || !hasDigit) {
-      setError("密码必须包含数字和字母");
+      showToast("密码必须包含数字和字母");
       return false;
     }
 
     if (password !== confirmPassword) {
-      setError("两次输入的密码不一致");
+      showToast("两次输入的密码不一致");
       return false;
     }
 
     return true;
-  }, [formData]);
+  }, [formData, showToast]);
 
   const submitRegistration = useCallback(
     async (payload, captchaToken) => {
@@ -155,7 +166,7 @@ export default function Register() {
           router.push("/c");
           return { ok: true };
         } else {
-          setError(result.message || "注册失败，请稍后重试");
+          showToast(result.message || "注册失败，请稍后重试");
           return {
             ok: false,
             message: result.message || "注册失败，请稍后重试",
@@ -163,18 +174,18 @@ export default function Register() {
         }
       } catch (err) {
         console.error("Registration failed:", err);
-        setError("注册失败，请稍后重试");
+        showToast("注册失败，请稍后重试");
         return { ok: false, message: "注册失败，请稍后重试" };
       } finally {
         setIsLoading(false);
       }
     },
-    [checkAuth, router],
+    [checkAuth, router, showToast],
   );
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    setError("");
+    hideToast();
 
     if (!validateForm()) {
       return;
@@ -203,9 +214,7 @@ export default function Register() {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    if (error) {
-      setError("");
-    }
+    hideToast();
   };
 
   if (checkingStatus) {
@@ -213,7 +222,10 @@ export default function Register() {
       <>
         <Head>
           <title>{pageTitle}</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+          />
         </Head>
         <PastelBackground>
           <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
@@ -246,8 +258,11 @@ export default function Register() {
                   <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
                   {/* strength bar */}
                   <div className="flex gap-1 mt-1">
-                    {[1,2,3,4,5].map(i => (
-                      <div key={i} className="skeleton-shimmer bg-[#ede9e6] rounded-full h-1 flex-1" />
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div
+                        key={i}
+                        className="skeleton-shimmer bg-[#ede9e6] rounded-full h-1 flex-1"
+                      />
                     ))}
                   </div>
                 </div>
@@ -345,152 +360,154 @@ export default function Register() {
 
           {/* Register Form */}
           <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-400">
-            <div className="auth-card p-6 sm:p-8">
+            <div className="auth-card relative p-6 sm:p-8">
+              <Toast
+                message={toast.message}
+                show={toast.visible}
+                onClose={hideToast}
+                position="top-right"
+                inline
+              />
               <form className="space-y-5" onSubmit={handleSubmit}>
-                {error && (
-                  <div className="auth-error animate-apple-fade-in">
-                    <div className="flex items-center gap-2.5">
-                      <i className="fas fa-info-circle text-red-300 text-sm"></i>
-                      <span className="text-[13px] text-red-400 font-medium leading-snug">
-                        {error}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-4">
-                  {/* Username & Nickname */}
-                  <div className="flex gap-3">
-                    <div className="flex-1 min-w-0">
-                      <label htmlFor="username" className="auth-label">
-                        用户名 <span className="text-red-400">*</span>
-                      </label>
-                      <div
-                        className={`auth-input-wrapper ${focusedField === "username" ? "auth-input-focused" : ""}`}
-                      >
-                        <div className="auth-input-icon">
-                          <i className="fas fa-user"></i>
-                        </div>
-                        <input
-                          id="username"
-                          name="username"
-                          type="text"
-                          required
-                          value={formData.username}
-                          onChange={handleInputChange}
-                          onFocus={() => setFocusedField("username")}
-                          onBlur={() => setFocusedField(null)}
-                          className="auth-input"
-                          placeholder="至少2个字符"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <label htmlFor="nickname" className="auth-label">
-                        昵称
-                      </label>
-                      <div
-                        className={`auth-input-wrapper ${focusedField === "nickname" ? "auth-input-focused" : ""}`}
-                      >
-                        <div className="auth-input-icon">
-                          <i className="fas fa-smile"></i>
-                        </div>
-                        <input
-                          id="nickname"
-                          name="nickname"
-                          type="text"
-                          value={formData.nickname}
-                          onChange={handleInputChange}
-                          onFocus={() => setFocusedField("nickname")}
-                          onBlur={() => setFocusedField(null)}
-                          className="auth-input"
-                          placeholder="选填"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Password */}
                   <div>
-                    <label htmlFor="password" className="auth-label">
-                      密码 <span className="text-red-400">*</span>
+                    <label htmlFor="username" className="auth-label">
+                      账号 <span className="text-red-400">*</span>
                     </label>
                     <div
-                      className={`auth-input-wrapper ${focusedField === "password" ? "auth-input-focused" : ""}`}
+                      className={`auth-input-wrapper ${focusedField === "username" ? "auth-input-focused" : ""}`}
                     >
                       <div className="auth-input-icon">
-                        <i className="fas fa-lock"></i>
+                        <i className="fas fa-user"></i>
                       </div>
                       <input
-                        id="password"
-                        name="password"
-                        type={showPassword ? "text" : "password"}
+                        id="username"
+                        name="username"
+                        type="text"
                         required
-                        value={formData.password}
+                        autoComplete="username"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        value={formData.username}
                         onChange={handleInputChange}
-                        onFocus={() => setFocusedField("password")}
+                        onFocus={() => setFocusedField("username")}
                         onBlur={() => setFocusedField(null)}
-                        className="auth-input pr-11"
-                        placeholder="至少6位，包含数字和字母"
+                        className="auth-input"
+                        placeholder={usernamePlaceholder}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="auth-toggle-password"
-                        tabIndex={-1}
-                      >
-                        <i
-                          className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`}
-                        ></i>
-                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="nickname" className="auth-label">
+                      昵称
+                    </label>
+                    <div
+                      className={`auth-input-wrapper ${focusedField === "nickname" ? "auth-input-focused" : ""}`}
+                    >
+                      <div className="auth-input-icon">
+                        <i className="fas fa-smile"></i>
+                      </div>
+                      <input
+                        id="nickname"
+                        name="nickname"
+                        type="text"
+                        autoComplete="nickname"
+                        spellCheck={false}
+                        value={formData.nickname}
+                        onChange={handleInputChange}
+                        onFocus={() => setFocusedField("nickname")}
+                        onBlur={() => setFocusedField(null)}
+                        className="auth-input"
+                        placeholder="选填"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex gap-3">
+                      <div className="flex-1 min-w-0">
+                        <label htmlFor="password" className="auth-label">
+                          密码 <span className="text-red-400">*</span>
+                        </label>
+                        <div
+                          className={`auth-input-wrapper ${focusedField === "password" ? "auth-input-focused" : ""}`}
+                        >
+                          <div className="auth-input-icon">
+                            <i className="fas fa-lock"></i>
+                          </div>
+                          <input
+                            id="password"
+                            name="password"
+                            type={showPassword ? "text" : "password"}
+                            required
+                            autoComplete="new-password"
+                            value={formData.password}
+                            onChange={handleInputChange}
+                            onFocus={() => setFocusedField("password")}
+                            onBlur={() => setFocusedField(null)}
+                            className="auth-input pr-11"
+                            placeholder="至少6位"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="auth-toggle-password"
+                            tabIndex={-1}
+                          >
+                            <i
+                              className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`}
+                            ></i>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <label htmlFor="confirmPassword" className="auth-label">
+                          确认密码 <span className="text-red-400">*</span>
+                        </label>
+                        <div
+                          className={`auth-input-wrapper ${focusedField === "confirmPassword" ? "auth-input-focused" : ""}`}
+                        >
+                          <div className="auth-input-icon">
+                            <i
+                              className={`fas ${
+                                formData.confirmPassword &&
+                                formData.password === formData.confirmPassword
+                                  ? "fa-check-circle text-emerald-400"
+                                  : "fa-lock"
+                              }`}
+                            ></i>
+                          </div>
+                          <input
+                            id="confirmPassword"
+                            name="confirmPassword"
+                            type={showConfirmPassword ? "text" : "password"}
+                            required
+                            autoComplete="new-password"
+                            value={formData.confirmPassword}
+                            onChange={handleInputChange}
+                            onFocus={() => setFocusedField("confirmPassword")}
+                            onBlur={() => setFocusedField(null)}
+                            className="auth-input pr-11"
+                            placeholder="再次输入"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowConfirmPassword(!showConfirmPassword)
+                            }
+                            className="auth-toggle-password"
+                            tabIndex={-1}
+                          >
+                            <i
+                              className={`fas ${showConfirmPassword ? "fa-eye-slash" : "fa-eye"}`}
+                            ></i>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     <PasswordStrength password={formData.password} />
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div>
-                    <label htmlFor="confirmPassword" className="auth-label">
-                      确认密码 <span className="text-red-400">*</span>
-                    </label>
-                    <div
-                      className={`auth-input-wrapper ${focusedField === "confirmPassword" ? "auth-input-focused" : ""}`}
-                    >
-                      <div className="auth-input-icon">
-                        <i
-                          className={`fas ${
-                            formData.confirmPassword &&
-                            formData.password === formData.confirmPassword
-                              ? "fa-check-circle text-emerald-400"
-                              : "fa-lock"
-                          }`}
-                        ></i>
-                      </div>
-                      <input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type={showConfirmPassword ? "text" : "password"}
-                        required
-                        value={formData.confirmPassword}
-                        onChange={handleInputChange}
-                        onFocus={() => setFocusedField("confirmPassword")}
-                        onBlur={() => setFocusedField(null)}
-                        className="auth-input pr-11"
-                        placeholder="再次输入密码"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowConfirmPassword(!showConfirmPassword)
-                        }
-                        className="auth-toggle-password"
-                        tabIndex={-1}
-                      >
-                        <i
-                          className={`fas ${showConfirmPassword ? "fa-eye-slash" : "fa-eye"}`}
-                        ></i>
-                      </button>
-                    </div>
                   </div>
                 </div>
 
@@ -593,7 +610,7 @@ export default function Register() {
         open={captchaOpen}
         scene="register"
         title="注册安全验证"
-        description="请先完成滑块验证，再提交注册信息"
+        description="请先完成验证"
         onClose={(reason) => {
           setCaptchaOpen(false);
           if (reason !== "success") {

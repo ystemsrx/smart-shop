@@ -23,6 +23,10 @@ from ..schemas import (
     RegisterRequest,
 )
 from ..services.captcha import CaptchaError, CaptchaService
+from ..services.registration_validation import (
+    get_registration_username_placeholder,
+    validate_registration_username,
+)
 from ..utils import is_truthy
 
 
@@ -197,6 +201,7 @@ async def get_registration_status():
                 "enabled": enabled,
                 "reservation_enabled": reservation_enabled,
                 "cycle_locked": cycle_locked,
+                "username_placeholder": get_registration_username_placeholder(),
             },
         )
     except Exception as exc:
@@ -217,8 +222,9 @@ async def register_user(http_request: Request, request: RegisterRequest, respons
         username = request.username.strip()
         password = request.password.strip()
 
-        if len(username) < 2:
-            return error_response("用户名至少需要2个字符", 400)
+        username_validation = validate_registration_username(username)
+        if not username_validation.passed:
+            return error_response(username_validation.message, 400)
 
         import re
 
@@ -233,11 +239,11 @@ async def register_user(http_request: Request, request: RegisterRequest, respons
 
         existing_user = UserDB.get_user(username)
         if existing_user:
-            return error_response("用户名已存在", 400)
+            return error_response("用户已存在", 400)
 
         existing_admin = AdminDB.get_admin(username)
         if existing_admin:
-            return error_response("用户名已存在", 400)
+            return error_response("用户已存在", 400)
 
         display_name = request.nickname.strip() if request.nickname and request.nickname.strip() else username
         success = UserDB.create_user(username, password, display_name, id_status=2)
