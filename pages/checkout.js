@@ -11,6 +11,7 @@ import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import AnimatedPrice from '../components/AnimatedPrice';
 import { getShopName } from '../utils/runtimeConfig';
+import LegalModal from '../components/LegalModal';
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
@@ -76,6 +77,7 @@ export default function Checkout() {
   const [shopNote, setShopNote] = useState('');
   const [reservationAllowed, setReservationAllowed] = useState(false);
   const [cycleLocked, setCycleLocked] = useState(false);
+  const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
@@ -1386,7 +1388,9 @@ export default function Checkout() {
                   <div className="mt-4 text-center">
                     <p className="text-xs text-gray-600 leading-relaxed">
                       点击支付即表示您同意我们的
-                      <span className="text-gray-700 underline cursor-pointer"> 服务条款</span>
+                      <span className="text-gray-700 hover:text-gray-900 underline cursor-pointer" onClick={() => setLegalModal({ open: true, tab: 'terms' })}> 服务条款</span>
+                      和
+                      <span className="text-gray-700 hover:text-gray-900 underline cursor-pointer" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}> 隐私政策</span>
                     </p>
                   </div>
                 </div>
@@ -1395,6 +1399,12 @@ export default function Checkout() {
           )}
         </main>
       </div>
+      <LegalModal
+        open={legalModal.open}
+        initialTab={legalModal.tab}
+        onClose={() => setLegalModal({ open: false, tab: 'terms' })}
+      />
+
       {/* 微信收款码弹窗 */}
       {showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">

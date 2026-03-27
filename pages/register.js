@@ -6,6 +6,7 @@ import { getShopName, getApiBaseUrl } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
 import SliderCaptchaModal from '../components/SliderCaptchaModal';
 import { getDeviceId } from '../utils/deviceId';
+import LegalModal from '../components/LegalModal';
 
 export default function Register() {
   const router = useRouter();
@@ -24,6 +25,7 @@ export default function Register() {
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingRegisterPayload, setPendingRegisterPayload] = useState(null);
+  const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
 
   // 如果已登录，重定向到AI聊天界面
   useEffect(() => {
@@ -393,9 +395,9 @@ export default function Register() {
               <div className="mt-8 text-center">
                 <p className="text-xs text-gray-600 leading-relaxed">
                   注册即表示您同意我们的
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline">服务条款</span>
+                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'terms' })}>服务条款</span>
                   和
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline">隐私政策</span>
+                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}>隐私政策</span>
                 </p>
               </div>
             </div>
@@ -422,6 +424,12 @@ export default function Register() {
           </div>
         </div>
       </PastelBackground>
+
+      <LegalModal
+        open={legalModal.open}
+        initialTab={legalModal.tab}
+        onClose={() => setLegalModal({ open: false, tab: 'terms' })}
+      />
 
       <SliderCaptchaModal
         open={captchaOpen}
