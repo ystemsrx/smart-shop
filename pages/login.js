@@ -1,18 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Head from 'next/head';
-import { useRouter } from 'next/router';
-import { useAuth } from '../hooks/useAuth';
-import { getShopName } from '../utils/runtimeConfig';
-import PastelBackground from '../components/ModalCard';
-import SliderCaptchaModal from '../components/SliderCaptchaModal';
-import LegalModal from '../components/LegalModal';
+import React, { useState, useEffect, useCallback } from "react";
+import Head from "next/head";
+import { useRouter } from "next/router";
+import { useAuth } from "../hooks/useAuth";
+import { getShopName } from "../utils/runtimeConfig";
+import PastelBackground from "../components/ModalCard";
+import SliderCaptchaModal from "../components/SliderCaptchaModal";
+import LegalModal from "../components/LegalModal";
 
 const isCaptchaRequiredError = (err) => {
   const status = Number(err?.status || 0);
   const code = Number(err?.code || 0);
-  const message = String(err?.message || '').toLowerCase();
+  const message = String(err?.message || "").toLowerCase();
   if (status === 429 || code === 429) return true;
-  return ['验证码', 'captcha', '频繁', 'too many', 'rate'].some((keyword) => message.includes(keyword));
+  return ["验证码", "captcha", "频繁", "too many", "rate"].some((keyword) =>
+    message.includes(keyword),
+  );
 };
 
 export default function Login() {
@@ -21,91 +23,111 @@ export default function Login() {
   const shopName = getShopName();
   const pageTitle = `登录 - ${shopName}`;
   const [formData, setFormData] = useState({
-    student_id: '',
-    password: ''
+    student_id: "",
+    password: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
-  const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
+  const [legalModal, setLegalModal] = useState({ open: false, tab: "terms" });
   const [focusedField, setFocusedField] = useState(null);
 
   const getSafeRedirect = useCallback(() => {
     if (!router.isReady) return null;
     const redirectPath = router.query?.redirect;
-    if (typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//')) {
+    if (
+      typeof redirectPath === "string" &&
+      redirectPath.startsWith("/") &&
+      !redirectPath.startsWith("//")
+    ) {
       return redirectPath;
     }
     return null;
   }, [router]);
 
-  const redirectAfterLogin = useCallback((account) => {
-    const redirectPath = getSafeRedirect();
-    if (account?.type === 'admin') {
-      router.push('/admin/dashboard');
-      return;
-    }
-    if (account?.type === 'agent') {
-      router.push('/agent/dashboard');
-      return;
-    }
-    if (redirectPath) {
-      router.push(redirectPath);
-      return;
-    }
-    router.push('/c');
-  }, [router, getSafeRedirect]);
-
-  const processLogin = useCallback(async (payload, captchaToken = '') => {
-    try {
-      const account = await login(payload.accountId, payload.password, {
-        captchaToken,
-        suppressErrorStatuses: [429],
-      });
-      setPendingLoginPayload(null);
-      redirectAfterLogin(account);
-      return { ok: true, needsCaptcha: false };
-    } catch (err) {
-      if (isCaptchaRequiredError(err)) {
-        setPendingLoginPayload(payload);
-        setCaptchaOpen(true);
-        return { ok: false, needsCaptcha: true, message: err?.message || '需要验证码' };
+  const redirectAfterLogin = useCallback(
+    (account) => {
+      const redirectPath = getSafeRedirect();
+      if (account?.type === "admin") {
+        router.push("/admin/dashboard");
+        return;
       }
-      setPendingLoginPayload(null);
-      return { ok: false, needsCaptcha: false, message: err?.message || '登录失败' };
-    }
-  }, [login, redirectAfterLogin]);
+      if (account?.type === "agent") {
+        router.push("/agent/dashboard");
+        return;
+      }
+      if (redirectPath) {
+        router.push(redirectPath);
+        return;
+      }
+      router.push("/c");
+    },
+    [router, getSafeRedirect],
+  );
+
+  const processLogin = useCallback(
+    async (payload, captchaToken = "") => {
+      try {
+        const account = await login(payload.accountId, payload.password, {
+          captchaToken,
+          suppressErrorStatuses: [429],
+        });
+        setPendingLoginPayload(null);
+        redirectAfterLogin(account);
+        return { ok: true, needsCaptcha: false };
+      } catch (err) {
+        if (isCaptchaRequiredError(err)) {
+          setPendingLoginPayload(payload);
+          setCaptchaOpen(true);
+          return {
+            ok: false,
+            needsCaptcha: true,
+            message: err?.message || "需要验证码",
+          };
+        }
+        setPendingLoginPayload(null);
+        return {
+          ok: false,
+          needsCaptcha: false,
+          message: err?.message || "登录失败",
+        };
+      }
+    },
+    [login, redirectAfterLogin],
+  );
 
   useEffect(() => {
     if (!router.isReady || !isInitialized || !user) return;
     const redirectPath = getSafeRedirect();
-    if (user?.type === 'admin') {
-      router.replace('/admin/dashboard');
+    if (user?.type === "admin") {
+      router.replace("/admin/dashboard");
       return;
     }
-    if (user?.type === 'agent') {
-      router.replace('/agent/dashboard');
+    if (user?.type === "agent") {
+      router.replace("/agent/dashboard");
       return;
     }
     if (redirectPath) {
       router.replace(redirectPath);
       return;
     }
-    router.replace('/c');
+    router.replace("/c");
   }, [user, isInitialized, router, getSafeRedirect]);
 
   useEffect(() => {
     const checkRegistrationStatus = async () => {
       try {
-        const { getApiBaseUrl } = await import('../utils/runtimeConfig');
-        const response = await fetch(`${getApiBaseUrl()}/auth/registration-status`);
+        const { getApiBaseUrl } = await import("../utils/runtimeConfig");
+        const response = await fetch(
+          `${getApiBaseUrl()}/auth/registration-status`,
+        );
         const result = await response.json();
         if (result.success) {
           setRegistrationEnabled(result.data.enabled);
         }
       } catch (e) {
-        console.error('Failed to fetch registration status:', e);
+        console.error("Failed to fetch registration status:", e);
       }
     };
     checkRegistrationStatus();
@@ -134,7 +156,7 @@ export default function Login() {
   const handleInputChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     });
   };
 
@@ -143,7 +165,10 @@ export default function Login() {
       <>
         <Head>
           <title>{pageTitle}</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+          />
         </Head>
         <PastelBackground>
           <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
@@ -227,7 +252,9 @@ export default function Login() {
                   <div className="auth-error animate-apple-fade-in">
                     <div className="flex items-center gap-2.5">
                       <i className="fas fa-info-circle text-red-300 text-sm"></i>
-                      <span className="text-[13px] text-red-400 font-medium leading-snug">{error}</span>
+                      <span className="text-[13px] text-red-400 font-medium leading-snug">
+                        {error}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -238,7 +265,9 @@ export default function Login() {
                     <label htmlFor="student_id" className="auth-label">
                       账号
                     </label>
-                    <div className={`auth-input-wrapper ${focusedField === 'student_id' ? 'auth-input-focused' : ''}`}>
+                    <div
+                      className={`auth-input-wrapper ${focusedField === "student_id" ? "auth-input-focused" : ""}`}
+                    >
                       <div className="auth-input-icon">
                         <i className="fas fa-user"></i>
                       </div>
@@ -249,10 +278,10 @@ export default function Login() {
                         required
                         value={formData.student_id}
                         onChange={handleInputChange}
-                        onFocus={() => setFocusedField('student_id')}
+                        onFocus={() => setFocusedField("student_id")}
                         onBlur={() => setFocusedField(null)}
                         className="auth-input"
-                        placeholder="请输入学号"
+                        placeholder="请输入账号"
                       />
                     </div>
                   </div>
@@ -262,18 +291,20 @@ export default function Login() {
                     <label htmlFor="password" className="auth-label">
                       密码
                     </label>
-                    <div className={`auth-input-wrapper ${focusedField === 'password' ? 'auth-input-focused' : ''}`}>
+                    <div
+                      className={`auth-input-wrapper ${focusedField === "password" ? "auth-input-focused" : ""}`}
+                    >
                       <div className="auth-input-icon">
                         <i className="fas fa-lock"></i>
                       </div>
                       <input
                         id="password"
                         name="password"
-                        type={showPassword ? 'text' : 'password'}
+                        type={showPassword ? "text" : "password"}
                         required
                         value={formData.password}
                         onChange={handleInputChange}
-                        onFocus={() => setFocusedField('password')}
+                        onFocus={() => setFocusedField("password")}
                         onBlur={() => setFocusedField(null)}
                         className="auth-input pr-11"
                         placeholder="请输入密码"
@@ -284,7 +315,9 @@ export default function Login() {
                         className="auth-toggle-password"
                         tabIndex={-1}
                       >
-                        <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                        <i
+                          className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`}
+                        ></i>
                       </button>
                     </div>
                   </div>
@@ -297,14 +330,29 @@ export default function Login() {
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      <svg
+                        className="animate-spin h-4 w-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
                       </svg>
                       <span>登录中...</span>
                     </div>
                   ) : (
-                    '登录'
+                    "登录"
                   )}
                 </button>
               </form>
@@ -315,11 +363,13 @@ export default function Login() {
                   <span>或</span>
                 </div>
 
-                <div className={`mt-5 ${registrationEnabled ? 'flex gap-3' : ''}`}>
+                <div
+                  className={`mt-5 ${registrationEnabled ? "flex gap-3" : ""}`}
+                >
                   {registrationEnabled && (
                     <button
                       type="button"
-                      onClick={() => router.push('/register')}
+                      onClick={() => router.push("/register")}
                       className="auth-alt-btn auth-alt-btn-accent flex-1"
                     >
                       <i className="fas fa-user-plus text-[13px]"></i>
@@ -329,8 +379,8 @@ export default function Login() {
 
                   <button
                     type="button"
-                    onClick={() => router.push('/c')}
-                    className={`auth-alt-btn ${registrationEnabled ? 'flex-1' : 'w-full'}`}
+                    onClick={() => router.push("/c")}
+                    className={`auth-alt-btn ${registrationEnabled ? "flex-1" : "w-full"}`}
                   >
                     <i className="fas fa-comments text-[13px]"></i>
                     <span>先试用</span>
@@ -341,9 +391,19 @@ export default function Login() {
               {/* Legal */}
               <p className="mt-6 text-center text-[11px] text-gray-400 leading-relaxed">
                 登录即表示您同意
-                <span className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors" onClick={() => setLegalModal({ open: true, tab: 'terms' })}>服务条款</span>
+                <span
+                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                  onClick={() => setLegalModal({ open: true, tab: "terms" })}
+                >
+                  服务条款
+                </span>
                 和
-                <span className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}>隐私政策</span>
+                <span
+                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                  onClick={() => setLegalModal({ open: true, tab: "privacy" })}
+                >
+                  隐私政策
+                </span>
               </p>
             </div>
           </div>
@@ -368,7 +428,7 @@ export default function Login() {
       <LegalModal
         open={legalModal.open}
         initialTab={legalModal.tab}
-        onClose={() => setLegalModal({ open: false, tab: 'terms' })}
+        onClose={() => setLegalModal({ open: false, tab: "terms" })}
       />
 
       <SliderCaptchaModal
@@ -378,7 +438,7 @@ export default function Login() {
         description="请完成滑块验证后继续登录"
         onClose={(reason) => {
           setCaptchaOpen(false);
-          if (reason !== 'success') {
+          if (reason !== "success") {
             setPendingLoginPayload(null);
           }
         }}

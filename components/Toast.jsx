@@ -1,9 +1,23 @@
 import React from 'react';
 
-const Toast = ({ message, show = false, onClose = null }) => {
+const POSITION_CLASSES = {
+  'top-center': 'top-5 left-1/2 -translate-x-1/2',
+  'top-right': 'top-4 right-4',
+};
+
+const Toast = ({
+  message,
+  show = false,
+  onClose = null,
+  position = 'top-center',
+  inline = false,
+}) => {
+  const positionClass = POSITION_CLASSES[position] || POSITION_CLASSES['top-center'];
+  const layoutClass = inline ? 'absolute' : 'fixed';
+
   return (
     <div
-      className={`fixed top-5 left-1/2 -translate-x-1/2 z-[1100] transition-all duration-500 ${
+      className={`${layoutClass} ${positionClass} z-[1100] transition-all duration-500 ${
         show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
       }`}
       aria-live="assertive"

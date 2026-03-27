@@ -305,6 +305,16 @@ body {
   color: #c4bfbc;
 }
 
+.auth-input:-webkit-autofill,
+.auth-input:-webkit-autofill:hover,
+.auth-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #374151;
+  caret-color: #374151;
+  -webkit-box-shadow: 0 0 0 1000px transparent inset;
+  box-shadow: 0 0 0 1000px transparent inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 .auth-toggle-password {
   position: absolute;
   right: 0;

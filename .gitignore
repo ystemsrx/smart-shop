@@ -21,3 +21,4 @@ items/
 logs/
 .pytest_cache/
 exports/
+backend/app/services/registration_validation.py
