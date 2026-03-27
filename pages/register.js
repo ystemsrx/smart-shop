@@ -232,8 +232,8 @@ export default function Register() {
             {/* Header skeleton */}
             <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mb-8">
               <div className="flex flex-col items-center gap-2.5">
-                <div className="skeleton-shimmer bg-[#e8e3e0] rounded-full h-6 w-32" />
-                <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-4 w-48" />
+                <div className="auth-static-skeleton rounded-full h-6 w-32" />
+                <div className="auth-static-skeleton rounded-full h-4 w-48 opacity-80" />
               </div>
             </div>
 
@@ -243,25 +243,25 @@ export default function Register() {
                 {/* Username + Nickname row */}
                 <div className="flex gap-3">
                   <div className="flex-1 min-w-0 space-y-2">
-                    <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-14" />
-                    <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                    <div className="auth-static-skeleton rounded-full h-3.5 w-14" />
+                    <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                   </div>
                   <div className="flex-1 min-w-0 space-y-2">
-                    <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-10" />
-                    <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                    <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
+                    <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                   </div>
                 </div>
 
                 {/* Password */}
                 <div className="space-y-2">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-16" />
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                  <div className="auth-static-skeleton rounded-full h-3.5 w-16" />
+                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                   {/* strength bar */}
                   <div className="flex gap-1 mt-1">
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div
                         key={i}
-                        className="skeleton-shimmer bg-[#ede9e6] rounded-full h-1 flex-1"
+                        className="auth-static-skeleton rounded-full h-1 flex-1"
                       />
                     ))}
                   </div>
@@ -269,26 +269,26 @@ export default function Register() {
 
                 {/* Confirm Password */}
                 <div className="space-y-2">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-20" />
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                  <div className="auth-static-skeleton rounded-full h-3.5 w-20" />
+                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                 </div>
 
                 {/* Submit button */}
-                <div className="skeleton-shimmer bg-[#d9ccc7] rounded-full h-11 w-full mt-2" />
+                <div className="auth-static-skeleton rounded-full h-11 w-full mt-2 bg-[#dcc9c0]" />
 
                 {/* Divider */}
                 <div className="flex items-center gap-3 pt-1">
                   <div className="flex-1 h-px bg-black/5" />
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-16" />
+                  <div className="auth-static-skeleton rounded-full h-3 w-16" />
                   <div className="flex-1 h-px bg-black/5" />
                 </div>
 
                 {/* Back button */}
-                <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
 
                 {/* Legal */}
                 <div className="flex justify-center gap-1 pt-1">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-56" />
+                  <div className="auth-static-skeleton rounded-full h-3 w-56" />
                 </div>
               </div>
             </div>

@@ -361,6 +361,16 @@ body {
   background: #b89890;
 }
 
+.auth-submit-btn-login {
+  background: linear-gradient(135deg, #d97845 0%, #c85c34 100%);
+  box-shadow: 0 12px 26px rgba(200, 92, 52, 0.22);
+}
+
+.auth-submit-btn-login:hover:not(:disabled) {
+  background: linear-gradient(135deg, #cf6c39 0%, #b94f28 100%);
+  box-shadow: 0 14px 30px rgba(185, 79, 40, 0.26);
+}
+
 .auth-submit-btn:active:not(:disabled) {
   transform: scale(0.98);
 }
@@ -429,6 +439,10 @@ body {
 .auth-alt-btn-accent:hover {
   background: #e4eeeb;
   color: #4a7a73;
+}
+
+.auth-static-skeleton {
+  background: #ece7e3;
 }
 
 /* 苹果风格动画 */

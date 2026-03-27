@@ -175,8 +175,8 @@ export default function Login() {
             {/* Header skeleton */}
             <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mb-8">
               <div className="flex flex-col items-center gap-2.5">
-                <div className="skeleton-shimmer bg-[#e8e3e0] rounded-full h-6 w-28" />
-                <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-4 w-44" />
+                <div className="auth-static-skeleton rounded-full h-6 w-28" />
+                <div className="auth-static-skeleton rounded-full h-4 w-44 opacity-80" />
               </div>
             </div>
 
@@ -185,35 +185,35 @@ export default function Login() {
               <div className="auth-card p-6 sm:p-8 space-y-5">
                 {/* Account input */}
                 <div className="space-y-2">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-10" />
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                  <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
+                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                 </div>
 
                 {/* Password input */}
                 <div className="space-y-2">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3.5 w-10" />
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 w-full" />
+                  <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
+                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
                 </div>
 
                 {/* Login button */}
-                <div className="skeleton-shimmer bg-[#d9ccc7] rounded-full h-11 w-full mt-2" />
+                <div className="auth-static-skeleton rounded-full h-11 w-full mt-2 bg-[#dcc9c0]" />
 
                 {/* Divider */}
                 <div className="flex items-center gap-3 pt-1">
                   <div className="flex-1 h-px bg-black/5" />
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-4" />
+                  <div className="auth-static-skeleton rounded-full h-3 w-4" />
                   <div className="flex-1 h-px bg-black/5" />
                 </div>
 
                 {/* Alt buttons */}
                 <div className="flex gap-3">
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 flex-1" />
-                  <div className="skeleton-shimmer bg-[#f0ece9] rounded-full h-11 flex-1" />
+                  <div className="auth-static-skeleton rounded-full h-11 flex-1 opacity-80" />
+                  <div className="auth-static-skeleton rounded-full h-11 flex-1 opacity-80" />
                 </div>
 
                 {/* Legal */}
                 <div className="flex justify-center gap-1 pt-1">
-                  <div className="skeleton-shimmer bg-[#ede9e6] rounded-full h-3 w-52" />
+                  <div className="auth-static-skeleton rounded-full h-3 w-52" />
                 </div>
               </div>
             </div>
@@ -326,7 +326,7 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="auth-submit-btn mt-2"
+                  className="auth-submit-btn auth-submit-btn-login mt-2"
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center gap-2">

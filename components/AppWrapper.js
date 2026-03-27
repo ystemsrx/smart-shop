@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider } from '../hooks/useAuth';
 import { LocationProvider } from '../hooks/useLocation';
 import { PaymentQrProvider } from '../hooks/usePaymentQr';
@@ -12,6 +13,27 @@ const NO_NAV_PAGES = ['/login', '/register', '/order-success', '/_error'];
 
 // 不显示路由切换骨架屏的页面（这些页面有自己的骨架屏/加载态）
 const NO_SKELETON_PAGES = ['/login', '/register'];
+const AUTH_TRANSITION_PAGES = ['/login', '/register'];
+
+function AuthRouteTransition({ routeKey, children }) {
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <AnimatePresence initial={false} mode="sync">
+        <motion.div
+          key={routeKey}
+          initial={{ opacity: 0, y: -22, scale: 0.985, filter: 'blur(8px)' }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+          exit={{ opacity: 0, y: 16, scale: 0.992, filter: 'blur(6px)' }}
+          transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-0 min-h-screen w-full"
+          style={{ willChange: 'transform, opacity, filter' }}
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
 
 function useNavActive() {
   const router = useRouter();
@@ -35,6 +57,11 @@ function AppLayout({ children }) {
   const active = useNavActive();
   const showNav = !NO_NAV_PAGES.includes(router.pathname);
   const [transitionTarget, setTransitionTarget] = useState(null);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleStart = (url) => {
@@ -58,11 +85,20 @@ function AppLayout({ children }) {
   // 目标页面有自己的骨架屏时不显示全局骨架屏
   const targetPath = transitionTarget ? transitionTarget.split('?')[0] : null;
   const showSkeleton = transitionTarget && !NO_SKELETON_PAGES.includes(targetPath);
+  const isAuthPage = AUTH_TRANSITION_PAGES.includes(router.pathname);
+  const routeKey = router.asPath;
+  const shouldAnimateAuthPage = hasMounted && isAuthPage;
 
   return (
     <>
       {showNav && <Nav active={active} />}
-      {children}
+      {shouldAnimateAuthPage ? (
+        <AuthRouteTransition routeKey={routeKey}>
+          {children}
+        </AuthRouteTransition>
+      ) : (
+        children
+      )}
       {showSkeleton && <PageTransitionSkeleton />}
     </>
   );
