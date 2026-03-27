@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { getShopName } from '../utils/runtimeConfig';
 import PastelBackground from '../components/ModalCard';
 import SliderCaptchaModal from '../components/SliderCaptchaModal';
+import LegalModal from '../components/LegalModal';
 
 const isCaptchaRequiredError = (err) => {
   const status = Number(err?.status || 0);
@@ -26,6 +27,7 @@ export default function Login() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
+  const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
 
   const getSafeRedirect = useCallback(() => {
     if (!router.isReady) return null;
@@ -289,9 +291,9 @@ export default function Login() {
               <div className="mt-8 text-center">
                 <p className="text-xs text-gray-600 leading-relaxed">
                   登录即表示您同意我们的
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline">服务条款</span>
+                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'terms' })}>服务条款</span>
                   和
-                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline">隐私政策</span>
+                  <span className="text-gray-700 hover:text-gray-900 cursor-pointer underline" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}>隐私政策</span>
                 </p>
               </div>
             </div>
@@ -318,6 +320,12 @@ export default function Login() {
           </div>
         </div>
       </PastelBackground>
+
+      <LegalModal
+        open={legalModal.open}
+        initialTab={legalModal.tab}
+        onClose={() => setLegalModal({ open: false, tab: 'terms' })}
+      />
 
       <SliderCaptchaModal
         open={captchaOpen}
