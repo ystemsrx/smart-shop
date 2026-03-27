@@ -6,7 +6,7 @@ import { getShopName } from '../utils/runtimeConfig'
 import LandingPage from '../components/page'
 
 export default function Home() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const router = useRouter()
   const shopName = getShopName()
   const homeTitle = `${shopName} - Future Marketplace`
@@ -40,7 +40,7 @@ export default function Home() {
         />
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
       </Head>
-      <LandingPage user={user} logout={logout} />
+      <LandingPage />
     </>
   )
 }

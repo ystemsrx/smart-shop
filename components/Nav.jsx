@@ -76,13 +76,8 @@ export default function Nav({ active = 'home' }) {
 
                 {/* 桌面端：品牌图标链接到首页 */}
                 <Link href="/?home=true" className="hidden md:flex items-center group">
-                  <div className="relative">
-                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg transform group-hover:scale-105 transition-transform duration-300">
-                       <i className="fas fa-shopping-bag text-white text-lg"></i>
-                     </div>
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-400 rounded-full flex items-center justify-center">
-                      <i className="fas fa-sparkles text-white text-xs"></i>
-                    </div>
+                  <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center shadow-sm group-hover:bg-stone-200 transition-colors duration-300">
+                    <i className="fas fa-shopping-bag text-stone-500 text-base"></i>
                   </div>
                 </Link>
 

@@ -8,7 +8,10 @@ import Nav from './Nav';
 import PageTransitionSkeleton from './PageTransitionSkeleton';
 
 // 不显示导航条的页面路径
-const NO_NAV_PAGES = ['/', '/login', '/register', '/order-success', '/_error'];
+const NO_NAV_PAGES = ['/login', '/register', '/order-success', '/_error'];
+
+// 不显示路由切换骨架屏的页面（这些页面有自己的骨架屏/加载态）
+const NO_SKELETON_PAGES = ['/login', '/register'];
 
 function useNavActive() {
   const router = useRouter();
@@ -16,6 +19,7 @@ function useNavActive() {
   const path = router.pathname || '';
   const isStaff = user?.type === 'admin' || user?.type === 'agent';
 
+  if (path === '/') return '';
   if (path === '/shop') return isStaff ? 'staff-shop' : 'shop';
   if (path.startsWith('/c')) return 'home';
   if (path === '/cart') return 'cart';
@@ -30,16 +34,16 @@ function AppLayout({ children }) {
   const router = useRouter();
   const active = useNavActive();
   const showNav = !NO_NAV_PAGES.includes(router.pathname);
-  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionTarget, setTransitionTarget] = useState(null);
 
   useEffect(() => {
     const handleStart = (url) => {
       // 仅当路由真正变化时显示骨架屏（同页面锚点跳转等不触发）
       if (url !== router.asPath) {
-        setIsTransitioning(true);
+        setTransitionTarget(url);
       }
     };
-    const handleDone = () => setIsTransitioning(false);
+    const handleDone = () => setTransitionTarget(null);
 
     router.events.on('routeChangeStart', handleStart);
     router.events.on('routeChangeComplete', handleDone);
@@ -51,11 +55,15 @@ function AppLayout({ children }) {
     };
   }, [router]);
 
+  // 目标页面有自己的骨架屏时不显示全局骨架屏
+  const targetPath = transitionTarget ? transitionTarget.split('?')[0] : null;
+  const showSkeleton = transitionTarget && !NO_SKELETON_PAGES.includes(targetPath);
+
   return (
     <>
       {showNav && <Nav active={active} />}
       {children}
-      {isTransitioning && <PageTransitionSkeleton />}
+      {showSkeleton && <PageTransitionSkeleton />}
     </>
   );
 }
