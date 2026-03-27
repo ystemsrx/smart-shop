@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Head from 'next/head';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
-import Nav from '../../components/Nav';
+
 import Toast from '../../components/Toast';
 import { useToast } from '../../hooks/useToast';
 import { getApiBaseUrl, getShopName } from '../../utils/runtimeConfig';
@@ -1969,7 +1969,6 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
         <title>{pageTitle}</title>
       </Head>
 
-      <Nav active={navActive} />
 
       <motion.div 
         initial={{ opacity: 0 }}

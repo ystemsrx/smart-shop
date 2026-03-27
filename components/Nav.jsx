@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
@@ -24,12 +24,35 @@ export default function Nav({ active = 'home' }) {
     ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
     : '未选择地址';
 
-  const linkCls = (name) => {
-    const base = 'px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ease-out flex items-center gap-2';
-    if (name === active) {
-      return `${base} bg-white/90 text-gray-900 shadow-lg backdrop-blur-sm border border-white/20`;
+  // 滑动选择器
+  const navContainerRef = useRef(null);
+  const tabRefs = useRef({});
+  const [slider, setSlider] = useState({ left: 0, width: 0, ready: false });
+
+  const setTabRef = useCallback((name) => (el) => {
+    tabRefs.current[name] = el;
+  }, []);
+
+  useEffect(() => {
+    const container = navContainerRef.current;
+    const activeEl = tabRefs.current[active];
+    if (!container || !activeEl) {
+      setSlider(s => ({ ...s, ready: false }));
+      return;
     }
-    return `${base} text-gray-600 hover:text-gray-900 hover:bg-white/50`;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = activeEl.getBoundingClientRect();
+    setSlider({
+      left: elRect.left - containerRect.left,
+      width: elRect.width,
+      ready: true,
+    });
+  }, [active, user]);
+
+  const linkCls = (name) => {
+    const base = 'relative z-10 px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors duration-200';
+    if (name === active) return `${base} text-gray-900`;
+    return `${base} text-gray-500 hover:text-gray-900`;
   };
 
   const mobileNavOpen = mobileOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0';
@@ -45,12 +68,12 @@ export default function Nav({ active = 'home' }) {
               <div className="flex items-center space-x-3">
                 {/* 移动端：使用圆形汉堡菜单按钮 */}
                 <div className="md:hidden">
-                  <CircularMenuButton 
+                  <CircularMenuButton
                     isOpen={mobileOpen}
                     onToggle={() => setMobileOpen(!mobileOpen)}
                   />
                 </div>
-                
+
                 {/* 桌面端：品牌图标链接到首页 */}
                 <Link href="/?home=true" className="hidden md:flex items-center group">
                   <div className="relative">
@@ -62,31 +85,42 @@ export default function Nav({ active = 'home' }) {
                     </div>
                   </div>
                 </Link>
-                
+
                 {/* Logo图片 */}
                 <Link href="/?home=true" className="flex items-center group">
-                  <img 
-                    src={headerLogo} 
-                    alt={shopName} 
+                  <img
+                    src={headerLogo}
+                    alt={shopName}
                     className="h-10 w-auto object-contain"
                   />
                 </Link>
               </div>
 
               {/* 桌面导航菜单 */}
-              <div className="hidden md:flex items-center space-x-2">
+              <div ref={navContainerRef} className="hidden md:flex items-center space-x-1 relative">
+                {/* 滑动背景指示器 */}
+                {slider.ready && (
+                  <div
+                    className="absolute top-0 h-full rounded-xl bg-white/90 shadow-lg border border-white/20 backdrop-blur-sm"
+                    style={{
+                      left: slider.left,
+                      width: slider.width,
+                      transition: 'left 0.35s cubic-bezier(0.25, 0.1, 0.25, 1), width 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)',
+                    }}
+                  />
+                )}
                 {/* 管理员专用导航 */}
                 {isStaff ? (
                   <>
-                    <Link href={staffShopLink} className={linkCls('staff-shop')}>
+                    <Link ref={setTabRef('staff-shop')} href={staffShopLink} className={linkCls('staff-shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
                     </Link>
-                    <Link href={staffDashboardLink} className={linkCls('staff-dashboard')}>
+                    <Link ref={setTabRef('staff-dashboard')} href={staffDashboardLink} className={linkCls('staff-dashboard')}>
                       <i className="fas fa-chart-line"></i>
                       <span>仪表盘</span>
                     </Link>
-                    <Link href={staffPortalLink} className={linkCls('staff-backend')}>
+                    <Link ref={setTabRef('staff-backend')} href={staffPortalLink} className={linkCls('staff-backend')}>
                       <i className="fas fa-cog"></i>
                       <span>管理后台</span>
                     </Link>
@@ -94,22 +128,22 @@ export default function Nav({ active = 'home' }) {
                 ) : (
                   /* 普通用户导航 */
                   <>
-                    <Link href="/c" className={linkCls('home')}>
+                    <Link ref={setTabRef('home')} href="/c" className={linkCls('home')}>
                       <i className="fas fa-comments"></i>
                       <span>商城助手</span>
                     </Link>
-                    <Link href="/shop" className={linkCls('shop')}>
+                    <Link ref={setTabRef('shop')} href="/shop" className={linkCls('shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
                     </Link>
                     {user && (
-                      <Link href="/cart" className={linkCls('cart')}>
+                      <Link ref={setTabRef('cart')} href="/cart" className={linkCls('cart')}>
                         <i className="fas fa-shopping-cart"></i>
                         <span>购物车</span>
                       </Link>
                     )}
                     {user && (
-                      <Link href="/orders" className={linkCls('orders')}>
+                      <Link ref={setTabRef('orders')} href="/orders" className={linkCls('orders')}>
                         <i className="fas fa-receipt"></i>
                         <span>我的订单</span>
                       </Link>
@@ -184,12 +218,12 @@ export default function Nav({ active = 'home' }) {
                     <i className="fab fa-github text-lg"></i>
                   </a>
                   
-                  <Link 
-                    href="/login" 
-                     className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 text-white font-medium hover:from-emerald-600 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg"
+                  <Link
+                    href="/login"
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-gray-700 hover:text-gray-900 bg-white/70 hover:bg-white/90 backdrop-blur-sm border border-gray-200/60 hover:border-gray-300 transition-all duration-300 hover:shadow-sm"
                   >
-                    <i className="fas fa-sign-in-alt"></i>
                     <span>登录</span>
+                    <i className="fas fa-arrow-right text-xs"></i>
                   </Link>
                 </div>
               )}
@@ -318,13 +352,13 @@ export default function Nav({ active = 'home' }) {
                   <span>退出登录</span>
                 </button>
               ) : (
-                <Link 
-                  href="/login" 
+                <Link
+                  href="/login"
                   onClick={closeMenu}
-                   className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 text-white font-medium transition-all duration-200"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gray-900 text-white font-medium transition-all duration-200 hover:bg-gray-800"
                 >
-                  <i className="fas fa-sign-in-alt"></i>
                   <span>登录</span>
+                  <i className="fas fa-arrow-right text-sm"></i>
                 </Link>
               )}
             </div>

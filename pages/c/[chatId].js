@@ -3,7 +3,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import ChatModern from "../../components/ChatUI";
-import Nav from "../../components/Nav";
+
 import { useAuth } from "../../hooks/useAuth";
 import { getShopName } from "../../utils/runtimeConfig";
 import LandingPage from "../../components/page";
@@ -57,7 +57,7 @@ export default function ChatPage() {
         <meta name="description" content={`${shopName}的AI购物助手`} />
         <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
       </Head>
-      <Nav active="home" />
+
       <ChatModern
         user={user}
         initialConversationId={chatId ? String(chatId) : null}

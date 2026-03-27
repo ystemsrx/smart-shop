@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { useAuth, useApi } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import Toast from '../components/Toast';
-import Nav from '../components/Nav';
+
 import { getShopName } from '../utils/runtimeConfig';
 import { useToast } from '../hooks/useToast';
 import { Modal } from '../components/admin/Modal';
@@ -382,9 +382,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       </Head>
 
       <div className="min-h-screen bg-[#F5F7FA] flex flex-col">
-        {/* Fixed Top Navigation */}
-        <Nav active={navActive} />
-        
         <div className="flex flex-1 max-w-[1600px] mx-auto w-full pt-16">
           {/* Sidebar */}
           <AdminSidebar 

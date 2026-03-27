@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
-import Nav from '../components/Nav';
+
 import { getProductImage } from '../utils/urls';
 import SimpleMarkdown from '../components/SimpleMarkdown';
 import { getShopName, getApiBaseUrl, getLogo } from '../utils/runtimeConfig';
@@ -656,7 +656,7 @@ export default function Shop({ initialShopData }) {
   const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceSelection } = useLocation();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const { apiRequest } = useApi();
-  const navActive = user && (user.type === 'admin' || user.type === 'agent') ? 'staff-shop' : 'shop';
+
   const shopName = getShopName();
   
   const cartWidgetRef = useRef(null);
@@ -1532,8 +1532,6 @@ export default function Shop({ initialShopData }) {
         strategy="afterInteractive"
       />
 
-      {/* 顶部导航（移动端优化） */}
-      <Nav active={navActive} />
 
       <div className="pt-16 min-h-screen bg-[#FDFBF7]">
         {/* 主要内容 */}

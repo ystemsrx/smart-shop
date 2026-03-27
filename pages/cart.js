@@ -9,7 +9,7 @@ import { useLocation } from '../hooks/useLocation';
 import { useRouter } from 'next/router';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-import Nav from '../components/Nav';
+
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import SimpleMarkdown from '../components/SimpleMarkdown';
@@ -1239,8 +1239,6 @@ export default function Cart() {
         strategy="afterInteractive"
       />
 
-      {/* 顶部导航（移动端优化） */}
-      <Nav active="cart" />
 
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 pt-16">
         {/* 主要内容 */}

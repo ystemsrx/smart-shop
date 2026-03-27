@@ -233,6 +233,194 @@ body {
   box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
 }
 
+/* ========== Auth Pages — flat / capsule / pastel ========== */
+.auth-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 24px;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
+}
+
+.auth-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin-bottom: 6px;
+}
+
+.auth-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #f4f2f0;
+  border: 1.5px solid transparent;
+  border-radius: 9999px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.auth-input-wrapper:hover {
+  background: #edeae7;
+}
+
+.auth-input-focused {
+  background: #fff !important;
+  border-color: #d6ccc7 !important;
+  box-shadow: 0 0 0 3px rgba(214, 204, 199, 0.2);
+}
+
+.auth-input-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ede8e5;
+  flex-shrink: 0;
+  margin-left: 7px;
+  color: #a89e99;
+  font-size: 11px;
+  transition: all 0.2s;
+}
+
+.auth-input-focused .auth-input-icon {
+  background: #e2dbd7;
+  color: #7d726d;
+}
+
+.auth-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 11px 14px 11px 8px;
+  font-size: 15px;
+  outline: none;
+  color: #374151;
+  min-width: 0;
+}
+
+.auth-input::placeholder {
+  color: #c4bfbc;
+}
+
+.auth-toggle-password {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b8b2ae;
+  font-size: 13px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.auth-toggle-password:hover {
+  color: #8c8480;
+}
+
+.auth-error {
+  background: #fff5f5;
+  border: 1px solid #fde8e8;
+  border-radius: 9999px;
+  padding: 10px 16px;
+}
+
+.auth-submit-btn {
+  width: 100%;
+  padding: 12px 20px;
+  background: #c4a99e;
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: -0.01em;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  background: #b89890;
+}
+
+.auth-submit-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.auth-submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.auth-submit-btn-teal {
+  background: #9ec4bc;
+  color: #2d5750;
+}
+
+.auth-submit-btn-teal:hover:not(:disabled) {
+  background: #8db8af;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.auth-divider span {
+  font-size: 12px;
+  color: #c4bfbc;
+  white-space: nowrap;
+}
+
+.auth-alt-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: #f4f2f0;
+  border: none;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-alt-btn:hover {
+  background: #edeae7;
+  color: #374151;
+}
+
+.auth-alt-btn-accent {
+  background: #eef4f2;
+  color: #5a8c85;
+}
+
+.auth-alt-btn-accent:hover {
+  background: #e4eeeb;
+  color: #4a7a73;
+}
+
 /* 苹果风格动画 */
 @keyframes apple-fade-in {
   from {
