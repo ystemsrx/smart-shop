@@ -2291,6 +2291,7 @@ body {
 .skeleton-shimmer {
   position: relative;
   overflow: hidden;
+  background: #e5e7eb;
 }
 
 .skeleton-shimmer::after {
@@ -2300,7 +2301,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
   animation: skeleton-shimmer 1.5s infinite;
 }
 
