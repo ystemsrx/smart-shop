@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../../hooks/useAuth';
 import { normalizeBooleanFlag } from './helpers';
+import LotteryQuickAdjustModal from './LotteryQuickAdjustModal';
 
 // 商品详情弹窗组件
 const LotteryItemsViewModal = ({ open, onClose, prize }) => {
@@ -489,6 +490,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const [editingPrize, setEditingPrize] = useState(null);
   const [viewingPrize, setViewingPrize] = useState(null);
   const [itemsModalOpen, setItemsModalOpen] = useState(false);
+  const [quickAdjustOpen, setQuickAdjustOpen] = useState(false);
   const lastSavedThresholdRef = useRef('10');
 
   const MIN_THRESHOLD = 0.01;
@@ -625,6 +627,31 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const isFraction = totalWeightRaw <= 1.000001;
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
+
+  // 每次抽奖平均成本 = Σ(该奖项概率/100 × 该奖项平均奖品价值)
+  const expectedCostPerDraw = prizes.reduce((acc, p) => {
+    if (!p.is_active) return acc;
+    const itemList = (p.items || []).filter(it => it.available);
+    if (itemList.length === 0) return acc;
+    const w = Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0;
+    const pct = isFraction ? w * 100 : w;
+    const avgItemCost = itemList.reduce((s, it) => s + (Number(it.retail_price) || 0), 0) / itemList.length;
+    return acc + (pct / 100) * avgItemCost;
+  }, 0);
+
+  // 排序：已启用有库存 → 已停用 → 无库存，同层按平均成本升序
+  const sortedPrizes = [...prizes].sort((a, b) => {
+    const avgCost = (p) => {
+      const items = (p.items || []).filter(it => it.available);
+      if (items.length === 0) return 0;
+      return items.reduce((s, it) => s + (Number(it.retail_price) || 0), 0) / items.length;
+    };
+    const hasAvail = (p) => (p.items || []).some(it => it.available);
+    const tier = (p) => !hasAvail(p) ? 2 : (p.is_active ? 0 : 1);
+    const ta = tier(a), tb = tier(b);
+    if (ta !== tb) return ta - tb;
+    return avgCost(a) - avgCost(b);
+  });
 
   const openModal = (prize = null) => {
     setEditingPrize(prize);
@@ -857,19 +884,32 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             </div>
             <div className="h-4 w-px bg-gray-300"></div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">谢谢参与</span>
-              <span className={`text-sm font-bold ${totalPercent > 100 ? 'text-red-500' : 'text-gray-900'}`}>
-                {thanksPercent.toFixed(2)}%
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">平均成本</span>
+              <span className="text-sm font-bold text-amber-600">
+                ¥{expectedCostPerDraw.toFixed(2)}
               </span>
             </div>
           </div>
           
           <button
+            onClick={() => setQuickAdjustOpen(true)}
+            disabled={!isEnabled || prizes.length === 0}
+            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium border transition-all duration-300 transform hover:-translate-y-0.5 ${
+              isEnabled && prizes.length > 0
+                ? 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 shadow-sm hover:shadow-md'
+                : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed shadow-none'
+            }`}
+          >
+            <i className="fas fa-magic"></i>
+            一键调整
+          </button>
+
+          <button
             onClick={() => openModal(null)}
             disabled={!isEnabled}
             className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 ${
-              isEnabled 
-                ? 'bg-black text-white hover:bg-gray-800' 
+              isEnabled
+                ? 'bg-black text-white hover:bg-gray-800'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
             }`}
           >
@@ -895,7 +935,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
       ) : (
         <>
           <div className="md:hidden space-y-4 px-4 pb-4">
-            {prizes.map((prize, index) => {
+            {sortedPrizes.map((prize, index) => {
               const itemList = prize.items || [];
               const availableItems = itemList.filter(it => it.available);
               const hasWarning = availableItems.length === 0 && itemList.length > 0;
@@ -1007,7 +1047,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {prizes.map((prize, index) => {
+                {sortedPrizes.map((prize, index) => {
                   const itemList = prize.items || [];
                   const availableItems = itemList.filter(it => it.available);
                   const hasWarning = availableItems.length === 0 && itemList.length > 0;
@@ -1131,6 +1171,16 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
         initialPrize={editingPrize}
         apiRequest={apiRequest}
         apiPrefix={apiPrefix}
+      />
+
+      <LotteryQuickAdjustModal
+        open={quickAdjustOpen}
+        onClose={() => setQuickAdjustOpen(false)}
+        prizes={prizes}
+        onApply={() => loadPrizes({ silent: true })}
+        apiRequest={apiRequest}
+        apiPrefix={apiPrefix}
+        showToast={showToast}
       />
     </div>
   );
