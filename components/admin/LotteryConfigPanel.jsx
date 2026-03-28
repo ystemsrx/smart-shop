@@ -639,7 +639,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
     return acc + (pct / 100) * avgItemCost;
   }, 0);
 
-  // 排序：已启用有库存 → 已启用无库存 → 已停用，同层按平均成本升序
+  // 排序：已启用有库存 → 已停用 → 无库存，同层按平均成本升序
   const sortedPrizes = [...prizes].sort((a, b) => {
     const avgCost = (p) => {
       const items = (p.items || []).filter(it => it.available);
