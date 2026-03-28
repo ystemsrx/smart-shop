@@ -185,6 +185,14 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
       };
     });
 
+    // 排序：已启用有库存 → 已启用无库存 → 已停用，同层按平均成本升序
+    initialRows.sort((a, b) => {
+      const tier = (r) => !r.hasStock ? 2 : (r.isActive ? 0 : 1);
+      const ta = tier(a), tb = tier(b);
+      if (ta !== tb) return ta - tb;
+      return a.avgCost - b.avgCost;
+    });
+
     const { updatedRows, recommendedMap: rec } = recomputeRows(initialRows, 100, prizes);
     setRows(updatedRows);
     setRecommendedMap(rec);

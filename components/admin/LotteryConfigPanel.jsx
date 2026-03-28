@@ -628,6 +628,20 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
 
+  // 排序：已启用有库存 → 已启用无库存 → 已停用，同层按平均成本升序
+  const sortedPrizes = [...prizes].sort((a, b) => {
+    const avgCost = (p) => {
+      const items = (p.items || []).filter(it => it.available);
+      if (items.length === 0) return 0;
+      return items.reduce((s, it) => s + (Number(it.retail_price) || 0), 0) / items.length;
+    };
+    const hasAvail = (p) => (p.items || []).some(it => it.available);
+    const tier = (p) => !hasAvail(p) ? 2 : (p.is_active ? 0 : 1);
+    const ta = tier(a), tb = tier(b);
+    if (ta !== tb) return ta - tb;
+    return avgCost(a) - avgCost(b);
+  });
+
   const openModal = (prize = null) => {
     setEditingPrize(prize);
     setModalOpen(true);
@@ -910,7 +924,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
       ) : (
         <>
           <div className="md:hidden space-y-4 px-4 pb-4">
-            {prizes.map((prize, index) => {
+            {sortedPrizes.map((prize, index) => {
               const itemList = prize.items || [];
               const availableItems = itemList.filter(it => it.available);
               const hasWarning = availableItems.length === 0 && itemList.length > 0;
@@ -1022,7 +1036,7 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {prizes.map((prize, index) => {
+                {sortedPrizes.map((prize, index) => {
                   const itemList = prize.items || [];
                   const availableItems = itemList.filter(it => it.available);
                   const hasWarning = availableItems.length === 0 && itemList.length > 0;
