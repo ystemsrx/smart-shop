@@ -1,5 +1,6 @@
 from .agents import router as agents_router
 from .ai import router as ai_router
+from .chat_audit import router as chat_audit_router
 from .auth import router as auth_router
 from .cart import router as cart_router
 from .catalog import router as catalog_router
@@ -17,6 +18,7 @@ from .system import router as system_router
 __all__ = [
     "agents_router",
     "ai_router",
+    "chat_audit_router",
     "auth_router",
     "cart_router",
     "catalog_router",

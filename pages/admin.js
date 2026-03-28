@@ -16,20 +16,21 @@ import { GiftThresholdPanel } from '../components/admin/GiftThresholdPanel';
 import { CouponsPanel } from '../components/admin/CouponsPanel';
 import { PaymentQrPanel } from '../components/admin/PaymentQrPanel';
 import { DeliverySettingsPanel } from '../components/admin/DeliverySettingsPanel';
+import { ChatAuditPanel } from '../components/admin/ChatAuditPanel';
 import { useAdminWarnings } from '../components/admin/hooks/useAdminWarnings';
 import { useOrderManagement } from '../components/admin/hooks/useOrderManagement';
 import { useAddressManagement } from '../components/admin/hooks/useAddressManagement';
 import { useAgentManagement } from '../components/admin/hooks/useAgentManagement';
 import { useProductManagement } from '../components/admin/hooks/useProductManagement';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Package, ClipboardList, Gift, Ticket, QrCode, MapPin, UserCog, Settings, LayoutDashboard
+import {
+  Package, ClipboardList, Gift, Ticket, QrCode, MapPin, UserCog, Settings, LayoutDashboard, MessageSquareText
 } from 'lucide-react';
 import { AdminSidebar } from '../components/admin/AdminSidebar';
 import { OverviewPanel } from '../components/admin/OverviewPanel';
 
-const ADMIN_TABS = ['overview', 'products', 'orders', 'addresses', 'agents', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
-const AGENT_TABS = ['overview', 'products', 'orders', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+const ADMIN_TABS = ['overview', 'products', 'orders', 'addresses', 'agents', 'chatAudit', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+const AGENT_TABS = ['overview', 'products', 'orders', 'chatAudit', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
 
 function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'overview' }) {
   const router = useRouter();
@@ -358,6 +359,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       { id: 'addresses', label: '地址管理', icon: <MapPin size={18} /> },
       { id: 'agents', label: '代理管理', icon: <UserCog size={18} /> }
     ] : []),
+    ...(allowedTabs.includes('chatAudit') ? [{ id: 'chatAudit', label: '聊天审计', icon: <MessageSquareText size={18} /> }] : []),
     ...(allowedTabs.includes('lottery') ? [{ 
       id: 'lottery', 
       label: '抽奖配置', 
@@ -536,6 +538,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     handleAgentDelete={handleAgentDelete}
                     setShowDeletedAgentsModal={setShowDeletedAgentsModal}
                   />
+                )}
+
+                {activeTab === 'chatAudit' && (
+                  <ChatAuditPanel apiRequest={apiRequest} isAdmin={isAdminView} />
                 )}
 
                 {activeTab === 'coupons' && <CouponsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />}

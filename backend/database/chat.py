@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .config import logger
 from .connection import get_db_connection
 from .migrations import ensure_table_columns
+from .settings_db import SettingsDB
 from .users import UserDB
 
 
@@ -310,8 +311,18 @@ class ChatLogDB:
 
 
 def cleanup_old_chat_logs():
-    """清理7天前的聊天记录和关联的会话标题等信息。"""
-    cutoff_date = datetime.now() - timedelta(days=7)
+    """根据管理员设定的保留天数清理聊天记录。设为0则永久保留。"""
+    retention_days_str = SettingsDB.get("chat_retention_days", "7")
+    try:
+        retention_days = int(retention_days_str)
+    except (ValueError, TypeError):
+        retention_days = 7
+
+    if retention_days <= 0:
+        logger.info("Chat retention set to permanent (0), skipping cleanup")
+        return {"deleted_logs": 0, "deleted_threads": 0}
+
+    cutoff_date = datetime.now() - timedelta(days=retention_days)
     cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
 
     with get_db_connection() as conn:
