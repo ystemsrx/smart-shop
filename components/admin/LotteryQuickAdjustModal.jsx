@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Toast from '../Toast';
 
 /**
  * 计算每个奖项的平均成本（基于其可用商品的 retail_price）
@@ -155,12 +156,41 @@ function recomputeRows(currentRows, targetRate, originalPrizes) {
 }
 
 
-const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, apiPrefix, showToast }) => {
+const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, apiPrefix }) => {
   const [rows, setRows] = useState([]);
   const [targetRate, setTargetRate] = useState(100);
   const [recommendedMap, setRecommendedMap] = useState({});
   const [userOverrideAll, setUserOverrideAll] = useState(false);
+  const [errorToast, setErrorToast] = useState({ message: '', visible: false });
   const initRef = useRef(false);
+  const errorToastTimerRef = useRef(null);
+
+  const showErrorToast = useCallback((message) => {
+    if (!message) return;
+    if (errorToastTimerRef.current) {
+      clearTimeout(errorToastTimerRef.current);
+    }
+    setErrorToast({ message, visible: true });
+    errorToastTimerRef.current = setTimeout(() => {
+      setErrorToast((prev) => ({ ...prev, visible: false }));
+      errorToastTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  const hideErrorToast = useCallback(() => {
+    if (errorToastTimerRef.current) {
+      clearTimeout(errorToastTimerRef.current);
+      errorToastTimerRef.current = null;
+    }
+    setErrorToast((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  useEffect(() => () => {
+    if (errorToastTimerRef.current) {
+      clearTimeout(errorToastTimerRef.current);
+      errorToastTimerRef.current = null;
+    }
+  }, []);
 
   // 初始化
   useEffect(() => {
@@ -208,10 +238,6 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
   }, [enabledRows]);
 
   const isOverflow = totalPercent > 100.05;
-
-  const toastMessage = isOverflow
-    ? `总概率 ${totalPercent.toFixed(1)}% 超过 100%，请调低部分奖项概率`
-    : '';
 
   // 期望成本：每次抽奖平均花费 = Σ(概率/100 × 该奖项平均奖品价值)
   const expectedCost = useMemo(() => {
@@ -315,23 +341,33 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
 
     try {
       for (const update of updates) {
-        await apiRequest(`${apiPrefix}/lottery-prizes/${update.id}`, {
+        const result = await apiRequest(`${apiPrefix}/lottery-prizes/${update.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(update)
         });
+        if (result && result.success === false) {
+          throw new Error(result.message || `更新奖项「${update.display_name || update.id}」失败`);
+        }
       }
       if (onApply) onApply();
       onClose();
     } catch (e) {
-      if (showToast) showToast(e.message || '一键调整失败');
+      const message = e?.message || '一键调整失败';
+      showErrorToast(message);
     }
-  }, [rows, prizes, isOverflow, apiRequest, apiPrefix, onApply, onClose, showToast]);
+  }, [rows, prizes, isOverflow, apiRequest, apiPrefix, onApply, onClose, showErrorToast]);
 
   return (
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <Toast
+            message={errorToast.message}
+            show={errorToast.visible}
+            onClose={hideErrorToast}
+            position="top-right"
+          />
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
