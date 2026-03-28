@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search, MessageSquare, ChevronLeft, ChevronDown, Settings2, Clock, User,
-  MessageCircle, Loader2, Check, Infinity
+  Search, MessageSquare, ChevronLeft, ChevronDown, ChevronRight, Settings2, Clock, User,
+  MessageCircle, Loader2, Check, Infinity, MapPin
 } from 'lucide-react';
 import ChatVendorScripts from '../ChatVendorScripts';
 import { Bubble, ThinkingBubble, MarkdownRendererWrapper } from '../ChatUI';
@@ -54,6 +54,19 @@ function relativeTime(val) {
   if (days < 30) return `${days}天前`;
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Detect mobile viewport */
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    setIsMobile(mq.matches);
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return isMobile;
 }
 
 
@@ -194,7 +207,141 @@ const RetentionSelectPopover = ({ value, onChange, disabled }) => {
 };
 
 
+/* ---- User item row ---- */
+const UserRow = ({ user, isSelected, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-all hover:bg-gray-50 ${
+      isSelected ? 'bg-blue-50 border-l-2 border-l-blue-400' : ''
+    }`}
+  >
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+          <User size={14} className="text-gray-500" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-gray-800 truncate">{user.display_name}</div>
+          <div className="text-xs text-gray-400 truncate">{user.student_id}</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        <div className="flex flex-col items-end">
+          <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">
+            {user.thread_count}
+          </span>
+          <span className="text-[10px] text-gray-400 mt-0.5">{relativeTime(user.last_chat_at)}</span>
+        </div>
+        <ChevronRight size={14} className="text-gray-300" />
+      </div>
+    </div>
+  </button>
+);
+
+
+/* ---- Thread item row ---- */
+const ThreadRow = ({ thread, onClick }) => (
+  <button
+    onClick={onClick}
+    className="w-full text-left px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-all group"
+  >
+    <div className="flex items-center justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-gray-700 truncate group-hover:text-blue-600 transition-colors">
+          {thread.title || thread.preview || '未命名聊天'}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-gray-400 flex-shrink-0 ml-3">
+        <Clock size={12} />
+        {formatTime(thread.last_message_at)}
+      </div>
+    </div>
+  </button>
+);
+
+
+/* ---- Message view ---- */
+const MessageView = ({ messages, messagesLoading }) => (
+  <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4">
+    {messagesLoading ? (
+      <div className="flex items-center justify-center py-12 text-gray-400">
+        <Loader2 size={20} className="animate-spin" />
+      </div>
+    ) : messages.length === 0 ? (
+      <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
+        暂无消息
+      </div>
+    ) : (
+      <div className="flex flex-col gap-4 max-w-3xl mx-auto">
+        {messages.map((m, idx) => {
+          if (m.role === 'user') {
+            return (
+              <div key={m.id || idx}>
+                <Bubble role="user">{m.content}</Bubble>
+              </div>
+            );
+          }
+          if (m.role === 'assistant') {
+            return (
+              <div key={m.id || idx} className="space-y-2">
+                {m.thinking_content && (
+                  <ThinkingBubble
+                    content={m.thinking_content}
+                    isComplete={true}
+                    isStopped={!!m.is_thinking_stopped}
+                    thinkingDuration={m.thinking_duration || null}
+                  />
+                )}
+                {m.content && m.content.trim() && (
+                  <MarkdownRendererWrapper content={m.content} isStreaming={false} />
+                )}
+              </div>
+            );
+          }
+          return null;
+        })}
+      </div>
+    )}
+  </div>
+);
+
+
+/* ---- Group users by address region ---- */
+function groupUsersByAddress(users, staffAddressIds, isAdmin) {
+  const groups = {};
+  const UNKNOWN_KEY = '__unknown__';
+
+  for (const u of users) {
+    const key = u.address_id || UNKNOWN_KEY;
+    if (!groups[key]) {
+      groups[key] = {
+        address_id: u.address_id || null,
+        address_name: u.address_name || '未分配区域',
+        users: [],
+      };
+    }
+    groups[key].users.push(u);
+  }
+
+  // Sort: staff's own addresses first, then others, unknown last
+  const staffSet = new Set(staffAddressIds || []);
+  return Object.values(groups).sort((a, b) => {
+    const aIsStaff = a.address_id && staffSet.has(a.address_id);
+    const bIsStaff = b.address_id && staffSet.has(b.address_id);
+    const aIsUnknown = !a.address_id;
+    const bIsUnknown = !b.address_id;
+    if (aIsStaff && !bIsStaff) return -1;
+    if (!aIsStaff && bIsStaff) return 1;
+    if (aIsUnknown && !bIsUnknown) return 1;
+    if (!aIsUnknown && bIsUnknown) return -1;
+    return 0;
+  });
+}
+
+
 export function ChatAuditPanel({ apiRequest, isAdmin }) {
+  const isMobile = useIsMobile();
+
   // ---- Retention settings ----
   const [retentionDays, setRetentionDays] = useState(7);
   const [retentionLoading, setRetentionLoading] = useState(false);
@@ -207,8 +354,13 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
   const [usersOffset, setUsersOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [staffAddressIds, setStaffAddressIds] = useState([]);
   const userListRef = useRef(null);
   const loadingMoreRef = useRef(false);
+
+  // ---- Region collapse state ----
+  const [collapsedRegions, setCollapsedRegions] = useState({});
+  const collapsedInitialized = useRef(false);
 
   // ---- Selected user / threads ----
   const [selectedUser, setSelectedUser] = useState(null);
@@ -255,6 +407,9 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
         }
         setUsersTotal(r.data.total || 0);
         setUsersOffset(offset);
+        if (r.data.staff_address_ids) {
+          setStaffAddressIds(r.data.staff_address_ids);
+        }
       }
     } catch (e) {
       console.error('Failed to load chat audit users:', e);
@@ -271,6 +426,42 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
     setMessages([]);
     loadUsers(0, false);
   }, [debouncedQuery, loadUsers]);
+
+  // ---- Group users by region ----
+  const addressGroups = useMemo(
+    () => groupUsersByAddress(users, staffAddressIds, isAdmin),
+    [users, staffAddressIds, isAdmin]
+  );
+
+  // Initialize collapsed state: expand staff's own regions, collapse others
+  // For admin: expand first region (or all if only a few), collapse rest
+  useEffect(() => {
+    if (collapsedInitialized.current || addressGroups.length === 0) return;
+    collapsedInitialized.current = true;
+
+    const staffSet = new Set(staffAddressIds || []);
+    const initial = {};
+    for (const g of addressGroups) {
+      const key = g.address_id || '__unknown__';
+      if (isAdmin) {
+        // Admin manages all regions — expand all by default
+        initial[key] = false;
+      } else {
+        // Agent: expand own regions, collapse rest
+        initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
+      }
+    }
+    setCollapsedRegions(initial);
+  }, [addressGroups, staffAddressIds, isAdmin]);
+
+  // Reset collapsed init when search changes
+  useEffect(() => {
+    collapsedInitialized.current = false;
+  }, [debouncedQuery]);
+
+  const toggleRegion = (key) => {
+    setCollapsedRegions((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   // ---- Infinite scroll for user list ----
   const handleUserListScroll = useCallback(() => {
@@ -348,8 +539,245 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
     }
   };
 
+  // ---- Navigation handlers ----
+  const handleSelectUser = (u) => {
+    setSelectedUser(u);
+    setSelectedThread(null);
+    setMessages([]);
+    setSelectedThreadInfo(null);
+  };
+
+  const handleBackToUsers = () => {
+    setSelectedUser(null);
+    setThreads([]);
+    setSelectedThread(null);
+    setMessages([]);
+    setSelectedThreadInfo(null);
+  };
+
+  const handleSelectThread = (threadId) => {
+    setSelectedThread(threadId);
+  };
+
+  const handleBackToThreads = () => {
+    setSelectedThread(null);
+    setMessages([]);
+    setSelectedThreadInfo(null);
+  };
+
   const hasMore = users.length < usersTotal;
 
+  // ---- Shared: user list content with region grouping ----
+  const renderUserList = () => {
+    if (usersLoading && users.length === 0) {
+      return (
+        <div className="flex items-center justify-center py-12 text-gray-400">
+          <Loader2 size={20} className="animate-spin" />
+        </div>
+      );
+    }
+    if (users.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
+          <MessageCircle size={24} className="mb-2 opacity-50" />
+          暂无聊天记录
+        </div>
+      );
+    }
+
+    // If only one group and it's unknown, skip the region header
+    const showGroups = addressGroups.length > 1 || (addressGroups.length === 1 && addressGroups[0].address_id);
+
+    if (!showGroups) {
+      return (
+        <>
+          {users.map((u) => (
+            <UserRow key={u.student_id} user={u} isSelected={selectedUser?.student_id === u.student_id} onClick={() => handleSelectUser(u)} />
+          ))}
+          {hasMore && (
+            <div className="flex items-center justify-center py-3 text-gray-400">
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          )}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {addressGroups.map((g) => {
+          const key = g.address_id || '__unknown__';
+          const isCollapsed = !!collapsedRegions[key];
+          return (
+            <div key={key}>
+              <button
+                onClick={() => toggleRegion(key)}
+                className="w-full flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 transition-colors sticky top-0 z-10 border-b border-gray-100"
+              >
+                <ChevronDown
+                  size={14}
+                  className={`text-gray-400 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}
+                />
+                <MapPin size={13} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-600 flex-1 text-left truncate">
+                  {g.address_name}
+                </span>
+                <span className="text-[10px] text-gray-400 bg-white rounded-full px-1.5 py-0.5">
+                  {g.users.length}
+                </span>
+              </button>
+              {!isCollapsed && g.users.map((u) => (
+                <UserRow key={u.student_id} user={u} isSelected={selectedUser?.student_id === u.student_id} onClick={() => handleSelectUser(u)} />
+              ))}
+            </div>
+          );
+        })}
+        {hasMore && (
+          <div className="flex items-center justify-center py-3 text-gray-400">
+            <Loader2 size={16} className="animate-spin" />
+          </div>
+        )}
+      </>
+    );
+  };
+
+  // ---- Shared: thread list content ----
+  const renderThreadList = () => {
+    if (threadsLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-gray-400">
+          <Loader2 size={20} className="animate-spin" />
+        </div>
+      );
+    }
+    if (threads.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
+          暂无聊天记录
+        </div>
+      );
+    }
+    return threads.map((t) => (
+      <ThreadRow key={t.id} thread={t} onClick={() => handleSelectThread(t.id)} />
+    ));
+  };
+
+  /* ============================================================
+   *  MOBILE LAYOUT: full-screen step-by-step navigation
+   * ============================================================ */
+  if (isMobile) {
+    // Step 3: message view
+    if (selectedThread) {
+      return (
+        <>
+          <ChatVendorScripts />
+          <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+              <button onClick={handleBackToThreads} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+                <ChevronLeft size={18} />
+                返回
+              </button>
+              <div className="h-4 w-px bg-gray-200" />
+              <span className="text-sm font-medium text-gray-700 truncate flex-1">
+                {selectedThreadInfo?.title || selectedThreadInfo?.preview || '聊天内容'}
+              </span>
+            </div>
+            <MessageView messages={messages} messagesLoading={messagesLoading} />
+          </div>
+        </>
+      );
+    }
+
+    // Step 2: thread list for selected user
+    if (selectedUser) {
+      return (
+        <>
+          <ChatVendorScripts />
+          <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+              <button onClick={handleBackToUsers} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+                <ChevronLeft size={18} />
+                返回
+              </button>
+              <div className="h-4 w-px bg-gray-200" />
+              <User size={14} className="text-gray-500" />
+              <span className="text-sm font-medium text-gray-700 truncate">{selectedUser.display_name}</span>
+              <span className="text-xs text-gray-400 ml-auto">{threads.length} 个聊天</span>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              {renderThreadList()}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // Step 1: user list
+    return (
+      <>
+        <ChatVendorScripts />
+        <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <MessageSquare size={20} />
+              聊天审计
+            </h2>
+            {isAdmin && (
+              <button
+                onClick={() => setShowRetention((v) => !v)}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100"
+              >
+                <Settings2 size={16} />
+              </button>
+            )}
+          </div>
+
+          {/* Retention (mobile) */}
+          <AnimatePresence>
+            {isAdmin && showRetention && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                <div className="border-b border-gray-100 px-4 py-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm text-gray-600">保留时间：</span>
+                    <RetentionSelectPopover value={retentionDays} onChange={handleRetentionChange} disabled={retentionLoading} />
+                    {retentionLoading && <Loader2 size={16} className="animate-spin text-gray-400" />}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Search */}
+          <div className="px-4 py-3 border-b border-gray-50">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="搜索用户..."
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
+              />
+            </div>
+            <div className="text-xs text-gray-400 mt-1.5 px-1">
+              共 {usersTotal} 位用户有聊天记录
+            </div>
+          </div>
+
+          {/* User list */}
+          <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar">
+            {renderUserList()}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  /* ============================================================
+   *  DESKTOP LAYOUT: left panel (users or threads) + right panel (messages)
+   * ============================================================ */
   return (
     <>
       <ChatVendorScripts />
@@ -400,192 +828,88 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
 
         {/* Main content area */}
         <div className="flex gap-4 h-[calc(100vh-14rem)]">
-          {/* Left panel - User list */}
+          {/* Left panel: User list OR Thread list */}
           <div className="w-72 flex-shrink-0 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden">
-            {/* Search */}
-            <div className="p-3 border-b border-gray-50">
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索用户..."
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
-                />
-              </div>
-              <div className="text-xs text-gray-400 mt-1.5 px-1">
-                共 {usersTotal} 位用户有聊天记录
-              </div>
-            </div>
+            {!selectedUser ? (
+              /* ---- User list view ---- */
+              <>
+                {/* Search */}
+                <div className="p-3 border-b border-gray-50">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="搜索用户..."
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-all"
+                    />
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1.5 px-1">
+                    共 {usersTotal} 位用户有聊天记录
+                  </div>
+                </div>
 
-            {/* User list with infinite scroll */}
-            <div
-              ref={userListRef}
-              onScroll={handleUserListScroll}
-              className="flex-1 overflow-y-auto custom-scrollbar"
-            >
-              {usersLoading && users.length === 0 ? (
-                <div className="flex items-center justify-center py-12 text-gray-400">
-                  <Loader2 size={20} className="animate-spin" />
+                {/* User list */}
+                <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar">
+                  {renderUserList()}
                 </div>
-              ) : users.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
-                  <MessageCircle size={24} className="mb-2 opacity-50" />
-                  暂无聊天记录
-                </div>
-              ) : (
-                <>
-                  {users.map((u) => (
-                    <button
-                      key={u.student_id}
-                      onClick={() => setSelectedUser(u)}
-                      className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-all hover:bg-gray-50 ${
-                        selectedUser?.student_id === u.student_id ? 'bg-blue-50 border-l-2 border-l-blue-400' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <User size={14} className="text-gray-500" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-gray-800 truncate">{u.display_name}</div>
-                            <div className="text-xs text-gray-400 truncate">{u.student_id}</div>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end flex-shrink-0 ml-2">
-                          <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">
-                            {u.thread_count}
-                          </span>
-                          <span className="text-[10px] text-gray-400 mt-0.5">{relativeTime(u.last_chat_at)}</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                  {hasMore && (
-                    <div className="flex items-center justify-center py-3 text-gray-400">
-                      <Loader2 size={16} className="animate-spin" />
+              </>
+            ) : (
+              /* ---- Thread list view (after selecting user) ---- */
+              <>
+                {/* Back + user info header */}
+                <div className="px-3 py-3 border-b border-gray-50">
+                  <button
+                    onClick={handleBackToUsers}
+                    className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-2"
+                  >
+                    <ChevronLeft size={16} />
+                    <span>返回用户列表</span>
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <User size={14} className="text-blue-500" />
                     </div>
-                  )}
-                </>
-              )}
-            </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">{selectedUser.display_name}</div>
+                      <div className="text-xs text-gray-400 truncate">{selectedUser.student_id}</div>
+                    </div>
+                    <span className="text-xs text-gray-400 ml-auto">{threads.length} 个聊天</span>
+                  </div>
+                </div>
+
+                {/* Thread list */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  {renderThreadList()}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Right panel */}
+          {/* Right panel: Message view */}
           <div className="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden">
-            {!selectedUser ? (
+            {!selectedThread ? (
               /* Empty state */
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
                 <MessageSquare size={40} className="mb-3 opacity-30" />
-                <p className="text-sm">请从左侧选择一个用户查看聊天记录</p>
-              </div>
-            ) : !selectedThread ? (
-              /* Thread list */
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-gray-50 flex items-center gap-2">
-                  <User size={16} className="text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">{selectedUser.display_name}</span>
-                  <span className="text-xs text-gray-400">({selectedUser.student_id})</span>
-                  <span className="text-xs text-gray-400 ml-auto">{threads.length} 个聊天</span>
-                </div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                  {threadsLoading ? (
-                    <div className="flex items-center justify-center py-12 text-gray-400">
-                      <Loader2 size={20} className="animate-spin" />
-                    </div>
-                  ) : threads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
-                      暂无聊天记录
-                    </div>
-                  ) : (
-                    threads.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => setSelectedThread(t.id)}
-                        className="w-full text-left px-5 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-all group"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium text-gray-700 truncate group-hover:text-blue-600 transition-colors">
-                              {t.title || t.preview || '未命名聊天'}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-gray-400 flex-shrink-0 ml-3">
-                            <Clock size={12} />
-                            {formatTime(t.last_message_at)}
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
+                <p className="text-sm">
+                  {!selectedUser ? '请从左侧选择一个用户查看聊天记录' : '请从左侧选择一个聊天查看内容'}
+                </p>
               </div>
             ) : (
               /* Message view */
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Message view header */}
                 <div className="px-5 py-3 border-b border-gray-50 flex items-center gap-3">
-                  <button
-                    onClick={() => {
-                      setSelectedThread(null);
-                      setMessages([]);
-                      setSelectedThreadInfo(null);
-                    }}
-                    className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                  >
-                    <ChevronLeft size={18} />
-                    返回
-                  </button>
-                  <div className="h-4 w-px bg-gray-200" />
+                  <MessageSquare size={16} className="text-gray-400" />
                   <span className="text-sm font-medium text-gray-700 truncate">
                     {selectedThreadInfo?.title || selectedThreadInfo?.preview || '聊天内容'}
                   </span>
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4">
-                  {messagesLoading ? (
-                    <div className="flex items-center justify-center py-12 text-gray-400">
-                      <Loader2 size={20} className="animate-spin" />
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm">
-                      暂无消息
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-4 max-w-3xl mx-auto">
-                      {messages.map((m, idx) => {
-                        if (m.role === 'user') {
-                          return (
-                            <div key={m.id || idx}>
-                              <Bubble role="user">{m.content}</Bubble>
-                            </div>
-                          );
-                        }
-                        if (m.role === 'assistant') {
-                          return (
-                            <div key={m.id || idx} className="space-y-2">
-                              {m.thinking_content && (
-                                <ThinkingBubble
-                                  content={m.thinking_content}
-                                  isComplete={true}
-                                  isStopped={!!m.is_thinking_stopped}
-                                  thinkingDuration={m.thinking_duration || null}
-                                />
-                              )}
-                              {m.content && m.content.trim() && (
-                                <MarkdownRendererWrapper content={m.content} isStreaming={false} />
-                              )}
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  )}
-                </div>
+                <MessageView messages={messages} messagesLoading={messagesLoading} />
               </div>
             )}
           </div>

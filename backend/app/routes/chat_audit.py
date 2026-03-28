@@ -7,7 +7,7 @@ from auth import (
     get_current_staff_required_from_cookie,
     success_response,
 )
-from database import ChatLogDB, UserDB, UserProfileDB, get_db_connection
+from database import AddressDB, ChatLogDB, UserDB, UserProfileDB, get_db_connection
 from ..context import logger
 from ..dependencies import build_staff_scope
 from .ai import _serialize_chat_thread, _serialize_chat_message
@@ -88,10 +88,14 @@ async def list_chat_audit_users(request: Request, q: str = "", offset: int = 0, 
                     u.id AS student_id,
                     COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(up.name), ''), u.id) AS display_name,
                     MAX(ct.last_message_at) AS last_chat_at,
-                    COUNT(DISTINCT ct.id) AS thread_count
+                    COUNT(DISTINCT ct.id) AS thread_count,
+                    up.address_id,
+                    a.name AS address_name
                 FROM users u
                 LEFT JOIN user_profiles up
                   ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
+                LEFT JOIN addresses a
+                  ON a.id = up.address_id
                 INNER JOIN chat_threads ct
                   ON (ct.user_id = u.user_id OR ct.student_id = u.id)
                 WHERE {where_clause}
@@ -110,13 +114,24 @@ async def list_chat_audit_users(request: Request, q: str = "", offset: int = 0, 
                 "display_name": row["display_name"],
                 "last_chat_at": row["last_chat_at"],
                 "thread_count": row["thread_count"],
+                "address_id": row["address_id"],
+                "address_name": row["address_name"],
             })
+
+        # Return staff's own address_ids so frontend can expand them by default
+        staff_address_ids = []
+        if staff.get("type") == "agent":
+            staff_address_ids = scope.get("address_ids") or []
+        else:
+            # Admin: return all address ids (all expanded by default handled on frontend)
+            staff_address_ids = []
 
         return success_response("查询成功", {
             "users": users,
             "total": total,
             "offset": safe_offset,
             "limit": safe_limit,
+            "staff_address_ids": staff_address_ids,
         })
     except Exception as exc:
         logger.error("Failed to list chat audit users: %s", exc)
