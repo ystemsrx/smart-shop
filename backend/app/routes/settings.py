@@ -44,6 +44,39 @@ async def update_shop_settings(request: Request):
         return error_response("更新商城设置失败", 500)
 
 
+@router.get("/admin/chat-settings")
+async def get_chat_settings(request: Request):
+    """获取聊天保留设置。"""
+    _admin = get_current_admin_required_from_cookie(request)
+    try:
+        days = SettingsDB.get("chat_retention_days", "7")
+        try:
+            days = int(days)
+        except (ValueError, TypeError):
+            days = 7
+        return success_response("获取聊天设置成功", {"chat_retention_days": days})
+    except Exception as exc:
+        logger.error("Failed to fetch chat settings: %s", exc)
+        return error_response("获取聊天设置失败", 500)
+
+
+@router.put("/admin/chat-settings")
+async def update_chat_settings(request: Request):
+    """更新聊天保留设置。0表示永久保留。"""
+    _admin = get_current_admin_required_from_cookie(request)
+    try:
+        body = await request.json()
+        days = body.get("chat_retention_days", 7)
+        days = max(0, int(days))
+        SettingsDB.set("chat_retention_days", str(days))
+        return success_response("聊天设置更新成功", {"chat_retention_days": days})
+    except (ValueError, TypeError):
+        return error_response("保留天数必须为非负整数", 400)
+    except Exception as exc:
+        logger.error("Failed to update chat settings: %s", exc)
+        return error_response("更新聊天设置失败", 500)
+
+
 @router.get("/shop/status")
 async def get_shop_status():
     """获取店铺开关状态。"""

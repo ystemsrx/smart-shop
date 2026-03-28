@@ -8,6 +8,7 @@ from .routes import (
     auth_router,
     cart_router,
     catalog_router,
+    chat_audit_router,
     coupons_router,
     images_router,
     locations_router,
@@ -36,6 +37,7 @@ def build_app() -> FastAPI:
     app.include_router(products_manage_router)
     app.include_router(settings_router)
     app.include_router(ai_router)
+    app.include_router(chat_audit_router)
     app.include_router(profile_router)
     app.include_router(system_router)
     return app
