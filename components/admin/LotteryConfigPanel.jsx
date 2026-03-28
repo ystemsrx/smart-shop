@@ -628,6 +628,17 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
   const totalPercent = isFraction ? totalWeightRaw * 100 : totalWeightRaw;
   const thanksPercent = Math.max(0, 100 - totalPercent);
 
+  // 每次抽奖平均成本 = Σ(该奖项概率/100 × 该奖项平均奖品价值)
+  const expectedCostPerDraw = prizes.reduce((acc, p) => {
+    if (!p.is_active) return acc;
+    const itemList = (p.items || []).filter(it => it.available);
+    if (itemList.length === 0) return acc;
+    const w = Number.isFinite(p.weight) ? Math.max(0, p.weight) : 0;
+    const pct = isFraction ? w * 100 : w;
+    const avgItemCost = itemList.reduce((s, it) => s + (Number(it.retail_price) || 0), 0) / itemList.length;
+    return acc + (pct / 100) * avgItemCost;
+  }, 0);
+
   // 排序：已启用有库存 → 已启用无库存 → 已停用，同层按平均成本升序
   const sortedPrizes = [...prizes].sort((a, b) => {
     const avgCost = (p) => {
@@ -873,9 +884,9 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             </div>
             <div className="h-4 w-px bg-gray-300"></div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">谢谢参与</span>
-              <span className={`text-sm font-bold ${totalPercent > 100 ? 'text-red-500' : 'text-gray-900'}`}>
-                {thanksPercent.toFixed(2)}%
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">平均成本</span>
+              <span className="text-sm font-bold text-amber-600">
+                ¥{expectedCostPerDraw.toFixed(2)}
               </span>
             </div>
           </div>
