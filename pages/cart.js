@@ -1853,18 +1853,11 @@ export default function Cart() {
                     visible: { opacity: 1, y: 0, scale: 1, transition: { delay: 0.4 } }
                   }}
                 >
-                  <Link 
-                    href="/shop" 
-                    className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-lg rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-colors duration-200 shadow-lg hover:shadow-xl"
+                  <Link
+                    href="/shop"
+                    className="inline-block px-10 py-3 bg-black text-white font-semibold text-base rounded-full hover:bg-gray-800 transition-colors duration-200"
                   >
-                    <motion.span
-                      className="flex items-center gap-2"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <i className="fas fa-store"></i>
-                      去购物
-                    </motion.span>
+                    去购物
                   </Link>
                 </motion.div>
               </div>
