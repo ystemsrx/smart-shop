@@ -38,10 +38,10 @@ function AuthRouteTransition({ routeKey, children }) {
 function getNavActiveFromPath(path, isStaff) {
   if (path === '/') return '';
   if (path === '/shop') return isStaff ? 'staff-shop' : 'shop';
-  if (path.startsWith('/c')) return 'home';
   if (path === '/cart') return 'cart';
   if (path === '/orders') return 'orders';
   if (path === '/checkout') return 'checkout';
+  if (path.startsWith('/c')) return 'home';
   if (path === '/admin/dashboard' || path === '/agent/dashboard') return 'staff-dashboard';
   if (path === '/admin' || path === '/agent') return 'staff-backend';
   return 'home';
