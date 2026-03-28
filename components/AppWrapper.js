@@ -35,12 +35,7 @@ function AuthRouteTransition({ routeKey, children }) {
   );
 }
 
-function useNavActive() {
-  const router = useRouter();
-  const { user } = useAuth();
-  const path = router.pathname || '';
-  const isStaff = user?.type === 'admin' || user?.type === 'agent';
-
+function getNavActiveFromPath(path, isStaff) {
   if (path === '/') return '';
   if (path === '/shop') return isStaff ? 'staff-shop' : 'shop';
   if (path.startsWith('/c')) return 'home';
@@ -52,12 +47,26 @@ function useNavActive() {
   return 'home';
 }
 
+function useNavActive(pendingPath) {
+  const router = useRouter();
+  const { user } = useAuth();
+  const isStaff = user?.type === 'admin' || user?.type === 'agent';
+
+  // 路由切换中时立即使用目标路径，让选择器先移动过去
+  if (pendingPath) {
+    const targetPath = pendingPath.split('?')[0];
+    return getNavActiveFromPath(targetPath, isStaff);
+  }
+
+  return getNavActiveFromPath(router.pathname || '', isStaff);
+}
+
 function AppLayout({ children }) {
   const router = useRouter();
-  const active = useNavActive();
   const showNav = !NO_NAV_PAGES.includes(router.pathname);
   const [transitionTarget, setTransitionTarget] = useState(null);
   const [hasMounted, setHasMounted] = useState(false);
+  const active = useNavActive(transitionTarget);
 
   useEffect(() => {
     setHasMounted(true);
