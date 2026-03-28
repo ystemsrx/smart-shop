@@ -7,7 +7,7 @@ from auth import (
     get_current_staff_required_from_cookie,
     success_response,
 )
-from database import AddressDB, ChatLogDB, UserDB, UserProfileDB, get_db_connection
+from database import AddressDB, AgentAssignmentDB, ChatLogDB, UserDB, UserProfileDB, get_db_connection
 from ..context import logger
 from ..dependencies import build_staff_scope
 from .ai import _serialize_chat_thread, _serialize_chat_message
@@ -119,12 +119,16 @@ async def list_chat_audit_users(request: Request, q: str = "", offset: int = 0, 
             })
 
         # Return staff's own address_ids so frontend can expand them by default
-        staff_address_ids = []
         if staff.get("type") == "agent":
             staff_address_ids = scope.get("address_ids") or []
         else:
-            # Admin: return all address ids (all expanded by default handled on frontend)
-            staff_address_ids = []
+            # Admin: look up their own address assignments via agent_id
+            admin_agent_id = staff.get("agent_id")
+            if admin_agent_id:
+                assignments = AgentAssignmentDB.get_buildings_for_agent(admin_agent_id)
+                staff_address_ids = list({a["address_id"] for a in assignments if a.get("address_id")})
+            else:
+                staff_address_ids = []
 
         return success_response("查询成功", {
             "users": users,

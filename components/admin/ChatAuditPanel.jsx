@@ -444,8 +444,12 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
     for (const g of addressGroups) {
       const key = g.address_id || '__unknown__';
       if (isAdmin) {
-        // Admin manages all regions — expand all by default
-        initial[key] = false;
+        // Admin: expand own regions if known, otherwise expand first group only
+        if (staffSet.size > 0) {
+          initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
+        } else {
+          initial[key] = addressGroups.indexOf(g) !== 0;
+        }
       } else {
         // Agent: expand own regions, collapse rest
         initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
