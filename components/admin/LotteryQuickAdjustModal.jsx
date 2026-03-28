@@ -361,10 +361,11 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
             </div>
 
             {/* Target rate + stats */}
-            <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-100 flex items-center gap-4 flex-wrap">
+            <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-100 space-y-3">
+              {/* Row 1: target rate + override hint */}
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium text-gray-600">目标中奖率</span>
-                <div className="flex items-center gap-1.5 bg-white rounded-xl border border-gray-200 px-3 py-2">
+                <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 px-2.5 py-1.5">
                   <input
                     type="number"
                     min="0.1"
@@ -377,28 +378,41 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                         handleTargetRateChange(v);
                       }
                     }}
-                    className="w-16 text-center font-bold text-gray-900 focus:outline-none bg-transparent"
+                    className="w-12 text-center font-bold text-gray-900 text-sm focus:outline-none bg-transparent"
                   />
                   <span className="text-sm text-gray-500">%</span>
                 </div>
+                <AnimatePresence>
+                  {userOverrideAll && (
+                    <motion.span
+                      initial={{ opacity: 0, x: -5 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -5 }}
+                      className="text-xs text-amber-600 flex items-center gap-1"
+                    >
+                      <i className="fas fa-info-circle"></i>
+                      已全部手动调整
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
-
-              <div className="flex items-center gap-4 ml-auto flex-wrap">
-                <div className="flex items-center gap-2">
+              {/* Row 2: stats */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">当前总概率</span>
                   <span className={`text-sm font-bold ${isOverflow ? 'text-red-500' : 'text-gray-900'}`}>
                     {totalPercent.toFixed(1)}%
                   </span>
                 </div>
-                <div className="h-4 w-px bg-gray-300"></div>
-                <div className="flex items-center gap-2">
+                <div className="h-3.5 w-px bg-gray-300"></div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">谢谢参与</span>
                   <span className="text-sm font-bold text-gray-900">
                     {Math.max(0, 100 - totalPercent).toFixed(1)}%
                   </span>
                 </div>
-                <div className="h-4 w-px bg-gray-300"></div>
-                <div className="flex items-center gap-2">
+                <div className="h-3.5 w-px bg-gray-300"></div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">期望成本</span>
                   <span className="text-sm font-bold text-amber-600">
                     ¥{expectedCost.toFixed(2)}
@@ -423,21 +437,6 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
               )}
             </AnimatePresence>
 
-            {/* User override all warning */}
-            <AnimatePresence>
-              {userOverrideAll && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="mx-8 mt-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700 flex items-center gap-2"
-                >
-                  <i className="fas fa-info-circle text-amber-500"></i>
-                  所有奖项均已手动调整，目标中奖率设定将不再生效
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             {/* Prize table */}
             <div className="flex-1 overflow-y-auto px-8 py-4 custom-scrollbar">
               <table className="w-full">
@@ -451,14 +450,6 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                 <tbody>
                   {rows.map((row) => {
                     const sliderMax = getSliderMax(row.id);
-                    const recommended = recommendedMap[row.id];
-                    // 修正滑块标记位置：range input 的 thumb 在 min/max 时各留 thumbSize/2 边距
-                    // thumbSize=20px, dotSize=10px → left = calc(ratio*100% + (10 - ratio*20 - 5)px)
-                    //                                    = calc(ratio*100% + (5 - ratio*20)px)
-                    const recommendedRatio = recommended !== undefined && sliderMax > 0.1
-                      ? Math.min(1, Math.max(0, (recommended - 0.1) / (sliderMax - 0.1)))
-                      : 0;
-                    const dotLeft = `calc(${recommendedRatio * 100}% + ${5 - recommendedRatio * 20}px)`;
                     const isDisabledRow = !row.hasStock;
                     const isUnchecked = !row.enabled;
 
@@ -509,16 +500,8 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                             <div className="text-sm text-gray-400 italic">—</div>
                           ) : (
                             <div className="flex items-center gap-3">
-                              {/* Slider with recommended marker */}
-                              <div className="flex-1 relative min-w-0">
-                                {/* Recommended dot */}
-                                {recommended !== undefined && recommended >= 0.1 && recommended <= sliderMax && (
-                                  <div
-                                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-indigo-400 border-2 border-white shadow-sm z-10 pointer-events-none"
-                                    style={{ left: dotLeft }}
-                                    title={`推荐值: ${recommended.toFixed(1)}%`}
-                                  />
-                                )}
+                              {/* Slider with recommended marker — desktop only */}
+                              <div className="flex-1 relative min-w-0 hidden md:block">
                                 <input
                                   type="range"
                                   min={0.1}
@@ -551,7 +534,7 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                               </div>
 
                               {/* Numeric input */}
-                              <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 w-[80px] shrink-0">
+                              <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 w-[82px] shrink-0">
                                 <input
                                   type="number"
                                   min={0.1}
@@ -594,11 +577,7 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
             </div>
 
             {/* Footer */}
-            <div className="px-8 py-5 bg-white border-t border-gray-100 flex items-center justify-between">
-              <div className="text-xs text-gray-400">
-                <i className="fas fa-circle text-indigo-400 mr-1" style={{ fontSize: '8px' }}></i>
-                圆点标记为算法推荐位置
-              </div>
+            <div className="px-8 py-5 bg-white border-t border-gray-100 flex items-center justify-end">
               <div className="flex items-center gap-3">
                 <button
                   onClick={onClose}
