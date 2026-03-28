@@ -1331,26 +1331,11 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
       ? `选择规格：${activeItem.title || '当前商品'}`
       : `加入购物车：${activeItem.title || '当前商品'}`
     : '加入购物车';
-  const labelLength = actionButtonLabel.length;
-  const actionButtonTextClass =
-    labelLength <= 1
-      ? 'text-[28px] font-bold leading-none'
-      : labelLength === 2
-      ? 'text-base font-semibold tracking-wide'
-      : 'text-sm font-semibold leading-none px-2 text-center tracking-wide';
   const reservationFlag =
     activeItem?.reservationRequired ??
     (typeof activeItem?.payload === 'object' && activeItem?.payload !== null
       ? Boolean((activeItem?.payload as { reservation_required?: unknown }).reservation_required)
       : false);
-  const buttonColorClass = activeItem?.disabled
-    ? isMutedState
-      ? 'cursor-not-allowed pointer-events-none bg-gradient-to-br from-gray-400 to-gray-500 text-white shadow-inner'
-      : 'cursor-not-allowed pointer-events-none bg-gray-200/95 text-gray-600 shadow-inner'
-    : reservationFlag
-    ? 'cursor-pointer bg-gradient-to-br from-cyan-400 to-blue-500 hover:from-cyan-500 hover:to-blue-600 text-white shadow-xl'
-    : 'cursor-pointer bg-gradient-to-br from-orange-500 to-pink-600 hover:from-pink-600 hover:to-purple-500 text-white shadow-xl';
-
   const actionButtonClassList = [
     'action-button',
     shouldShowButton ? 'active' : 'inactive',
@@ -1361,21 +1346,26 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
 
   if (isQuantityMode) {
     actionButtonClassList.push(
-      'px-3 sm:px-4 py-3',
-      'rounded-full border-[4px] border-white',
-      'bg-white/95 shadow-2xl backdrop-blur-md',
-      'flex items-center gap-3 sm:gap-4',
-      'min-w-[168px] sm:min-w-[184px]',
-      'h-[68px]',
+      'h-12 px-1.5',
+      'rounded-full',
+      'bg-black/40 backdrop-blur-md border border-white/20',
+      'flex items-center gap-2',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500'
     );
   } else {
+    const pillColorClass = activeItem?.disabled
+      ? isMutedState
+        ? 'cursor-not-allowed pointer-events-none bg-gray-600/60 text-gray-300 border-gray-500/30'
+        : 'cursor-not-allowed pointer-events-none bg-white/20 backdrop-blur-md text-white/60 border-white/10'
+      : reservationFlag
+      ? 'cursor-pointer bg-blue-500 hover:bg-blue-600 shadow-lg shadow-blue-500/30'
+      : 'cursor-pointer bg-primary hover:bg-orange-600 shadow-lg shadow-primary/30';
     actionButtonClassList.push(
-      'rounded-full border-[4px] border-white',
-      'w-[60px] h-[60px] sm:w-[68px] sm:h-[68px]',
-      'grid place-items-center',
+      'h-12 pl-5 pr-2 rounded-full',
+      'flex items-center gap-3',
+      'text-white transition-all active:scale-95 duration-200',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500',
-      buttonColorClass
+      pillColorClass
     );
   }
 
@@ -1460,23 +1450,17 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
           data-state={buttonDataState}
         >
           {isQuantityMode ? (
-            <div className="flex items-center gap-3 sm:gap-4 w-full">
+            <>
               <button
                 type="button"
                 onClick={handleQuantityDecrease}
                 disabled={quantity <= 0 || !onDecrement || !isButtonInteractive}
                 aria-label={`减少 ${activeItem.title || '当前商品'} 数量`}
-                className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span className="text-2xl font-bold leading-none">−</span>
+                <i className="fas fa-minus text-sm"></i>
               </button>
-              <div className="flex-1 text-center">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 leading-none mb-1">数量</div>
-                <div className="text-2xl font-bold text-slate-900 leading-none">{quantity}</div>
-                {limitReached && (
-                  <div className="text-[10px] text-amber-500 mt-1 font-medium">已达库存上限</div>
-                )}
-              </div>
+              <span className="w-6 text-center font-bold text-white text-sm">{quantity}</span>
               <button
                 type="button"
                 onClick={handleQuantityIncrease}
@@ -1486,17 +1470,30 @@ const InfiniteMenu: FC<InfiniteMenuProps> = ({ items = [], onAddToCart, onDecrem
                     ? `已达库存上限：${activeItem.title || '当前商品'}`
                     : `增加 ${activeItem.title || '当前商品'} 数量`
                 }
-                className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 text-white flex items-center justify-center shadow-lg transition hover:from-orange-500 hover:to-pink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-orange-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span className="text-2xl font-bold leading-none">+</span>
+                <i className="fas fa-plus text-sm"></i>
               </button>
-            </div>
+            </>
           ) : (
-            isSpecSelectAction ? (
-              <i className="fas fa-list-ul text-base" aria-hidden="true"></i>
-            ) : (
-              <span className={actionButtonTextClass}>{actionButtonLabel}</span>
-            )
+            <>
+              <span className="font-bold text-sm">
+                {isSpecSelectAction ? '选规格' : activeItem.disabled ? (isMutedState ? (activeItem.visualState === 'down' ? '暂时下架' : '缺货') : actionButtonLabel) : '加入购物车'}
+              </span>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                activeItem.disabled
+                  ? 'bg-white/20'
+                  : reservationFlag
+                  ? 'bg-blue-600'
+                  : isSpecSelectAction
+                  ? 'bg-white/20'
+                  : 'bg-white text-primary'
+              }`}>
+                <i className={`fas ${
+                  isSpecSelectAction ? 'fa-list-ul' : activeItem.disabled && isMutedState ? (activeItem.visualState === 'down' ? 'fa-pause' : 'fa-exclamation-triangle') : 'fa-plus'
+                } text-sm ${reservationFlag && !activeItem.disabled ? 'text-white' : ''}`}></i>
+              </div>
+            </>
           )}
         </div>
       )}
