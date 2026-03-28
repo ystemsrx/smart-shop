@@ -181,7 +181,8 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
         percent: 0,
         locked: false,
         avgCost: computeAvgCost(p),
-        isActive: p.is_active
+        isActive: p.is_active,
+        originalPercent: Number.isFinite(p.weight) ? (p.weight <= 1.000001 ? p.weight * 100 : p.weight) : 0
       };
     });
 
@@ -455,6 +456,7 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                 <tbody>
                   {rows.map((row) => {
                     const sliderMax = getSliderMax(row.id);
+                    const recommended = recommendedMap[row.id];
                     const isDisabledRow = !row.hasStock;
                     const isUnchecked = !row.enabled;
 
@@ -481,21 +483,30 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                         </td>
 
                         {/* Name */}
-                        <td className="py-4 pr-4">
-                          <div className="flex flex-col">
-                            <span className={`font-bold text-sm ${isDisabledRow ? 'text-red-600' : isUnchecked ? 'text-gray-400' : 'text-gray-900'}`}>
+                        <td className="py-4 pr-4 align-middle">
+                          <div className="flex flex-col justify-center">
+                            <span className={`font-bold text-sm leading-5 ${isDisabledRow ? 'text-red-600' : isUnchecked ? 'text-gray-400' : 'text-gray-900'}`}>
                               {row.displayName}
                             </span>
-                            {isDisabledRow && (
+                            {isDisabledRow ? (
                               <span className="text-[10px] text-red-500 flex items-center gap-1 mt-0.5">
                                 <i className="fas fa-exclamation-triangle"></i> 无库存
                               </span>
-                            )}
-                            {row.locked && !isDisabledRow && !isUnchecked && (
-                              <span className="text-[10px] text-indigo-500 flex items-center gap-1 mt-0.5">
-                                <i className="fas fa-lock"></i> 已锁定
+                            ) : !isUnchecked ? (
+                              <span className={`text-[10px] flex items-center gap-1 mt-0.5 transition-opacity duration-150 ${
+                                row.locked ? 'text-indigo-500'
+                                  : recommended !== undefined && Math.abs(recommended - row.originalPercent) >= 0.05
+                                    ? (recommended > row.originalPercent ? 'text-emerald-500' : 'text-red-500')
+                                    : 'text-gray-400'
+                              }`}>
+                                {(() => {
+                                  if (row.locked) return <><i className="fas fa-lock"></i> 已锁定</>;
+                                  const diff = recommended !== undefined ? Math.round((recommended - row.originalPercent) * 10) / 10 : 0;
+                                  if (Math.abs(diff) < 0.05) return <>0.0%</>;
+                                  return <><i className={`fas fa-arrow-${diff > 0 ? 'up' : 'down'}`}></i> {diff > 0 ? '+' : ''}{diff.toFixed(1)}%</>;
+                                })()}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </td>
 
