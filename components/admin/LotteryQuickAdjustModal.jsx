@@ -24,8 +24,11 @@ function hasStock(prize) {
 }
 
 /**
- * 最优概率分配算法
- * 目标：在满足目标中奖率的前提下，最小化成本期望，同时不让某个奖项权重过低
+ * 最优概率分配算法 v2
+ * 使用 inverseCost^β 主策略 + log-rescue 混合，兼顾成本最小化与权重均衡
+ *
+ * - BETA=0.85：对高成本奖项施加更强惩罚（比 sqrt 更激进）
+ * - ALPHA=0.02：2% 权重给 log(1+c/ε) rescue 项，防止高成本奖项概率趋零
  *
  * @param {Array} enabledPrizes - 参与计算的奖项列表（需包含 items）
  * @param {number} targetRate - 目标总中奖率（百分比，如 100 = 100%）
@@ -35,8 +38,12 @@ function hasStock(prize) {
 function computeOptimalDistribution(enabledPrizes, targetRate, lockedMap = {}) {
   if (enabledPrizes.length === 0) return {};
 
+  const BETA = 0.85;
+  const ALPHA = 0.02;
+
   let lockedTotal = 0;
   const unlockedPrizes = [];
+
   for (const p of enabledPrizes) {
     if (lockedMap[p.id] !== undefined) {
       lockedTotal += lockedMap[p.id];
@@ -62,40 +69,29 @@ function computeOptimalDistribution(enabledPrizes, targetRate, lockedMap = {}) {
 
   const maxCost = Math.max(...costs.map(c => c.cost), 0.01);
   const EPSILON = maxCost * 0.05;
-  const DAMPING = 0.5;
 
-  const weights = costs.map(c => ({
-    id: c.id,
-    weight: 1 / Math.pow(c.cost + EPSILON, DAMPING)
-  }));
+  const mainRaw = {};
+  const rescueRaw = {};
+  let mainSum = 0;
+  let rescueSum = 0;
 
-  const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+  for (const { id, cost } of costs) {
+    const main = 1 / Math.pow(cost + EPSILON, BETA);
+    const rescue = Math.log(1 + cost / EPSILON);
 
-  const minPercent = 0.1;
+    mainRaw[id] = main;
+    rescueRaw[id] = rescue;
+    mainSum += main;
+    rescueSum += rescue;
+  }
+
   const rawAllocation = {};
-  for (const w of weights) {
-    rawAllocation[w.id] = (w.weight / totalWeight) * remainingRate;
-  }
+  for (const { id } of costs) {
+    const share =
+      (1 - ALPHA) * (mainRaw[id] / mainSum) +
+      ALPHA * (rescueRaw[id] / rescueSum);
 
-  let deficit = 0;
-  const belowMin = [];
-  const aboveMin = [];
-  for (const w of weights) {
-    if (rawAllocation[w.id] < minPercent && remainingRate >= unlockedPrizes.length * minPercent) {
-      deficit += minPercent - rawAllocation[w.id];
-      rawAllocation[w.id] = minPercent;
-      belowMin.push(w.id);
-    } else {
-      aboveMin.push(w.id);
-    }
-  }
-
-  if (deficit > 0 && aboveMin.length > 0) {
-    const aboveTotal = aboveMin.reduce((sum, id) => sum + rawAllocation[id], 0);
-    for (const id of aboveMin) {
-      rawAllocation[id] -= deficit * (rawAllocation[id] / aboveTotal);
-      if (rawAllocation[id] < minPercent) rawAllocation[id] = minPercent;
-    }
+    rawAllocation[id] = share * remainingRate;
   }
 
   const result = {};
@@ -110,6 +106,7 @@ function computeOptimalDistribution(enabledPrizes, targetRate, lockedMap = {}) {
   // 修正舍入误差
   const unlockedSum = unlockedPrizes.reduce((s, p) => s + result[p.id], 0);
   const roundingError = Math.round((remainingRate - unlockedSum) * 10) / 10;
+
   if (Math.abs(roundingError) >= 0.05 && unlockedPrizes.length > 0) {
     let maxId = unlockedPrizes[0].id;
     for (const p of unlockedPrizes) {
