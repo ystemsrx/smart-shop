@@ -388,9 +388,21 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                   />
                   <span className="text-sm text-gray-500">%</span>
                 </div>
-                <AnimatePresence>
-                  {userOverrideAll && (
+                <AnimatePresence mode="wait">
+                  {isOverflow ? (
                     <motion.span
+                      key="overflow"
+                      initial={{ opacity: 0, x: -5 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -5 }}
+                      className="text-xs text-red-600 flex items-center gap-1"
+                    >
+                      <i className="fas fa-exclamation-triangle"></i>
+                      总概率 {totalPercent.toFixed(1)}% 超过 100%
+                    </motion.span>
+                  ) : userOverrideAll ? (
+                    <motion.span
+                      key="override"
                       initial={{ opacity: 0, x: -5 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -5 }}
@@ -399,7 +411,7 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                       <i className="fas fa-info-circle"></i>
                       已全部手动调整
                     </motion.span>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </div>
               {/* Row 2: stats */}
@@ -427,21 +439,6 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                 </div>
               </div>
             </div>
-
-            {/* Overflow toast */}
-            <AnimatePresence>
-              {toastMessage && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="mx-8 mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"
-                >
-                  <i className="fas fa-exclamation-triangle text-red-500"></i>
-                  {toastMessage}
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* Prize table */}
             <div className="flex-1 overflow-y-auto px-8 py-4 custom-scrollbar">
@@ -494,14 +491,17 @@ const LotteryQuickAdjustModal = ({ open, onClose, prizes, onApply, apiRequest, a
                               </span>
                             ) : !isUnchecked ? (
                               <span className={`text-[10px] flex items-center gap-1 mt-0.5 transition-opacity duration-150 ${
-                                row.locked ? 'text-indigo-500'
-                                  : recommended !== undefined && Math.abs(recommended - row.originalPercent) >= 0.05
-                                    ? (recommended > row.originalPercent ? 'text-emerald-500' : 'text-red-500')
-                                    : 'text-gray-400'
+                                (() => {
+                                  const diff = Math.round((row.percent - row.originalPercent) * 10) / 10;
+                                  return row.locked ? 'text-indigo-500'
+                                    : Math.abs(diff) >= 0.05
+                                      ? (diff > 0 ? 'text-emerald-500' : 'text-red-500')
+                                      : 'text-gray-400';
+                                })()
                               }`}>
                                 {(() => {
                                   if (row.locked) return <><i className="fas fa-lock"></i> 已锁定</>;
-                                  const diff = recommended !== undefined ? Math.round((recommended - row.originalPercent) * 10) / 10 : 0;
+                                  const diff = Math.round((row.percent - row.originalPercent) * 10) / 10;
                                   if (Math.abs(diff) < 0.05) return <>0.0%</>;
                                   return <><i className={`fas fa-arrow-${diff > 0 ? 'up' : 'down'}`}></i> {diff > 0 ? '+' : ''}{diff.toFixed(1)}%</>;
                                 })()}
