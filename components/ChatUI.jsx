@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/router";
 import { getApiBaseUrl, getShopName, getHeaderLogo } from "../utils/runtimeConfig";
 import TextType from './TextType';
-import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle } from "lucide-react";
+import { ChevronDown, Check, Pencil, Plus, User2, Loader2, PanelLeftClose, PanelLeft, Sparkles, Terminal, ChevronRight, Play, CheckCircle2, XCircle, Search, ShoppingCart, List, Package, AlertTriangle, ClipboardList, Gift, Ticket, Users } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { updateDomSmartly } from './dom_utils';
 import hljs from 'highlight.js/lib/core';
@@ -5292,9 +5292,15 @@ const ToolCallCard = ({
   const getDisplayName = (name) => {
     const nameMap = {
       'search_products': '搜索商品',
-      'update_cart': '更新购物车', 
+      'update_cart': '更新购物车',
       'get_cart': '查看购物车',
-      'get_category': '浏览分类'
+      'get_category': '浏览分类',
+      'manage_products': '商品管理',
+      'manage_orders': '订单管理',
+      'manage_lottery': '抽奖配置',
+      'manage_gift_thresholds': '满额门槛',
+      'manage_coupons': '优惠券管理',
+      'search_users': '搜索用户',
     };
     return nameMap[name] || name;
   };
@@ -5330,6 +5336,12 @@ const ToolCallCard = ({
     if (name === 'search_products') return { icon: Search, color: 'blue', bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-600' };
     if (name === 'update_cart' || name === 'get_cart') return { icon: ShoppingCart, color: 'orange', bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-600' };
     if (name === 'get_category') return { icon: List, color: 'purple', bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-600' };
+    if (name === 'manage_products') return { icon: Package, color: 'indigo', bg: 'bg-indigo-50', border: 'border-indigo-100', text: 'text-indigo-600' };
+    if (name === 'manage_orders') return { icon: ClipboardList, color: 'emerald', bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-600' };
+    if (name === 'manage_lottery') return { icon: Gift, color: 'amber', bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-600' };
+    if (name === 'manage_gift_thresholds') return { icon: Gift, color: 'rose', bg: 'bg-rose-50', border: 'border-rose-100', text: 'text-rose-600' };
+    if (name === 'manage_coupons') return { icon: Ticket, color: 'violet', bg: 'bg-violet-50', border: 'border-violet-100', text: 'text-violet-600' };
+    if (name === 'search_users') return { icon: Users, color: 'cyan', bg: 'bg-cyan-50', border: 'border-cyan-100', text: 'text-cyan-600' };
     return { icon: Terminal, color: 'gray', bg: 'bg-gray-50', border: 'border-gray-100', text: 'text-gray-600' };
   };
 
@@ -5390,6 +5402,65 @@ const ToolCallCard = ({
     }
     
     // Generic
+    // ===== 管理员工具参数展示 =====
+    if (function_name === 'manage_products') {
+      const actionMap = { add: '添加商品', edit: '编辑商品', delete: '删除商品' };
+      const products = args.products || [];
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{products.length} 件</span></div>
+          {products.length > 0 && products[0].name && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品</span> <span className="text-gray-900 truncate">{products.map(p => p.name || p.product_id).slice(0, 3).join('、')}{products.length > 3 ? ' ...' : ''}</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'manage_orders') {
+      const actionMap = { list: '查看订单', update_status: '修改状态' };
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+          {args.filters?.status && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">状态</span> <span className="text-gray-900">{args.filters.status}</span></div>}
+          {args.updates && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.updates.length} 个订单</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'manage_lottery') {
+      const actionMap = { get_config: '获取配置', update_config: '修改配置', add_prize: '添加奖品', edit_prizes: '编辑奖品', delete_prizes: '删除奖品' };
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+          {args.prizes && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.prizes.length} 个奖品</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'manage_gift_thresholds') {
+      const actionMap = { list: '查看门槛', add: '添加门槛', edit: '编辑门槛', delete: '删除门槛' };
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+          {args.thresholds && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.thresholds.length} 个</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'manage_coupons') {
+      const actionMap = { list: '查看优惠券', issue: '发放优惠券', revoke: '撤回优惠券' };
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
+          {args.student_id && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">学号</span> <span className="text-gray-900">{args.student_id}</span></div>}
+          {args.coupons && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.coupons.length} 张</span></div>}
+        </div>
+      );
+    }
+    if (function_name === 'search_users') {
+      const kws = args.keywords || [];
+      return (
+        <div className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">关键词</span> <span className="font-medium text-gray-900">{kws.join('、')}</span></div>
+        </div>
+      );
+    }
+
     if (Object.keys(args).length === 0) return null;
 
     return (
@@ -5705,6 +5776,190 @@ const ToolCallCard = ({
         );
     }
 
+    // ===== 管理员工具结果展示 =====
+    const isAdminTool = ['manage_products', 'manage_orders', 'manage_lottery', 'manage_gift_thresholds', 'manage_coupons', 'search_users'].includes(function_name);
+    if (isAdminTool && result) {
+      const isOk = result.ok !== false;
+      const statusIcon = isOk ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />;
+      const statusBg = isOk ? "bg-green-50" : "bg-red-50";
+
+      // 批量操作结果通用渲染
+      if (result.total !== undefined && result.success !== undefined) {
+        const failed = result.total - result.success;
+        return (
+          <div className="space-y-2">
+            <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+              {statusIcon}
+              <div className="text-sm">
+                <span className="font-medium">{result.action ? getDisplayName(function_name) : '操作'}</span>
+                <span className="text-gray-600 ml-2">成功 {result.success}/{result.total}</span>
+                {failed > 0 && <span className="text-red-500 ml-1">({failed} 失败)</span>}
+              </div>
+            </div>
+            {result.results && result.results.length > 0 && result.results.length <= 10 && (
+              <div className="text-xs space-y-1 pl-2">
+                {result.results.map((r, i) => (
+                  <div key={i} className={cx("flex items-center gap-1.5", r.ok ? "text-green-700" : "text-red-600")}>
+                    {r.ok ? <Check className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                    <span className="truncate">{r.name || r.product_id || r.order_id || r.prize_id || r.threshold_id || r.coupon_id || `#${i + 1}`}</span>
+                    {r.error && <span className="text-red-500 ml-1">- {r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // 单个添加成功
+      if (function_name === 'manage_products' && result.action === 'add' && result.product) {
+        return (
+          <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+            {statusIcon}
+            <div className="text-sm">
+              <span className="font-medium">已添加商品: </span>
+              <span className="text-gray-800">{result.product.name}</span>
+              {result.product.price && <span className="text-gray-500 ml-2">¥{result.product.price}</span>}
+            </div>
+          </div>
+        );
+      }
+
+      // 订单列表
+      if (function_name === 'manage_orders' && result.action === 'list' && result.orders) {
+        if (result.orders.length === 0) {
+          return <div className="text-sm text-gray-500 p-2">暂无订单</div>;
+        }
+        return (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500">共 {result.count || result.orders.length} 个订单 (第 {(result.page || 0) + 1} 页)</div>
+            <div className="space-y-1.5">
+              {result.orders.slice(0, 10).map((o, i) => {
+                const statusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', delivering: 'bg-purple-100 text-purple-700', completed: 'bg-green-100 text-green-700', cancelled: 'bg-gray-100 text-gray-500' };
+                const statusLabels = { pending: '待处理', confirmed: '已确认', delivering: '配送中', completed: '已完成', cancelled: '已取消' };
+                return (
+                  <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium", statusColors[o.status] || 'bg-gray-100 text-gray-500')}>{statusLabels[o.status] || o.status}</span>
+                      <span className="text-gray-600 truncate">{o.student_name || o.student_id || '—'}</span>
+                    </div>
+                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{o.total_amount}</span>
+                  </div>
+                );
+              })}
+              {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
+            </div>
+          </div>
+        );
+      }
+
+      // 抽奖配置
+      if (function_name === 'manage_lottery' && result.action === 'get_config') {
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 p-2 bg-amber-50 rounded-lg text-sm">
+              <span className="text-amber-600 font-medium">抽奖配置</span>
+              <span className={cx("px-2 py-0.5 rounded text-xs font-medium", result.config?.is_enabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>{result.config?.is_enabled ? '已启用' : '已禁用'}</span>
+              <span className="text-gray-600">门槛: ¥{result.config?.threshold_amount || 0}</span>
+            </div>
+            {result.prizes && result.prizes.length > 0 && (
+              <div className="text-xs space-y-1">
+                {result.prizes.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 p-1.5 bg-white rounded border border-gray-100">
+                    <span className={cx("w-2 h-2 rounded-full", p.is_active ? "bg-green-400" : "bg-gray-300")} />
+                    <span className="font-medium text-gray-700">{p.display_name}</span>
+                    <span className="text-gray-400 ml-auto">权重: {p.weight}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // 满额门槛列表
+      if (function_name === 'manage_gift_thresholds' && result.action === 'list' && result.thresholds) {
+        if (result.thresholds.length === 0) {
+          return <div className="text-sm text-gray-500 p-2">暂无满额门槛配置</div>;
+        }
+        return (
+          <div className="space-y-1.5">
+            {result.thresholds.map((t, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                <span className={cx("w-2 h-2 rounded-full", t.is_active ? "bg-green-400" : "bg-gray-300")} />
+                <span className="font-medium">满 ¥{t.threshold_amount}</span>
+                {t.gift_products && <span className="text-xs bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">赠品</span>}
+                {t.gift_coupon && <span className="text-xs bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">券 ¥{t.coupon_amount}</span>}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      // 优惠券列表
+      if (function_name === 'manage_coupons' && result.action === 'list' && result.coupons) {
+        if (result.coupons.length === 0) {
+          return <div className="text-sm text-gray-500 p-2">暂无优惠券</div>;
+        }
+        return (
+          <div className="space-y-1.5">
+            <div className="text-xs text-gray-500">共 {result.count} 张优惠券</div>
+            {result.coupons.slice(0, 10).map((c, i) => (
+              <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-violet-600">¥{c.amount}</span>
+                  {c.student_id && <span className="text-gray-500 text-xs">{c.student_id}</span>}
+                </div>
+                <span className={cx("text-xs px-1.5 py-0.5 rounded", c.is_active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400")}>{c.is_active ? '有效' : '已撤回'}</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      // 优惠券发放结果
+      if (function_name === 'manage_coupons' && result.action === 'issue') {
+        return (
+          <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+            {statusIcon}
+            <div className="text-sm">
+              <span className="font-medium">已发放 {result.total_issued || 0} 张优惠券</span>
+              {result.success !== undefined && <span className="text-gray-500 ml-2">({result.success}/{result.total} 批次成功)</span>}
+            </div>
+          </div>
+        );
+      }
+
+      // 搜索用户结果
+      if (function_name === 'search_users' && result.users) {
+        if (result.users.length === 0) {
+          return <div className="text-sm text-gray-500 p-2">未找到匹配用户</div>;
+        }
+        return (
+          <div className="space-y-1.5">
+            <div className="text-xs text-gray-500">找到 {result.count} 个用户</div>
+            {result.users.slice(0, 15).map((u, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                <Users className="w-4 h-4 text-gray-400" />
+                <span className="font-medium text-gray-800">{u.display_name}</span>
+                <span className="text-gray-400 text-xs ml-auto">{u.student_id}</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      // 默认: 通用管理工具结果
+      if (result.error) {
+        return (
+          <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg">
+            <XCircle className="w-4 h-4 text-red-600" />
+            <span className="text-sm text-red-700">{result.error}</span>
+          </div>
+        );
+      }
+    }
+
     // Generic JSON - 格式化显示未知工具的结果
     if (result && typeof result === 'object') {
         // 尝试友好地显示通用结果
@@ -5913,7 +6168,7 @@ const ToolCallCard = ({
   );
 };
 
-function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isLoading }) {
+function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isLoading, enableImageUpload, pendingImage, onImageUpload, onClearImage, isUploadingImage }) {
   const ta = useRef(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -5977,16 +6232,58 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
     </svg>
   );
 
+  const imageInputRef = useRef(null);
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file && onImageUpload) {
+      onImageUpload(file);
+    }
+    if (e.target) e.target.value = "";
+  };
+
   return (
     <div className="mx-auto w-full max-w-3xl">
+      {/* 图片预览 */}
+      {pendingImage && (
+        <div className="mb-1.5 flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-200">
+          <img src={pendingImage.url?.startsWith("/") ? `${typeof window !== 'undefined' ? window.__API_BASE || '' : ''}${pendingImage.url}` : pendingImage.url} alt="" className="w-10 h-10 rounded object-cover" />
+          <span className="text-xs text-gray-500 truncate flex-1">{pendingImage.name || '已上传图片'}</span>
+          <button onClick={onClearImage} className="text-gray-400 hover:text-red-500 transition-colors p-0.5" title="移除图片">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 1l12 12M13 1L1 13" /></svg>
+          </button>
+        </div>
+      )}
       <div
         className={cx(
-          "bg-white border border-gray-300 shadow-sm p-1.5 grid [grid-template-areas:'primary_trailing'] grid-cols-[1fr_auto] gap-2 items-center",
+          "bg-white border border-gray-300 shadow-sm p-1.5 grid gap-2 items-center",
+          enableImageUpload ? "[grid-template-areas:'leading_primary_trailing'] grid-cols-[auto_1fr_auto]" : "[grid-template-areas:'primary_trailing'] grid-cols-[1fr_auto]",
           radius
         )}
         aria-label="composer"
       >
-        <div className={cx(minH, "max-h-60 overflow-hidden [grid-area:primary] flex flex-1 items-center")}>          
+        {/* 图片上传按钮 */}
+        {enableImageUpload && (
+          <div className="[grid-area:leading] flex items-center">
+            <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isUploadingImage}
+              title="上传图片"
+              className={cx(
+                "h-8 w-8 flex items-center justify-center rounded-full transition-colors",
+                isUploadingImage ? "text-gray-300" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              )}
+            >
+              {isUploadingImage ? (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              )}
+            </button>
+          </div>
+        )}
+        <div className={cx(minH, "max-h-60 overflow-hidden [grid-area:primary] flex flex-1 items-center")}>
           <textarea
             ref={ta}
             value={value}
@@ -6027,7 +6324,7 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
   );
 }
 
-export default function ChatModern({ user, initialConversationId = null }) {
+export default function ChatModern({ user, initialConversationId = null, apiPathPrefix = '/ai', enableImageUpload = false, mode = 'user' }) {
   const router = useRouter();
   const [msgs, setMsgs] = useState([]);
   const [inp, setInp] = useState("");
@@ -6421,7 +6718,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     setIsLoadingChats(true);
     setChatError("");
     try {
-      const response = await fetch(`${apiBase}/ai/chats?limit=100`, {
+      const response = await fetch(`${apiBase}${apiPathPrefix}/chats?limit=100`, {
         credentials: "include",
       });
       if (!response.ok) {
@@ -6451,7 +6748,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     } finally {
       setIsLoadingChats(false);
     }
-  }, [historyEnabled, apiBase]);
+  }, [historyEnabled, apiBase, apiPathPrefix]);
 
   const loadConversation = useCallback(
     async (chatId) => {
@@ -6463,7 +6760,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
       setIsLoadingHistory(true);
       setChatError("");
       try {
-        const response = await fetch(`${apiBase}/ai/chats/${chatId}`, {
+        const response = await fetch(`${apiBase}${apiPathPrefix}/chats/${chatId}`, {
           credentials: "include",
         });
         if (response.status === 401) {
@@ -6484,7 +6781,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
         setIsLoadingHistory(false);
       }
     },
-    [historyEnabled, apiBase, mapHistoryToMessages]
+    [historyEnabled, apiBase, apiPathPrefix, mapHistoryToMessages]
   );
 
   useEffect(() => {
@@ -6617,17 +6914,25 @@ export default function ChatModern({ user, initialConversationId = null }) {
       }
       
       setActiveChatId(chatId);
-      
+
       // 移动端关闭侧边栏
       if (typeof window !== 'undefined' && window.innerWidth < 1024) {
         setIsSidebarOpen(false);
       }
-      
+
       if (router) {
-        router.push(`/c/${chatId}`);
+        if (mode === 'admin') {
+          // Admin mode: shallow navigation keeps same component — must clear msgs manually
+          setMsgs([]);
+          setChatError("");
+          const prefix = apiPathPrefix.startsWith('/agent') ? '/agent' : '/admin';
+          router.push(`${prefix}/ai-chat/${chatId}`, undefined, { shallow: true });
+        } else {
+          router.push(`/c/${chatId}`);
+        }
       }
     },
-    [historyEnabled, activeChatId, router]
+    [historyEnabled, activeChatId, router, mode, apiPathPrefix]
   );
 
   const handleCreateChat = useCallback(() => {
@@ -6684,14 +6989,19 @@ export default function ChatModern({ user, initialConversationId = null }) {
     
     // 跳转到聊天根目录
     if (router) {
-      router.push('/c');
+      if (mode === 'admin') {
+        const prefix = apiPathPrefix.startsWith('/agent') ? '/agent' : '/admin';
+        router.push(`${prefix}/ai-chat`);
+      } else {
+        router.push('/c');
+      }
     }
-  }, [historyEnabled, activeChatId, msgs, router]);
+  }, [historyEnabled, activeChatId, msgs, router, mode, apiPathPrefix]);
 
   // 实际创建对话的内部函数（不激活）
   const createNewChatSilent = useCallback(async (title = "") => {
     try {
-      const response = await fetch(`${apiBase}/ai/chats`, {
+      const response = await fetch(`${apiBase}${apiPathPrefix}/chats`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -6807,7 +7117,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     }
     setChatError("");
     try {
-      const response = await fetch(`${apiBase}/ai/chats/${chatId}`, {
+      const response = await fetch(`${apiBase}${apiPathPrefix}/chats/${chatId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -6833,7 +7143,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
     const loadModels = async () => {
       try {
         const baseUrl = getApiBaseUrl();
-        const apiUrl = `${baseUrl.replace(/\/$/, '')}/ai/models`;
+        const apiUrl = `${baseUrl.replace(/\/$/, '')}${apiPathPrefix}/models`;
         const response = await fetch(apiUrl, { credentials: 'include' });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -7000,7 +7310,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
 
   // SSE客户端实现
   const sendMessage = async (messages, modelValue, chatId = null) => {
-    const API_URL = `${apiBase}/ai/chat`;
+    const API_URL = `${apiBase}${apiPathPrefix}/chat`;
     if (!modelValue) {
       throw new Error("缺少有效模型配置");
     }
@@ -7349,12 +7659,56 @@ export default function ChatModern({ user, initialConversationId = null }) {
     }
   };
 
+  // ===== 图片上传 (管理员模式) =====
+  const [pendingImage, setPendingImage] = useState(null); // { path, url, file }
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  const handleImageUpload = useCallback(async (file) => {
+    if (!file || !enableImageUpload) return;
+    setIsUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${apiBase}${apiPathPrefix}/upload-image`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.ok) {
+        setPendingImage({
+          path: data.image_path,
+          url: data.url,
+          name: file.name,
+        });
+      } else {
+        console.error("Image upload failed:", data.error);
+      }
+    } catch (err) {
+      console.error("Image upload error:", err);
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }, [apiBase, apiPathPrefix, enableImageUpload]);
+
+  const clearPendingImage = useCallback(() => {
+    setPendingImage(null);
+  }, []);
+
   const handleSend = async () => {
     const txt = inp.trim();
     if (!txt || isLoading) return;
     if (!selectedModel) {
       push("error", modelError || "模型未就绪，请稍后重试。");
       return;
+    }
+
+    // 处理待上传的图片
+    let finalText = txt;
+    if (pendingImage) {
+      finalText = `${txt}\n\n[已上传图片: ${pendingImage.path}]`;
+      setPendingImage(null);
     }
 
     let chatIdToUse = activeChatId;
@@ -7384,7 +7738,12 @@ export default function ChatModern({ user, initialConversationId = null }) {
       
       // 立即跳转到新对话URL
       if (router) {
-        router.push(`/c/${newChatId}`);
+        if (mode === 'admin') {
+          const prefix = apiPathPrefix.startsWith('/agent') ? '/agent' : '/admin';
+          router.push(`${prefix}/ai-chat/${newChatId}`);
+        } else {
+          router.push(`/c/${newChatId}`);
+        }
       }
       return;
     }
@@ -7394,9 +7753,9 @@ export default function ChatModern({ user, initialConversationId = null }) {
     setShowThinking(true);
     setChatError("");
     thinkingMsgIdRef.current = null;
-    push("user", txt);
+    push("user", finalText);
     setInp("");
-    
+
     // 更新对话列表中的预览
     if (historyEnabled && chatIdToUse) {
       setChats((prev) => {
@@ -7413,7 +7772,7 @@ export default function ChatModern({ user, initialConversationId = null }) {
 
     try {
       // 构建消息历史
-      const newMessages = [...msgs, { role: "user", content: txt }];
+      const newMessages = [...msgs, { role: "user", content: finalText }];
       // 过滤 UI 专用消息，仅传 user/assistant/tool，并保留必要的字段
       const apiMessages = newMessages
         .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "tool")
@@ -7809,9 +8168,14 @@ export default function ChatModern({ user, initialConversationId = null }) {
                       onChange={setInp}
                       onSend={handleSend}
                       onStop={handleStop}
-                      placeholder="问我任何问题…"
+                      placeholder={mode === 'admin' ? "输入管理指令…" : "问我任何问题…"}
                       autoFocus
                       isLoading={isLoading}
+                      enableImageUpload={enableImageUpload}
+                      pendingImage={pendingImage}
+                      onImageUpload={handleImageUpload}
+                      onClearImage={clearPendingImage}
+                      isUploadingImage={isUploadingImage}
                     />
                   </motion.div>
                   
@@ -7959,8 +8323,13 @@ export default function ChatModern({ user, initialConversationId = null }) {
                   onChange={setInp}
                   onSend={handleSend}
                   onStop={handleStop}
-                  placeholder={inputPlaceholder}
+                  placeholder={mode === 'admin' ? "输入管理指令…" : inputPlaceholder}
                   isLoading={isLoading}
+                  enableImageUpload={enableImageUpload}
+                  pendingImage={pendingImage}
+                  onImageUpload={handleImageUpload}
+                  onClearImage={clearPendingImage}
+                  isUploadingImage={isUploadingImage}
                 />
               </motion.div>
             </div>

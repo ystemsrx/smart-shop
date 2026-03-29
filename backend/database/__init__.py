@@ -16,6 +16,7 @@ from .migrations import (
 from .connection import get_db_connection, safe_execute_with_migration
 from .bootstrap import init_database
 from .chat import ChatLogDB, cleanup_old_chat_logs
+from .staff_chat import StaffChatLogDB
 from .users import UserDB, UserProfileDB
 from .products import ProductDB, VariantDB, CategoryDB
 from .cart import CartDB
@@ -57,6 +58,7 @@ __all__ = [
     "init_database",
     "ChatLogDB",
     "cleanup_old_chat_logs",
+    "StaffChatLogDB",
     "UserDB",
     "UserProfileDB",
     "ProductDB",

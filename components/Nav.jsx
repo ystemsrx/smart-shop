@@ -18,6 +18,7 @@ export default function Nav({ active = 'home' }) {
   const isAgent = user?.type === 'agent';
   const isStaff = isAdmin || isAgent;
   const staffShopLink = '/shop';
+  const staffAiChatLink = isAdmin ? '/admin/ai-chat' : '/agent/ai-chat';
   const staffDashboardLink = isAdmin ? '/admin/dashboard' : '/agent/dashboard';
   const staffPortalLink = isAdmin ? '/admin' : '/agent';
   const locationLabel = location
@@ -107,6 +108,10 @@ export default function Nav({ active = 'home' }) {
                 {/* 管理员专用导航 */}
                 {isStaff ? (
                   <>
+                    <Link ref={setTabRef('staff-ai-chat')} href={staffAiChatLink} className={linkCls('staff-ai-chat')}>
+                      <i className="fas fa-robot"></i>
+                      <span>管理助手</span>
+                    </Link>
                     <Link ref={setTabRef('staff-shop')} href={staffShopLink} className={linkCls('staff-shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
@@ -284,6 +289,14 @@ export default function Nav({ active = 'home' }) {
               {/* 管理员专用菜单 */}
               {isStaff ? (
                 <>
+                  <Link
+                    href={staffAiChatLink}
+                    onClick={closeMenu}
+                    className={`${active === 'staff-ai-chat' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}
+                  >
+                    <i className="fas fa-robot w-5"></i>
+                    <span className="font-medium">管理助手</span>
+                  </Link>
                   <Link
                     href={staffShopLink}
                     onClick={closeMenu}

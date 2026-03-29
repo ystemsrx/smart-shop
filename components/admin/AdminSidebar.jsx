@@ -377,20 +377,22 @@ export function AdminSidebar({
         </AnimatePresence>
       </div>
 
-      {/* Navigation Items */}
-      <div className="flex-1 py-4 px-2 space-y-3 overflow-y-visible overflow-x-visible scrollbar-hide">
-        {tabs.map((tab) => (
-          <SidebarItem 
-            key={tab.id}
-            tab={tab}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            isCollapsed={isCollapsed}
-            mouseY={mouseY}
-            onItemClick={handleItemClick}
-            isMobile={isMobile}
-          />
-        ))}
+      {/* Navigation Items - scrollable on short screens */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+        <div className="py-4 px-2 space-y-3">
+          {tabs.map((tab) => (
+            <SidebarItem
+              key={tab.id}
+              tab={tab}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              isCollapsed={isCollapsed}
+              mouseY={mouseY}
+              onItemClick={handleItemClick}
+              isMobile={isMobile}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Logout Button at Bottom */}

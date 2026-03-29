@@ -13,6 +13,8 @@ const NO_NAV_PAGES = ['/login', '/register', '/order-success', '/_error'];
 
 // 不显示路由切换骨架屏的页面（这些页面有自己的骨架屏/加载态）
 const NO_SKELETON_PAGES = ['/login', '/register'];
+// 以这些前缀开头的路径也不显示骨架屏（聊天页面内部切换对话）
+const NO_SKELETON_PREFIXES = ['/c/', '/admin/ai-chat', '/agent/ai-chat'];
 const AUTH_TRANSITION_PAGES = ['/login', '/register'];
 
 function AuthRouteTransition({ routeKey, children }) {
@@ -42,6 +44,7 @@ function getNavActiveFromPath(path, isStaff) {
   if (path === '/orders') return 'orders';
   if (path === '/checkout') return 'checkout';
   if (path.startsWith('/c')) return 'home';
+  if (path.startsWith('/admin/ai-chat') || path.startsWith('/agent/ai-chat')) return 'staff-ai-chat';
   if (path === '/admin/dashboard' || path === '/agent/dashboard') return 'staff-dashboard';
   if (path === '/admin' || path === '/agent') return 'staff-backend';
   return 'home';
@@ -93,7 +96,7 @@ function AppLayout({ children }) {
 
   // 目标页面有自己的骨架屏时不显示全局骨架屏
   const targetPath = transitionTarget ? transitionTarget.split('?')[0] : null;
-  const showSkeleton = transitionTarget && !NO_SKELETON_PAGES.includes(targetPath);
+  const showSkeleton = transitionTarget && !NO_SKELETON_PAGES.includes(targetPath) && !NO_SKELETON_PREFIXES.some(p => targetPath?.startsWith(p));
   const isAuthPage = AUTH_TRANSITION_PAGES.includes(router.pathname);
   const routeKey = router.asPath;
   const shouldAnimateAuthPage = hasMounted && isAuthPage;

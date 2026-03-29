@@ -591,16 +591,17 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     <div className="space-y-6">
                       <DeliverySettingsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />
                     </div>
-                    
+
                     <div className="space-y-6">
-                      <GiftThresholdPanel 
-                        apiPrefix={staffPrefix} 
+                      <GiftThresholdPanel
+                        apiPrefix={staffPrefix}
                         onWarningChange={setGiftThresholdHasStockWarning}
                         apiRequest={apiRequest}
                       />
                     </div>
                   </div>
                 )}
+
               </motion.div>
             </AnimatePresence>
           </main>
