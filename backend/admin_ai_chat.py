@@ -1421,6 +1421,61 @@ def _sanitize_admin_messages(
     return sanitized
 
 
+def _prune_synced_staff_user_messages(
+    staff_account_id: str,
+    messages: List[Dict[str, Any]],
+    thread_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """移除已落库的 staff 用户消息，仅保留最后一条未同步 user 输入。"""
+    if not staff_account_id or not messages:
+        return messages
+
+    try:
+        history = StaffChatLogDB.get_recent_logs(staff_account_id, limit=200, thread_id=thread_id)
+    except Exception as exc:
+        logger.warning("Failed to load staff chat history, skipping deduplication: %s", exc)
+        return messages
+
+    persisted_user_contents: List[str] = []
+    for record in reversed(history):  # 转为时间正序
+        if (record.get("role") or "").lower() == "user":
+            persisted_user_contents.append(record.get("content") or "")
+
+    persisted_index = 0
+    synced_indices: List[int] = []
+    unsynced_user_indices: List[int] = []
+
+    for idx, msg in enumerate(messages):
+        if (msg.get("role") or "").lower() != "user":
+            continue
+
+        content = msg.get("content")
+        if content is None:
+            content = ""
+
+        matched = False
+        while persisted_index < len(persisted_user_contents):
+            if persisted_user_contents[persisted_index] == content:
+                matched = True
+                persisted_index += 1
+                synced_indices.append(idx)
+                break
+            persisted_index += 1
+
+        if not matched:
+            unsynced_user_indices.append(idx)
+
+    pruned: List[Dict[str, Any]] = []
+    for idx, msg in enumerate(messages):
+        if idx in synced_indices:
+            continue
+        if idx in unsynced_user_indices and idx != unsynced_user_indices[-1]:
+            continue
+        pruned.append(msg)
+
+    return pruned
+
+
 # ===== 工具调用处理 =====
 
 async def handle_admin_tool_calls_and_continue(
@@ -1587,6 +1642,7 @@ async def stream_admin_chat(
     queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
     staff_account_id = staff.get("id", "")
     init_messages = _sanitize_admin_messages(init_messages, staff_account_id, conversation_id)
+    init_messages = _prune_synced_staff_user_messages(staff_account_id, init_messages, conversation_id)
     model_config = resolve_model_config(selected_model_name)
 
     client_disconnected = asyncio.Event()
