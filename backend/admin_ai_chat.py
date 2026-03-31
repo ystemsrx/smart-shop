@@ -115,7 +115,7 @@ Current operator: {staff_name} (role: {staff_role})
 - When performing batch operations, describe the scope of impact.
 - Currency unit is CNY (Chinese Yuan).
 - Discount range: 0.5–10 (where 10 = full price, i.e. no discount).
-- Product images: When the user sends an image, the message will contain the image path. Use that path when adding/editing product images.
+- Product images: When the user sends an image, the message will contain the image path (starting with ai_uploads_tmp/). Use that exact path when adding/editing product images via the image_path parameter.
 
 # Order Status Reference
 - pending: Awaiting processing
@@ -698,14 +698,16 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
 
 
 def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> None:
-    """将上传的图片应用到商品。"""
-    # 安全检查: 只允许 ai_uploads/ 开头的路径
-    if not image_path.startswith("ai_uploads/"):
+    """将上传的图片应用到商品。支持 ai_uploads_tmp/ 和 ai_uploads/ 路径。"""
+    # 安全检查: 只允许 ai_uploads/ 或 ai_uploads_tmp/ 开头的路径
+    if not image_path.startswith("ai_uploads_tmp/") and not image_path.startswith("ai_uploads/"):
         raise ValueError("无效的图片路径")
 
     full_path = os.path.normpath(os.path.join(ITEMS_DIR, image_path))
     if not os.path.isfile(full_path):
         raise FileNotFoundError(f"图片文件不存在: {image_path}")
+
+    is_tmp = image_path.startswith("ai_uploads_tmp/")
 
     # 读取并重新编码为 quality=40 (与现有商品图片一致)
     with open(full_path, "rb") as f:
@@ -731,6 +733,12 @@ def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> 
     existing = ImageLookupDB.get_by_hash(file_hash)
     if existing:
         ProductDB.update_image_path(product_id, file_hash)
+        # 成功应用后删除临时文件
+        if is_tmp:
+            try:
+                os.remove(full_path)
+            except OSError:
+                pass
         return
 
     rel_path = f"{owner_id}/{product_id}/{file_hash}.webp"
@@ -742,6 +750,13 @@ def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> 
 
     ImageLookupDB.insert(file_hash, rel_path, product_id)
     ProductDB.update_image_path(product_id, file_hash)
+
+    # 成功应用后删除临时文件
+    if is_tmp:
+        try:
+            os.remove(full_path)
+        except OSError:
+            pass
 
 
 def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1307,7 +1322,7 @@ def execute_admin_tool(name: str, args: Dict[str, Any], staff: Dict[str, Any], r
 # ===== 图片上传 =====
 
 def handle_admin_image_upload(staff: Dict[str, Any], content: bytes) -> Dict[str, Any]:
-    """处理管理员聊天中的图片上传。转为 WebP quality=80 并存储。"""
+    """处理管理员聊天中的图片上传。转为 WebP quality=80 并存储到临时目录。"""
     try:
         img = Image.open(io.BytesIO(content))
 
@@ -1329,7 +1344,8 @@ def handle_admin_image_upload(staff: Dict[str, Any], content: bytes) -> Dict[str
         staff_id = staff.get("id", "unknown")
         timestamp = int(time.time())
 
-        rel_path = f"ai_uploads/{staff_id}/{timestamp}_{file_hash}.webp"
+        # 上传到临时目录 ai_uploads_tmp/
+        rel_path = f"ai_uploads_tmp/{staff_id}/{timestamp}_{file_hash}.webp"
         file_path = os.path.normpath(os.path.join(ITEMS_DIR, rel_path))
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
@@ -1340,6 +1356,31 @@ def handle_admin_image_upload(staff: Dict[str, Any], content: bytes) -> Dict[str
     except Exception as e:
         logger.error("Admin image upload failed: %s", e)
         return {"ok": False, "error": f"图片上传失败: {e}"}
+
+
+def cleanup_temp_uploads(max_age_hours: int = 24) -> int:
+    """清理超过 max_age_hours 小时未使用的临时上传图片。返回删除的文件数。"""
+    tmp_dir = os.path.join(ITEMS_DIR, "ai_uploads_tmp")
+    if not os.path.isdir(tmp_dir):
+        return 0
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for root, dirs, files in os.walk(tmp_dir, topdown=False):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    removed += 1
+            except OSError:
+                pass
+        # 删除空目录
+        try:
+            if not os.listdir(root) and root != tmp_dir:
+                os.rmdir(root)
+        except OSError:
+            pass
+    return removed
 
 
 # ===== 消息处理 =====
@@ -1362,13 +1403,17 @@ def _sanitize_admin_messages(
     staff_account_id: str,
     thread_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """清理和规范化管理员聊天消息。"""
+    """清理和规范化管理员聊天消息。content 始终保持纯文本字符串。"""
     sanitized = []
     for msg in messages:
         role = msg.get("role", "")
         if role not in ALLOWED_ROLES:
             continue
-        clean = {"role": role, "content": msg.get("content")}
+        content = msg.get("content")
+        # 确保 content 是字符串（防止意外的 list/dict 类型）
+        if content is not None and not isinstance(content, str):
+            content = str(content)
+        clean = {"role": role, "content": content}
         if msg.get("tool_calls"):
             clean["tool_calls"] = msg["tool_calls"]
         if msg.get("tool_call_id"):

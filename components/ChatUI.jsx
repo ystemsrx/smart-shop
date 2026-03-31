@@ -6244,14 +6244,23 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* 图片预览 */}
+      {/* 图片预览缩略图 */}
       {pendingImage && (
-        <div className="mb-1.5 flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-200">
-          <img src={pendingImage.url?.startsWith("/") ? `${typeof window !== 'undefined' ? window.__API_BASE || '' : ''}${pendingImage.url}` : pendingImage.url} alt="" className="w-10 h-10 rounded object-cover" />
-          <span className="text-xs text-gray-500 truncate flex-1">{pendingImage.name || '已上传图片'}</span>
-          <button onClick={onClearImage} className="text-gray-400 hover:text-red-500 transition-colors p-0.5" title="移除图片">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 1l12 12M13 1L1 13" /></svg>
-          </button>
+        <div className="mb-1.5 flex items-start px-1">
+          <div className="relative group">
+            <img
+              src={pendingImage.url?.startsWith("/") ? `${typeof window !== 'undefined' ? window.__API_BASE || '' : ''}${pendingImage.url}` : pendingImage.url}
+              alt=""
+              className="w-14 h-14 rounded-lg object-cover border border-gray-200 shadow-sm"
+            />
+            <button
+              onClick={onClearImage}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+              title="移除图片"
+            >
+              <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M1 1l12 12M13 1L1 13" /></svg>
+            </button>
+          </div>
         </div>
       )}
       <div
@@ -6529,11 +6538,17 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
         const role = entry.role;
         
         if (role === "user") {
-          normalized.push({
+          const userContent = entry.content || "";
+          const imgMatch = userContent.match(/\n\n\[已上传图片: ([^\]]+)\]$/);
+          const userMsg = {
             id: baseId,
             role: "user",
-            content: entry.content || "",
-          });
+            content: userContent,
+          };
+          if (imgMatch) {
+            userMsg.image = { url: `/items/${imgMatch[1]}`, path: imgMatch[1] };
+          }
+          normalized.push(userMsg);
         } else if (role === "assistant") {
           // 查找紧跟在这个 assistant 消息后面的所有 tool 消息
           const followingToolCalls = [];
@@ -6808,7 +6823,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
       
       const pendingData = sessionStorage.getItem(pendingKey);
       if (pendingData) {
-        const { text, model } = JSON.parse(pendingData);
+        const { text, model, image: pendingImg } = JSON.parse(pendingData);
         
         // 立即标记为处理中并移除pending数据，防止重复触发
         sessionStorage.setItem(processingKey, 'true');
@@ -6836,7 +6851,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
             thinkingMsgIdRef.current = null;
             
             // 添加用户消息到界面
-            push("user", text);
+            push("user", text, pendingImg ? { image: pendingImg } : undefined);
             
             // 更新对话列表预览
             setChats((prev) => {
@@ -7229,7 +7244,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
     setShowThinking(false);
   };
 
-  const push = (role, content) => setMsgs((s) => [...s, { id: genId(), role, content }]);
+  const push = (role, content, extra) => setMsgs((s) => [...s, { id: genId(), role, content, ...extra }]);
   const pushToolCallCard = (payload) => setMsgs((s) => [...s, { id: genId(), role: "tool_call", ...payload }]);
   const updateToolCallCard = (toolCallId, updater) => {
     setMsgs((s) => s.map((m) => {
@@ -7706,8 +7721,10 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
 
     // 处理待上传的图片
     let finalText = txt;
+    let sentImage = null;
     if (pendingImage) {
       finalText = `${txt}\n\n[已上传图片: ${pendingImage.path}]`;
+      sentImage = { url: pendingImage.url, path: pendingImage.path };
       setPendingImage(null);
     }
 
@@ -7727,11 +7744,15 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
       
       // 将待发送的消息存储到sessionStorage
       try {
-        sessionStorage.setItem(`chat_pending_${newChatId}`, JSON.stringify({
-          text: txt,
+        const pendingData = {
+          text: finalText,
           model: selectedModel,
           skipLoad: true
-        }));
+        };
+        if (sentImage) {
+          pendingData.image = sentImage;
+        }
+        sessionStorage.setItem(`chat_pending_${newChatId}`, JSON.stringify(pendingData));
       } catch (err) {
         console.error('Failed to store pending message:', err);
       }
@@ -7753,7 +7774,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
     setShowThinking(true);
     setChatError("");
     thinkingMsgIdRef.current = null;
-    push("user", finalText);
+    push("user", finalText, sentImage ? { image: sentImage } : undefined);
     setInp("");
 
     // 更新对话列表中的预览
@@ -8234,10 +8255,31 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
                           />
                         );
                       } else if (m.role === "user") {
+                        const displayText = m.content.replace(/\n\n\[已上传图片: [^\]]+\]$/, '');
+                        const imageUrl = m.image?.url;
+                        const imgSrc = imageUrl?.startsWith("/") ? `${apiBase}${imageUrl}` : imageUrl;
                         content = (
-                          <Bubble role={m.role}>
-                            {m.content}
-                          </Bubble>
+                          <div>
+                            {imageUrl && (
+                              <div className="flex justify-end mb-1.5">
+                                <img
+                                  src={imgSrc}
+                                  alt=""
+                                  className="w-20 h-20 rounded-lg object-cover border border-gray-200 shadow-sm"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextElementSibling && (e.target.nextElementSibling.style.display = 'flex');
+                                  }}
+                                />
+                                <div className="hidden w-20 h-20 rounded-lg bg-gray-100 border border-gray-200 items-center justify-center">
+                                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                </div>
+                              </div>
+                            )}
+                            <Bubble role={m.role}>
+                              {displayText}
+                            </Bubble>
+                          </div>
                         );
                       } else if (m.role === "error") {
                         content = <ErrorBubble message={m.content} />;
