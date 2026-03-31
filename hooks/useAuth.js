@@ -6,7 +6,7 @@ const DEFAULT_AUTH_CONTEXT = {
   user: null,
   isLoading: false,
   error: '',
-  isInitialized: true,
+  isInitialized: false,
   login: async () => {
     throw new Error('Auth not available during server render');
   },

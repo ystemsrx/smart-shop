@@ -18,6 +18,21 @@ const NO_SKELETON_PREFIXES = ['/c/', '/admin/ai-chat', '/agent/ai-chat'];
 const AUTH_TRANSITION_PAGES = ['/login', '/register'];
 
 function AuthRouteTransition({ routeKey, children }) {
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => { setHasMounted(true); }, []);
+
+  // SSR and initial client render: plain divs to avoid hydration mismatch
+  // (framer-motion's AnimatePresence/motion.div produce different HTML on server vs client)
+  if (!hasMounted) {
+    return (
+      <div className="relative min-h-screen overflow-hidden">
+        <div className="absolute inset-0 min-h-screen w-full">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen overflow-hidden">
       <AnimatePresence initial={false} mode="sync">
@@ -68,12 +83,7 @@ function AppLayout({ children }) {
   const router = useRouter();
   const showNav = !NO_NAV_PAGES.includes(router.pathname);
   const [transitionTarget, setTransitionTarget] = useState(null);
-  const [hasMounted, setHasMounted] = useState(false);
   const active = useNavActive(transitionTarget);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
 
   useEffect(() => {
     const handleStart = (url) => {
@@ -99,12 +109,10 @@ function AppLayout({ children }) {
   const showSkeleton = transitionTarget && !NO_SKELETON_PAGES.includes(targetPath) && !NO_SKELETON_PREFIXES.some(p => targetPath?.startsWith(p));
   const isAuthPage = AUTH_TRANSITION_PAGES.includes(router.pathname);
   const routeKey = router.asPath;
-  const shouldAnimateAuthPage = hasMounted && isAuthPage;
-
   return (
     <>
       {showNav && <Nav active={active} />}
-      {shouldAnimateAuthPage ? (
+      {isAuthPage ? (
         <AuthRouteTransition routeKey={routeKey}>
           {children}
         </AuthRouteTransition>
