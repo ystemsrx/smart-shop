@@ -5401,64 +5401,199 @@ const ToolCallCard = ({
        );
     }
     
-    // Generic
     // ===== 管理员工具参数展示 =====
+    const Row = ({ label, children }) => (
+      <div className="flex gap-2 text-sm"><span className="text-gray-500 min-w-[4rem] shrink-0">{label}</span><span className="text-gray-900 min-w-0">{children}</span></div>
+    );
+    const statusLabels = { pending: '待处理', confirmed: '已确认', delivering: '配送中', completed: '已完成', cancelled: '已取消' };
+
     if (function_name === 'manage_products') {
-      const actionMap = { add: '添加商品', edit: '编辑商品', delete: '删除商品' };
+      const a = args.action;
       const products = args.products || [];
-      return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{products.length} 件</span></div>
-          {products.length > 0 && products[0].name && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">商品</span> <span className="text-gray-900 truncate">{products.map(p => p.name || p.product_id).slice(0, 3).join('、')}{products.length > 3 ? ' ...' : ''}</span></div>}
+      if (a === 'categories') return <Row label="操作"><span className="font-medium">查看所有分类</span></Row>;
+      if (a === 'list') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">浏览商品列表</span></Row>
+            {args.category && <Row label="分类">{args.category}</Row>}
+            <Row label="分页">第 {(args.page || 0) + 1} 页，每页 {args.limit || 20} 条</Row>
+          </div>
+        );
+      }
+      if (a === 'search') return (
+        <div className="flex flex-col gap-1">
+          <Row label="操作"><span className="font-medium">搜索商品</span></Row>
+          <Row label="关键词"><span className="font-medium">{args.query}</span></Row>
+          {args.page > 0 && <Row label="分页">第 {args.page + 1} 页</Row>}
         </div>
       );
+      if (a === 'add' && products[0]) {
+        const p = products[0];
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">添加商品</span></Row>
+            <Row label="名称"><span className="font-medium">{p.name}</span></Row>
+            {p.category && <Row label="分类">{p.category}</Row>}
+            {p.price != null && <Row label="价格">¥{p.price}</Row>}
+            {p.stock != null && <Row label="库存">{p.stock}</Row>}
+            {p.discount != null && p.discount < 10 && <Row label="折扣">{p.discount} 折</Row>}
+            {p.cost != null && p.cost > 0 && <Row label="成本">¥{p.cost}</Row>}
+            {p.image_path && <Row label="图片">已上传</Row>}
+            {p.variants?.length > 0 && <Row label="规格">{p.variants.map(v => v.name).join('、')}</Row>}
+          </div>
+        );
+      }
+      if (a === 'edit') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">编辑 {products.length} 件商品</span></Row>
+            {products.slice(0, 5).map((p, i) => {
+              const fields = Object.keys(p).filter(k => k !== 'product_id' && p[k] != null);
+              return <Row key={i} label={p.name || p.product_id?.slice(0, 8)}><span className="text-xs text-gray-500">修改: {fields.join(', ')}</span></Row>;
+            })}
+            {products.length > 5 && <div className="text-xs text-gray-400 pl-[4.5rem]">还有 {products.length - 5} 件...</div>}
+          </div>
+        );
+      }
+      if (a === 'delete') {
+        const names = products.map(p => p.name || p.product_id?.slice(0, 8)).filter(Boolean);
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium text-red-600">删除 {products.length} 件商品</span></Row>
+            {names.length > 0 && <Row label="商品"><span className="truncate">{names.slice(0, 5).join('、')}{names.length > 5 ? ` 等${names.length}件` : ''}</span></Row>}
+          </div>
+        );
+      }
     }
     if (function_name === 'manage_orders') {
-      const actionMap = { list: '查看订单', update_status: '修改状态' };
-      return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-          {args.filters?.status && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">状态</span> <span className="text-gray-900">{args.filters.status}</span></div>}
-          {args.updates && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.updates.length} 个订单</span></div>}
-        </div>
-      );
+      if (args.action === 'list') {
+        const f = args.filters || {};
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">查看订单列表</span></Row>
+            {f.status && <Row label="状态筛选"><span className={cx("px-1.5 py-0.5 rounded text-xs font-medium", f.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : f.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600')}>{statusLabels[f.status] || f.status}</span></Row>}
+            {f.student_id && <Row label="学号">{f.student_id}</Row>}
+            <Row label="分页">第 {(f.page || 0) + 1} 页，每页 {f.limit || 20} 条</Row>
+          </div>
+        );
+      }
+      if (args.action === 'update_status' && args.updates) {
+        const grouped = {};
+        args.updates.forEach(u => { grouped[u.status] = (grouped[u.status] || 0) + 1; });
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">修改 {args.updates.length} 个订单状态</span></Row>
+            {Object.entries(grouped).map(([s, c]) => (
+              <Row key={s} label="目标状态"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{statusLabels[s] || s}</span> <span className="text-gray-500">× {c}</span></Row>
+            ))}
+          </div>
+        );
+      }
     }
     if (function_name === 'manage_lottery') {
       const actionMap = { get_config: '获取配置', update_config: '修改配置', add_prize: '添加奖品', edit_prizes: '编辑奖品', delete_prizes: '删除奖品' };
+      if (args.action === 'get_config') return <Row label="操作"><span className="font-medium">获取抽奖配置</span></Row>;
+      if (args.action === 'update_config' && args.config) {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">修改抽奖配置</span></Row>
+            {args.config.is_enabled != null && <Row label="启用">{args.config.is_enabled ? '是' : '否'}</Row>}
+            {args.config.threshold_amount != null && <Row label="门槛">¥{args.config.threshold_amount}</Row>}
+          </div>
+        );
+      }
+      const prizes = args.prizes || [];
       return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-          {args.prizes && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.prizes.length} 个奖品</span></div>}
+        <div className="flex flex-col gap-1">
+          <Row label="操作"><span className="font-medium">{actionMap[args.action] || args.action}</span></Row>
+          {prizes.length > 0 && prizes.slice(0, 5).map((p, i) => (
+            <Row key={i} label={`奖品${i + 1}`}>
+              <span className="font-medium">{p.display_name || p.prize_id?.slice(0, 8) || `#${i + 1}`}</span>
+              {p.weight != null && <span className="text-gray-500 text-xs ml-1">权重:{p.weight}</span>}
+            </Row>
+          ))}
+          {prizes.length > 5 && <div className="text-xs text-gray-400 pl-[4.5rem]">还有 {prizes.length - 5} 个...</div>}
         </div>
       );
     }
     if (function_name === 'manage_gift_thresholds') {
       const actionMap = { list: '查看门槛', add: '添加门槛', edit: '编辑门槛', delete: '删除门槛' };
+      if (args.action === 'list') return <Row label="操作"><span className="font-medium">查看所有满额门槛</span></Row>;
+      const thresholds = args.thresholds || [];
       return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-          {args.thresholds && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.thresholds.length} 个</span></div>}
+        <div className="flex flex-col gap-1">
+          <Row label="操作"><span className="font-medium">{actionMap[args.action] || args.action} {thresholds.length} 个</span></Row>
+          {thresholds.slice(0, 5).map((t, i) => (
+            <Row key={i} label={`门槛${i + 1}`}>
+              {t.threshold_amount != null && <span className="font-medium">满 ¥{t.threshold_amount}</span>}
+              {t.gift_products && <span className="text-xs bg-rose-50 text-rose-600 px-1 rounded ml-1">赠品</span>}
+              {t.gift_coupon && <span className="text-xs bg-violet-50 text-violet-600 px-1 rounded ml-1">券 ¥{t.coupon_amount || '?'}</span>}
+            </Row>
+          ))}
         </div>
       );
     }
     if (function_name === 'manage_coupons') {
-      const actionMap = { list: '查看优惠券', issue: '发放优惠券', revoke: '撤回优惠券' };
-      return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">操作</span> <span className="font-medium text-gray-900">{actionMap[args.action] || args.action}</span></div>
-          {args.student_id && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">学号</span> <span className="text-gray-900">{args.student_id}</span></div>}
-          {args.coupons && <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">数量</span> <span className="text-gray-900">{args.coupons.length} 张</span></div>}
-        </div>
-      );
+      if (args.action === 'list') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">查看优惠券</span></Row>
+            {args.student_id && <Row label="学号">{args.student_id}</Row>}
+          </div>
+        );
+      }
+      if (args.action === 'issue') {
+        const coupons = args.coupons || [];
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">发放优惠券</span></Row>
+            {args.student_id && <Row label="对象">{args.student_id}</Row>}
+            {coupons.map((c, i) => (
+              <Row key={i} label={`券${i + 1}`}>
+                <span className="font-semibold text-violet-600">¥{c.amount}</span>
+                {c.quantity > 1 && <span className="text-gray-500 text-xs ml-1">× {c.quantity}</span>}
+                {c.expires_at && <span className="text-gray-400 text-xs ml-1">截止 {c.expires_at.slice(0, 10)}</span>}
+              </Row>
+            ))}
+          </div>
+        );
+      }
+      if (args.action === 'revoke') {
+        const coupons = args.coupons || [];
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium text-red-600">撤回 {coupons.length} 张优惠券</span></Row>
+          </div>
+        );
+      }
     }
     if (function_name === 'search_users') {
-      const kws = args.keywords || [];
-      return (
-        <div className="flex flex-col gap-1 text-sm">
-          <div className="flex gap-2"><span className="text-gray-500 min-w-[4rem]">关键词</span> <span className="font-medium text-gray-900">{kws.join('、')}</span></div>
-        </div>
-      );
+      if (args.action === 'search') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">搜索用户</span></Row>
+            <Row label="关键词"><span className="font-medium">{(args.keywords || []).join('、')}</span></Row>
+          </div>
+        );
+      }
+      if (args.action === 'orders') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">查看用户订单</span></Row>
+            <Row label="学号">{args.student_id}</Row>
+            {args.sort_by === 'amount' && <Row label="排序">按金额降序</Row>}
+            {args.page > 0 && <Row label="分页">第 {args.page + 1} 页</Row>}
+          </div>
+        );
+      }
+      if (args.action === 'coupons') {
+        return (
+          <div className="flex flex-col gap-1">
+            <Row label="操作"><span className="font-medium">查看用户优惠券</span></Row>
+            <Row label="学号">{args.student_id}</Row>
+          </div>
+        );
+      }
     }
 
     if (Object.keys(args).length === 0) return null;
@@ -5782,8 +5917,252 @@ const ToolCallCard = ({
       const isOk = result.ok !== false;
       const statusIcon = isOk ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />;
       const statusBg = isOk ? "bg-green-50" : "bg-red-50";
+      const orderStatusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', delivering: 'bg-purple-100 text-purple-700', completed: 'bg-green-100 text-green-700', cancelled: 'bg-gray-100 text-gray-500' };
+      const orderStatusLabels = { pending: '待处理', confirmed: '已确认', delivering: '配送中', completed: '已完成', cancelled: '已取消' };
 
-      // 批量操作结果通用渲染
+      // ---- manage_products ----
+      if (function_name === 'manage_products') {
+        // 分类列表
+        if (result.action === 'categories' && result.categories) {
+          return (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500">共 {result.total || result.categories.length} 个分类</div>
+              <div className="flex flex-wrap gap-2">
+                {result.categories.map((c, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white rounded-lg border border-gray-100 text-sm">
+                    <span className="font-medium text-gray-800">{c.name}</span>
+                    <span className="text-xs text-gray-400">{c.product_count}件</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        // 商品列表 / 搜索
+        if ((result.action === 'list' || result.action === 'search') && result.products) {
+          if (result.products.length === 0) {
+            return <div className="text-sm text-gray-500 p-2">{result.action === 'search' ? '未找到匹配商品' : '暂无商品'}</div>;
+          }
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>共 {result.total} 件{result.query ? ` · 搜索"${result.query}"` : ''}</span>
+                <span>第 {(result.page || 0) + 1} 页{result.has_more ? '' : ' (末页)'}</span>
+              </div>
+              <div className="space-y-1">
+                {result.products.slice(0, 15).map((p, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-medium text-gray-800 truncate">{p.name}</span>
+                      <span className="text-xs text-gray-400 shrink-0">{p.category}</span>
+                      {p.is_hot && <span className="text-xs bg-red-50 text-red-500 px-1 rounded shrink-0">热</span>}
+                      {!p.is_active && <span className="text-xs bg-gray-100 text-gray-400 px-1 rounded shrink-0">下架</span>}
+                    </div>
+                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                      <span className="text-xs text-gray-400">库存 {p.stock}</span>
+                      {p.discount < 10 && <span className="text-xs text-orange-500">{p.discount}折</span>}
+                      <span className="font-semibold text-gray-900">¥{p.effective_price ?? p.price}</span>
+                    </div>
+                  </div>
+                ))}
+                {result.products.length > 15 && <div className="text-xs text-gray-400 text-center">还有 {result.products.length - 15} 件商品...</div>}
+              </div>
+            </div>
+          );
+        }
+        // 添加成功
+        if (result.action === 'add' && result.product) {
+          const p = result.product;
+          return (
+            <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+              {statusIcon}
+              <div className="text-sm flex-1 min-w-0">
+                <span className="font-medium">已添加: </span>
+                <span className="text-gray-800">{p.name}</span>
+                <span className="text-gray-500 ml-2">¥{p.price}</span>
+                {p.category && <span className="text-gray-400 ml-1 text-xs">({p.category})</span>}
+              </div>
+            </div>
+          );
+        }
+      }
+
+      // ---- manage_orders ----
+      if (function_name === 'manage_orders') {
+        if (result.action === 'list' && result.orders) {
+          if (result.orders.length === 0) return <div className="text-sm text-gray-500 p-2">暂无订单</div>;
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>共 {result.count || result.orders.length} 个订单</span>
+                <span>第 {(result.page || 0) + 1} 页</span>
+              </div>
+              <div className="space-y-1">
+                {result.orders.slice(0, 10).map((o, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[o.status] || 'bg-gray-100 text-gray-500')}>{orderStatusLabels[o.status] || o.status}</span>
+                      <span className="text-gray-600 truncate">{o.student_name || o.student_id || '—'}</span>
+                    </div>
+                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{o.total_amount}</span>
+                  </div>
+                ))}
+                {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
+              </div>
+            </div>
+          );
+        }
+      }
+
+      // ---- manage_lottery ----
+      if (function_name === 'manage_lottery') {
+        if (result.action === 'get_config') {
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 p-2 bg-amber-50 rounded-lg text-sm">
+                <span className="text-amber-600 font-medium">抽奖配置</span>
+                <span className={cx("px-2 py-0.5 rounded text-xs font-medium", result.config?.is_enabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>{result.config?.is_enabled ? '已启用' : '已禁用'}</span>
+                <span className="text-gray-600">门槛 ¥{result.config?.threshold_amount || 0}</span>
+              </div>
+              {result.prizes?.length > 0 && (
+                <div className="text-xs space-y-1">
+                  {result.prizes.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 p-1.5 bg-white rounded border border-gray-100">
+                      <span className={cx("w-2 h-2 rounded-full shrink-0", p.is_active ? "bg-green-400" : "bg-gray-300")} />
+                      <span className="font-medium text-gray-700">{p.display_name}</span>
+                      <span className="text-gray-400 ml-auto">权重 {p.weight}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
+      }
+
+      // ---- manage_gift_thresholds ----
+      if (function_name === 'manage_gift_thresholds') {
+        if (result.action === 'list' && result.thresholds) {
+          if (result.thresholds.length === 0) return <div className="text-sm text-gray-500 p-2">暂无满额门槛配置</div>;
+          return (
+            <div className="space-y-1.5">
+              {result.thresholds.map((t, i) => (
+                <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                  <span className={cx("w-2 h-2 rounded-full shrink-0", t.is_active ? "bg-green-400" : "bg-gray-300")} />
+                  <span className="font-medium">满 ¥{t.threshold_amount}</span>
+                  {t.gift_products && <span className="text-xs bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">赠品</span>}
+                  {t.gift_coupon && <span className="text-xs bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">券 ¥{t.coupon_amount}</span>}
+                  {t.per_order_limit > 0 && <span className="text-xs text-gray-400 ml-auto">限{t.per_order_limit}次/单</span>}
+                </div>
+              ))}
+            </div>
+          );
+        }
+      }
+
+      // ---- manage_coupons ----
+      if (function_name === 'manage_coupons') {
+        if (result.action === 'list' && result.coupons) {
+          if (result.coupons.length === 0) return <div className="text-sm text-gray-500 p-2">暂无优惠券</div>;
+          return (
+            <div className="space-y-1.5">
+              <div className="text-xs text-gray-500">共 {result.count || result.total_count || result.coupons.length} 张优惠券</div>
+              {result.coupons.slice(0, 10).map((c, i) => (
+                <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-violet-600">¥{c.amount}</span>
+                    {c.count > 1 && <span className="text-xs text-gray-500">× {c.count}</span>}
+                    {c.student_id && <span className="text-gray-400 text-xs">{c.student_id}</span>}
+                  </div>
+                  <span className={cx("text-xs px-1.5 py-0.5 rounded", c.is_active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400")}>{c.is_active ? '有效' : '已失效'}</span>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        if (result.action === 'issue') {
+          return (
+            <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+              {statusIcon}
+              <div className="text-sm">
+                <span className="font-medium">已发放 {result.total_issued || 0} 张优惠券</span>
+                {result.success !== undefined && result.total > 1 && <span className="text-gray-500 ml-2">({result.success}/{result.total} 批次成功)</span>}
+              </div>
+            </div>
+          );
+        }
+      }
+
+      // ---- search_users ----
+      if (function_name === 'search_users') {
+        // 用户搜索
+        if (result.action === 'search' && result.users) {
+          if (result.users.length === 0) return <div className="text-sm text-gray-500 p-2">未找到匹配用户</div>;
+          return (
+            <div className="space-y-1.5">
+              <div className="text-xs text-gray-500">找到 {result.count} 个用户</div>
+              {result.users.slice(0, 15).map((u, i) => (
+                <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Users className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="font-medium text-gray-800">{u.name || u.display_name}</span>
+                    {u.phone && <span className="text-gray-400 text-xs">{u.phone}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <span className="text-xs text-gray-400">{u.order_count || 0} 单</span>
+                    <span className="text-xs text-gray-500 font-mono">{u.student_id}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        // 用户订单
+        if (result.action === 'orders' && result.orders) {
+          if (result.orders.length === 0) return <div className="text-sm text-gray-500 p-2">该用户暂无订单</div>;
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>用户 {result.student_id} · 共 {result.total} 个订单</span>
+                <span>第 {(result.page || 0) + 1} 页</span>
+              </div>
+              <div className="space-y-1">
+                {result.orders.slice(0, 10).map((o, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[o.status] || 'bg-gray-100 text-gray-500')}>{orderStatusLabels[o.status] || o.status}</span>
+                      <span className="text-xs text-gray-400">{o.items_count || 0}件</span>
+                      {o.created_at && <span className="text-xs text-gray-400">{o.created_at.slice(5, 16)}</span>}
+                    </div>
+                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{o.total_amount}</span>
+                  </div>
+                ))}
+                {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
+              </div>
+            </div>
+          );
+        }
+        // 用户优惠券
+        if (result.action === 'coupons' && result.coupons) {
+          if (result.coupons.length === 0) return <div className="text-sm text-gray-500 p-2">该用户暂无优惠券</div>;
+          return (
+            <div className="space-y-1.5">
+              <div className="text-xs text-gray-500">用户 {result.student_id} · 共 {result.total_count} 张优惠券</div>
+              {result.coupons.map((c, i) => (
+                <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-violet-600">¥{c.amount}</span>
+                    <span className="text-xs text-gray-500">× {c.count}</span>
+                  </div>
+                  <span className={cx("text-xs px-1.5 py-0.5 rounded", c.is_active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400")}>{c.is_active ? '有效' : '已失效'}</span>
+                </div>
+              ))}
+            </div>
+          );
+        }
+      }
+
+      // 批量操作结果通用渲染 (edit/delete/update_status 等)
       if (result.total !== undefined && result.success !== undefined) {
         const failed = result.total - result.success;
         return (
@@ -5791,12 +6170,12 @@ const ToolCallCard = ({
             <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
               {statusIcon}
               <div className="text-sm">
-                <span className="font-medium">{result.action ? getDisplayName(function_name) : '操作'}</span>
+                <span className="font-medium">{displayName}</span>
                 <span className="text-gray-600 ml-2">成功 {result.success}/{result.total}</span>
                 {failed > 0 && <span className="text-red-500 ml-1">({failed} 失败)</span>}
               </div>
             </div>
-            {result.results && result.results.length > 0 && result.results.length <= 10 && (
+            {result.results?.length > 0 && result.results.length <= 10 && (
               <div className="text-xs space-y-1 pl-2">
                 {result.results.map((r, i) => (
                   <div key={i} className={cx("flex items-center gap-1.5", r.ok ? "text-green-700" : "text-red-600")}>
@@ -5811,150 +6190,20 @@ const ToolCallCard = ({
         );
       }
 
-      // 单个添加成功
-      if (function_name === 'manage_products' && result.action === 'add' && result.product) {
-        return (
-          <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
-            {statusIcon}
-            <div className="text-sm">
-              <span className="font-medium">已添加商品: </span>
-              <span className="text-gray-800">{result.product.name}</span>
-              {result.product.price && <span className="text-gray-500 ml-2">¥{result.product.price}</span>}
-            </div>
-          </div>
-        );
-      }
-
-      // 订单列表
-      if (function_name === 'manage_orders' && result.action === 'list' && result.orders) {
-        if (result.orders.length === 0) {
-          return <div className="text-sm text-gray-500 p-2">暂无订单</div>;
-        }
-        return (
-          <div className="space-y-2">
-            <div className="text-xs text-gray-500">共 {result.count || result.orders.length} 个订单 (第 {(result.page || 0) + 1} 页)</div>
-            <div className="space-y-1.5">
-              {result.orders.slice(0, 10).map((o, i) => {
-                const statusColors = { pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700', delivering: 'bg-purple-100 text-purple-700', completed: 'bg-green-100 text-green-700', cancelled: 'bg-gray-100 text-gray-500' };
-                const statusLabels = { pending: '待处理', confirmed: '已确认', delivering: '配送中', completed: '已完成', cancelled: '已取消' };
-                return (
-                  <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium", statusColors[o.status] || 'bg-gray-100 text-gray-500')}>{statusLabels[o.status] || o.status}</span>
-                      <span className="text-gray-600 truncate">{o.student_name || o.student_id || '—'}</span>
-                    </div>
-                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{o.total_amount}</span>
-                  </div>
-                );
-              })}
-              {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
-            </div>
-          </div>
-        );
-      }
-
-      // 抽奖配置
-      if (function_name === 'manage_lottery' && result.action === 'get_config') {
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3 p-2 bg-amber-50 rounded-lg text-sm">
-              <span className="text-amber-600 font-medium">抽奖配置</span>
-              <span className={cx("px-2 py-0.5 rounded text-xs font-medium", result.config?.is_enabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>{result.config?.is_enabled ? '已启用' : '已禁用'}</span>
-              <span className="text-gray-600">门槛: ¥{result.config?.threshold_amount || 0}</span>
-            </div>
-            {result.prizes && result.prizes.length > 0 && (
-              <div className="text-xs space-y-1">
-                {result.prizes.map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 p-1.5 bg-white rounded border border-gray-100">
-                    <span className={cx("w-2 h-2 rounded-full", p.is_active ? "bg-green-400" : "bg-gray-300")} />
-                    <span className="font-medium text-gray-700">{p.display_name}</span>
-                    <span className="text-gray-400 ml-auto">权重: {p.weight}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      }
-
-      // 满额门槛列表
-      if (function_name === 'manage_gift_thresholds' && result.action === 'list' && result.thresholds) {
-        if (result.thresholds.length === 0) {
-          return <div className="text-sm text-gray-500 p-2">暂无满额门槛配置</div>;
-        }
-        return (
-          <div className="space-y-1.5">
-            {result.thresholds.map((t, i) => (
-              <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                <span className={cx("w-2 h-2 rounded-full", t.is_active ? "bg-green-400" : "bg-gray-300")} />
-                <span className="font-medium">满 ¥{t.threshold_amount}</span>
-                {t.gift_products && <span className="text-xs bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">赠品</span>}
-                {t.gift_coupon && <span className="text-xs bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">券 ¥{t.coupon_amount}</span>}
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      // 优惠券列表
-      if (function_name === 'manage_coupons' && result.action === 'list' && result.coupons) {
-        if (result.coupons.length === 0) {
-          return <div className="text-sm text-gray-500 p-2">暂无优惠券</div>;
-        }
-        return (
-          <div className="space-y-1.5">
-            <div className="text-xs text-gray-500">共 {result.count} 张优惠券</div>
-            {result.coupons.slice(0, 10).map((c, i) => (
-              <div key={i} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-violet-600">¥{c.amount}</span>
-                  {c.student_id && <span className="text-gray-500 text-xs">{c.student_id}</span>}
-                </div>
-                <span className={cx("text-xs px-1.5 py-0.5 rounded", c.is_active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400")}>{c.is_active ? '有效' : '已撤回'}</span>
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      // 优惠券发放结果
-      if (function_name === 'manage_coupons' && result.action === 'issue') {
-        return (
-          <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
-            {statusIcon}
-            <div className="text-sm">
-              <span className="font-medium">已发放 {result.total_issued || 0} 张优惠券</span>
-              {result.success !== undefined && <span className="text-gray-500 ml-2">({result.success}/{result.total} 批次成功)</span>}
-            </div>
-          </div>
-        );
-      }
-
-      // 搜索用户结果
-      if (function_name === 'search_users' && result.users) {
-        if (result.users.length === 0) {
-          return <div className="text-sm text-gray-500 p-2">未找到匹配用户</div>;
-        }
-        return (
-          <div className="space-y-1.5">
-            <div className="text-xs text-gray-500">找到 {result.count} 个用户</div>
-            {result.users.slice(0, 15).map((u, i) => (
-              <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                <Users className="w-4 h-4 text-gray-400" />
-                <span className="font-medium text-gray-800">{u.display_name}</span>
-                <span className="text-gray-400 text-xs ml-auto">{u.student_id}</span>
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      // 默认: 通用管理工具结果
+      // 通用成功/失败
       if (result.error) {
         return (
           <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg">
             <XCircle className="w-4 h-4 text-red-600" />
             <span className="text-sm text-red-700">{result.error}</span>
+          </div>
+        );
+      }
+      if (result.message || result.ok) {
+        return (
+          <div className={cx("flex items-center gap-3 p-2.5 rounded-lg", statusBg)}>
+            {statusIcon}
+            <span className="text-sm">{result.message || '操作成功'}</span>
           </div>
         );
       }
@@ -6071,9 +6320,57 @@ const ToolCallCard = ({
           )
       }
 
+      // ===== 管理员工具折叠摘要 =====
+      if (function_name === 'manage_products') {
+        const a = result?.action || args?.action;
+        if (a === 'categories') return <span className="text-xs text-gray-600">找到 {result?.total || result?.categories?.length || 0} 个分类</span>;
+        if (a === 'list' || a === 'search') {
+          const total = result?.total ?? 0;
+          return (
+            <div className="flex items-center gap-2 text-xs overflow-hidden">
+              {a === 'search' && args?.query && <span className="font-medium text-gray-900 shrink-0">搜索"{args.query}"</span>}
+              {a === 'search' && args?.query && <span className="text-gray-300">|</span>}
+              <span className="text-gray-600 shrink-0">{total} 件商品</span>
+            </div>
+          );
+        }
+        if (a === 'add') return <span className="text-xs text-gray-600">{result?.ok ? `已添加: ${result?.product?.name || ''}` : '添加失败'}</span>;
+        if (a === 'edit') return <span className="text-xs text-gray-600">{result?.ok !== false ? `成功 ${result?.success ?? 0}/${result?.total ?? 0}` : '编辑失败'}</span>;
+        if (a === 'delete') return <span className="text-xs text-gray-600">{result?.ok !== false ? `已删除 ${result?.success ?? 0} 件` : '删除失败'}</span>;
+      }
+      if (function_name === 'manage_orders') {
+        const a = result?.action || args?.action;
+        if (a === 'list') return <span className="text-xs text-gray-600">{result?.count || result?.orders?.length || 0} 个订单</span>;
+        if (a === 'update_status') return <span className="text-xs text-gray-600">{result?.ok !== false ? `成功 ${result?.success ?? 0}/${result?.total ?? 0}` : '修改失败'}</span>;
+      }
+      if (function_name === 'manage_lottery') {
+        const a = result?.action || args?.action;
+        if (a === 'get_config') return <span className="text-xs text-gray-600">{result?.config?.is_enabled ? '已启用' : '已禁用'} · 门槛 ¥{result?.config?.threshold_amount || 0} · {result?.prizes?.length || 0} 个奖品</span>;
+        const actionLabels = { update_config: '已更新配置', add_prize: '已添加奖品', edit_prizes: '已编辑奖品', delete_prizes: '已删除奖品' };
+        return <span className="text-xs text-gray-600">{result?.ok !== false ? (actionLabels[a] || '操作完成') : '操作失败'}</span>;
+      }
+      if (function_name === 'manage_gift_thresholds') {
+        const a = result?.action || args?.action;
+        if (a === 'list') return <span className="text-xs text-gray-600">{result?.thresholds?.length || 0} 个门槛</span>;
+        return <span className="text-xs text-gray-600">{result?.ok !== false ? `成功 ${result?.success ?? 0}/${result?.total ?? 0}` : '操作失败'}</span>;
+      }
+      if (function_name === 'manage_coupons') {
+        const a = result?.action || args?.action;
+        if (a === 'list') return <span className="text-xs text-gray-600">{result?.count || result?.total_count || result?.coupons?.length || 0} 张优惠券</span>;
+        if (a === 'issue') return <span className="text-xs text-gray-600">{result?.ok !== false ? `已发放 ${result?.total_issued || 0} 张` : '发放失败'}</span>;
+        if (a === 'revoke') return <span className="text-xs text-gray-600">{result?.ok !== false ? `已撤回 ${result?.success ?? 0} 张` : '撤回失败'}</span>;
+      }
+      if (function_name === 'search_users') {
+        const a = result?.action || args?.action;
+        if (a === 'search') return <span className="text-xs text-gray-600">找到 {result?.count || 0} 个用户</span>;
+        if (a === 'orders') return <span className="text-xs text-gray-600">{result?.student_id} · {result?.total || 0} 个订单</span>;
+        if (a === 'coupons') return <span className="text-xs text-gray-600">{result?.student_id} · {result?.total_count || 0} 张优惠券</span>;
+      }
+
       // Fallback
       if (result?.message) return <span className="text-xs text-gray-600">{result.message}</span>;
-      
+      if (result?.ok === false) return <span className="text-xs text-red-500">{result?.error || '操作失败'}</span>;
+
       return <span className="text-xs text-gray-500">执行完成</span>;
   }
 
