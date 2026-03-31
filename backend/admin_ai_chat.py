@@ -699,11 +699,25 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
 
 def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> None:
     """将上传的图片应用到商品。临时文件由定时清理任务统一处理。"""
-    # 安全检查: 只允许 ai_uploads_tmp/ 开头的路径
-    if not image_path.startswith("ai_uploads_tmp/"):
+    # 安全检查: 严格限制到 ITEMS_DIR/ai_uploads_tmp 下，防止目录穿越
+    if os.path.isabs(image_path):
+        raise ValueError("无效的图片路径")
+    if "\\" in image_path:
         raise ValueError("无效的图片路径")
 
-    full_path = os.path.normpath(os.path.join(ITEMS_DIR, image_path))
+    normalized_rel = os.path.normpath(image_path)
+    if ".." in normalized_rel.split(os.sep):
+        raise ValueError("无效的图片路径")
+
+    uploads_prefix = f"ai_uploads_tmp{os.sep}"
+    if not (normalized_rel == "ai_uploads_tmp" or normalized_rel.startswith(uploads_prefix)):
+        raise ValueError("无效的图片路径")
+
+    base_uploads_dir = os.path.realpath(os.path.join(ITEMS_DIR, "ai_uploads_tmp"))
+    full_path = os.path.realpath(os.path.join(ITEMS_DIR, normalized_rel))
+    if not (full_path == base_uploads_dir or full_path.startswith(base_uploads_dir + os.sep)):
+        raise ValueError("无效的图片路径")
+
     if not os.path.isfile(full_path):
         raise FileNotFoundError(f"图片文件不存在: {image_path}")
 
