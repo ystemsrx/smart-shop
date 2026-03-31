@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Request
@@ -39,6 +40,7 @@ from database import (
     StaffChatLogDB,
     AgentAssignmentDB,
     ImageLookupDB,
+    UserProfileDB,
     get_db_connection,
 )
 from auth import get_current_staff_from_cookie
@@ -48,6 +50,22 @@ settings = get_settings()
 
 # 图片上传目录
 ITEMS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "items"))
+
+def _to_local_time(value: Optional[str]) -> str:
+    """将数据库 UTC 时间字符串转为服务器本地时区时间。"""
+    if not value:
+        return ""
+    try:
+        txt = str(value).replace("T", " ").strip()
+        if " " in txt:
+            dt = datetime.strptime(txt[:19], "%Y-%m-%d %H:%M:%S")
+        else:
+            dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return value or ""
 
 
 # ===== 系统提示词 =====
@@ -84,14 +102,15 @@ Current operator: {staff_name} (role: {staff_role})
 {scope_desc}
 
 # Available Operations (via tool calls)
-1. Product management (manage_products) - Add / edit / delete products
+1. Product management (manage_products) - Categories / list / search / add / edit / delete products
 2. Order management (manage_orders) - View orders / update order status
 3. Lottery configuration (manage_lottery) - Get / modify lottery settings and prizes
 4. Gift thresholds (manage_gift_thresholds) - Get / add / modify / delete spending thresholds
 5. Coupon management (manage_coupons) - Issue / revoke coupons
-6. User search (search_users) - Search for user information
+6. User query (search_users) - Search users / view user orders / view user coupons
 
 # Important Rules
+- Before editing or deleting products, use manage_products(action='categories'/'list'/'search') to look up info first.
 - For destructive operations (delete, batch update), confirm with the operator first.
 - When performing batch operations, describe the scope of impact.
 - Currency unit is CNY (Chinese Yuan).
@@ -104,6 +123,8 @@ Current operator: {staff_name} (role: {staff_role})
 - delivering: In delivery
 - completed: Completed
 - cancelled: Cancelled
+
+Current date: {datetime.now().strftime("%Y-%m-%d")}
 """
 
 
@@ -116,14 +137,30 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "manage_products",
-                "description": "Manage products: add (single), edit (batch), delete (batch). When adding, only one product at a time. For edit/delete, multiple products can be processed in batch.",
+                "description": "Manage products: categories (list all categories with product counts), list (paginated product list), search (by keyword), add (single), edit (batch), delete (batch). Use 'categories', 'list' or 'search' to look up info before edit/delete.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["add", "edit", "delete"],
-                            "description": "add = add a single product, edit = batch edit products, delete = batch delete products"
+                            "enum": ["categories", "list", "search", "add", "edit", "delete"],
+                            "description": "categories = list all categories with product counts, list = paginated product list, search = search by keyword, add = add a single product, edit = batch edit, delete = batch delete"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search keyword (used with action='search'). Matches against product name, category, and description."
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Filter by category name (used with action='list')"
+                        },
+                        "page": {
+                            "type": "integer",
+                            "description": "Page number starting from 0 (used with action='list'/'search'), default 0"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Results per page (used with action='list'/'search'), default 20, max 50"
                         },
                         "products": {
                             "type": "array",
@@ -158,7 +195,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                             }
                         }
                     },
-                    "required": ["action", "products"]
+                    "required": ["action"]
                 }
             }
         },
@@ -324,23 +361,39 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_users",
-                "description": "Search users by keywords (student ID, name, or profile name). Supports batch search with multiple keywords.",
+                "description": "User query tool: search users, view a user's orders, or view a user's coupons.",
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["search", "orders", "coupons"],
+                            "description": "search = find users by keyword (returns name/phone/order count), orders = list a user's orders, coupons = list a user's coupons"
+                        },
                         "keywords": {
                             "type": "array",
-                            "description": "List of search keywords",
-                            "items": {"type": "string"},
-                            "minItems": 1
+                            "description": "Search keywords (used with action='search'). Matches student ID, name, or phone.",
+                            "items": {"type": "string"}
+                        },
+                        "student_id": {
+                            "type": "string",
+                            "description": "Student ID (required for action='orders'/'coupons')"
+                        },
+                        "sort_by": {
+                            "type": "string",
+                            "enum": ["time", "amount"],
+                            "description": "Sort order for action='orders'. Default 'time' (newest first). 'amount' = highest first."
+                        },
+                        "page": {
+                            "type": "integer",
+                            "description": "Page number starting from 0 (used with action='orders'), default 0"
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Max results per keyword",
-                            "default": 10
+                            "description": "Results per page, default 10 for search, 20 for orders"
                         }
                     },
-                    "required": ["keywords"]
+                    "required": ["action"]
                 }
             }
         }
@@ -414,13 +467,90 @@ def _can_access_order(staff: Dict[str, Any], order: Dict[str, Any], scope: Dict[
 
 # ===== 工具实现 =====
 
+def _format_product_summary(product: Dict[str, Any]) -> Dict[str, Any]:
+    """格式化商品摘要信息用于工具返回。"""
+    discount = product.get("discount", 10)
+    price = product.get("price", 0)
+    effective_price = ProductDB._calc_effective_price(product)
+    summary = {
+        "id": product.get("id"),
+        "name": product.get("name"),
+        "category": product.get("category"),
+        "price": price,
+        "stock": product.get("stock", 0),
+        "discount": discount,
+        "is_hot": bool(product.get("is_hot")),
+        "is_active": product.get("is_active", 1) == 1,
+    }
+    if discount < 10:
+        summary["effective_price"] = effective_price
+    if product.get("description"):
+        summary["description"] = product["description"][:80]
+    return summary
+
+
 def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     """商品管理工具实现。"""
     action = args.get("action", "")
     products = args.get("products", [])
     owner_id = _get_owner_id(staff)
 
-    if action == "add":
+    if action == "categories":
+        scope = _build_scope(staff)
+        categories = CategoryDB.get_categories_with_products(
+            owner_ids=scope["owner_ids"], include_unassigned=True
+        )
+        result = []
+        for cat in categories:
+            cat_name = cat.get("name", "")
+            count = len(ProductDB.get_products_by_category(
+                cat_name, owner_ids=scope["owner_ids"], include_unassigned=True
+            ))
+            result.append({"name": cat_name, "product_count": count})
+        return {"ok": True, "action": "categories", "categories": result, "total": len(result)}
+
+    elif action in ("list", "search"):
+        scope = _build_scope(staff)
+        page = max(int(args.get("page") or 0), 0)
+        limit = min(max(int(args.get("limit") or 20), 1), 50)
+
+        if action == "search":
+            query = (args.get("query") or "").strip()
+            if not query:
+                return {"ok": False, "error": "搜索关键词不能为空"}
+            all_products = ProductDB.search_products(
+                query, active_only=False, owner_ids=scope["owner_ids"], include_unassigned=True
+            )
+        else:
+            query = None
+            category = args.get("category")
+            if category:
+                all_products = ProductDB.get_products_by_category(
+                    category, owner_ids=scope["owner_ids"], include_unassigned=True
+                )
+            else:
+                all_products = ProductDB.get_all_products(
+                    owner_ids=scope["owner_ids"], include_unassigned=True
+                )
+
+        total = len(all_products)
+        start = page * limit
+        page_products = all_products[start:start + limit]
+
+        result = {
+            "ok": True,
+            "action": action,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": start + limit < total,
+            "products": [_format_product_summary(p) for p in page_products],
+        }
+        if query is not None:
+            result["query"] = query
+        return result
+
+    elif action == "add":
         if len(products) != 1:
             return {"ok": False, "error": "添加商品每次只能添加一个"}
         p = products[0]
@@ -624,8 +754,8 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
         filters = args.get("filters") or {}
         status = filters.get("status")
         student_id = filters.get("student_id")
-        page = int(filters.get("page", 0))
-        limit = min(int(filters.get("limit", 20)), 50)
+        page = max(int(filters.get("page") or 0), 0)
+        limit = min(max(int(filters.get("limit") or 20), 1), 50)
 
         try:
             kwargs = {
@@ -657,7 +787,7 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
                     "total_amount": o.get("total_amount"),
                     "student_id": o.get("student_id"),
                     "student_name": o.get("customer_name") or o.get("student_name") or o.get("student_id"),
-                    "created_at": o.get("created_at"),
+                    "created_at": _to_local_time(o.get("created_at")),
                     "items_count": len(o.get("items", [])) if isinstance(o.get("items"), list) else 0,
                     "address_name": o.get("address_name"),
                     "building_name": o.get("building_name"),
@@ -909,19 +1039,28 @@ def _manage_coupons_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
         student_id = args.get("student_id")
         try:
             items = CouponDB.list_all(student_id, owner_id=owner_id)
+            # 按 (student_id, amount, is_active) 聚合，避免逐张列出
+            groups: Dict[tuple, Dict[str, Any]] = {}
+            for c in (items or []):
+                sid = c.get("issued_to_user_id") or c.get("student_id") or ""
+                amt = c.get("amount", 0)
+                active = bool(c.get("is_active"))
+                key = (sid, amt, active)
+                if key not in groups:
+                    groups[key] = {
+                        "student_id": sid,
+                        "amount": amt,
+                        "is_active": active,
+                        "count": 0,
+                        "coupon_ids": [],
+                    }
+                groups[key]["count"] += 1
+                groups[key]["coupon_ids"].append(c.get("id"))
             return {
                 "ok": True,
                 "action": "list",
-                "coupons": [{
-                    "id": c.get("id"),
-                    "code": c.get("code"),
-                    "amount": c.get("amount"),
-                    "student_id": c.get("issued_to_user_id") or c.get("student_id"),
-                    "is_active": bool(c.get("is_active")),
-                    "expires_at": c.get("expires_at"),
-                    "created_at": c.get("created_at"),
-                } for c in (items or [])],
-                "count": len(items or [])
+                "coupons": list(groups.values()),
+                "total_count": len(items or []),
             }
         except Exception as e:
             return {"ok": False, "error": f"查询优惠券失败: {e}"}
@@ -997,75 +1136,148 @@ def _manage_coupons_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
 
 
 def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    """用户搜索工具实现。"""
-    keywords = args.get("keywords", [])
-    limit = min(int(args.get("limit", 10)), 50)
+    """用户查询工具实现：搜索用户 / 查看订单 / 查看优惠券。"""
+    action = args.get("action", "search")
     scope = _build_scope(staff)
+    owner_id = _get_owner_id(staff)
 
-    all_results = {}  # 用字典去重
-    for kw in keywords:
-        like = f"%{kw.strip()}%"
+    if action == "search":
+        keywords = args.get("keywords", [])
+        if not keywords:
+            return {"ok": False, "error": "缺少搜索关键词"}
+        limit = min(max(int(args.get("limit") or 10), 1), 50)
+
+        all_results: Dict[str, Dict[str, Any]] = {}
+        for kw in keywords:
+            like = f"%{kw.strip()}%"
+            try:
+                with get_db_connection() as conn:
+                    cur = conn.cursor()
+                    params: List[Any] = [like, like, like]
+                    search_condition = "(u.id LIKE ? OR u.name LIKE ? OR up.phone LIKE ?)"
+                    filters: List[str] = [search_condition]
+
+                    if staff.get("type") == "agent":
+                        address_ids = [aid for aid in (scope.get("address_ids") or []) if aid]
+                        building_ids = [bid for bid in (scope.get("building_ids") or []) if bid]
+                        if not address_ids and not building_ids:
+                            continue
+                        coverage_parts: List[str] = []
+                        if address_ids:
+                            placeholders = ",".join("?" * len(address_ids))
+                            coverage_parts.append(f"up.address_id IN ({placeholders})")
+                            params.extend(address_ids)
+                        if building_ids:
+                            placeholders = ",".join("?" * len(building_ids))
+                            coverage_parts.append(f"up.building_id IN ({placeholders})")
+                            params.extend(building_ids)
+                        filters.append("(" + " OR ".join(coverage_parts) + ")")
+                        filters.append("((up.address_id IS NOT NULL AND TRIM(up.address_id) != '') OR (up.building_id IS NOT NULL AND TRIM(up.building_id) != ''))")
+
+                    query = f"""
+                        SELECT DISTINCT
+                            u.id AS student_id,
+                            u.name AS name,
+                            up.phone AS phone,
+                            (SELECT COUNT(*) FROM orders o WHERE o.student_id = u.id) AS order_count
+                        FROM users u
+                        LEFT JOIN user_profiles up
+                          ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
+                        WHERE {" AND ".join(filters)}
+                        ORDER BY u.id ASC
+                        LIMIT ?
+                    """
+                    params.append(limit)
+                    cur.execute(query, tuple(params))
+                    for row in cur.fetchall() or []:
+                        sid = row["student_id"]
+                        if sid not in all_results:
+                            all_results[sid] = {
+                                "student_id": sid,
+                                "name": row["name"] or sid,
+                                "phone": row["phone"] or "",
+                                "order_count": row["order_count"],
+                            }
+            except Exception as e:
+                logger.error("User search failed for keyword '%s': %s", kw, e)
+
+        return {"ok": True, "action": "search", "users": list(all_results.values()), "count": len(all_results)}
+
+    elif action == "orders":
+        student_id = (args.get("student_id") or "").strip()
+        if not student_id:
+            return {"ok": False, "error": "缺少 student_id"}
+        sort_by = args.get("sort_by", "time")
+        page = max(int(args.get("page") or 0), 0)
+        limit = min(max(int(args.get("limit") or 20), 1), 50)
+
         try:
-            with get_db_connection() as conn:
-                cur = conn.cursor()
-                params: List[Any] = [like, like, like]
-                search_condition = "(u.id LIKE ? OR u.name LIKE ? OR up.name LIKE ?)"
-                filters: List[str] = [search_condition]
+            kwargs: Dict[str, Any] = {
+                "keyword": student_id,
+                "offset": page * limit,
+                "limit": limit,
+            }
+            if scope.get("agent_id"):
+                kwargs["agent_id"] = scope["agent_id"]
+                kwargs["address_ids"] = scope.get("address_ids")
+                kwargs["building_ids"] = scope.get("building_ids")
+            elif scope.get("filter_admin_orders"):
+                kwargs["filter_admin_orders"] = True
 
-                if staff.get("type") == "agent":
-                    address_ids = [aid for aid in (scope.get("address_ids") or []) if aid]
-                    building_ids = [bid for bid in (scope.get("building_ids") or []) if bid]
-                    if not address_ids and not building_ids:
-                        continue
-                    coverage_parts: List[str] = []
-                    if address_ids:
-                        placeholders = ",".join("?" * len(address_ids))
-                        coverage_parts.append(f"up.address_id IN ({placeholders})")
-                        params.extend(address_ids)
-                    if building_ids:
-                        placeholders = ",".join("?" * len(building_ids))
-                        coverage_parts.append(f"up.building_id IN ({placeholders})")
-                        params.extend(building_ids)
-                    filters.append("(" + " OR ".join(coverage_parts) + ")")
-                    filters.append("((up.address_id IS NOT NULL AND TRIM(up.address_id) != '') OR (up.building_id IS NOT NULL AND TRIM(up.building_id) != ''))")
+            result_data = OrderDB.get_orders_paginated(**kwargs)
+            orders = result_data.get("orders", []) if isinstance(result_data, dict) else result_data
+            total = result_data.get("total", len(orders)) if isinstance(result_data, dict) else len(orders)
 
-                query = f"""
-                    SELECT DISTINCT
-                        u.id AS student_id,
-                        u.name AS user_name,
-                        up.name AS profile_name,
-                        COALESCE(NULLIF(TRIM(u.name), ''), NULLIF(TRIM(up.name), ''), u.id) AS display_name
-                    FROM users u
-                    LEFT JOIN user_profiles up
-                      ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
-                    WHERE {" AND ".join(filters)}
-                    ORDER BY u.id ASC
-                    LIMIT ?
-                """
-                params.append(limit)
-                cur.execute(query, tuple(params))
-                rows = cur.fetchall() or []
+            order_list = [{
+                "id": o.get("id"),
+                "status": o.get("status"),
+                "total_amount": o.get("total_amount"),
+                "items_count": len(o.get("items", [])) if isinstance(o.get("items"), list) else 0,
+                "created_at": _to_local_time(o.get("created_at")),
+            } for o in orders]
 
-                for row in rows:
-                    sid = row["student_id"]
-                    if sid not in all_results:
-                        all_results[sid] = {
-                            "student_id": sid,
-                            "display_name": row["display_name"],
-                            "user_name": row["user_name"],
-                            "profile_name": row["profile_name"],
-                            "matched_keywords": []
-                        }
-                    all_results[sid]["matched_keywords"].append(kw)
+            if sort_by == "amount":
+                order_list.sort(key=lambda x: x.get("total_amount") or 0, reverse=True)
+
+            return {
+                "ok": True,
+                "action": "orders",
+                "student_id": student_id,
+                "orders": order_list,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "has_more": page * limit + limit < total,
+            }
         except Exception as e:
-            logger.error("User search failed for keyword '%s': %s", kw, e)
+            return {"ok": False, "error": f"查询订单失败: {e}"}
 
-    return {
-        "ok": True,
-        "users": list(all_results.values()),
-        "count": len(all_results),
-        "keywords": keywords,
-    }
+    elif action == "coupons":
+        student_id = (args.get("student_id") or "").strip()
+        if not student_id:
+            return {"ok": False, "error": "缺少 student_id"}
+        try:
+            items = CouponDB.list_all(student_id, owner_id=owner_id)
+            groups: Dict[tuple, Dict[str, Any]] = {}
+            for c in (items or []):
+                amt = c.get("amount", 0)
+                active = c.get("status") == "active" and not c.get("expired")
+                key = (amt, active)
+                if key not in groups:
+                    groups[key] = {"amount": amt, "is_active": active, "count": 0, "coupon_ids": []}
+                groups[key]["count"] += 1
+                groups[key]["coupon_ids"].append(c.get("id"))
+            return {
+                "ok": True,
+                "action": "coupons",
+                "student_id": student_id,
+                "coupons": list(groups.values()),
+                "total_count": len(items or []),
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"查询优惠券失败: {e}"}
+
+    return {"ok": False, "error": f"未知的action: {action}"}
 
 
 # ===== 工具分发 =====
