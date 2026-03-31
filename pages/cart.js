@@ -662,7 +662,7 @@ const OrderSummary = ({
         onClick={onCheckout}
         disabled={checkoutDisabled}
         aria-busy={isProcessingCheckout}
-        className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-4 px-6 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+        className="w-full bg-gradient-to-r from-orange-400 to-orange-500 text-white py-4 px-6 rounded-full font-bold text-lg shadow-lg hover:shadow-xl hover:from-orange-500 hover:to-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-300 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
       >
         {isProcessingCheckout ? '正在检查库存...' : buttonLabel}
       </button>

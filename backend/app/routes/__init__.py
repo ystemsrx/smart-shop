@@ -1,3 +1,4 @@
+from .admin_ai import router as admin_ai_router
 from .agents import router as agents_router
 from .ai import router as ai_router
 from .chat_audit import router as chat_audit_router
@@ -16,6 +17,7 @@ from .settings import router as settings_router
 from .system import router as system_router
 
 __all__ = [
+    "admin_ai_router",
     "agents_router",
     "ai_router",
     "chat_audit_router",

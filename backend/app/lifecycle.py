@@ -20,6 +20,7 @@ from database import (
 )
 from .context import EXPORTS_DIR, ITEMS_DIR, PUBLIC_DIR, logger
 from .services.captcha import CaptchaService
+from admin_ai_chat import cleanup_temp_uploads
 
 
 settings = get_settings()
@@ -268,6 +269,13 @@ async def run_startup_tasks() -> List[asyncio.Task]:
     except Exception as exc:
         logger.warning("Startup captcha image cleanup failed: %s", exc)
 
+    try:
+        removed_tmp = cleanup_temp_uploads(max_age_hours=24)
+        if removed_tmp:
+            logger.info("Startup temp upload cleanup removed %s files", removed_tmp)
+    except Exception as exc:
+        logger.warning("Startup temp upload cleanup failed: %s", exc)
+
     maintenance_tasks: List[asyncio.Task] = []
     maintenance_tasks.append(asyncio.create_task(periodic_cleanup(), name="periodic_cleanup"))
     maintenance_tasks.append(asyncio.create_task(expired_unpaid_cleanup(), name="expired_unpaid_cleanup"))
@@ -294,6 +302,12 @@ async def periodic_cleanup():
                     logger.info("Removed %s expired export files", removed_exports)
             except Exception as exc:
                 logger.warning("Export cleanup failed: %s", exc)
+            try:
+                removed_tmp = cleanup_temp_uploads(max_age_hours=24)
+                if removed_tmp:
+                    logger.info("Periodic temp upload cleanup removed %s files", removed_tmp)
+            except Exception as exc:
+                logger.warning("Periodic temp upload cleanup failed: %s", exc)
         except Exception as exc:
             logger.error("Periodic cleanup task failed: %s", exc)
 

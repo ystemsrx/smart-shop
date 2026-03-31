@@ -18,6 +18,7 @@ export default function Nav({ active = 'home' }) {
   const isAgent = user?.type === 'agent';
   const isStaff = isAdmin || isAgent;
   const staffShopLink = '/shop';
+  const staffAiChatLink = isAdmin ? '/admin/ai-chat' : '/agent/ai-chat';
   const staffDashboardLink = isAdmin ? '/admin/dashboard' : '/agent/dashboard';
   const staffPortalLink = isAdmin ? '/admin' : '/agent';
   const locationLabel = location
@@ -107,6 +108,10 @@ export default function Nav({ active = 'home' }) {
                 {/* 管理员专用导航 */}
                 {isStaff ? (
                   <>
+                    <Link ref={setTabRef('staff-ai-chat')} href={staffAiChatLink} className={linkCls('staff-ai-chat')}>
+                      <i className="fas fa-robot"></i>
+                      <span>管理助手</span>
+                    </Link>
                     <Link ref={setTabRef('staff-shop')} href={staffShopLink} className={linkCls('staff-shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
@@ -187,7 +192,7 @@ export default function Nav({ active = 'home' }) {
                     href="https://github.com/ystemsrx/smart-shop"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
                     title="查看GitHub源码"
                   >
                     <i className="fab fa-github text-lg"></i>
@@ -195,10 +200,10 @@ export default function Nav({ active = 'home' }) {
 
                   <button
                     onClick={() => { logout(); closeMenu(); }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 text-sm font-medium transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    title="退出登录"
                   >
                     <i className="fas fa-sign-out-alt"></i>
-                    <span className="hidden sm:inline">退出</span>
                   </button>
                 </div>
               ) : (
@@ -207,12 +212,12 @@ export default function Nav({ active = 'home' }) {
                     href="https://github.com/ystemsrx/smart-shop"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
                     title="查看GitHub源码"
                   >
                     <i className="fab fa-github text-lg"></i>
                   </a>
-                  
+
                   <Link
                     href="/login"
                     className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-gray-700 hover:text-gray-900 bg-white/70 hover:bg-white/90 backdrop-blur-sm border border-gray-200/60 hover:border-gray-300 transition-all duration-300 hover:shadow-sm"
@@ -284,6 +289,14 @@ export default function Nav({ active = 'home' }) {
               {/* 管理员专用菜单 */}
               {isStaff ? (
                 <>
+                  <Link
+                    href={staffAiChatLink}
+                    onClick={closeMenu}
+                    className={`${active === 'staff-ai-chat' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'text-gray-700 hover:bg-gray-50 border-transparent'} flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200`}
+                  >
+                    <i className="fas fa-robot w-5"></i>
+                    <span className="font-medium">管理助手</span>
+                  </Link>
                   <Link
                     href={staffShopLink}
                     onClick={closeMenu}

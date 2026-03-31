@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from .context import create_app
 from .lifecycle import app_lifespan
 from .routes import (
+    admin_ai_router,
     agents_router,
     ai_router,
     auth_router,
@@ -37,6 +38,7 @@ def build_app() -> FastAPI:
     app.include_router(products_manage_router)
     app.include_router(settings_router)
     app.include_router(ai_router)
+    app.include_router(admin_ai_router)
     app.include_router(chat_audit_router)
     app.include_router(profile_router)
     app.include_router(system_router)
