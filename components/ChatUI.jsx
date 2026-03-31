@@ -6562,7 +6562,7 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
       )}
       <div
         className={cx(
-          "bg-white border border-gray-300 shadow-sm p-1.5 grid gap-2 items-center",
+          "bg-white border border-gray-300 shadow-sm p-1.5 grid gap-1 items-center",
           enableImageUpload ? "[grid-template-areas:'leading_primary_trailing'] grid-cols-[auto_1fr_auto]" : "[grid-template-areas:'primary_trailing'] grid-cols-[1fr_auto]",
           radius
         )}
@@ -6676,6 +6676,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
   const pendingChatTitleRef = useRef(null); // 保存待创建对话的标题（用户消息）
   const pendingChatIdRef = useRef(null); // 保存新创建但未激活的对话ID
   const isCreatingNewChatRef = useRef(false); // 标记正在创建新对话，防止被derivedChatId覆盖
+  const switchTargetRef = useRef(null); // 手动切换对话的目标ID，阻止derivedChatId同步回弹
   const skipNextLoadRef = useRef(false); // 标记跳过下一次loadConversation（当前msgs已是最新）
   
   // 【性能优化】用于节流流式更新的refs
@@ -6743,18 +6744,26 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
   useEffect(() => {
     // 判断是否是新对话URL
     const isNewChatUrl = router?.pathname === '/c' && !router?.query?.chatId;
-    
+
     // 如果是新对话URL，保持标志为true，防止activeChatId被derivedChatId覆盖
     if (isNewChatUrl) {
       isCreatingNewChatRef.current = true;
       return;
     }
-    
+
     // 如果正在创建新对话，不要被derivedChatId覆盖
     if (isCreatingNewChatRef.current) {
       return;
     }
-    
+
+    // 正在手动切换对话中，等路由追上目标后再解除屏蔽
+    if (switchTargetRef.current) {
+      if (derivedChatId === switchTargetRef.current) {
+        switchTargetRef.current = null;
+      }
+      return;
+    }
+
     if (derivedChatId !== activeChatId) {
       setActiveChatId(derivedChatId || null);
     }
@@ -7075,6 +7084,8 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
         const response = await fetch(`${apiBase}${apiPathPrefix}/chats/${chatId}`, {
           credentials: "include",
         });
+        // 请求返回时对话已切走，丢弃过期结果
+        if (activeChatIdRef.current !== chatId) return;
         if (response.status === 401) {
           setChatError("无权访问该对话");
           setMsgs([]);
@@ -7084,13 +7095,17 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
           throw new Error("加载对话失败");
         }
         const data = await response.json();
+        if (activeChatIdRef.current !== chatId) return;
         const historyMessages = Array.isArray(data?.messages) ? data.messages : [];
         setMsgs(mapHistoryToMessages(historyMessages));
       } catch (err) {
+        if (activeChatIdRef.current !== chatId) return;
         setChatError(err.message || "加载对话失败");
         setMsgs([]);
       } finally {
-        setIsLoadingHistory(false);
+        if (activeChatIdRef.current === chatId) {
+          setIsLoadingHistory(false);
+        }
       }
     },
     [historyEnabled, apiBase, apiPathPrefix, mapHistoryToMessages]
@@ -7225,7 +7240,10 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
         }
       }
       
+      switchTargetRef.current = chatId;
       setActiveChatId(chatId);
+      setMsgs([]);
+      setChatError("");
 
       // 移动端关闭侧边栏
       if (typeof window !== 'undefined' && window.innerWidth < 1024) {
@@ -7234,9 +7252,6 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
 
       if (router) {
         if (mode === 'admin') {
-          // Admin mode: shallow navigation keeps same component — must clear msgs manually
-          setMsgs([]);
-          setChatError("");
           const prefix = apiPathPrefix.startsWith('/agent') ? '/agent' : '/admin';
           router.push(`${prefix}/ai-chat/${chatId}`, undefined, { shallow: true });
         } else {
@@ -8270,12 +8285,14 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
   }, []);
 
   const inputPlaceholder = "继续提问…";
+  // 正在切换对话、等待历史加载（侧栏/头部/输入框保持不变，只替换中间内容区）
+  const isLoadingChatContent = isLoadingHistory && conversationReady && Boolean(activeChatId);
   const shouldShowPlaceholder = !conversationReady;
-  const shouldShowHero = conversationReady && first;
+  const shouldShowHero = conversationReady && first && !isLoadingChatContent;
   const shouldShowChat = conversationReady && !first;
-  
-  // 根据是否显示输入框动态调整底部padding，让滚动条延伸到底部但内容不被遮挡
-  const mainPaddingBottom = shouldShowChat ? "pb-[120px]" : "pb-4";
+
+  // 显示输入框的条件：有消息时，或正在加载对话内容时
+  const mainPaddingBottom = (shouldShowChat || isLoadingChatContent) ? "pb-[120px]" : "pb-4";
 
   return (
     <div className="relative flex h-screen bg-white text-gray-900 overflow-hidden">
@@ -8457,10 +8474,29 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
                 {chatError}
               </div>
             )}
-            {historyEnabled && isLoadingHistory && conversationReady && first && (
-              <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在同步历史...
+            {isLoadingChatContent && (
+              <div className="mx-auto flex max-w-3xl flex-col gap-5 pt-2 animate-fade-in-fast">
+                <div className="space-y-2.5">
+                  <div className="skeleton-shimmer h-4 w-[72%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[88%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[52%] rounded-md" />
+                </div>
+                <div className="flex justify-end">
+                  <div className="skeleton-shimmer h-10 w-36 rounded-2xl" />
+                </div>
+                <div className="space-y-2.5">
+                  <div className="skeleton-shimmer h-4 w-[62%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[80%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[45%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[70%] rounded-md" />
+                </div>
+                <div className="flex justify-end">
+                  <div className="skeleton-shimmer h-10 w-28 rounded-2xl" />
+                </div>
+                <div className="space-y-2.5">
+                  <div className="skeleton-shimmer h-4 w-[76%] rounded-md" />
+                  <div className="skeleton-shimmer h-4 w-[56%] rounded-md" />
+                </div>
               </div>
             )}
             {shouldShowPlaceholder && (
@@ -8518,7 +8554,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
               </section>
             )}
             {shouldShowChat && (
-              <LayoutGroup>
+              <LayoutGroup key={activeChatId || 'new'}>
                 <div className="mx-auto flex max-w-3xl flex-col gap-4">
                   <AnimatePresence initial={true} mode="popLayout">
                     {msgs.map((m, index) => {
@@ -8589,7 +8625,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
 
                       return (
                         <motion.div 
-                          key={`${activeChatId || 'new'}-${m.id}`}
+                          key={m.id}
                           layout="position" // 只对position进行布局动画,不影响size
                           initial={{ opacity: 0, y: 10, scale: 0.98 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -8641,7 +8677,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
             )}
           </div>
         </main>
-        {shouldShowChat && (
+        {(shouldShowChat || isLoadingChatContent) && (
           <motion.div
             className="fixed bottom-0 z-30"
             initial={false}
