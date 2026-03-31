@@ -6255,7 +6255,7 @@ function InputBar({ value, onChange, onSend, onStop, placeholder, autoFocus, isL
             />
             <button
               onClick={onClearImage}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
               title="移除图片"
             >
               <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M1 1l12 12M13 1L1 13" /></svg>

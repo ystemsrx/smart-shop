@@ -49,32 +49,31 @@ def _serialize_staff_message(record: Dict[str, Any]) -> Dict[str, Any]:
         "tool_call_id": record.get("tool_call_id"),
     }
     if payload["role"] == "assistant":
-        thinking_content_from_db = record.get("thinking_content")
+        # 从 DB 列获取 thinking 信息
+        thinking_content_from_db = record.get("thinking_content") or ""
+        payload["thinking_content"] = thinking_content_from_db
         if thinking_content_from_db:
-            payload["thinking_content"] = thinking_content_from_db
             payload["thinking_duration"] = record.get("thinking_duration")
             payload["is_thinking_stopped"] = bool(record.get("is_thinking_stopped"))
-        else:
-            payload["thinking_content"] = ""
-            if isinstance(content, str):
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict):
-                        if "tool_calls" in parsed:
-                            payload["tool_calls"] = parsed.get("tool_calls")
-                        if "content" in parsed:
-                            payload["content"] = parsed.get("content") or ""
-                        elif "tool_calls" in parsed:
-                            payload["content"] = ""
+
+        # 始终尝试从 content JSON 中提取 tool_calls 和结构化字段
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    if "tool_calls" in parsed:
+                        payload["tool_calls"] = parsed["tool_calls"]
+                    if "content" in parsed:
+                        payload["content"] = parsed.get("content") or ""
+                    elif "tool_calls" in parsed:
+                        payload["content"] = ""
+                    # 若 DB 列没有 thinking_content，则从 JSON 里兜底
+                    if not thinking_content_from_db:
                         thinking_value = parsed.get("thinking_content")
-                        if thinking_value is None:
-                            thinking_value = ""
-                        if isinstance(thinking_value, str):
-                            payload["thinking_content"] = thinking_value
-                        else:
+                        if thinking_value is not None:
                             payload["thinking_content"] = str(thinking_value)
-                except Exception:
-                    pass
+            except Exception:
+                pass
     return payload
 
 

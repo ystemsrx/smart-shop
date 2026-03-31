@@ -698,16 +698,14 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
 
 
 def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> None:
-    """将上传的图片应用到商品。支持 ai_uploads_tmp/ 和 ai_uploads/ 路径。"""
-    # 安全检查: 只允许 ai_uploads/ 或 ai_uploads_tmp/ 开头的路径
-    if not image_path.startswith("ai_uploads_tmp/") and not image_path.startswith("ai_uploads/"):
+    """将上传的图片应用到商品。临时文件由定时清理任务统一处理。"""
+    # 安全检查: 只允许 ai_uploads_tmp/ 开头的路径
+    if not image_path.startswith("ai_uploads_tmp/"):
         raise ValueError("无效的图片路径")
 
     full_path = os.path.normpath(os.path.join(ITEMS_DIR, image_path))
     if not os.path.isfile(full_path):
         raise FileNotFoundError(f"图片文件不存在: {image_path}")
-
-    is_tmp = image_path.startswith("ai_uploads_tmp/")
 
     # 读取并重新编码为 quality=40 (与现有商品图片一致)
     with open(full_path, "rb") as f:
@@ -733,12 +731,6 @@ def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> 
     existing = ImageLookupDB.get_by_hash(file_hash)
     if existing:
         ProductDB.update_image_path(product_id, file_hash)
-        # 成功应用后删除临时文件
-        if is_tmp:
-            try:
-                os.remove(full_path)
-            except OSError:
-                pass
         return
 
     rel_path = f"{owner_id}/{product_id}/{file_hash}.webp"
@@ -750,13 +742,6 @@ def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> 
 
     ImageLookupDB.insert(file_hash, rel_path, product_id)
     ProductDB.update_image_path(product_id, file_hash)
-
-    # 成功应用后删除临时文件
-    if is_tmp:
-        try:
-            os.remove(full_path)
-        except OSError:
-            pass
 
 
 def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
