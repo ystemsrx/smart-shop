@@ -1954,10 +1954,68 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex flex-col items-center">
-          <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-slate-500 font-medium">正在加载数据...</p>
+      <div className="min-h-screen bg-slate-50/50 pt-20 pb-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Skeleton: Cycle selector bar */}
+          <div className="mb-8">
+            <div className="flex items-center gap-4 py-2.5 px-4 bg-white/80 rounded-xl border border-slate-100/80 shadow-sm">
+              <div className="skeleton-shimmer h-4 w-24 rounded-md" />
+              <div className="w-px h-5 bg-slate-200" />
+              <div className="flex-1 flex items-center justify-between">
+                <div className="skeleton-shimmer h-3 w-32 rounded-md" />
+                <div className="flex items-center gap-4">
+                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Skeleton: Header */}
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+            <div>
+              <div className="skeleton-shimmer h-8 w-40 rounded-lg mb-3" />
+              <div className="skeleton-shimmer h-4 w-64 rounded-md" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="skeleton-shimmer h-9 w-32 rounded-lg" />
+              <div className="skeleton-shimmer h-9 w-28 rounded-lg" />
+            </div>
+          </div>
+          {/* Skeleton: Stat cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                  <div className="skeleton-shimmer h-8 w-8 rounded-lg" />
+                </div>
+                <div className="skeleton-shimmer h-7 w-24 rounded-md mb-2" />
+                <div className="skeleton-shimmer h-3 w-32 rounded-md" />
+              </div>
+            ))}
+          </div>
+          {/* Skeleton: Chart area */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+              <div className="skeleton-shimmer h-5 w-32 rounded-md mb-6" />
+              <div className="skeleton-shimmer h-48 w-full rounded-xl" />
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+              <div className="skeleton-shimmer h-5 w-28 rounded-md mb-6" />
+              <div className="space-y-4">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="skeleton-shimmer h-8 w-8 rounded-lg shrink-0" />
+                    <div className="flex-1">
+                      <div className="skeleton-shimmer h-3 w-full rounded-md mb-2" />
+                      <div className="skeleton-shimmer h-2 w-2/3 rounded-md" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
