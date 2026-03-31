@@ -5,9 +5,42 @@ from fastapi import HTTPException
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from database import AdminDB, AgentAssignmentDB, AgentDeletionDB
+from database import (
+    AdminDB,
+    AgentAssignmentDB,
+    AgentDeletionDB,
+    CartDB,
+    CouponDB,
+    GiftThresholdDB,
+    LotteryConfigDB,
+    LotteryDB,
+    OrderDB,
+    RewardDB,
+    UserProfileDB,
+)
 from ..dependencies import build_staff_scope
 from ..utils import convert_sqlite_timestamp_to_unix, format_device_time_ms, format_export_range_label
+
+MANAGE_ORDER_STATUS_ALIASES: Dict[str, str] = {
+    "未付款": "未付款",
+    "unpaid": "未付款",
+    "pending": "待确认",
+    "待确认": "待确认",
+    "pending_confirm": "待确认",
+    "processing": "待确认",
+    "confirmed": "待配送",
+    "待配送": "待配送",
+    "awaiting_delivery": "待配送",
+    "paid": "待配送",
+    "shipped": "配送中",
+    "配送中": "配送中",
+    "delivering": "配送中",
+    "delivered": "已完成",
+    "已完成": "已完成",
+    "completed": "已完成",
+    "cancelled": "已取消",
+    "已取消": "已取消",
+}
 
 
 def resolve_staff_order_scope(
@@ -82,6 +115,8 @@ def compute_unified_order_status(order: Dict[str, Any]) -> str:
     st = order.get("status") if isinstance(order, dict) else None
     if not ps and not st:
         return "未付款"
+    if st == "cancelled":
+        return "已取消"
     if ps == "processing":
         return "待确认"
     if ps != "succeeded":
@@ -91,6 +126,199 @@ def compute_unified_order_status(order: Dict[str, Any]) -> str:
     if st == "delivered":
         return "已完成"
     return "待配送"
+
+
+def normalize_manage_order_status(target_status: Any) -> Optional[str]:
+    if target_status is None:
+        return None
+    text = str(target_status).strip()
+    if not text:
+        return None
+    if text in MANAGE_ORDER_STATUS_ALIASES:
+        return MANAGE_ORDER_STATUS_ALIASES[text]
+    return MANAGE_ORDER_STATUS_ALIASES.get(text.lower())
+
+
+def _refresh_order_snapshot(order_id: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    return OrderDB.get_order_by_id(order_id) or fallback
+
+
+def _apply_payment_status_change(
+    order_id: str,
+    order: Dict[str, Any],
+    new_status: str,
+) -> Tuple[bool, List[str], Dict[str, Any]]:
+    current_status = str(order.get("payment_status") or "pending").strip() or "pending"
+    if current_status == new_status:
+        return True, [], order
+
+    if new_status == "succeeded":
+        ok, missing_items = OrderDB.complete_payment_and_update_stock(order_id)
+        if not ok:
+            return False, missing_items, order
+
+        order_owner_id = LotteryConfigDB.normalize_owner(order.get("agent_id"))
+        try:
+            CartDB.update_cart(order["student_id"], {})
+        except Exception:
+            pass
+        try:
+            if isinstance(order.get("shipping_info"), dict):
+                UserProfileDB.upsert_shipping(order["student_id"], order["shipping_info"])
+        except Exception:
+            pass
+        try:
+            draw = LotteryDB.get_draw_by_order(order_id)
+            if draw and draw.get("prize_name") != "谢谢参与":
+                RewardDB.add_reward_from_order(
+                    user_identifier=order["student_id"],
+                    prize_name=draw.get("prize_name"),
+                    prize_product_id=draw.get("prize_product_id"),
+                    quantity=int(draw.get("prize_quantity") or 1),
+                    source_order_id=order_id,
+                    owner_id=order_owner_id,
+                    prize_group_id=draw.get("prize_group_id"),
+                    prize_product_name=draw.get("prize_product_name"),
+                    prize_variant_id=draw.get("prize_variant_id"),
+                    prize_variant_name=draw.get("prize_variant_name"),
+                    prize_unit_price=draw.get("prize_unit_price"),
+                )
+        except Exception:
+            pass
+        try:
+            items = order.get("items") or []
+            items_subtotal = 0.0
+            for item in items:
+                if isinstance(item, dict) and not (item.get("is_lottery") or item.get("is_auto_gift")):
+                    try:
+                        items_subtotal += float(item.get("subtotal", 0) or 0)
+                    except Exception:
+                        pass
+            applicable_thresholds = GiftThresholdDB.get_applicable_thresholds(items_subtotal, order_owner_id)
+            for threshold in applicable_thresholds:
+                gift_coupon = threshold.get("gift_coupon", 0) == 1
+                coupon_amount = threshold.get("coupon_amount", 0)
+                applicable_times = threshold.get("applicable_times", 0)
+                if gift_coupon and coupon_amount > 0 and applicable_times > 0:
+                    for _ in range(applicable_times):
+                        CouponDB.issue_coupons(
+                            user_identifier=order["student_id"],
+                            amount=coupon_amount,
+                            quantity=1,
+                            expires_at=None,
+                            owner_id=order_owner_id,
+                        )
+        except Exception:
+            pass
+        try:
+            coupon_id = order.get("coupon_id")
+            discount_amount = float(order.get("discount_amount") or 0)
+            if coupon_id and discount_amount > 0:
+                CouponDB.delete_coupon(coupon_id)
+        except Exception:
+            pass
+        return True, [], _refresh_order_snapshot(order_id, {**order, "payment_status": new_status})
+
+    ok, missing_items = OrderDB.update_payment_status_with_inventory(order_id, new_status)
+    if not ok:
+        return False, missing_items, order
+
+    if new_status in ["pending", "failed"]:
+        try:
+            coupon_id = order.get("coupon_id")
+            discount_amount = float(order.get("discount_amount") or 0)
+            if coupon_id and discount_amount > 0:
+                CouponDB.unlock_for_order(coupon_id, order_id)
+        except Exception:
+            pass
+
+    return True, [], _refresh_order_snapshot(order_id, {**order, "payment_status": new_status})
+
+
+def _apply_order_status_change(
+    order_id: str,
+    order: Dict[str, Any],
+    new_status: str,
+) -> Tuple[bool, List[str], Dict[str, Any]]:
+    current_status = str(order.get("status") or "").strip()
+    if current_status == new_status:
+        return True, [], order
+    ok, missing_items = OrderDB.update_order_status_with_inventory(order_id, new_status)
+    if not ok:
+        return False, missing_items, order
+    return True, [], _refresh_order_snapshot(order_id, {**order, "status": new_status})
+
+
+def apply_manage_order_status_transition(order_id: str, target_status: Any) -> Tuple[bool, List[str], Dict[str, Any]]:
+    order = OrderDB.get_order_by_id(order_id)
+    if not order:
+        return False, ["订单不存在"], {}
+
+    normalized_target = normalize_manage_order_status(target_status)
+    if not normalized_target:
+        return False, ["无效的订单状态"], {}
+
+    old_unified_status = compute_unified_order_status(order)
+
+    if normalized_target == "未付款":
+        ok, missing_items, order = _apply_payment_status_change(order_id, order, "pending")
+        if not ok:
+            return False, missing_items, {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "pending")
+        if not ok:
+            return False, missing_items, {}
+    elif normalized_target == "待确认":
+        ok, missing_items, order = _apply_payment_status_change(order_id, order, "processing")
+        if not ok:
+            return False, missing_items, {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "pending")
+        if not ok:
+            return False, missing_items, {}
+    elif normalized_target == "待配送":
+        current_payment_status = str(order.get("payment_status") or "pending").strip() or "pending"
+        if current_payment_status != "succeeded":
+            if current_payment_status != "processing":
+                ok, missing_items, order = _apply_payment_status_change(order_id, order, "processing")
+                if not ok:
+                    return False, missing_items, {}
+            ok, missing_items, order = _apply_payment_status_change(order_id, order, "succeeded")
+            if not ok:
+                return False, missing_items, {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "confirmed")
+        if not ok:
+            return False, missing_items, {}
+    elif normalized_target == "配送中":
+        current_payment_status = str(order.get("payment_status") or "pending").strip() or "pending"
+        if current_payment_status != "succeeded":
+            return False, ["请先将订单状态设置为待配送"], {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "shipped")
+        if not ok:
+            return False, missing_items, {}
+    elif normalized_target == "已完成":
+        current_payment_status = str(order.get("payment_status") or "pending").strip() or "pending"
+        if current_payment_status != "succeeded":
+            return False, ["请先将订单状态设置为待配送"], {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "delivered")
+        if not ok:
+            return False, missing_items, {}
+    elif normalized_target == "已取消":
+        current_payment_status = str(order.get("payment_status") or "pending").strip() or "pending"
+        if current_payment_status not in {"pending", "failed"}:
+            ok, missing_items, order = _apply_payment_status_change(order_id, order, "pending")
+            if not ok:
+                return False, missing_items, {}
+        ok, missing_items, order = _apply_order_status_change(order_id, order, "cancelled")
+        if not ok:
+            return False, missing_items, {}
+
+    new_unified_status = compute_unified_order_status(order)
+    return True, [], {
+        "order_id": order_id,
+        "old_unified_status": old_unified_status,
+        "new_unified_status": new_unified_status,
+        "status": order.get("status"),
+        "payment_status": order.get("payment_status"),
+    }
 
 
 def resolve_order_timestamp_ms(order: Dict[str, Any]) -> Optional[float]:

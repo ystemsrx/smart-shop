@@ -124,13 +124,12 @@ Current operator: {staff_name} (role: {staff_role})
 - awaiting_delivery: Paid, awaiting shipment
 - delivering: In delivery
 - completed: Delivered / completed
+- cancelled: Cancelled
 
 ## Updating (action='update_status', updates[].status):
-- pending: Awaiting processing
-- confirmed: Confirmed
-- shipped: Shipped / in delivery
-- delivered: Delivered / completed
-- cancelled: Cancelled
+- Prefer unified targets: unpaid / pending_confirm / awaiting_delivery / delivering / completed / cancelled
+- Also compatible with legacy values: pending / confirmed / shipped / delivered / cancelled
+- The assistant must treat status changes as real state transitions: payment status and inventory sync may also change together.
 
 Current date: {datetime.now().strftime("%Y-%m-%d")}
 """
@@ -142,6 +141,7 @@ _FILTER_STATUS_TO_UNIFIED: Dict[str, str] = {
     "awaiting_delivery": "待配送",
     "delivering": "配送中",
     "completed": "已完成",
+    "cancelled": "已取消",
 }
 
 # ===== 工具定义 =====
@@ -233,7 +233,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "type": "object",
                             "description": "Query filters (used with action='list')",
                             "properties": {
-                                "status": {"type": "string", "enum": ["unpaid", "pending_confirm", "awaiting_delivery", "delivering", "completed"], "description": "Filter by unified order status"},
+                                "status": {"type": "string", "enum": ["unpaid", "pending_confirm", "awaiting_delivery", "delivering", "completed", "cancelled"], "description": "Filter by unified order status"},
                                 "student_id": {"type": "string", "description": "Filter by student ID"},
                                 "page": {"type": "integer", "description": "Page number, default 0"},
                                 "limit": {"type": "integer", "description": "Results per page, default 20"}
@@ -246,7 +246,28 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                 "type": "object",
                                 "properties": {
                                     "order_id": {"type": "string", "description": "Order ID"},
-                                    "status": {"type": "string", "enum": ["pending", "confirmed", "shipped", "delivered", "cancelled"], "description": "New status"}
+                                    "status": {
+                                        "type": "string",
+                                        "enum": [
+                                            "unpaid",
+                                            "pending_confirm",
+                                            "awaiting_delivery",
+                                            "delivering",
+                                            "completed",
+                                            "cancelled",
+                                            "未付款",
+                                            "待确认",
+                                            "待配送",
+                                            "配送中",
+                                            "已完成",
+                                            "已取消",
+                                            "pending",
+                                            "confirmed",
+                                            "shipped",
+                                            "delivered"
+                                        ],
+                                        "description": "Preferred: unified targets unpaid/pending_confirm/awaiting_delivery/delivering/completed/cancelled. Legacy raw values pending/confirmed/shipped/delivered are also supported."
+                                    }
                                 },
                                 "required": ["order_id", "status"]
                             }
@@ -825,6 +846,8 @@ def _apply_image_to_product(owner_id: str, product_id: str, image_path: str) -> 
 
 def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     """订单管理工具实现。"""
+    from app.services.orders import apply_manage_order_status_transition, compute_unified_order_status
+
     action = args.get("action", "")
     owner_id = _get_owner_id(staff)
     scope = _build_scope(staff)
@@ -861,9 +884,11 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
             # 简化返回数据
             order_list = []
             for o in orders:
+                unified_status = compute_unified_order_status(o)
                 order_list.append({
                     "id": o.get("id"),
                     "status": o.get("status"),
+                    "unified_status": unified_status,
                     "payment_status": o.get("payment_status"),
                     "total_amount": o.get("total_amount"),
                     "student_id": o.get("student_id"),
@@ -899,8 +924,22 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
                     results.append({"order_id": oid, "ok": False, "error": "无权访问该订单"})
                     continue
 
-                OrderDB.update_order_status(oid, new_status)
-                results.append({"order_id": oid, "ok": True, "old_status": order.get("status"), "new_status": new_status})
+                ok, missing_items, meta = apply_manage_order_status_transition(oid, new_status)
+                if not ok:
+                    message = "更新订单状态失败"
+                    if missing_items:
+                        message = "；".join(str(item) for item in missing_items if str(item).strip()) or message
+                    results.append({"order_id": oid, "ok": False, "error": message, "details": {"missing_items": missing_items}})
+                    continue
+
+                results.append({
+                    "order_id": oid,
+                    "ok": True,
+                    "old_status": meta.get("old_unified_status"),
+                    "new_status": meta.get("new_unified_status"),
+                    "raw_status": meta.get("status"),
+                    "payment_status": meta.get("payment_status"),
+                })
             except Exception as e:
                 results.append({"order_id": oid, "ok": False, "error": str(e)})
 

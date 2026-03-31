@@ -73,6 +73,7 @@ const collapseAutoGiftItemsForDisplay = (items = []) => {
 const getUnifiedStatus = (order) => {
   const ps = order?.payment_status;
   const st = order?.status;
+  if (st === 'cancelled') return '已取消';
   if (ps === 'processing') return '待确认';
   if (ps !== 'succeeded') return '未付款';
   if (st === 'shipped') return '配送中';
@@ -80,7 +81,7 @@ const getUnifiedStatus = (order) => {
   return '待配送';
 };
 
-const UNIFIED_STATUS_ORDER = ['全部', '未付款', '待确认', '待配送', '配送中', '已完成'];
+const UNIFIED_STATUS_ORDER = ['全部', '未付款', '待确认', '待配送', '配送中', '已完成', '已取消'];
 
 // 手机端显示的简化筛选选项
 const MOBILE_FILTER_ORDER = ['全部', '待确认', '已确认', '已完成'];
@@ -90,7 +91,7 @@ const MOBILE_FILTER_MAP = {
   '全部': ['全部'],
   '待确认': ['未付款', '待确认'],
   '已确认': ['待配送', '配送中'],
-  '已完成': ['已完成']
+  '已完成': ['已完成', '已取消']
 };
 
 function StatusBadge({ status }) {
@@ -100,6 +101,7 @@ function StatusBadge({ status }) {
     '待配送': { bg: 'bg-sky-50', text: 'text-sky-600', icon: 'fa-box', ring: 'ring-sky-200' },
     '配送中': { bg: 'bg-violet-50', text: 'text-violet-600', icon: 'fa-truck', ring: 'ring-violet-200' },
     '已完成': { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'fa-check-circle', ring: 'ring-emerald-200' },
+    '已取消': { bg: 'bg-gray-100', text: 'text-gray-600', icon: 'fa-ban', ring: 'ring-gray-200' },
   }[status] || { bg: 'bg-gray-50', text: 'text-gray-600', icon: 'fa-circle', ring: 'ring-gray-200' };
 
   return (

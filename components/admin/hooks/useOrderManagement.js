@@ -514,6 +514,12 @@ export function useOrderManagement({
           return;
         }
         await handleUpdateOrderStatus(order.id, 'delivered');
+      } else if (newUnified === '已取消') {
+        const currentPayment = order.payment_status || 'pending';
+        if (currentPayment !== 'pending' && currentPayment !== 'failed') {
+          await handleUpdatePaymentStatus(order.id, 'pending');
+        }
+        await handleUpdateOrderStatus(order.id, 'cancelled');
       }
     } catch (err) {
       showToast(err.message || '更新状态失败');

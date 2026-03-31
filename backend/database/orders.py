@@ -216,6 +216,8 @@ class OrderDB:
     def _compute_unified_status(payment_status: Optional[str], order_status: Optional[str]) -> str:
         ps = str(payment_status or '').strip()
         st = str(order_status or '').strip()
+        if st == 'cancelled':
+            return '已取消'
         if ps == 'processing':
             return '待确认'
         if ps != 'succeeded':
@@ -413,7 +415,7 @@ class OrderDB:
                 and current_unified_status == '待确认'
                 and target_unified_status == '待配送'
             )
-            should_restore = stock_deducted and target_unified_status in {'待确认', '未付款'}
+            should_restore = stock_deducted and target_unified_status in {'待确认', '未付款', '已取消'}
 
             inventory_action = 'none'
             next_stock_deducted = 1 if stock_deducted else 0
@@ -759,6 +761,7 @@ class OrderDB:
                     "("
                     "CASE "
                     "WHEN (o.payment_status IS NULL OR TRIM(o.payment_status) = '') AND (o.status IS NULL OR TRIM(o.status) = '') THEN '未付款' "
+                    "WHEN o.status = 'cancelled' THEN '已取消' "
                     "WHEN o.payment_status = 'processing' THEN '待确认' "
                     "WHEN o.payment_status IS NULL OR o.payment_status != 'succeeded' THEN '未付款' "
                     "WHEN o.status = 'shipped' THEN '配送中' "

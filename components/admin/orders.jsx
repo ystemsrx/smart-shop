@@ -11,7 +11,8 @@ export const UNIFIED_STATUS_MAP = {
   '待确认': { text: '待确认', color: 'amber', bg: 'bg-amber-100', textCol: 'text-amber-700', ring: 'ring-amber-200', hoverBg: 'hover:bg-amber-200' },
   '待配送': { text: '待配送', color: 'blue', bg: 'bg-blue-100', textCol: 'text-blue-700', ring: 'ring-blue-200', hoverBg: 'hover:bg-blue-200' },
   '配送中': { text: '配送中', color: 'purple', bg: 'bg-purple-100', textCol: 'text-purple-700', ring: 'ring-purple-200', hoverBg: 'hover:bg-purple-200' },
-  '已完成': { text: '已完成', color: 'emerald', bg: 'bg-emerald-100', textCol: 'text-emerald-700', ring: 'ring-emerald-200', hoverBg: 'hover:bg-emerald-200' }
+  '已完成': { text: '已完成', color: 'emerald', bg: 'bg-emerald-100', textCol: 'text-emerald-700', ring: 'ring-emerald-200', hoverBg: 'hover:bg-emerald-200' },
+  '已取消': { text: '已取消', color: 'gray', bg: 'bg-gray-100', textCol: 'text-gray-700', ring: 'ring-gray-200', hoverBg: 'hover:bg-gray-200' }
 };
 
 /**
@@ -816,13 +817,14 @@ const ExportModal = ({
   return createPortal(modalContent, document.body);
 };
 
-export const UNIFIED_STATUS_ORDER = ['未付款', '待确认', '待配送', '配送中', '已完成'];
+export const UNIFIED_STATUS_ORDER = ['未付款', '待确认', '待配送', '配送中', '已完成', '已取消'];
 
 // 将后端的 status/payment_status 映射为统一状态
 export const getUnifiedStatus = (order) => {
   const ps = order?.payment_status;
   const st = order?.status;
   if (!ps && !st) return '未付款';
+  if (st === 'cancelled') return '已取消';
   if (ps === 'processing') return '待确认';
   if (ps !== 'succeeded') return '未付款';
   if (st === 'shipped') return '配送中';
@@ -2279,7 +2281,7 @@ export const OrdersPanel = ({
       }, {});
       const hasAny = Object.keys(counts).length > 0;
       return hasAny ? (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
           {UNIFIED_STATUS_ORDER.map((status) => {
              const count = counts[status] || 0;
              const colorMap = {
@@ -2288,6 +2290,7 @@ export const OrdersPanel = ({
                '待配送': 'text-blue-600 bg-blue-50 border-blue-100',
                '配送中': 'text-purple-600 bg-purple-50 border-purple-100',
                '已完成': 'text-emerald-600 bg-emerald-50 border-emerald-100',
+               '已取消': 'text-gray-600 bg-gray-50 border-gray-100',
              };
              const styleClass = colorMap[status] || 'text-gray-600 bg-gray-50 border-gray-100';
              

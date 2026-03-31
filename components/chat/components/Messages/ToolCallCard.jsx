@@ -137,7 +137,24 @@ const ToolCallCard = ({
     const Row = ({ label, children }) => (
       <div className="flex gap-2 text-sm"><span className="text-gray-500 min-w-[4rem] shrink-0">{label}</span><span className="text-gray-900 min-w-0">{children}</span></div>
     );
-    const statusLabels = { pending: "待处理", confirmed: "已确认", delivering: "配送中", completed: "已完成", cancelled: "已取消" };
+    const statusLabels = {
+      unpaid: "未付款",
+      pending_confirm: "待确认",
+      awaiting_delivery: "待配送",
+      delivering: "配送中",
+      completed: "已完成",
+      cancelled: "已取消",
+      pending: "待确认",
+      confirmed: "待配送",
+      shipped: "配送中",
+      delivered: "已完成",
+      未付款: "未付款",
+      待确认: "待确认",
+      待配送: "待配送",
+      配送中: "配送中",
+      已完成: "已完成",
+      已取消: "已取消",
+    };
 
     if (function_name === "manage_products") {
       const action = args.action;
@@ -613,8 +630,42 @@ const ToolCallCard = ({
       const isOk = result.ok !== false;
       const statusIcon = isOk ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />;
       const statusBg = isOk ? "bg-green-50" : "bg-red-50";
-      const orderStatusColors = { pending: "bg-yellow-100 text-yellow-700", confirmed: "bg-blue-100 text-blue-700", delivering: "bg-purple-100 text-purple-700", completed: "bg-green-100 text-green-700", cancelled: "bg-gray-100 text-gray-500" };
-      const orderStatusLabels = { pending: "待处理", confirmed: "已确认", delivering: "配送中", completed: "已完成", cancelled: "已取消" };
+      const orderStatusColors = {
+        unpaid: "bg-slate-100 text-slate-700",
+        pending_confirm: "bg-yellow-100 text-yellow-700",
+        awaiting_delivery: "bg-blue-100 text-blue-700",
+        delivering: "bg-purple-100 text-purple-700",
+        completed: "bg-green-100 text-green-700",
+        cancelled: "bg-gray-100 text-gray-500",
+        pending: "bg-yellow-100 text-yellow-700",
+        confirmed: "bg-blue-100 text-blue-700",
+        shipped: "bg-purple-100 text-purple-700",
+        delivered: "bg-green-100 text-green-700",
+        未付款: "bg-slate-100 text-slate-700",
+        待确认: "bg-yellow-100 text-yellow-700",
+        待配送: "bg-blue-100 text-blue-700",
+        配送中: "bg-purple-100 text-purple-700",
+        已完成: "bg-green-100 text-green-700",
+        已取消: "bg-gray-100 text-gray-500",
+      };
+      const orderStatusLabels = {
+        unpaid: "未付款",
+        pending_confirm: "待确认",
+        awaiting_delivery: "待配送",
+        delivering: "配送中",
+        completed: "已完成",
+        cancelled: "已取消",
+        pending: "待确认",
+        confirmed: "待配送",
+        shipped: "配送中",
+        delivered: "已完成",
+        未付款: "未付款",
+        待确认: "待确认",
+        待配送: "待配送",
+        配送中: "配送中",
+        已完成: "已完成",
+        已取消: "已取消",
+      };
 
       if (function_name === "manage_products") {
         if (result.action === "categories" && result.categories) {
@@ -694,7 +745,7 @@ const ToolCallCard = ({
                 {result.orders.slice(0, 10).map((order, index) => (
                   <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.status] || order.status}</span>
+                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.unified_status || order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.unified_status || order.status] || order.unified_status || order.status}</span>
                       <span className="text-gray-600 truncate">{order.student_name || order.student_id || "—"}</span>
                     </div>
                     <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{order.total_amount}</span>
@@ -817,7 +868,7 @@ const ToolCallCard = ({
                 {result.orders.slice(0, 10).map((order, index) => (
                   <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.status] || order.status}</span>
+                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.unified_status || order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.unified_status || order.status] || order.unified_status || order.status}</span>
                       <span className="text-xs text-gray-400">{order.items_count || 0}件</span>
                       {order.created_at && <span className="text-xs text-gray-400">{order.created_at.slice(5, 16)}</span>}
                     </div>
