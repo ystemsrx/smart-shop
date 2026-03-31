@@ -2031,7 +2031,7 @@ export default function Shop({ initialShopData }) {
                     onClick={handleDrawerCheckout}
                     disabled={checkingOut || cycleLocked}
                     aria-busy={checkingOut}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3.5 rounded-xl font-bold text-base shadow-lg hover:shadow-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
+                    className="w-full bg-gradient-to-r from-orange-400 to-orange-500 text-white py-3.5 rounded-full font-bold text-base shadow-lg hover:shadow-xl hover:from-orange-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 touch-manipulation disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none"
                   >
                     <i className="fas fa-credit-card"></i>
                     <span>{cycleLocked ? '暂时无法结算，请联系管理员' : (checkingOut ? '正在检查库存...' : '去结算')}</span>

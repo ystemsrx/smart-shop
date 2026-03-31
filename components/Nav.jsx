@@ -192,7 +192,7 @@ export default function Nav({ active = 'home' }) {
                     href="https://github.com/ystemsrx/smart-shop"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
                     title="查看GitHub源码"
                   >
                     <i className="fab fa-github text-lg"></i>
@@ -200,10 +200,10 @@ export default function Nav({ active = 'home' }) {
 
                   <button
                     onClick={() => { logout(); closeMenu(); }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 text-sm font-medium transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    title="退出登录"
                   >
                     <i className="fas fa-sign-out-alt"></i>
-                    <span className="hidden sm:inline">退出</span>
                   </button>
                 </div>
               ) : (
@@ -212,12 +212,12 @@ export default function Nav({ active = 'home' }) {
                     href="https://github.com/ystemsrx/smart-shop"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
+                    className="flex items-center justify-center w-10 h-10 shrink-0 aspect-square rounded-xl bg-white/70 hover:bg-white/90 text-gray-700 hover:text-gray-900 transition-all duration-300 backdrop-blur-sm border border-white/30 hover:shadow-md"
                     title="查看GitHub源码"
                   >
                     <i className="fab fa-github text-lg"></i>
                   </a>
-                  
+
                   <Link
                     href="/login"
                     className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-gray-700 hover:text-gray-900 bg-white/70 hover:bg-white/90 backdrop-blur-sm border border-gray-200/60 hover:border-gray-300 transition-all duration-300 hover:shadow-sm"
