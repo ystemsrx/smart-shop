@@ -188,7 +188,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                     "name": {"type": "string", "description": "Product name"},
                                     "category": {"type": "string", "description": "Category name"},
                                     "price": {"type": "number", "description": "Price in CNY"},
-                                    "stock": {"type": "integer", "description": "Stock quantity"},
+                                    "stock": {"type": "integer", "description": "Stock quantity (only for products WITHOUT variants; for products with variants, set stock in each variant)"},
                                     "description": {"type": "string", "description": "Product description"},
                                     "discount": {"type": "number", "description": "Discount factor (0.5–10, where 10 = full price)"},
                                     "image_path": {"type": "string", "description": "Image path (obtained from image upload)"},
@@ -197,14 +197,15 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                     "cost": {"type": "number", "description": "Cost price"},
                                     "variants": {
                                         "type": "array",
-                                        "description": "Product variants / specifications",
+                                        "description": "Product variants / specifications. For add: provide name and stock. For edit: provide variant_id to update existing, or omit variant_id to create new. Set delete=true with variant_id to remove a variant.",
                                         "items": {
                                             "type": "object",
                                             "properties": {
+                                                "variant_id": {"type": "string", "description": "Variant ID (required for update/delete existing variant, omit to create new)"},
                                                 "name": {"type": "string"},
-                                                "stock": {"type": "integer"}
-                                            },
-                                            "required": ["name", "stock"]
+                                                "stock": {"type": "integer"},
+                                                "delete": {"type": "boolean", "description": "Set true to delete this variant (requires variant_id)"}
+                                            }
                                         }
                                     }
                                 }
@@ -332,7 +333,19 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                     "gift_coupon": {"type": "boolean", "description": "Whether to gift a coupon"},
                                     "coupon_amount": {"type": "number", "description": "Coupon amount in CNY"},
                                     "per_order_limit": {"type": "integer", "description": "Per-order limit"},
-                                    "is_active": {"type": "boolean", "description": "Whether this threshold is active"}
+                                    "is_active": {"type": "boolean", "description": "Whether this threshold is active"},
+                                    "items": {
+                                        "type": "array",
+                                        "description": "Gift products for this threshold (replaces existing items). For products with variants, specify variant_id.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "product_id": {"type": "string"},
+                                                "variant_id": {"type": "string", "description": "Variant ID (required for products with variants)"}
+                                            },
+                                            "required": ["product_id"]
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -483,17 +496,16 @@ def _can_access_order(staff: Dict[str, Any], order: Dict[str, Any], scope: Dict[
 
 # ===== 工具实现 =====
 
-def _format_product_summary(product: Dict[str, Any]) -> Dict[str, Any]:
+def _format_product_summary(product: Dict[str, Any], variants: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """格式化商品摘要信息用于工具返回。"""
     discount = product.get("discount", 10)
     price = product.get("price", 0)
     effective_price = ProductDB._calc_effective_price(product)
-    summary = {
+    summary: Dict[str, Any] = {
         "id": product.get("id"),
         "name": product.get("name"),
         "category": product.get("category"),
         "price": price,
-        "stock": product.get("stock", 0),
         "discount": discount,
         "is_hot": bool(product.get("is_hot")),
         "is_active": product.get("is_active", 1) == 1,
@@ -502,6 +514,17 @@ def _format_product_summary(product: Dict[str, Any]) -> Dict[str, Any]:
         summary["effective_price"] = effective_price
     if product.get("description"):
         summary["description"] = product["description"][:80]
+
+    # 变体信息
+    if variants:
+        summary["variants"] = [
+            {"id": v.get("id"), "name": v.get("name"), "stock": v.get("stock", 0)}
+            for v in variants
+        ]
+        summary["has_variants"] = True
+    else:
+        summary["stock"] = product.get("stock", 0)
+        summary["has_variants"] = False
     return summary
 
 
@@ -553,6 +576,10 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
         start = page * limit
         page_products = all_products[start:start + limit]
 
+        # 批量获取变体信息
+        pids = [p["id"] for p in page_products]
+        vmap = VariantDB.get_for_products(pids) if pids else {}
+
         result = {
             "ok": True,
             "action": action,
@@ -560,7 +587,7 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
             "page": page,
             "limit": limit,
             "has_more": start + limit < total,
-            "products": [_format_product_summary(p) for p in page_products],
+            "products": [_format_product_summary(p, vmap.get(p["id"])) for p in page_products],
         }
         if query is not None:
             result["query"] = query
@@ -583,11 +610,13 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
             except (ValueError, TypeError):
                 return {"ok": False, "error": "无效的折扣值"}
 
+        # 有变体时商品级库存置为0，库存由各变体单独管理
+        has_variants = bool(p.get("variants"))
         product_data = {
             "name": name,
             "category": p.get("category", "默认分类"),
             "price": float(p.get("price", 0)),
-            "stock": int(p.get("stock", 0)),
+            "stock": 0 if has_variants else int(p.get("stock", 0)),
             "discount": discount_value,
             "description": p.get("description", ""),
             "img_path": "",
@@ -657,7 +686,11 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                         update_data[field] = float(p[field])
                     except (ValueError, TypeError):
                         pass
+            existing_variants = VariantDB.get_by_product(pid)
             if "stock" in p and p["stock"] is not None:
+                if existing_variants:
+                    results.append({"product_id": pid, "ok": False, "error": f"该商品含有{len(existing_variants)}个规格，请通过variants参数分别修改各规格的库存，不能直接修改商品级库存"})
+                    continue
                 try:
                     update_data["stock"] = int(p["stock"])
                 except (ValueError, TypeError):
@@ -680,6 +713,22 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                 # 处理图片
                 if p.get("image_path"):
                     _apply_image_to_product(owner_id, pid, p["image_path"])
+                # 处理变体
+                if p.get("variants"):
+                    for v in p["variants"]:
+                        vid = v.get("variant_id", "")
+                        if vid:
+                            if v.get("delete"):
+                                VariantDB.delete_variant(vid)
+                            else:
+                                VariantDB.update_variant(
+                                    vid,
+                                    name=v.get("name"),
+                                    stock=int(v["stock"]) if v.get("stock") is not None else None,
+                                )
+                        else:
+                            # 新建变体
+                            VariantDB.create_variant(pid, v.get("name", ""), int(v.get("stock", 0)))
                 results.append({"product_id": pid, "ok": True, "name": product.get("name", "")})
             except Exception as e:
                 results.append({"product_id": pid, "ok": False, "error": str(e)})
@@ -1008,6 +1057,8 @@ def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) ->
                     coupon_amount=float(t.get("coupon_amount", 0)),
                     per_order_limit=int(t.get("per_order_limit", 0)) if t.get("per_order_limit") is not None else None,
                 )
+                if t.get("items"):
+                    GiftThresholdDB.add_items_to_threshold(tid, owner_id, t["items"])
                 results.append({"ok": True, "threshold_id": tid, "threshold_amount": t.get("threshold_amount")})
             except Exception as e:
                 results.append({"ok": False, "error": str(e)})
@@ -1037,6 +1088,8 @@ def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) ->
                 if "is_active" in t:
                     update_data["is_active"] = bool(t["is_active"])
                 GiftThresholdDB.update_threshold(tid, owner_id=owner_id, **update_data)
+                if "items" in t:
+                    GiftThresholdDB.add_items_to_threshold(tid, owner_id, t["items"])
                 results.append({"threshold_id": tid, "ok": True})
             except Exception as e:
                 results.append({"threshold_id": tid, "ok": False, "error": str(e)})
@@ -1427,9 +1480,14 @@ def _sanitize_admin_messages(
         if role not in ALLOWED_ROLES:
             continue
         content = msg.get("content")
-        # 确保 content 是字符串（防止意外的 list/dict 类型）
-        if content is not None and not isinstance(content, str):
+        # 确保 content 是字符串（防止意外的 list/dict 类型，以及 None 导致部分模型报错）
+        if content is None:
+            content = ""
+        elif not isinstance(content, str):
             content = str(content)
+        # 跳过中断标记消息，不纳入上下文
+        if content == ERROR_INTERRUPTED_MARKER:
+            continue
         clean = {"role": role, "content": content}
         if msg.get("tool_calls"):
             clean["tool_calls"] = msg["tool_calls"]
@@ -1586,7 +1644,7 @@ async def handle_admin_tool_calls_and_continue(
                 if assistant_content and assistant_content.strip():
                     assistant_message["content"] = assistant_content
                 else:
-                    assistant_message["content"] = None
+                    assistant_message["content"] = ""
                 base_messages.append(assistant_message)
 
                 tool_calls_info = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
@@ -1742,7 +1800,7 @@ async def stream_admin_chat(
                         if assistant_text and assistant_text.strip():
                             assistant_message["content"] = assistant_text
                         else:
-                            assistant_message["content"] = None
+                            assistant_message["content"] = ""
                         messages = init_messages + [assistant_message]
 
                         tool_calls_info = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]

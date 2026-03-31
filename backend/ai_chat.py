@@ -1969,10 +1969,13 @@ def _sanitize_initial_messages(
                     content = json.dumps(content, ensure_ascii=False)
                 except TypeError:
                     content = str(content)
+            # 跳过中断标记消息，不纳入上下文
+            if content == ERROR_INTERRUPTED_MARKER:
+                continue
             # 检查是否有实际内容
             if content and (not isinstance(content, str) or content.strip()):
                 has_content = True
-        
+
         # 如果是 assistant 角色且包含有效 tool_calls，记录这些 tool_calls
         if role == "assistant":
             raw_tool_calls = msg.get("tool_calls")
@@ -2358,11 +2361,10 @@ async def handle_tool_calls_and_continue(
                     "role": "assistant",
                     "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
                 }
-                # content 字段处理：有内容则添加，无内容则设为 null（某些模型不接受空字符串）
                 if assistant_content and assistant_content.strip():
                     assistant_message["content"] = assistant_content
                 else:
-                    assistant_message["content"] = None
+                    assistant_message["content"] = ""
                 base_messages.append(assistant_message)
 
                 # 记录assistant消息到聊天历史
@@ -2547,11 +2549,10 @@ async def stream_chat(
                             "role": "assistant",
                             "tool_calls": [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
                         }
-                        # content 字段处理：有内容则添加，无内容则设为 null（某些模型不接受空字符串）
                         if assistant_text and assistant_text.strip():
                             assistant_message["content"] = assistant_text
                         else:
-                            assistant_message["content"] = None
+                            assistant_message["content"] = ""
                         messages = init_messages + [assistant_message]
 
                         # 记录assistant消息到聊天历史
