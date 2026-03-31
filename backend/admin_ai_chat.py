@@ -25,7 +25,6 @@ from ai_chat import (
     resolve_model_config,
     stream_model_response,
     ERROR_INTERRUPTED_MARKER,
-    ai_client,
 )
 from config import get_settings, ModelConfig
 from database import (
@@ -40,10 +39,10 @@ from database import (
     StaffChatLogDB,
     AgentAssignmentDB,
     ImageLookupDB,
-    UserProfileDB,
+    UserDB,
     get_db_connection,
 )
-from auth import get_current_staff_from_cookie
+from app.utils import convert_sqlite_timestamp_to_unix, format_device_time_ms
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -66,6 +65,88 @@ def _to_local_time(value: Optional[str]) -> str:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return value or ""
+
+
+def _to_device_time(value: Optional[str], tz_offset_minutes: Optional[int] = None) -> str:
+    if not value:
+        return ""
+    try:
+        ts = convert_sqlite_timestamp_to_unix(str(value))
+        return format_device_time_ms(float(ts) * 1000.0, tz_offset_minutes, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return _to_local_time(value)
+
+
+def _serialize_order_items_for_ai(items: Any) -> List[Dict[str, Any]]:
+    serialized: List[Dict[str, Any]] = []
+    for raw in (items or []):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            quantity = int(raw.get("quantity") or 0)
+        except Exception:
+            quantity = 0
+        try:
+            unit_price = float(raw.get("unit_price") or 0)
+        except Exception:
+            unit_price = 0.0
+        try:
+            subtotal = float(raw.get("subtotal") or 0)
+        except Exception:
+            subtotal = 0.0
+        item: Dict[str, Any] = {
+            "name": raw.get("name") or raw.get("product_name") or raw.get("title") or "未命名商品",
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "subtotal": subtotal,
+        }
+        if raw.get("product_id"):
+            item["product_id"] = raw.get("product_id")
+        if raw.get("variant_id"):
+            item["variant_id"] = raw.get("variant_id")
+        if raw.get("variant_name"):
+            item["variant_name"] = raw.get("variant_name")
+        if raw.get("category"):
+            item["category"] = raw.get("category")
+        if raw.get("is_lottery"):
+            item["is_lottery"] = True
+        if raw.get("is_auto_gift"):
+            item["is_auto_gift"] = True
+        if raw.get("is_reservation"):
+            item["is_reservation"] = True
+        if raw.get("is_not_for_sale"):
+            item["is_not_for_sale"] = True
+        serialized.append(item)
+    return serialized
+
+
+def _serialize_order_for_ai(order: Dict[str, Any], compute_unified_order_status, tz_offset_minutes: Optional[int] = None) -> Dict[str, Any]:
+    items = order.get("items", []) if isinstance(order, dict) else []
+    serialized_items = _serialize_order_items_for_ai(items)
+    discount_amount = 0.0
+    try:
+        discount_amount = float(order.get("discount_amount") or 0)
+    except Exception:
+        discount_amount = 0.0
+    coupon_id = order.get("coupon_id")
+    resolved_user_id = _resolve_tool_user_id(order.get("user_id"), order.get("student_id"))
+    return {
+        "id": order.get("id"),
+        "status": order.get("status"),
+        "unified_status": compute_unified_order_status(order),
+        "payment_status": order.get("payment_status"),
+        "total_amount": order.get("total_amount"),
+        "user_id": resolved_user_id,
+        "user_name": order.get("customer_name") or order.get("user_name") or order.get("student_name") or resolved_user_id,
+        "created_at": _to_device_time(order.get("created_at"), tz_offset_minutes),
+        "items_count": len(serialized_items),
+        "items": serialized_items,
+        "coupon_id": coupon_id,
+        "discount_amount": discount_amount,
+        "coupon_applied": bool(coupon_id and discount_amount > 0),
+        "address_name": order.get("address_name"),
+        "building_name": order.get("building_name"),
+    }
 
 
 # ===== 系统提示词 =====
@@ -119,12 +200,12 @@ Current operator: {staff_name} (role: {staff_role})
 
 # Order Status Reference
 ## Filtering (action='list', filters.status):
-- unpaid: Not paid yet
-- pending_confirm: Payment being processed
-- awaiting_delivery: Paid, awaiting shipment
-- delivering: In delivery
-- completed: Delivered / completed
-- cancelled: Cancelled
+- unpaid(未付款): Not paid yet
+- pending_confirm(待确认): Payment being processed
+- awaiting_delivery(待配送): Paid, awaiting shipment
+- delivering(配送中): In delivery
+- completed(已完成): Delivered / completed
+- cancelled(已取消): Cancelled
 
 ## Updating (action='update_status', updates[].status):
 - Prefer unified targets: unpaid / pending_confirm / awaiting_delivery / delivering / completed / cancelled
@@ -189,7 +270,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                     "category": {"type": "string", "description": "Category name"},
                                     "price": {"type": "number", "description": "Price in CNY"},
                                     "stock": {"type": "integer", "description": "Stock quantity (only for products WITHOUT variants; for products with variants, set stock in each variant)"},
-                                    "description": {"type": "string", "description": "Product description"},
+                                    "description": {"type": "string", "description": "Short product description"},
                                     "discount": {"type": "number", "description": "Discount factor (0.5–10, where 10 = full price)"},
                                     "image_path": {"type": "string", "description": "Image path (obtained from image upload)"},
                                     "is_hot": {"type": "boolean", "description": "Whether the product is marked as hot/featured"},
@@ -233,10 +314,11 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "type": "object",
                             "description": "Query filters (used with action='list')",
                             "properties": {
+                                "order_id": {"type": "string", "description": "Exact order ID lookup. When provided, returns the matching order detail if accessible."},
+                                "user_id": {"type": "string", "description": "Exact user ID filter. Use this after searching users."},
                                 "status": {"type": "string", "enum": ["unpaid", "pending_confirm", "awaiting_delivery", "delivering", "completed", "cancelled"], "description": "Filter by unified order status"},
-                                "student_id": {"type": "string", "description": "Filter by student ID"},
                                 "page": {"type": "integer", "description": "Page number, default 0"},
-                                "limit": {"type": "integer", "description": "Results per page, default 20"}
+                                "limit": {"type": "integer", "description": "Results per page, default 20, max 50"}
                             }
                         },
                         "updates": {
@@ -388,7 +470,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "enum": ["list", "issue", "revoke"],
                             "description": "list = view coupons, issue = batch issue, revoke = batch revoke"
                         },
-                        "student_id": {"type": "string", "description": "Student ID (filter for list, or target for issue)"},
+                        "user_id": {"type": "string", "description": "User ID (filter for list, or target for issue)"},
                         "coupons": {
                             "type": "array",
                             "description": "Coupon operation list",
@@ -396,6 +478,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                 "type": "object",
                                 "properties": {
                                     "coupon_id": {"type": "string", "description": "Coupon ID (required for revoke)"},
+                                    "user_id": {"type": "string", "description": "User ID override for issue"},
                                     "amount": {"type": "number", "description": "Coupon amount in CNY (required for issue)"},
                                     "quantity": {"type": "integer", "description": "Number of coupons to issue (1–200)"},
                                     "expires_at": {"type": "string", "description": "Expiration datetime in ISO format (optional for issue)"}
@@ -422,17 +505,21 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                         },
                         "keywords": {
                             "type": "array",
-                            "description": "Search keywords (used with action='search'). Matches student ID, name, or phone.",
+                            "description": "Search keywords (used with action='search'). Matches user ID, name, or phone.",
                             "items": {"type": "string"}
                         },
-                        "student_id": {
+                        "user_id": {
                             "type": "string",
-                            "description": "Student ID (required for action='orders'/'coupons')"
+                            "description": "User ID used by action='orders'/'coupons'."
                         },
                         "sort_by": {
                             "type": "string",
                             "enum": ["time", "amount"],
                             "description": "Sort order for action='orders'. Default 'time' (newest first). 'amount' = highest first."
+                        },
+                        "order_id": {
+                            "type": "string",
+                            "description": "Exact order ID lookup for action='orders'. When provided, returns that single order if accessible."
                         },
                         "page": {
                             "type": "integer",
@@ -457,6 +544,22 @@ def _get_owner_id(staff: Dict[str, Any]) -> str:
     if staff.get("type") == "agent":
         return staff.get("agent_id") or staff.get("id")
     return "admin"
+
+
+def _resolve_tool_user_id(*candidates: Any) -> str:
+    """将工具层传入或数据库中的用户标识统一解析为 user_id。"""
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if not text:
+            continue
+        try:
+            user_ref = UserDB.resolve_user_reference(text)
+        except Exception:
+            user_ref = None
+        if user_ref and user_ref.get("user_id") is not None:
+            return str(user_ref["user_id"])
+        return text
+    return ""
 
 
 def _build_scope(staff: Dict[str, Any]) -> Dict[str, Any]:
@@ -851,25 +954,50 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
     action = args.get("action", "")
     owner_id = _get_owner_id(staff)
     scope = _build_scope(staff)
+    tz_offset_minutes = staff.get("device_timezone_offset_minutes", 0)
 
     if action == "list":
         filters = args.get("filters") or {}
+        order_id = (filters.get("order_id") or "").strip()
+        user_id = _resolve_tool_user_id(filters.get("user_id"), filters.get("student_id"))
         status = filters.get("status")
-        student_id = filters.get("student_id")
         page = max(int(filters.get("page") or 0), 0)
         limit = min(max(int(filters.get("limit") or 20), 1), 50)
 
         try:
+            if order_id:
+                order = OrderDB.get_order_by_id(order_id)
+                if not order:
+                    return {"ok": True, "action": "list", "orders": [], "count": 0, "page": 0, "limit": 1, "has_more": False}
+                if not _can_access_order(staff, order, scope):
+                    return {"ok": False, "error": "无权访问该订单"}
+                if status:
+                    unified = _FILTER_STATUS_TO_UNIFIED.get(status)
+                    if unified and compute_unified_order_status(order) != unified:
+                        return {"ok": True, "action": "list", "orders": [], "count": 0, "page": 0, "limit": 1, "has_more": False}
+                if user_id and _resolve_tool_user_id(order.get("user_id"), order.get("student_id")) != user_id:
+                    return {"ok": True, "action": "list", "orders": [], "count": 0, "page": 0, "limit": 1, "has_more": False}
+                order_data = _serialize_order_for_ai(order, compute_unified_order_status, tz_offset_minutes)
+                return {
+                    "ok": True,
+                    "action": "list",
+                    "orders": [order_data],
+                    "count": 1,
+                    "page": 0,
+                    "limit": 1,
+                    "has_more": False,
+                }
+
             kwargs = {
                 "offset": page * limit,
                 "limit": limit,
             }
+            if user_id:
+                kwargs["user_id"] = user_id
             if status:
                 unified = _FILTER_STATUS_TO_UNIFIED.get(status)
                 if unified:
                     kwargs["unified_status"] = unified
-            if student_id:
-                kwargs["keyword"] = student_id
 
             # 根据角色过滤
             if scope.get("agent_id"):
@@ -881,24 +1009,18 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
 
             result_data = OrderDB.get_orders_paginated(**kwargs)
             orders = result_data.get("orders", []) if isinstance(result_data, dict) else result_data
-            # 简化返回数据
-            order_list = []
-            for o in orders:
-                unified_status = compute_unified_order_status(o)
-                order_list.append({
-                    "id": o.get("id"),
-                    "status": o.get("status"),
-                    "unified_status": unified_status,
-                    "payment_status": o.get("payment_status"),
-                    "total_amount": o.get("total_amount"),
-                    "student_id": o.get("student_id"),
-                    "student_name": o.get("customer_name") or o.get("student_name") or o.get("student_id"),
-                    "created_at": _to_local_time(o.get("created_at")),
-                    "items_count": len(o.get("items", [])) if isinstance(o.get("items"), list) else 0,
-                    "address_name": o.get("address_name"),
-                    "building_name": o.get("building_name"),
-                })
-            return {"ok": True, "action": "list", "orders": order_list, "count": len(order_list), "page": page}
+            total = result_data.get("total", len(orders)) if isinstance(result_data, dict) else len(orders)
+            order_list = [_serialize_order_for_ai(o, compute_unified_order_status, tz_offset_minutes) for o in orders]
+            return {
+                "ok": True,
+                "action": "list",
+                "orders": order_list,
+                "count": len(order_list),
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "has_more": (page * limit + len(order_list)) < total,
+            }
         except Exception as e:
             return {"ok": False, "error": f"查询订单失败: {e}"}
 
@@ -1160,19 +1282,19 @@ def _manage_coupons_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
     owner_id = _get_owner_id(staff)
 
     if action == "list":
-        student_id = args.get("student_id")
+        user_id = _resolve_tool_user_id(args.get("user_id"), args.get("student_id"))
         try:
-            items = CouponDB.list_all(student_id, owner_id=owner_id)
-            # 按 (student_id, amount, is_active) 聚合，避免逐张列出
+            items = CouponDB.list_all(user_id or None, owner_id=owner_id)
+            # 按 (user_id, amount, is_active) 聚合，避免逐张列出
             groups: Dict[tuple, Dict[str, Any]] = {}
             for c in (items or []):
-                sid = c.get("issued_to_user_id") or c.get("student_id") or ""
+                uid = _resolve_tool_user_id(c.get("user_id"), c.get("issued_to_user_id"), c.get("student_id"))
                 amt = c.get("amount", 0)
                 active = bool(c.get("is_active"))
-                key = (sid, amt, active)
+                key = (uid, amt, active)
                 if key not in groups:
                     groups[key] = {
-                        "student_id": sid,
+                        "user_id": uid,
                         "amount": amt,
                         "is_active": active,
                         "count": 0,
@@ -1190,7 +1312,7 @@ def _manage_coupons_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
             return {"ok": False, "error": f"查询优惠券失败: {e}"}
 
     elif action == "issue":
-        student_id = args.get("student_id")
+        user_id = _resolve_tool_user_id(args.get("user_id"), args.get("student_id"))
         coupons = args.get("coupons", [])
         if not coupons:
             return {"ok": False, "error": "缺少优惠券信息"}
@@ -1220,12 +1342,12 @@ def _manage_coupons_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
                         results.append({"ok": False, "error": "无效的过期时间格式"})
                         continue
 
-                target_student_id = c.get("student_id") or student_id
-                ids = CouponDB.issue_coupons(target_student_id, amt, qty, expires_at, owner_id=owner_id)
+                target_user_id = _resolve_tool_user_id(c.get("user_id"), c.get("student_id"), user_id)
+                ids = CouponDB.issue_coupons(target_user_id, amt, qty, expires_at, owner_id=owner_id)
                 if not ids:
-                    results.append({"ok": False, "error": "发放失败，学号不存在或其他错误"})
+                    results.append({"ok": False, "error": "发放失败，user_id 不存在或发生其他错误"})
                 else:
-                    results.append({"ok": True, "issued": len(ids), "amount": amt, "student_id": target_student_id})
+                    results.append({"ok": True, "issued": len(ids), "amount": amt, "user_id": target_user_id})
             except Exception as e:
                 results.append({"ok": False, "error": str(e)})
 
@@ -1264,6 +1386,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
     action = args.get("action", "search")
     scope = _build_scope(staff)
     owner_id = _get_owner_id(staff)
+    tz_offset_minutes = staff.get("device_timezone_offset_minutes", 0)
 
     if action == "search":
         keywords = args.get("keywords", [])
@@ -1278,7 +1401,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
                 with get_db_connection() as conn:
                     cur = conn.cursor()
                     params: List[Any] = [like, like, like]
-                    search_condition = "(u.id LIKE ? OR u.name LIKE ? OR up.phone LIKE ?)"
+                    search_condition = "(CAST(COALESCE(u.user_id, '') AS TEXT) LIKE ? OR u.name LIKE ? OR up.phone LIKE ?)"
                     filters: List[str] = [search_condition]
 
                     if staff.get("type") == "agent":
@@ -1300,7 +1423,8 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
 
                     query = f"""
                         SELECT DISTINCT
-                            u.id AS student_id,
+                            u.id AS legacy_user_key,
+                            CAST(COALESCE(u.user_id, '') AS TEXT) AS user_id,
                             u.name AS name,
                             up.phone AS phone,
                             (SELECT COUNT(*) FROM orders o WHERE o.student_id = u.id) AS order_count
@@ -1308,17 +1432,19 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
                         LEFT JOIN user_profiles up
                           ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
                         WHERE {" AND ".join(filters)}
-                        ORDER BY u.id ASC
+                        ORDER BY u.user_id ASC, u.id ASC
                         LIMIT ?
                     """
                     params.append(limit)
                     cur.execute(query, tuple(params))
                     for row in cur.fetchall() or []:
-                        sid = row["student_id"]
-                        if sid not in all_results:
-                            all_results[sid] = {
-                                "student_id": sid,
-                                "name": row["name"] or sid,
+                        resolved_user_id = _resolve_tool_user_id(row["user_id"], row["legacy_user_key"])
+                        if not resolved_user_id:
+                            continue
+                        if resolved_user_id not in all_results:
+                            all_results[resolved_user_id] = {
+                                "user_id": resolved_user_id,
+                                "name": row["name"] or resolved_user_id,
                                 "phone": row["phone"] or "",
                                 "order_count": row["order_count"],
                             }
@@ -1328,18 +1454,40 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
         return {"ok": True, "action": "search", "users": list(all_results.values()), "count": len(all_results)}
 
     elif action == "orders":
-        student_id = (args.get("student_id") or "").strip()
-        if not student_id:
-            return {"ok": False, "error": "缺少 student_id"}
+        user_id = _resolve_tool_user_id(args.get("user_id"), args.get("student_id"))
+        order_id = (args.get("order_id") or "").strip()
+        if not user_id:
+            return {"ok": False, "error": "缺少 user_id"}
         sort_by = args.get("sort_by", "time")
         page = max(int(args.get("page") or 0), 0)
         limit = min(max(int(args.get("limit") or 20), 1), 50)
 
         try:
+            from app.services.orders import compute_unified_order_status
+
+            if order_id:
+                order = OrderDB.get_order_by_id(order_id)
+                if not order:
+                    return {"ok": True, "action": "orders", "user_id": user_id, "orders": [], "total": 0, "page": 0, "limit": 1, "has_more": False}
+                if user_id and _resolve_tool_user_id(order.get("user_id"), order.get("student_id")) != user_id:
+                    return {"ok": True, "action": "orders", "user_id": user_id, "orders": [], "total": 0, "page": 0, "limit": 1, "has_more": False}
+                if not _can_access_order(staff, order, scope):
+                    return {"ok": False, "error": "无权访问该订单"}
+                return {
+                    "ok": True,
+                    "action": "orders",
+                    "user_id": user_id or _resolve_tool_user_id(order.get("user_id"), order.get("student_id")),
+                    "orders": [_serialize_order_for_ai(order, compute_unified_order_status, tz_offset_minutes)],
+                    "total": 1,
+                    "page": 0,
+                    "limit": 1,
+                    "has_more": False,
+                }
+
             kwargs: Dict[str, Any] = {
-                "keyword": student_id,
                 "offset": page * limit,
                 "limit": limit,
+                "user_id": user_id,
             }
             if scope.get("agent_id"):
                 kwargs["agent_id"] = scope["agent_id"]
@@ -1352,13 +1500,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
             orders = result_data.get("orders", []) if isinstance(result_data, dict) else result_data
             total = result_data.get("total", len(orders)) if isinstance(result_data, dict) else len(orders)
 
-            order_list = [{
-                "id": o.get("id"),
-                "status": o.get("status"),
-                "total_amount": o.get("total_amount"),
-                "items_count": len(o.get("items", [])) if isinstance(o.get("items"), list) else 0,
-                "created_at": _to_local_time(o.get("created_at")),
-            } for o in orders]
+            order_list = [_serialize_order_for_ai(o, compute_unified_order_status, tz_offset_minutes) for o in orders]
 
             if sort_by == "amount":
                 order_list.sort(key=lambda x: x.get("total_amount") or 0, reverse=True)
@@ -1366,7 +1508,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
             return {
                 "ok": True,
                 "action": "orders",
-                "student_id": student_id,
+                "user_id": user_id,
                 "orders": order_list,
                 "total": total,
                 "page": page,
@@ -1377,11 +1519,11 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
             return {"ok": False, "error": f"查询订单失败: {e}"}
 
     elif action == "coupons":
-        student_id = (args.get("student_id") or "").strip()
-        if not student_id:
-            return {"ok": False, "error": "缺少 student_id"}
+        user_id = _resolve_tool_user_id(args.get("user_id"), args.get("student_id"))
+        if not user_id:
+            return {"ok": False, "error": "缺少 user_id"}
         try:
-            items = CouponDB.list_all(student_id, owner_id=owner_id)
+            items = CouponDB.list_all(user_id, owner_id=owner_id)
             groups: Dict[tuple, Dict[str, Any]] = {}
             for c in (items or []):
                 amt = c.get("amount", 0)
@@ -1394,7 +1536,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
             return {
                 "ok": True,
                 "action": "coupons",
-                "student_id": student_id,
+                "user_id": user_id,
                 "coupons": list(groups.values()),
                 "total_count": len(items or []),
             }

@@ -1052,6 +1052,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
           messages,
           model: modelValue,
           conversation_id: historyEnabled && (chatId || activeChatId) ? (chatId || activeChatId) : undefined,
+          timezone_offset_minutes: typeof window !== "undefined" ? new Date().getTimezoneOffset() : 0,
         }),
         signal: controller.signal,
       });

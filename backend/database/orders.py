@@ -652,6 +652,7 @@ class OrderDB:
     @staticmethod
     def get_orders_paginated(
         order_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         keyword: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
@@ -689,23 +690,29 @@ class OrderDB:
             params: List[Any] = []
             where_sql: List[str] = []
             order_id_text = (order_id or '').strip()
+            user_id_text = (user_id or '').strip()
             keyword_text = (keyword or '').strip()
 
             if order_id_text and not keyword_text:
                 where_sql.append('o.id LIKE ?')
                 params.append(f'%{order_id_text}%')
 
+            if user_id_text:
+                where_sql.append('COALESCE(o.user_id, "") = ?')
+                params.append(user_id_text)
+
             if keyword_text:
                 like_value = f'%{keyword_text}%'
                 where_sql.append(
                     '('
                     'o.id LIKE ? OR '
+                    'COALESCE(o.user_id, "") LIKE ? OR '
                     'COALESCE(o.student_id, "") LIKE ? OR '
                     'LOWER(COALESCE(u.name, "")) LIKE LOWER(?) OR '
                     'LOWER(COALESCE(o.shipping_info, "")) LIKE LOWER(?)'
                     ')'
                 )
-                params.extend([like_value, like_value, like_value, like_value])
+                params.extend([like_value, like_value, like_value, like_value, like_value])
 
             scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
             if scope_clause:

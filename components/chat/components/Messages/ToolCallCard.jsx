@@ -71,6 +71,14 @@ const ToolCallCard = ({
 
   const args = safeParse(arguments_text);
   const result = safeParse(result_summary);
+  const pickUserId = (...values) => {
+    for (const value of values) {
+      if (value === undefined || value === null) continue;
+      const text = String(value).trim();
+      if (text) return text;
+    }
+    return "";
+  };
 
   const getToolStyle = (name) => {
     if (name === "search_products") return { icon: Search, color: "blue", bg: "bg-blue-50", border: "border-blue-100", text: "text-blue-600" };
@@ -87,6 +95,89 @@ const ToolCallCard = ({
 
   const style = getToolStyle(function_name);
   const Icon = style.icon;
+  const orderStatusColors = {
+    unpaid: "bg-slate-100 text-slate-700",
+    pending_confirm: "bg-amber-100 text-amber-700",
+    awaiting_delivery: "bg-blue-100 text-blue-700",
+    delivering: "bg-purple-100 text-purple-700",
+    completed: "bg-emerald-100 text-emerald-700",
+    cancelled: "bg-gray-100 text-gray-600",
+    pending: "bg-amber-100 text-amber-700",
+    confirmed: "bg-blue-100 text-blue-700",
+    shipped: "bg-purple-100 text-purple-700",
+    delivered: "bg-emerald-100 text-emerald-700",
+    未付款: "bg-slate-100 text-slate-700",
+    待确认: "bg-amber-100 text-amber-700",
+    待配送: "bg-blue-100 text-blue-700",
+    配送中: "bg-purple-100 text-purple-700",
+    已完成: "bg-emerald-100 text-emerald-700",
+    已取消: "bg-gray-100 text-gray-600",
+  };
+  const orderStatusLabels = {
+    unpaid: "未付款",
+    pending_confirm: "待确认",
+    awaiting_delivery: "待配送",
+    delivering: "配送中",
+    completed: "已完成",
+    cancelled: "已取消",
+    pending: "待确认",
+    confirmed: "待配送",
+    shipped: "配送中",
+    delivered: "已完成",
+    未付款: "未付款",
+    待确认: "待确认",
+    待配送: "待配送",
+    配送中: "配送中",
+    已完成: "已完成",
+    已取消: "已取消",
+  };
+
+  const renderOrderStatusChip = (statusValue) => {
+    const normalized = statusValue || "";
+    return (
+      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[normalized] || "bg-gray-100 text-gray-500")}>
+        {orderStatusLabels[normalized] || normalized || "未知状态"}
+      </span>
+    );
+  };
+
+  const renderOrderItemsCompact = (items) => {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const visibleItems = items.slice(0, 3);
+    return (
+      <div className="mt-2 space-y-1.5">
+        {visibleItems.map((item, index) => (
+          <div key={`${item.product_id || item.name || "item"}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2 text-xs">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-medium text-gray-800 truncate">{item.name || "未命名商品"}</span>
+                {item.variant_name && <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500 border border-gray-200">{item.variant_name}</span>}
+                {item.is_auto_gift && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600 border border-emerald-100">赠品</span>}
+                {item.is_lottery && <span className="rounded bg-pink-50 px-1.5 py-0.5 text-[10px] text-pink-600 border border-pink-100">抽奖</span>}
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                x{item.quantity || 0}
+                {item.unit_price != null ? ` · 单价 ¥${Number(item.unit_price || 0).toFixed(2)}` : ""}
+              </div>
+            </div>
+            <span className="shrink-0 font-medium text-gray-700">¥{Number(item.subtotal || 0).toFixed(2)}</span>
+          </div>
+        ))}
+        {items.length > visibleItems.length && <div className="text-center text-[11px] text-gray-400">还有 {items.length - visibleItems.length} 件商品...</div>}
+      </div>
+    );
+  };
+
+  const renderOrderDiscountMeta = (order) => {
+    const discountAmount = Number(order?.discount_amount || 0);
+    if (!discountAmount || discountAmount <= 0) return null;
+    return (
+      <div className="mt-1 text-xs text-pink-500">
+        已用优惠券优惠 ¥{discountAmount.toFixed(2)}
+        {order?.coupon_id ? <span className="ml-1 font-mono text-[11px] text-pink-400">({order.coupon_id})</span> : null}
+      </div>
+    );
+  };
 
   const renderArguments = () => {
     if ((function_name === "get_cart" || function_name === "get_category") && (!args || Object.keys(args).length === 0)) {
@@ -137,24 +228,6 @@ const ToolCallCard = ({
     const Row = ({ label, children }) => (
       <div className="flex gap-2 text-sm"><span className="text-gray-500 min-w-[4rem] shrink-0">{label}</span><span className="text-gray-900 min-w-0">{children}</span></div>
     );
-    const statusLabels = {
-      unpaid: "未付款",
-      pending_confirm: "待确认",
-      awaiting_delivery: "待配送",
-      delivering: "配送中",
-      completed: "已完成",
-      cancelled: "已取消",
-      pending: "待确认",
-      confirmed: "待配送",
-      shipped: "配送中",
-      delivered: "已完成",
-      未付款: "未付款",
-      待确认: "待确认",
-      待配送: "待配送",
-      配送中: "配送中",
-      已完成: "已完成",
-      已取消: "已取消",
-    };
 
     if (function_name === "manage_products") {
       const action = args.action;
@@ -220,11 +293,13 @@ const ToolCallCard = ({
     if (function_name === "manage_orders") {
       if (args.action === "list") {
         const filters = args.filters || {};
+        const targetUserId = pickUserId(filters.user_id);
         return (
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">查看订单列表</span></Row>
-            {filters.status && <Row label="状态筛选"><span className={cx("px-1.5 py-0.5 rounded text-xs font-medium", filters.status === "pending" ? "bg-yellow-100 text-yellow-700" : filters.status === "completed" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600")}>{statusLabels[filters.status] || filters.status}</span></Row>}
-            {filters.student_id && <Row label="学号">{filters.student_id}</Row>}
+            {filters.order_id && <Row label="订单号"><span className="font-mono">{filters.order_id}</span></Row>}
+            {targetUserId && <Row label="用户ID"><span className="font-mono">{targetUserId}</span></Row>}
+            {filters.status && <Row label="状态筛选">{renderOrderStatusChip(filters.status)}</Row>}
             <Row label="分页">第 {(filters.page || 0) + 1} 页，每页 {filters.limit || 20} 条</Row>
           </div>
         );
@@ -238,7 +313,7 @@ const ToolCallCard = ({
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">修改 {args.updates.length} 个订单状态</span></Row>
             {Object.entries(grouped).map(([statusKey, count]) => (
-              <Row key={statusKey} label="目标状态"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{statusLabels[statusKey] || statusKey}</span> <span className="text-gray-500">× {count}</span></Row>
+              <Row key={statusKey} label="目标状态">{renderOrderStatusChip(statusKey)} <span className="text-gray-500">× {count}</span></Row>
             ))}
           </div>
         );
@@ -292,22 +367,25 @@ const ToolCallCard = ({
 
     if (function_name === "manage_coupons") {
       if (args.action === "list") {
+        const targetUserId = pickUserId(args.user_id);
         return (
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">查看优惠券</span></Row>
-            {args.student_id && <Row label="学号">{args.student_id}</Row>}
+            {targetUserId && <Row label="用户ID">{targetUserId}</Row>}
           </div>
         );
       }
       if (args.action === "issue") {
         const coupons = args.coupons || [];
+        const targetUserId = pickUserId(args.user_id);
         return (
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">发放优惠券</span></Row>
-            {args.student_id && <Row label="对象">{args.student_id}</Row>}
+            {targetUserId && <Row label="对象">{targetUserId}</Row>}
             {coupons.map((coupon, index) => (
               <Row key={index} label={`券${index + 1}`}>
                 <span className="font-semibold text-violet-600">¥{coupon.amount}</span>
+                {pickUserId(coupon.user_id) && <span className="text-gray-500 text-xs ml-1">用户 {pickUserId(coupon.user_id)}</span>}
                 {coupon.quantity > 1 && <span className="text-gray-500 text-xs ml-1">× {coupon.quantity}</span>}
                 {coupon.expires_at && <span className="text-gray-400 text-xs ml-1">截止 {coupon.expires_at.slice(0, 10)}</span>}
               </Row>
@@ -335,20 +413,22 @@ const ToolCallCard = ({
         );
       }
       if (args.action === "orders") {
+        const targetUserId = pickUserId(args.user_id);
         return (
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">查看用户订单</span></Row>
-            <Row label="学号">{args.student_id}</Row>
+            <Row label="用户ID">{targetUserId}</Row>
             {args.sort_by === "amount" && <Row label="排序">按金额降序</Row>}
             {args.page > 0 && <Row label="分页">第 {args.page + 1} 页</Row>}
           </div>
         );
       }
       if (args.action === "coupons") {
+        const targetUserId = pickUserId(args.user_id);
         return (
           <div className="flex flex-col gap-1">
             <Row label="操作"><span className="font-medium">查看用户优惠券</span></Row>
-            <Row label="学号">{args.student_id}</Row>
+            <Row label="用户ID">{targetUserId}</Row>
           </div>
         );
       }
@@ -630,42 +710,6 @@ const ToolCallCard = ({
       const isOk = result.ok !== false;
       const statusIcon = isOk ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />;
       const statusBg = isOk ? "bg-green-50" : "bg-red-50";
-      const orderStatusColors = {
-        unpaid: "bg-slate-100 text-slate-700",
-        pending_confirm: "bg-yellow-100 text-yellow-700",
-        awaiting_delivery: "bg-blue-100 text-blue-700",
-        delivering: "bg-purple-100 text-purple-700",
-        completed: "bg-green-100 text-green-700",
-        cancelled: "bg-gray-100 text-gray-500",
-        pending: "bg-yellow-100 text-yellow-700",
-        confirmed: "bg-blue-100 text-blue-700",
-        shipped: "bg-purple-100 text-purple-700",
-        delivered: "bg-green-100 text-green-700",
-        未付款: "bg-slate-100 text-slate-700",
-        待确认: "bg-yellow-100 text-yellow-700",
-        待配送: "bg-blue-100 text-blue-700",
-        配送中: "bg-purple-100 text-purple-700",
-        已完成: "bg-green-100 text-green-700",
-        已取消: "bg-gray-100 text-gray-500",
-      };
-      const orderStatusLabels = {
-        unpaid: "未付款",
-        pending_confirm: "待确认",
-        awaiting_delivery: "待配送",
-        delivering: "配送中",
-        completed: "已完成",
-        cancelled: "已取消",
-        pending: "待确认",
-        confirmed: "待配送",
-        shipped: "配送中",
-        delivered: "已完成",
-        未付款: "未付款",
-        待确认: "待确认",
-        待配送: "待配送",
-        配送中: "配送中",
-        已完成: "已完成",
-        已取消: "已取消",
-      };
 
       if (function_name === "manage_products") {
         if (result.action === "categories" && result.categories) {
@@ -738,17 +782,28 @@ const ToolCallCard = ({
           return (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>共 {result.count || result.orders.length} 个订单</span>
+                <span>已返回 {result.count || result.orders.length} 个订单{result.total ? ` / 共 ${result.total} 个` : ""}</span>
                 <span>第 {(result.page || 0) + 1} 页</span>
               </div>
               <div className="space-y-1">
                 {result.orders.slice(0, 10).map((order, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.unified_status || order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.unified_status || order.status] || order.unified_status || order.status}</span>
-                      <span className="text-gray-600 truncate">{order.student_name || order.student_id || "—"}</span>
+                  <div key={index} className="rounded-lg border border-gray-100 bg-white p-2 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {renderOrderStatusChip(order.unified_status || order.status)}
+                          <span className="text-gray-600 truncate">{order.user_name || pickUserId(order.user_id) || "—"}</span>
+                          {order.id && <span className="text-[11px] text-gray-400 font-mono">#{String(order.id).replace(/^order_/, "")}</span>}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-400">
+                          {order.items_count || 0}件
+                          {order.created_at ? ` · ${order.created_at}` : ""}
+                        </div>
+                        {renderOrderDiscountMeta(order)}
+                        {renderOrderItemsCompact(order.items)}
+                      </div>
+                      <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{order.total_amount}</span>
                     </div>
-                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{order.total_amount}</span>
                   </div>
                 ))}
                 {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
@@ -813,7 +868,7 @@ const ToolCallCard = ({
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-violet-600">¥{coupon.amount}</span>
                     {coupon.count > 1 && <span className="text-xs text-gray-500">× {coupon.count}</span>}
-                    {coupon.student_id && <span className="text-gray-400 text-xs">{coupon.student_id}</span>}
+                    {pickUserId(coupon.user_id) && <span className="text-gray-400 text-xs">{pickUserId(coupon.user_id)}</span>}
                   </div>
                   <span className={cx("text-xs px-1.5 py-0.5 rounded", coupon.is_active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400")}>{coupon.is_active ? "有效" : "已失效"}</span>
                 </div>
@@ -849,7 +904,7 @@ const ToolCallCard = ({
                   </div>
                   <div className="flex items-center gap-2 ml-2 shrink-0">
                     <span className="text-xs text-gray-400">{user.order_count || 0} 单</span>
-                    <span className="text-xs text-gray-500 font-mono">{user.student_id}</span>
+                    <span className="text-xs text-gray-500 font-mono">{pickUserId(user.user_id)}</span>
                   </div>
                 </div>
               ))}
@@ -857,22 +912,30 @@ const ToolCallCard = ({
           );
         }
         if (result.action === "orders" && result.orders) {
+          const resultUserId = pickUserId(result.user_id);
           if (result.orders.length === 0) return <div className="text-sm text-gray-500 p-2">该用户暂无订单</div>;
           return (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>用户 {result.student_id} · 共 {result.total} 个订单</span>
+                <span>用户 {resultUserId || "—"} · 共 {result.total} 个订单</span>
                 <span>第 {(result.page || 0) + 1} 页</span>
               </div>
               <div className="space-y-1">
                 {result.orders.slice(0, 10).map((order, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cx("px-1.5 py-0.5 rounded text-xs font-medium shrink-0", orderStatusColors[order.unified_status || order.status] || "bg-gray-100 text-gray-500")}>{orderStatusLabels[order.unified_status || order.status] || order.unified_status || order.status}</span>
-                      <span className="text-xs text-gray-400">{order.items_count || 0}件</span>
-                      {order.created_at && <span className="text-xs text-gray-400">{order.created_at.slice(5, 16)}</span>}
+                  <div key={index} className="rounded-lg border border-gray-100 bg-white p-2 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {renderOrderStatusChip(order.unified_status || order.status)}
+                          <span className="text-xs text-gray-400">{order.items_count || 0}件</span>
+                          {order.id && <span className="text-[11px] text-gray-400 font-mono">#{String(order.id).replace(/^order_/, "")}</span>}
+                          {order.created_at && <span className="text-xs text-gray-400">{order.created_at}</span>}
+                        </div>
+                        {renderOrderDiscountMeta(order)}
+                        {renderOrderItemsCompact(order.items)}
+                      </div>
+                      <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{order.total_amount}</span>
                     </div>
-                    <span className="font-medium text-gray-900 ml-2 whitespace-nowrap">¥{order.total_amount}</span>
                   </div>
                 ))}
                 {result.orders.length > 10 && <div className="text-xs text-gray-400 text-center">还有 {result.orders.length - 10} 个订单...</div>}
@@ -881,10 +944,11 @@ const ToolCallCard = ({
           );
         }
         if (result.action === "coupons" && result.coupons) {
+          const resultUserId = pickUserId(result.user_id);
           if (result.coupons.length === 0) return <div className="text-sm text-gray-500 p-2">该用户暂无优惠券</div>;
           return (
             <div className="space-y-1.5">
-              <div className="text-xs text-gray-500">用户 {result.student_id} · 共 {result.total_count} 张优惠券</div>
+              <div className="text-xs text-gray-500">用户 {resultUserId} · 共 {result.total_count} 张优惠券</div>
               {result.coupons.map((coupon, index) => (
                 <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 text-sm">
                   <div className="flex items-center gap-2">
@@ -1085,8 +1149,8 @@ const ToolCallCard = ({
     if (function_name === "search_users") {
       const action = result?.action || args?.action;
       if (action === "search") return <span className="text-xs text-gray-600">找到 {result?.count || 0} 个用户</span>;
-      if (action === "orders") return <span className="text-xs text-gray-600">{result?.student_id} · {result?.total || 0} 个订单</span>;
-      if (action === "coupons") return <span className="text-xs text-gray-600">{result?.student_id} · {result?.total_count || 0} 张优惠券</span>;
+      if (action === "orders") return <span className="text-xs text-gray-600">{pickUserId(result?.user_id)} · {result?.total || 0} 个订单</span>;
+      if (action === "coupons") return <span className="text-xs text-gray-600">{pickUserId(result?.user_id)} · {result?.total_count || 0} 张优惠券</span>;
     }
 
     if (result?.message) return <span className="text-xs text-gray-600">{result.message}</span>;

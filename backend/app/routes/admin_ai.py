@@ -110,6 +110,7 @@ async def admin_ai_chat(request_body: ChatRequest, http_request: Request):
     """管理员 AI 聊天接口。"""
     try:
         staff = get_current_staff_required_from_cookie(http_request)
+        staff["device_timezone_offset_minutes"] = request_body.timezone_offset_minutes if request_body.timezone_offset_minutes is not None else 0
         staff_account_id = staff.get("id", "")
 
         conversation_id = (request_body.conversation_id or "").strip() or None
@@ -141,6 +142,7 @@ async def agent_ai_chat(request_body: ChatRequest, http_request: Request):
     """代理 AI 聊天接口。"""
     try:
         agent, _ = require_agent_with_scope(http_request)
+        agent["device_timezone_offset_minutes"] = request_body.timezone_offset_minutes if request_body.timezone_offset_minutes is not None else 0
         staff_account_id = agent.get("id", "")
 
         conversation_id = (request_body.conversation_id or "").strip() or None

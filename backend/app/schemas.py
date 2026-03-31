@@ -66,6 +66,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     model: Optional[str] = None
     conversation_id: Optional[str] = None
+    timezone_offset_minutes: Optional[int] = None
 
 
 class ChatThreadCreateRequest(BaseModel):
