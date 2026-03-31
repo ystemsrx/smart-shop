@@ -51,18 +51,7 @@ const initMermaid = () => {
     theme: 'default',
     securityLevel: 'loose',
     fontFamily: 'system-ui, sans-serif',
-    suppressErrors: true,
-    logLevel: 'error',
   });
-
-  if (window.mermaid.parseError && !window.__MERMAID_PARSE_ERROR_PATCHED__) {
-    const originalParseError = window.mermaid.parseError;
-    window.mermaid.parseError = function mermaidParseError(err, hash) {
-      console.error('Mermaid parse error:', err);
-      return originalParseError ? originalParseError.call(this, err, hash) : null;
-    };
-    window.__MERMAID_PARSE_ERROR_PATCHED__ = true;
-  }
 
   if (!window.__MERMAID_CLEANUP_INTERVAL__) {
     const cleanup = () => {

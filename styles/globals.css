@@ -1385,61 +1385,32 @@ body {
 
 .mermaid-preview .preview-error-container {
   position: absolute;
-  bottom: 10px;
-  left: 10px;
+  bottom: 16px;
+  left: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  max-width: 80%;
+  max-width: min(80%, calc(100% - 32px));
   z-index: 20;
   pointer-events: auto;
-  overflow-y: auto;
-  --fade-size: 16px;
-  padding: var(--fade-size) 0;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,1) var(--fade-size), rgba(0,0,0,1) calc(100% - var(--fade-size)), rgba(0,0,0,0));
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,1) var(--fade-size), rgba(0,0,0,1) calc(100% - var(--fade-size)), rgba(0,0,0,0));
-  mask-size: 100% 100%;
-  -webkit-mask-size: 100% 100%;
-  mask-repeat: no-repeat;
-  -webkit-mask-repeat: no-repeat;
-}
-
-.mermaid-preview .preview-error-container::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 
 .mermaid-preview .preview-error-toast {
-  background: rgba(220, 38, 38, 0.9);
+  background: rgba(220, 38, 38, 0.92);
   color: #fff;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
   font-size: 12px;
+  line-height: 1.5;
   font-family: system-ui, -apple-system, sans-serif;
   max-width: 100%;
   pointer-events: auto;
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.25s ease, transform 0.25s ease, background 0.2s ease;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   white-space: pre-wrap;
   word-break: break-word;
   cursor: pointer;
-  will-change: transform, opacity;
   text-align: left;
-}
-
-.mermaid-preview .preview-error-toast.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.mermaid-preview .preview-error-toast.hide {
-  opacity: 0;
-  transform: translateY(6px);
 }
 
 .mermaid-preview .preview-copied-box {
@@ -1468,6 +1439,66 @@ body {
 .mermaid-preview svg {
   max-width: 100%;
   height: auto;
+  color-scheme: light;
+}
+
+/*
+ * Mermaid SVG color isolation:
+ * Mermaid generates SVGs with an embedded <style> that defines theme colors via class
+ * selectors (e.g. .node rect { fill: #ECECFF }). When Mermaid renders without proper
+ * initialization, or when page-level CSS cascades into the SVG, node shapes may default
+ * to fill: black.
+ *
+ * The rules below provide fallback fills matching the Mermaid 'default' theme so nodes
+ * are never fully black. Mermaid's own embedded <style> has higher specificity (it uses
+ * ID-scoped selectors like #mermaid-xxx .node rect) and will override these fallbacks
+ * when the theme loads correctly.
+ */
+.mermaid-preview .node rect,
+.mermaid-preview .node circle,
+.mermaid-preview .node ellipse,
+.mermaid-preview .node polygon {
+  fill: #ECECFF;
+  stroke: #9370DB;
+  stroke-width: 1px;
+}
+
+.mermaid-preview .node.default > rect,
+.mermaid-preview .node.default > circle,
+.mermaid-preview .node.default > ellipse,
+.mermaid-preview .node.default > polygon {
+  fill: #ECECFF;
+  stroke: #9370DB;
+}
+
+.mermaid-preview .cluster rect {
+  fill: #ffffde;
+  stroke: #aaaa33;
+  stroke-width: 1px;
+}
+
+/* Ensure Mermaid label text inside foreignObject is readable */
+.mermaid-preview svg foreignObject div {
+  color: #333;
+  background: transparent;
+}
+
+.mermaid-preview .edgeLabel {
+  background-color: #e8e8e8;
+}
+
+.mermaid-preview .edgePath .path,
+.mermaid-preview .edgePath path,
+.mermaid-preview .flowchart-link {
+  stroke: #333;
+  stroke-width: 2px;
+  fill: none;
+}
+
+.mermaid-preview .arrowheadPath,
+.mermaid-preview .marker {
+  fill: #333;
+  stroke: none;
 }
 
 .mermaid-preview .error {
