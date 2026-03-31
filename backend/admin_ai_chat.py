@@ -118,15 +118,31 @@ Current operator: {staff_name} (role: {staff_role})
 - Product images: When the user sends an image, the message will contain the image path (starting with ai_uploads_tmp/). Use that exact path when adding/editing product images via the image_path parameter.
 
 # Order Status Reference
+## Filtering (action='list', filters.status):
+- unpaid: Not paid yet
+- pending_confirm: Payment being processed
+- awaiting_delivery: Paid, awaiting shipment
+- delivering: In delivery
+- completed: Delivered / completed
+
+## Updating (action='update_status', updates[].status):
 - pending: Awaiting processing
 - confirmed: Confirmed
-- delivering: In delivery
-- completed: Completed
+- shipped: Shipped / in delivery
+- delivered: Delivered / completed
 - cancelled: Cancelled
 
 Current date: {datetime.now().strftime("%Y-%m-%d")}
 """
 
+# AI filter status → unified (Chinese) status used by get_orders_paginated
+_FILTER_STATUS_TO_UNIFIED: Dict[str, str] = {
+    "unpaid": "未付款",
+    "pending_confirm": "待确认",
+    "awaiting_delivery": "待配送",
+    "delivering": "配送中",
+    "completed": "已完成",
+}
 
 # ===== 工具定义 =====
 
@@ -216,7 +232,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "type": "object",
                             "description": "Query filters (used with action='list')",
                             "properties": {
-                                "status": {"type": "string", "description": "Filter by order status"},
+                                "status": {"type": "string", "enum": ["unpaid", "pending_confirm", "awaiting_delivery", "delivering", "completed"], "description": "Filter by unified order status"},
                                 "student_id": {"type": "string", "description": "Filter by student ID"},
                                 "page": {"type": "integer", "description": "Page number, default 0"},
                                 "limit": {"type": "integer", "description": "Results per page, default 20"}
@@ -229,7 +245,7 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                 "type": "object",
                                 "properties": {
                                     "order_id": {"type": "string", "description": "Order ID"},
-                                    "status": {"type": "string", "enum": ["pending", "confirmed", "delivering", "completed", "cancelled"], "description": "New status"}
+                                    "status": {"type": "string", "enum": ["pending", "confirmed", "shipped", "delivered", "cancelled"], "description": "New status"}
                                 },
                                 "required": ["order_id", "status"]
                             }
@@ -777,7 +793,9 @@ def _manage_orders_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
                 "limit": limit,
             }
             if status:
-                kwargs["unified_status"] = status
+                unified = _FILTER_STATUS_TO_UNIFIED.get(status)
+                if unified:
+                    kwargs["unified_status"] = unified
             if student_id:
                 kwargs["keyword"] = student_id
 
