@@ -411,20 +411,20 @@ export default function Checkout() {
   }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
   const closedBlocked =
     !shopOpen && !reservationAllowed && !allReservationItems;
-  const checkoutButtonLabel = useMemo(() => {
-    if (!locationReady) return "请选择配送地址";
+  const checkoutButtonInfo = useMemo(() => {
+    if (!locationReady) return { text: "请选择配送地址", showPrice: false };
     if (addressInvalid)
-      return addressAlertMessage || "配送地址不可用，请重新选择";
-    if (cycleLocked) return "暂时无法结算，请联系管理员";
+      return { text: addressAlertMessage || "配送地址不可用，请重新选择", showPrice: false };
+    if (cycleLocked) return { text: "暂时无法结算，请联系管理员", showPrice: false };
     if (closedBlocked) {
-      return "打烊中 · 仅限预约商品";
+      return { text: "打烊中 · 仅限预约商品", showPrice: false };
     }
-    if (closedReservationOnly) return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (closedReservationOnly) return { text: "预约购买", showPrice: true };
     if (!shopOpen && reservationAllowed)
-      return `预约购买 ¥${payableAmount.toFixed(2)}`;
+      return { text: "预约购买", showPrice: true };
     if (hasReservationItems && shouldReserve)
-      return `提交预约 ¥${payableAmount.toFixed(2)}`;
-    return `立即支付 ¥${payableAmount.toFixed(2)}`;
+      return { text: "提交预约", showPrice: true };
+    return { text: "立即支付", showPrice: true };
   }, [
     locationReady,
     addressInvalid,
@@ -434,7 +434,6 @@ export default function Checkout() {
     shopOpen,
     reservationAllowed,
     closedReservationOnly,
-    payableAmount,
     hasReservationItems,
     shouldReserve,
   ]);
@@ -2204,7 +2203,11 @@ export default function Checkout() {
                 flexShrink: 0,
               }}
             >
-              {isCreatingPayment ? "获取中..." : checkoutButtonLabel}
+              {isCreatingPayment ? "获取中..." : (
+                checkoutButtonInfo.showPrice
+                  ? <>{checkoutButtonInfo.text} <AnimatedPrice value={payableAmount} /></>
+                  : checkoutButtonInfo.text
+              )}
             </button>
           </div>
         )}

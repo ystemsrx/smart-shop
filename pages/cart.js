@@ -62,7 +62,7 @@ const cartItemVariants = {
     opacity: 1, y: 0,
     transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1], delay: custom * 0.04 }
   }),
-  exit: { opacity: 0, x: -20, transition: { duration: 0.2 } }
+  exit: { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] } }
 };
 
 // 购物车商品项组件
@@ -94,15 +94,13 @@ const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) =>
   return (
     <motion.div
       ref={ref}
-      layout
-      layoutId={`cart-item-${item.product_id}-${item.variant_id || 'default'}`}
       initial="hidden"
       animate="visible"
       exit="exit"
       variants={cartItemVariants}
       custom={0}
       className={`group relative flex gap-4 py-4 px-5 items-center cart-item-pad ${isDown ? 'opacity-50 grayscale' : ''}`}
-      style={{ borderBottom: '1px solid #E8E2D8' }}
+      style={{ borderBottom: '1px solid #E8E2D8', overflow: 'hidden' }}
     >
       {/* 商品图片 */}
       <div className="cart-item-img flex-shrink-0 w-[68px] h-[68px] rounded-lg overflow-hidden border border-[#E8E2D8]" style={{ background: '#F5F2ED' }}>
@@ -156,7 +154,7 @@ const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) =>
       {/* 右侧：价格 + 数量 */}
       <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
         <div className="text-right">
-          <div className="text-[18px] font-semibold text-[#141413] tracking-tight" style={{ fontFamily: "'Lora', serif" }}>¥{item.subtotal}</div>
+          <div className="text-[18px] font-semibold text-[#141413] tracking-tight" style={{ fontFamily: "'Lora', serif" }}><AnimatedPrice value={Number(item.subtotal)} /></div>
           {isNonSellable && (
             <div className="text-[11px] text-[#788C5D]">免计价</div>
           )}
@@ -432,6 +430,7 @@ export default function Cart() {
   const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
   const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
   const [shopClosedModalOpen, setShopClosedModalOpen] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const shopName = getShopName();
   const pageTitle = `购物车 - ${shopName}`;
 
@@ -820,12 +819,12 @@ export default function Cart() {
   };
 
   // 清空购物车（乐观更新）
-  const handleClearCart = async () => {
-    if (!confirm('确定要清空购物车吗？')) return;
-    
+  const handleClearCartConfirm = async () => {
+    setShowClearConfirm(false);
+
     // 保存当前状态用于回滚
     const previousCart = { ...cart, items: [...cart.items] };
-    
+
     // 立即清空UI
     setCart({
       items: [],
@@ -837,13 +836,11 @@ export default function Cart() {
       has_reservation_items: false,
       all_reservation_items: false
     });
-    
+
     // 后台调用API（静默执行，不重新加载）
     try {
       await clearCart();
-      // 成功：不做任何事，UI已经更新
     } catch (err) {
-      // 失败时回滚
       setCart(previousCart);
       alert(err.message || '清空失败，请重试');
     }
@@ -1129,11 +1126,11 @@ export default function Cart() {
                       商品清单
                     </span>
                     {cart.items.length > 0 && (
-                      <button onClick={handleClearCart} className="text-[13px] text-[#B0AEA5] hover:text-[#C0453A] transition-colors">清空</button>
+                      <button onClick={() => setShowClearConfirm(true)} className="text-[13px] text-[#B0AEA5] hover:text-[#C0453A] transition-colors">清空</button>
                     )}
                   </div>
                   <div>
-                    <AnimatePresence mode="popLayout">
+                    <AnimatePresence>
                       {cart.items
                         .sort((a, b) => {
                           const aIsNonSellable = Boolean(a.is_not_for_sale);
@@ -1344,6 +1341,54 @@ export default function Cart() {
       )}
 
       <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
+
+      {/* 清空购物车确认弹窗 */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setShowClearConfirm(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 10 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25, mass: 0.8 }}
+              className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="flex flex-col items-center text-center px-6 pt-7 pb-6">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(192,69,58,0.08)' }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 9v4m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="#C0453A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <h3 className="text-[16px] font-semibold text-[#141413] mb-1.5">清空购物车</h3>
+                <p className="text-[13px] text-[#6B6860] leading-relaxed">确定要清空购物车中的所有商品吗？<br/>此操作无法撤销</p>
+              </div>
+              <div className="flex border-t" style={{ borderColor: '#E8E2D8' }}>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="flex-1 py-3.5 text-[14px] font-medium text-[#6B6860] hover:bg-[#F5F2ED] transition-colors"
+                >
+                  取消
+                </button>
+                <div className="w-px" style={{ background: '#E8E2D8' }} />
+                <button
+                  onClick={handleClearCartConfirm}
+                  className="flex-1 py-3.5 text-[14px] font-medium text-[#C0453A] hover:bg-[rgba(192,69,58,0.04)] transition-colors"
+                >
+                  清空
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
