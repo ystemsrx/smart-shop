@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import OrdersPageSkeleton from '../components/OrdersPageSkeleton';
-import { getShopName } from '../utils/runtimeConfig';
+import { getShopName, getLogo } from '../utils/runtimeConfig';
 import { getProductImage } from '../utils/urls';
 
 // 格式化预约截止时间显示
@@ -217,16 +217,10 @@ function OrderDetailContent({ order, onClose, copiedOrderId, onCopy }) {
           </h4>
           <div className="space-y-0">
             {collapseAutoGiftItemsForDisplay(order.items || []).map((it, idx) => {
-              const imageSrc = getProductImage(it);
+              const imageSrc = getProductImage(it) || getLogo();
               return (
                 <div key={idx} className="flex items-start gap-4 py-3" style={{ borderBottom: idx < (order.items || []).length - 1 ? '1px solid #F5F2ED' : 'none' }}>
-                  {imageSrc ? (
-                    <img src={imageSrc} alt={it.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} />
-                  ) : (
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#F5F2ED', color: '#B0AEA5' }}>
-                      <i className="fas fa-cube"></i>
-                    </div>
-                  )}
+                  <img src={imageSrc} alt={it.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start">
                       <h5 className="text-sm font-medium truncate pr-2" style={{ color: '#141413' }}>{it.name}</h5>
@@ -654,23 +648,66 @@ export default function Orders() {
                       </div>
 
                       {/* 进度条 */}
-                      <div className="mb-6">
+                      <div className="mb-5">
                         <OrderProgress status={us} />
                       </div>
 
                       {/* 订单内容摘要 */}
                       <div className="flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between rounded-2xl p-4" style={{ background: '#FAF9F5', border: '1px solid #F5F2ED' }}>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: '#C96442', fontFamily: "'Lora', serif" }}>¥{o.total_amount}</span>
-                            <span className="text-xs sm:text-sm" style={{ color: '#6B6860' }}>共 {o.items?.reduce((acc, i) => acc + (Number(i.quantity)||0), 0)} 件</span>
-                          </div>
-                          {o.discount_amount > 0 && (
-                            <div className="text-xs font-medium flex items-center gap-1" style={{ color: '#D97757' }}>
-                              <i className="fas fa-tag text-[10px]"></i>
-                              已优惠 ¥{Number(o.discount_amount).toFixed(2)}
+                        <div className="flex-1 flex items-center gap-3">
+                          {/* 价格信息 */}
+                          <div className="flex-shrink-0 space-y-1">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: '#C96442', fontFamily: "'Lora', serif" }}>¥{o.total_amount}</span>
+                              <span className="text-xs sm:text-sm" style={{ color: '#6B6860' }}>共 {o.items?.reduce((acc, i) => acc + (Number(i.quantity)||0), 0)} 件</span>
                             </div>
-                          )}
+                            {o.discount_amount > 0 && (
+                              <div className="text-xs font-medium flex items-center gap-1" style={{ color: '#D97757' }}>
+                                <i className="fas fa-tag text-[10px]"></i>
+                                已优惠 ¥{Number(o.discount_amount).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                          {/* 商品图片预览 - 价格右侧，垂直居中对齐价格+优惠 */}
+                          {(() => {
+                            const allItems = collapseAutoGiftItemsForDisplay(o.items || []);
+                            // 桌面端最多3张，移动端最多2张，通过CSS类控制第3张的显隐
+                            const visible = allItems.slice(0, 3);
+                            const mobileRest = allItems.length - 2;
+                            const desktopRest = allItems.length - 3;
+                            return allItems.length > 0 && (
+                              <div className="flex items-center gap-2">
+                                {visible.map((it, i) => {
+                                  const src = getProductImage(it) || getLogo();
+                                  // 第3张(index=2)仅桌面端显示
+                                  const hideOnMobile = i === 2 ? 'hidden sm:block' : '';
+                                  return (
+                                    <img key={i} src={src} alt={it.name} className={`w-10 h-10 rounded-xl object-cover flex-shrink-0 ${hideOnMobile}`} style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
+                                  );
+                                })}
+                                {/* 移动端：超过2个时显示 +n */}
+                                {mobileRest > 0 && (
+                                  <div className="relative flex-shrink-0 sm:hidden" style={{ width: '44px', height: '44px' }}>
+                                    <div className="absolute rounded-xl" style={{ width: '36px', height: '36px', top: '0px', left: '0px', background: '#DDD8D0', border: '1px solid #D5D0C8', transform: 'rotate(-6deg)', transformOrigin: 'center' }}></div>
+                                    <div className="absolute rounded-xl" style={{ width: '36px', height: '36px', top: '2px', left: '3px', background: '#E8E2D8', border: '1px solid #DDD8D0', transform: 'rotate(4deg)', transformOrigin: 'center' }}></div>
+                                    <div className="absolute rounded-xl flex items-center justify-center" style={{ width: '36px', height: '36px', top: '4px', left: '6px', background: '#F5F2ED', border: '1px solid #E8E2D8' }}>
+                                      <span className="text-xs font-bold" style={{ color: '#6B6860' }}>+{mobileRest}</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {/* 桌面端：超过3个时显示 +n */}
+                                {desktopRest > 0 && (
+                                  <div className="relative flex-shrink-0 hidden sm:block" style={{ width: '44px', height: '44px' }}>
+                                    <div className="absolute rounded-xl" style={{ width: '36px', height: '36px', top: '0px', left: '0px', background: '#DDD8D0', border: '1px solid #D5D0C8', transform: 'rotate(-6deg)', transformOrigin: 'center' }}></div>
+                                    <div className="absolute rounded-xl" style={{ width: '36px', height: '36px', top: '2px', left: '3px', background: '#E8E2D8', border: '1px solid #DDD8D0', transform: 'rotate(4deg)', transformOrigin: 'center' }}></div>
+                                    <div className="absolute rounded-xl flex items-center justify-center" style={{ width: '36px', height: '36px', top: '4px', left: '6px', background: '#F5F2ED', border: '1px solid #E8E2D8' }}>
+                                      <span className="text-xs font-bold" style={{ color: '#6B6860' }}>+{desktopRest}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* 操作按钮组 */}
