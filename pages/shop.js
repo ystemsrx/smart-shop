@@ -400,7 +400,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             )}
           </div>
 
-          {/* 操作按钮 */}
+          {/* 操作按钮 — 固定高度防止卡片跳动 */}
+          <div className="h-8 flex items-center">
           {!user ? (
             <button
               disabled
@@ -427,7 +428,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <button
                 onClick={(e) => handleQuantityChange(cartQuantity - 1, e)}
                 disabled={isLoading}
-                className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors"
+                className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors"
                 aria-label="减少"
               >
                 <i className="fas fa-minus text-sm"></i>
@@ -436,7 +437,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <button
                 onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
                 disabled={isLoading || limitReached}
-                className={`w-7 h-7 flex items-center justify-center ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary hover:bg-orange-600'} text-white rounded-full shadow-md disabled:opacity-50 transition-all`}
+                className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary hover:bg-orange-600'} text-white rounded-full shadow-md disabled:opacity-50 transition-all`}
                 aria-label="增加"
               >
                 <i className="fas fa-plus text-sm"></i>
@@ -452,6 +453,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <i className="fas fa-plus text-sm"></i>
             </button>
           )}
+          </div>
         </div>
 
         {/* 预约信息 — 紧凑显示 */}
@@ -1173,7 +1175,7 @@ export default function Shop({ initialShopData }) {
     cartDrawerAnimationTimerRef.current = setTimeout(() => {
       setCartDrawerJustOpened(false);
       cartDrawerAnimationTimerRef.current = null;
-    }, 420);
+    }, 1000);
   }, []);
 
   const closeCartDrawer = useCallback((afterClose) => {
@@ -1818,7 +1820,7 @@ export default function Shop({ initialShopData }) {
             
             {/* 浮窗主体 - 简约风格 */}
             <div
-              className={`fixed bottom-24 right-6 z-50 w-full sm:w-[380px] max-w-[calc(100vw-3rem)] bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_40px_rgba(0,0,0,0.08)] border border-white/60 flex flex-col ${
+              className={`fixed bottom-24 right-6 z-50 w-full sm:w-[380px] max-w-[calc(100vw-3rem)] bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_40px_rgba(0,0,0,0.08)] border border-white/60 flex flex-col overflow-hidden ${
                 isClosingDrawer ? 'animate-scale-out' : 'animate-scale-in'
               }`}
               style={{ transformOrigin: 'bottom right' }}
@@ -1841,7 +1843,7 @@ export default function Shop({ initialShopData }) {
               </div>
 
               {/* 商品列表区域 */}
-              <div className="flex-1 overflow-y-auto px-5 pb-5 cart-drawer-scroll custom-scrollbar" style={{ maxHeight: '50vh' }}>
+              <div className="flex-1 overflow-y-auto px-5 pb-5 cart-drawer-scroll hide-scrollbar" style={{ maxHeight: '50vh' }}>
                   <div style={{
                     minHeight: (!cart?.items?.length) ? '12rem' : '5.5rem',
                     transition: 'min-height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -1866,31 +1868,30 @@ export default function Shop({ initialShopData }) {
                       return (
                         <motion.div
                           key={`${item.product_id}-${item.variant_id || 'no-variant'}`}
-                          initial={cartDrawerJustOpened ? { opacity: 0, height: 0 } : false}
-                          animate={{ opacity: isDown ? 0.5 : 1, height: 'auto' }}
+                          initial={false}
+                          animate={{ opacity: isDown ? 0.5 : 1 }}
                           exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-                          style={{ overflow: 'hidden' }}
+                          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                          style={{
+                            overflow: 'hidden',
+                            ...(cartDrawerJustOpened ? {
+                              animation: `cartItemSlideIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) ${0.12 + index * 0.08}s both`,
+                              willChange: 'transform, opacity',
+                            } : {}),
+                          }}
                           onExitStart={() => setCartItemExiting(true)}
                         >
                           <div
                             className="flex items-center gap-4 pb-4"
-                            style={cartDrawerJustOpened ? { animationDelay: `${index * 0.05}s` } : undefined}
                           >
                             {/* 商品图片 */}
                             <div className="flex-shrink-0 w-[72px] h-[72px] bg-gray-100/80 rounded-2xl overflow-hidden">
-                              {item.img_path ? (
-                                <RetryImage
-                                  src={getProductImage(item)}
-                                  alt={item.name}
-                                  className="w-full h-full object-cover"
-                                  maxRetries={2}
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <i className="fas fa-image text-gray-300 text-sm"></i>
-                                </div>
-                              )}
+                              <RetryImage
+                                src={item.img_path ? getProductImage(item) : getLogo()}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                                maxRetries={2}
+                              />
                             </div>
 
                             {/* 商品信息 */}

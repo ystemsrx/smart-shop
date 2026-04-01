@@ -16,8 +16,9 @@ import { useRouter } from "next/router";
 
 import AnimatedPrice from "../components/AnimatedPrice";
 import CheckoutPageSkeleton from "../components/CheckoutPageSkeleton";
-import { getShopName } from "../utils/runtimeConfig";
+import { getShopName, getLogo } from "../utils/runtimeConfig";
 import { getProductImage } from "../utils/urls";
+import RetryImage from "../components/RetryImage";
 import LegalModal from "../components/LegalModal";
 
 // 格式化预约截止时间显示
@@ -198,7 +199,7 @@ export default function Checkout() {
   const { user, isInitialized } = useAuth();
   const { getCart, clearCart } = useCart();
   const { apiRequest } = useApi();
-  const { getShopStatus } = useProducts();
+  const { getShopStatus, getProducts } = useProducts();
   const { getStatus: getUserAgentStatus } = useUserAgentStatus();
   const { getCachedPaymentQr, getPaymentQr, preloadPaymentQr } = usePaymentQr();
   const shopName = getShopName();
@@ -534,16 +535,37 @@ export default function Checkout() {
         throw new Error(orderResponse.message || "订单创建失败");
       }
 
+      setOrderId(orderResponse.data?.order_id || null);
       try {
         await clearCart();
       } catch (e) {}
       setShowPayModal(false);
       setPaymentQr(null);
-      router.push("/orders");
+      setShowSuccessAnimation(true);
     } catch (e) {
       alert(e.message || "创建订单失败");
     }
   };
+
+  // 成功页/抽奖弹窗显示时锁定页面滚动
+  useEffect(() => {
+    if (showSuccessAnimation || lotteryOpen) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${window.scrollY}px`;
+    }
+    return () => {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || '0', 10) * -1);
+      }
+    };
+  }, [showSuccessAnimation, lotteryOpen]);
 
   // 检查登录状态
   useEffect(() => {
@@ -864,9 +886,21 @@ export default function Checkout() {
             );
             if (draw.success) {
               const resultName = draw.data?.prize_name || "";
+              // 滚动动画使用该区域所有商品名称
+              let allProductNames = [];
+              try {
+                const prodRes = await getProducts({
+                  addressId: location?.address_id || "",
+                  buildingId: location?.building_id || "",
+                });
+                const products = prodRes?.data?.products || prodRes?.data || [];
+                allProductNames = (Array.isArray(products) ? products : [])
+                  .map((p) => p.name)
+                  .filter(Boolean);
+              } catch (_) {}
               const names =
-                draw.data?.names && draw.data.names.length > 0
-                  ? draw.data.names
+                allProductNames.length > 0
+                  ? allProductNames
                   : resultName
                     ? [resultName]
                     : ["谢谢参与"];
@@ -1470,7 +1504,7 @@ export default function Checkout() {
                         </span>
                       }
                     />
-                    <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                    <div style={{ maxHeight: 240, overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none" }} className="hide-scrollbar">
                       {cart.items &&
                         cart.items
                           .sort((a, b) => {
@@ -1495,39 +1529,20 @@ export default function Checkout() {
                                   opacity: isDown ? 0.5 : 1,
                                 }}
                               >
-                                {getProductImage(item) ? (
-                                  <img
-                                    src={getProductImage(item)}
-                                    alt={item.name || ""}
-                                    style={{
-                                      width: 44,
-                                      height: 44,
-                                      borderRadius: 10,
-                                      flexShrink: 0,
-                                      objectFit: "cover",
-                                      background: bgBase,
-                                      border: `1px solid ${borderSubtle}`,
-                                    }}
-                                  />
-                                ) : (
-                                  <div
-                                    style={{
-                                      width: 44,
-                                      height: 44,
-                                      borderRadius: 10,
-                                      flexShrink: 0,
-                                      background: bgBase,
-                                      border: `1px solid ${borderSubtle}`,
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      fontSize: 18,
-                                      color: textSecondary,
-                                    }}
-                                  >
-                                    {item.name?.charAt(0) || "?"}
-                                  </div>
-                                )}
+                                <RetryImage
+                                  src={getProductImage(item) || getLogo()}
+                                  alt={item.name || ""}
+                                  maxRetries={2}
+                                  style={{
+                                    width: 44,
+                                    height: 44,
+                                    borderRadius: 10,
+                                    flexShrink: 0,
+                                    objectFit: "cover",
+                                    background: bgBase,
+                                    border: `1px solid ${borderSubtle}`,
+                                  }}
+                                />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <div
                                     style={{
@@ -2548,27 +2563,23 @@ export default function Checkout() {
             {!spinning && (
               <>
                 <div style={{ textAlign: "center", marginBottom: 20 }}>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      padding: "6px 16px",
-                      borderRadius: 50,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      background:
-                        lotteryResult === "谢谢参与"
-                          ? bgBase
-                          : "rgba(217,119,87,0.08)",
-                      color:
-                        lotteryResult === "谢谢参与" ? textSecondary : accent,
-                      border: `1px solid ${lotteryResult === "谢谢参与" ? borderSubtle : "rgba(217,119,87,0.2)"}`,
-                    }}
-                  >
-                    {lotteryResult === "谢谢参与"
-                      ? "谢谢参与"
-                      : `恭喜获得：${lotteryResult || "谢谢参与"}`}
-                  </span>
+                  {lotteryResult === "谢谢参与" && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "6px 16px",
+                        borderRadius: 50,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        background: bgBase,
+                        color: textSecondary,
+                        border: `1px solid ${borderSubtle}`,
+                      }}
+                    >
+                      谢谢参与
+                    </span>
+                  )}
                   {lotteryPrize ? (
                     <div
                       style={{
@@ -2578,12 +2589,11 @@ export default function Checkout() {
                         lineHeight: 1.6,
                       }}
                     >
-                      <div>
-                        奖品：{lotteryPrize.product_name || "未命名奖品"}
-                        {lotteryPrize.variant_name
-                          ? `（${lotteryPrize.variant_name}）`
-                          : ""}
-                      </div>
+                      {lotteryPrize.variant_name && (
+                        <div>
+                          奖品：{lotteryPrize.product_name || "未命名奖品"}（{lotteryPrize.variant_name}）
+                        </div>
+                      )}
                       <div style={{ color: textMuted }}>
                         将在下次满额订单随单配送
                       </div>
@@ -2599,9 +2609,7 @@ export default function Checkout() {
                 <button
                   onClick={() => {
                     setLotteryOpen(false);
-                    setLotteryPrize(null);
                     setShowSuccessAnimation(true);
-                    setTimeout(() => router.push("/orders"), 1700);
                   }}
                   style={{
                     width: "100%",
@@ -2636,6 +2644,8 @@ export default function Checkout() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
+            overflow: "hidden",
+            touchAction: "none",
             background: `radial-gradient(ellipse 70% 50% at 50% 30%, rgba(217,119,87,0.06) 0%, transparent 60%), ${bgBase}`,
             padding: 32,
             textAlign: "center",
@@ -2737,7 +2747,7 @@ export default function Checkout() {
           </button>
 
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/shop")}
             style={{
               marginTop: 12,
               padding: "10px 32px",

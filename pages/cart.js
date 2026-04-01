@@ -1046,7 +1046,7 @@ export default function Cart() {
       />
 
 
-      <div className={`min-h-screen pt-16 ${!isLoading && (!cart.items || cart.items.length === 0) ? 'overflow-hidden h-screen' : ''}`} style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'hidden' }}>
+      <div className={`min-h-screen pt-16 ${!isLoading && (!cart.items || cart.items.length === 0) ? 'overflow-hidden h-screen' : ''}`} style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'clip' }}>
         <motion.main
           variants={containerVariants}
           initial="hidden"
@@ -1269,7 +1269,7 @@ export default function Cart() {
               </div>
 
               {/* ──── 右侧订单摘要 ──── */}
-              <div className="hidden lg:block cart-reveal cart-d2" style={{ position: 'sticky', top: 24 }}>
+              <div className="hidden lg:block cart-reveal cart-d2" style={{ position: 'sticky', top: 80 }}>
                 <OrderSummary
                   cart={cart} onCheckout={handleCheckout} isClosed={!shopOpen} cycleLocked={cycleLocked}
                   reservationAllowed={reservationAllowed} shouldReserve={shouldReserve}
