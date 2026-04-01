@@ -2,12 +2,18 @@ import React, { useEffect } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import ChatModern from "../../components/ChatUI";
+import dynamic from "next/dynamic";
 
 import { useAuth } from "../../hooks/useAuth";
 import { getShopName } from "../../utils/runtimeConfig";
 import LandingPage from "../../components/page";
 import ChatVendorScripts from "../../components/ChatVendorScripts";
+import ChatPageSkeleton from "../../components/ChatPageSkeleton";
+
+const ChatModern = dynamic(() => import("../../components/ChatUI"), {
+  ssr: false,
+  loading: () => <ChatPageSkeleton />
+});
 
 const shopName = getShopName();
 

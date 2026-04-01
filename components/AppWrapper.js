@@ -9,22 +9,42 @@ import Nav from './Nav';
 import PageTransitionSkeleton from './PageTransitionSkeleton';
 import CartPageSkeleton from './CartPageSkeleton';
 import OrdersPageSkeleton from './OrdersPageSkeleton';
+import ShopPageSkeleton from './ShopPageSkeleton';
+import ChatPageSkeleton from './ChatPageSkeleton';
+import AdminChatPageSkeleton from './AdminChatPageSkeleton';
 
 // 不显示导航条的页面路径
 const NO_NAV_PAGES = ['/login', '/register', '/order-success', '/_error'];
 
 // 不显示路由切换骨架屏的页面（这些页面有自己的骨架屏/加载态）
 const NO_SKELETON_PAGES = ['/login', '/register'];
-// 以这些前缀开头的路径也不显示骨架屏（聊天页面内部切换对话）
-const NO_SKELETON_PREFIXES = ['/c/', '/admin/ai-chat', '/agent/ai-chat'];
 const AUTH_TRANSITION_PAGES = ['/login', '/register'];
+
+function matchChatRouteGroup(path) {
+  if (!path) return null;
+  if (path === '/c' || path.startsWith('/c/')) return 'user-chat';
+  if (path === '/admin/ai-chat' || path.startsWith('/admin/ai-chat/')) return 'admin-chat';
+  if (path === '/agent/ai-chat' || path.startsWith('/agent/ai-chat/')) return 'agent-chat';
+  return null;
+}
+
+function shouldSuppressTransitionSkeleton(currentPath, targetPath) {
+  if (!targetPath) return true;
+  if (NO_SKELETON_PAGES.includes(targetPath)) return true;
+  const currentChatGroup = matchChatRouteGroup(currentPath);
+  const targetChatGroup = matchChatRouteGroup(targetPath);
+  return Boolean(currentChatGroup && currentChatGroup === targetChatGroup);
+}
 
 function getTransitionSkeleton(path) {
   if (!path) return null;
   if (NO_SKELETON_PAGES.includes(path)) return null;
-  if (NO_SKELETON_PREFIXES.some((prefix) => path.startsWith(prefix))) return null;
+  if (path === '/shop') return <ShopPageSkeleton overlay />;
   if (path === '/cart') return <CartPageSkeleton overlay />;
   if (path === '/orders') return <OrdersPageSkeleton overlay />;
+  if (path === '/c' || path.startsWith('/c/')) return <ChatPageSkeleton overlay />;
+  if (path === '/admin/ai-chat' || path.startsWith('/admin/ai-chat/')) return <AdminChatPageSkeleton overlay />;
+  if (path === '/agent/ai-chat' || path.startsWith('/agent/ai-chat/')) return <AdminChatPageSkeleton overlay />;
   return <PageTransitionSkeleton />;
 }
 
@@ -116,8 +136,11 @@ function AppLayout({ children }) {
   }, [router]);
 
   // 目标页面有自己的骨架屏时不显示全局骨架屏
+  const currentPath = router.asPath ? router.asPath.split('?')[0] : null;
   const targetPath = transitionTarget ? transitionTarget.split('?')[0] : null;
-  const transitionSkeleton = transitionTarget ? getTransitionSkeleton(targetPath) : null;
+  const transitionSkeleton = transitionTarget && !shouldSuppressTransitionSkeleton(currentPath, targetPath)
+    ? getTransitionSkeleton(targetPath)
+    : null;
   const isAuthPage = AUTH_TRANSITION_PAGES.includes(router.pathname);
   const routeKey = router.asPath;
   return (

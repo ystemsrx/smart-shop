@@ -14,6 +14,7 @@ import { getShopName, getApiBaseUrl, getLogo } from '../utils/runtimeConfig';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { preExtractEdgeColors } from '../utils/edgeColorCache';
+import ShopPageSkeleton from '../components/ShopPageSkeleton';
 
 // 延迟加载 InfiniteMenu (包含 WebGL 和 gl-matrix)
 const InfiniteMenu = dynamic(
@@ -1518,6 +1519,20 @@ export default function Shop({ initialShopData }) {
     }
     setPrevQty(qty);
   }, [cart?.total_quantity]);
+
+  const shouldShowInitialSkeleton = isLoading && !ssrLoaded && allProducts.length === 0 && categories.length === 0 && products.length === 0;
+
+  if (shouldShowInitialSkeleton) {
+    return (
+      <>
+        <Head>
+          <title>{`${shopName} - 智能小超市`}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <ShopPageSkeleton />
+      </>
+    );
+  }
 
   return (
     <>
