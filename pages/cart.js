@@ -45,125 +45,23 @@ const createDefaultValidation = () => ({
 
 
 
-// 页面容器动效 - 更流畅的进入动画
+// 页面容器动效（仅整体淡入）
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: {
-      duration: 0.3,
-      ease: [0.25, 0.1, 0.25, 1],
-      staggerChildren: 0.06,
-      delayChildren: 0.1
-    }
+    transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }
   }
 };
 
-// 子元素通用动效
-const itemVariants = {
-  hidden: { opacity: 0, y: 24, scale: 0.96 },
-  visible: { 
-    opacity: 1, 
-    y: 0, 
-    scale: 1,
-    transition: { 
-      type: "spring", 
-      stiffness: 400, 
-      damping: 28,
-      mass: 0.8
-    }
-  },
-  exit: { 
-    opacity: 0, 
-    scale: 0.92,
-    y: -10,
-    transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } 
-  }
-};
-
-// 购物车商品项专用动效 - 灵动弹性
+// 购物车商品项动效
 const cartItemVariants = {
-  hidden: { opacity: 0, y: 16, scale: 0.97 },
-  visible: (custom) => ({ 
-    opacity: 1, 
-    y: 0,
-    scale: 1,
-    transition: { 
-      type: "spring",
-      stiffness: 500,
-      damping: 30,
-      mass: 0.6,
-      delay: custom * 0.05
-    }
+  hidden: { opacity: 0, y: 12 },
+  visible: (custom) => ({
+    opacity: 1, y: 0,
+    transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1], delay: custom * 0.04 }
   }),
-  exit: { 
-    opacity: 0, 
-    scale: 0.94, 
-    x: -30,
-    transition: { 
-      duration: 0.25, 
-      ease: [0.4, 0, 0.2, 1]
-    } 
-  }
-};
-
-// 标题区域动效
-const headerVariants = {
-  hidden: { opacity: 0, y: -20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: "spring",
-      stiffness: 300,
-      damping: 24
-    }
-  }
-};
-
-// 侧边栏订单摘要动效
-const sidebarVariants = {
-  hidden: { opacity: 0, x: 30, scale: 0.98 },
-  visible: {
-    opacity: 1,
-    x: 0,
-    scale: 1,
-    transition: {
-      type: "spring",
-      stiffness: 350,
-      damping: 30,
-      delay: 0.15
-    }
-  }
-};
-
-// 空状态动效
-const emptyStateVariants = {
-  hidden: { opacity: 0, scale: 0.9, y: 30 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: {
-      type: "spring",
-      stiffness: 300,
-      damping: 25,
-      staggerChildren: 0.1,
-      delayChildren: 0.1
-    }
-  }
-};
-
-// 加载骨架屏动效
-const skeletonVariants = {
-  hidden: { opacity: 0 },
-  visible: (i) => ({
-    opacity: 1,
-    transition: {
-      delay: i * 0.08,
-      duration: 0.3
-    }
-  })
+  exit: { opacity: 0, x: -20, transition: { duration: 0.2 } }
 };
 
 // 购物车商品项组件
@@ -193,7 +91,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
   };
 
   return (
-    <motion.div 
+    <motion.div
       layout
       layoutId={`cart-item-${item.product_id}-${item.variant_id || 'default'}`}
       initial="hidden"
@@ -201,228 +99,89 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
       exit="exit"
       variants={cartItemVariants}
       custom={0}
-      whileHover={{ scale: 1.01, transition: { duration: 0.2 } }}
-      whileTap={{ scale: 0.99 }}
-      className={`group bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-4 transition-colors duration-200 hover:shadow-lg hover:border-slate-300/80 ${isDown ? 'opacity-60 grayscale' : ''}`}
+      className={`group relative flex gap-4 py-4 px-5 items-center cart-item-pad ${isDown ? 'opacity-50 grayscale' : ''}`}
+      style={{ borderBottom: '1px solid #E8E2D8' }}
     >
-      <div className="flex items-start gap-4">
-        {/* 商品图片 */}
-        <div className="flex-shrink-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 transition-transform duration-300 group-hover:scale-105">
-          <RetryImage
-            src={getProductImage(item) || getLogo()}
-            alt={item.name}
-            className="h-full w-full object-cover object-center"
-            maxRetries={3}
-          />
-        </div>
-        
-        {/* 商品信息 */}
-        <div className="flex-1 min-w-0">
-          {/* 商品名和标识同行显示 */}
-          <div className="flex items-center gap-2 flex-wrap mb-2">
-            <h3 className={`text-base font-semibold leading-tight ${isDown ? 'text-slate-500' : 'text-slate-900'}`}>
-              {item.name}
-            </h3>
-            {item.variant_name && (
-              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-cyan-50 to-teal-50 text-cyan-700 rounded-full border border-cyan-200/50 font-medium flex-shrink-0">
-                {item.variant_name}
-              </span>
-            )}
-            {item.reservation_required && (
-              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-blue-50 to-sky-50 text-blue-700 rounded-full border border-blue-200/50 font-medium flex-shrink-0">
-                预约
-              </span>
-            )}
-            {isNonSellable && (
-              <span className="text-xs px-2.5 py-1 bg-gradient-to-r from-purple-50 to-violet-50 text-purple-600 rounded-full border border-purple-200/60 font-medium flex-shrink-0">
-                非卖品
-              </span>
-            )}
-            {isDown && (
-              <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200 flex-shrink-0">
-                暂时下架
-              </span>
-            )}
-          </div>
-
-          <div className="text-sm text-slate-600 font-medium">
-            单价 <span className="text-slate-800">¥{item.unit_price}</span>
-            {(isDown || isNonSellable) && (
-              <span className="ml-2 text-xs text-slate-400">（不计入金额）</span>
-            )}
-            {!isDown && !isNonSellable && normalizedStock !== null && normalizedStock > 0 && (
-              <span className="ml-2 text-xs text-slate-500">库存 {normalizedStock}</span>
-            )}
-            {isNonSellable && (
-              <span className="ml-2 text-xs text-purple-600">库存 ∞</span>
-            )}
-          </div>
-        </div>
-
-        {/* 右侧操作区 */}
-        <div className="flex flex-col items-end gap-3">
-          {/* 小计 */}
-          <div className="text-right">
-            <div className="text-xl font-bold text-emerald-600">¥{item.subtotal}</div>
-            {isNonSellable && (
-              <div className="text-[11px] text-purple-500">非卖品免计价</div>
-            )}
-          </div>
-          
-          {/* 数量控制 */}
-          <div className="flex items-center rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-white">
-            <button
-              onClick={() => handleQuantityChange(item.quantity - 1)}
-              disabled={isDown}
-              className="w-9 h-9 flex items-center justify-center text-slate-600 hover:bg-gradient-to-r hover:from-rose-50 hover:to-pink-50 hover:text-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-            >
-              <i className="fas fa-minus text-xs"></i>
-            </button>
-            <span className="w-12 h-9 flex items-center justify-center text-sm font-semibold bg-slate-50 border-x border-slate-200">{item.quantity}</span>
-            <button
-              onClick={() => handleQuantityChange(item.quantity + 1)}
-              disabled={isDown || isStockLimitReached}
-              className="w-9 h-9 flex items-center justify-center text-slate-600 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-teal-50 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              title={isStockLimitReached ? '已达库存上限' : ''}
-            >
-              <i className="fas fa-plus text-xs"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      {/* 底部：预约说明和移除按钮 */}
-      <div className="flex items-center gap-3 mt-3">
-        {item.reservation_required && (
-          <div className="text-xs text-sky-700 border border-sky-200/50 bg-gradient-to-r from-sky-50 to-blue-50 rounded-full px-4 py-2 leading-snug inline-flex items-center gap-1.5">
-            <i className="fas fa-calendar-check text-sky-600"></i>
-            <span className="font-semibold">{formatReservationCutoff(item.reservation_cutoff)}</span>
-            {item.reservation_note && (
-              <>
-                <span className="text-sky-400 mx-1">·</span>
-                <span className="text-sky-600">{item.reservation_note}</span>
-              </>
-            )}
-          </div>
-        )}
-        
-        <div className="flex-1"></div>
-        
-        {/* 移除按钮 */}
-        <button
-          onClick={() => onRemove(item.product_id, item.variant_id || null)}
-          className="text-sm text-slate-500 hover:text-rose-600 transition-colors duration-200 font-medium whitespace-nowrap"
-        >
-          <i className="fas fa-trash-alt mr-1"></i>移除
-        </button>
-      </div>
-    </motion.div>
-  );
-};
-
-// 优惠券选择器组件 - 现代弹窗风格
-const CouponSelector = ({ coupons, selectedId, onSelect, disabled = false }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-
-  // 点击外部关闭
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
-
-  const selectedCoupon = coupons.find(c => c.id === selectedId) || coupons[0];
-  const sortedCoupons = [...coupons].sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
-
-  return (
-    <div className="mt-3 relative" ref={containerRef}>
-      <motion.button
-        type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-200 ${
-          disabled 
-            ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed' 
-            : `bg-white ${isOpen ? 'border-pink-400 ring-4 ring-pink-100 shadow-md' : 'border-slate-200 hover:border-pink-300 hover:shadow-sm'}`
-        }`}
-        whileTap={disabled ? {} : { scale: 0.98 }}
-      >
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0 ${
-            disabled ? 'bg-slate-300' : 'bg-gradient-to-br from-pink-500 to-rose-600'
-          }`}>
-            ¥{parseFloat(selectedCoupon?.amount || 0)}
-          </div>
-          <div className="flex flex-col items-start min-w-0">
-            <span className={`text-sm font-bold truncate w-full text-left ${disabled ? 'text-slate-400' : 'text-slate-800'}`}>
-              省 ¥{parseFloat(selectedCoupon?.amount || 0)}
-            </span>
-            <span className="text-xs text-slate-500 truncate w-full text-left">
-              {selectedCoupon?.expires_at ? `有效期至 ${new Date(selectedCoupon.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
-            </span>
-          </div>
-        </div>
-        <motion.i 
-          className={`fas fa-chevron-down ml-2 ${disabled ? 'text-slate-300' : 'text-slate-400'}`}
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
+      {/* 商品图片 */}
+      <div className="cart-item-img flex-shrink-0 w-[68px] h-[68px] rounded-lg overflow-hidden border border-[#E8E2D8]" style={{ background: '#F5F2ED' }}>
+        <RetryImage
+          src={getProductImage(item) || getLogo()}
+          alt={item.name}
+          className="h-full w-full object-cover object-center"
+          maxRetries={3}
         />
-      </motion.button>
+      </div>
 
-      <AnimatePresence>
-        {isOpen && !disabled && (
-          <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 4, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            className="absolute left-0 right-0 top-full z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 max-h-64 overflow-y-auto custom-scrollbar"
-          >
-            {sortedCoupons.map((coupon) => {
-              const isSelected = coupon.id === selectedId;
-              return (
-                <motion.button
-                  key={coupon.id}
-                  onClick={() => {
-                    onSelect(coupon.id);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl mb-1 last:mb-0 transition-colors ${isSelected ? 'bg-pink-50 border border-pink-200' : 'hover:bg-slate-50 border border-transparent'}`}
-                  whileHover={{ scale: 1.02, x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold shadow-sm ${isSelected ? 'bg-gradient-to-br from-pink-500 to-rose-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      ¥{parseFloat(coupon.amount || 0)}
-                    </div>
-                    <div className="text-left">
-                      <div className={`text-sm font-bold ${isSelected ? 'text-pink-700' : 'text-slate-700'}`}>
-                        省 ¥{parseFloat(coupon.amount || 0)}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {coupon.expires_at ? `截止 ${new Date(coupon.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
-                      </div>
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <i className="fas fa-check-circle text-pink-500 text-lg"></i>
-                  )}
-                </motion.button>
-              );
-            })}
-          </motion.div>
+      {/* 商品信息 */}
+      <div className="flex-1 min-w-0">
+        <h3 className={`text-[15px] font-medium leading-snug line-clamp-1 ${isDown ? 'text-[#B0AEA5]' : 'text-[#141413]'}`}>
+          {item.name}
+        </h3>
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {item.variant_name && (
+            <span className="text-[12px] text-[#6B6860]">{item.variant_name}</span>
+          )}
+          {item.reservation_required && (
+            <span className="text-[11px] text-[#D97757] bg-[#D97757]/8 px-1.5 py-px rounded">预约</span>
+          )}
+          {isNonSellable && (
+            <span className="text-[11px] text-[#788C5D] bg-[#788C5D]/8 px-1.5 py-px rounded">非卖品</span>
+          )}
+          {isDown && (
+            <span className="text-[11px] text-[#B0AEA5] bg-[#F5F2ED] px-1.5 py-px rounded">已下架</span>
+          )}
+        </div>
+        {/* 预约说明 */}
+        {item.reservation_required && (
+          <div className="text-[12px] text-[#6B6860] mt-1 flex items-center gap-1">
+            <i className="fas fa-calendar-check text-[10px] text-[#D97757]"></i>
+            <span>{formatReservationCutoff(item.reservation_cutoff)}</span>
+            {item.reservation_note && (
+              <span className="text-[#B0AEA5] ml-1">{item.reservation_note}</span>
+            )}
+          </div>
         )}
-      </AnimatePresence>
-    </div>
+        <div className="flex items-center gap-2 mt-1">
+          {!isDown && !isNonSellable && normalizedStock !== null && normalizedStock > 0 && (
+            <span className="text-[11px] text-[#B0AEA5]">库存 {normalizedStock}</span>
+          )}
+          {(isDown || isNonSellable) && (
+            <span className="text-[11px] text-[#B0AEA5]">不计入金额</span>
+          )}
+        </div>
+      </div>
+
+      {/* 右侧：价格 + 数量 */}
+      <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
+        <div className="text-right">
+          <div className="text-[18px] font-semibold text-[#141413] tracking-tight" style={{ fontFamily: "'Lora', serif" }}>¥{item.subtotal}</div>
+          {isNonSellable && (
+            <div className="text-[11px] text-[#788C5D]">免计价</div>
+          )}
+        </div>
+
+        {/* 数量控制 */}
+        <div className="flex items-center border border-[#DDD8D0] rounded overflow-hidden">
+          <button
+            onClick={() => handleQuantityChange(item.quantity - 1)}
+            disabled={isDown}
+            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
+          >
+            −
+          </button>
+          <span className="w-9 h-[30px] flex items-center justify-center text-sm font-medium text-[#141413] border-x border-[#E8E2D8]">{item.quantity}</span>
+          <button
+            onClick={() => handleQuantityChange(item.quantity + 1)}
+            disabled={isDown || isStockLimitReached}
+            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
+            title={isStockLimitReached ? '已达库存上限' : ''}
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+    </motion.div>
   );
 };
 
@@ -486,186 +245,160 @@ const OrderSummary = ({
     return '去结算';
   })();
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-slate-200/60 p-6 sticky top-24 transition-all duration-300 hover:shadow-xl">
-      <h3 className="text-xl font-bold text-slate-900 mb-6 pb-3 border-b border-slate-100 flex items-center gap-2">
-        <i className="fas fa-receipt text-emerald-500"></i>
+    <div className="cart-summary sticky top-24 rounded-2xl" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', overflow: 'visible' }}>
+      {/* 标题 */}
+      <h2 className="text-[20px] font-normal text-[#141413] px-6 pt-6 pb-0" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif", letterSpacing: '-0.01em' }}>
         订单摘要
-      </h3>
-      
-      <div className="space-y-3 mb-6">
-        <div className="flex justify-between items-center p-3 rounded-lg bg-slate-50/50 hover:bg-slate-100/50 transition-colors duration-200">
-          <span className="text-slate-600 flex items-center gap-2">
-            <i className="fas fa-cube text-slate-400 text-sm"></i>
-            商品数量
-          </span>
-          <span className="text-slate-900 font-semibold">{cart.total_quantity} 件</span>
-        </div>
-        <div className="flex justify-between items-center p-3 rounded-lg bg-slate-50/50 hover:bg-slate-100/50 transition-colors duration-200">
-          <span className="text-slate-600 flex items-center gap-2">
-            <i className="fas fa-tags text-slate-400 text-sm"></i>
-            商品金额
-          </span>
-          <span className="text-slate-900 font-semibold">
-            <AnimatedPrice value={cart.total_price} />
-          </span>
-        </div>
-        <div className="flex justify-between items-center p-3 rounded-lg bg-slate-50/50 hover:bg-slate-100/50 transition-colors duration-200">
-          <span className="text-slate-600 flex items-center gap-2">
-            <i className="fas fa-truck text-slate-400 text-sm"></i>
-            配送费
-          </span>
-          <span className={`font-semibold ${cart.shipping_fee > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
-            {cart.shipping_fee > 0 ? <AnimatedPrice value={cart.shipping_fee} /> : '免费'}
-          </span>
-        </div>
-        
-        {(needsShipping || needsLottery) && (
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/50 rounded-xl p-4 text-sm text-amber-900 shadow-sm">
-            <div className="flex items-start gap-2">
-              <i className="fas fa-fire text-orange-500 mt-0.5"></i>
-              <div className="flex-1">
-                <span className="font-medium">还差 </span>
-                {sameTarget ? (
-                  <>
-                    <span className="font-bold text-orange-600">¥{missingShipping.toFixed(2)}</span>
-                    <span className="font-semibold text-rose-600"> 免运费和抽奖资格</span>
-                  </>
-                ) : (
-                  <>
-                    {needsShipping && (
-                      <>
-                        <span className="font-bold text-orange-600">¥{missingShipping.toFixed(2)}</span>
-                        <span className="font-semibold text-rose-600"> 免运费</span>
-                      </>
-                    )}
-                    {needsShipping && needsLottery && <span className="text-amber-400 mx-1">·</span>}
-                    {needsLottery && (
-                      <>
-                        <span className="font-bold text-orange-600">¥{missingLottery.toFixed(2)}</span>
-                        <span className="font-semibold text-rose-600"> 抽奖资格</span>
-                      </>
-                    )}
-                  </>
-                )}
-                <a href="/shop" className="ml-2 text-emerald-700 font-semibold hover:text-emerald-800 underline decoration-2 underline-offset-2 transition-colors">去凑单</a>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* 优惠券选择（靠近结算按钮） */}
-        <div className="border-t border-slate-200 pt-4 mt-4 relative z-20">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200/50">
-            <label className="flex items-center gap-2 text-slate-900 font-semibold cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={!!applyCoupon}
-                disabled={(() => {
-                  const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                  return usable.length === 0;
-                })()}
-                onChange={(e) => {
-                  const checked = !!e.target.checked;
-                  setApplyCoupon && setApplyCoupon(checked);
-                  if (checked && !selectedCouponId && setSelectedCouponId) {
-                    const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                    if (usable.length > 0) {
-                      usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
-                      setSelectedCouponId(usable[0].id);
-                    }
-                  }
-                }}
-                className="w-4 h-4 rounded border-pink-300 text-pink-600 focus:ring-pink-500"
-              />
-              <i className="fas fa-ticket-alt text-pink-600"></i>
-              <span>使用优惠券</span>
-            </label>
-            <span className="text-sm font-bold text-rose-600">
-              {applyCoupon && selected ? (
-                <span className="inline-flex items-center">
-                  <span className="mr-0.5">-</span>
-                  <AnimatedPrice value={parseFloat(selected.amount)||0} />
-                </span>
-              ) : '—'}
-            </span>
-          </div>
-          
-          {/* 自定义优惠券选择器 - 无论是否勾选都显示 */}
-          {(() => {
-            const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-            if (usable.length === 0) return null;
+      </h2>
 
-            return (
-              <CouponSelector 
-                coupons={usable} 
-                selectedId={selectedCouponId} 
-                onSelect={(id) => setSelectedCouponId && setSelectedCouponId(id)}
-                disabled={!applyCoupon}
-              />
-            );
-          })()}
+      {/* 基础信息 */}
+      <div className="px-6 py-5" style={{ borderBottom: '1px solid #E8E2D8' }}>
+        <div className="flex justify-between items-center text-[14px]">
+          <span className="text-[#6B6860]">商品小计（{cart.total_quantity} 件）</span>
+          <span className="font-medium text-[#141413]"><AnimatedPrice value={cart.total_price} /></span>
         </div>
-        
-      <div className="border-t-2 border-slate-200 pt-5 mt-4 bg-gradient-to-r from-slate-50 to-slate-100 -mx-6 px-6 py-4 rounded-b-2xl">
-        <div className="flex justify-between items-center mb-1">
-          <span className="text-lg font-bold text-slate-700 flex items-center gap-2">
-            <i className="fas fa-calculator text-slate-500"></i>
-            总计
+        <div className="flex justify-between items-center text-[14px] mt-3">
+          <span className="text-[#6B6860]">配送费</span>
+          <span className={`font-medium ${cart.shipping_fee > 0 ? 'text-[#141413]' : 'text-[#6B8F47]'}`}>
+            {cart.shipping_fee > 0 ? <AnimatedPrice value={cart.shipping_fee} /> : '免运费'}
           </span>
-          <div className="text-3xl font-black text-emerald-600 leading-tight">
+        </div>
+        {cart.shipping_fee === 0 && cart.total_quantity > 0 && (
+          <div className="text-[11px] text-[#6B8F47] text-right mt-1">已满额免运费</div>
+        )}
+      </div>
+
+      {/* 优惠券（只读显示已选状态，平滑过渡） */}
+      <AnimatePresence initial={false}>
+        {applyCoupon && selected && (
+          <motion.div
+            key="coupon-row"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            style={{ overflow: 'hidden', borderBottom: '1px solid #E8E2D8' }}
+          >
+            <div className="px-6 py-4 flex justify-between items-center text-[14px]">
+              <span className="flex items-center gap-2 text-[#6B6860]">
+                🏷️ 优惠券
+              </span>
+              <span className="font-medium text-[#D97757]">−¥{parseFloat(selected.amount)||0}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 总计 */}
+      <div className="px-6 pt-5 pb-6" style={{ borderBottom: '1px solid #E8E2D8' }}>
+        <div className="flex justify-between items-baseline">
+          <span className="text-[15px] font-medium text-[#141413]">合计</span>
+          <span className="text-[28px] font-bold text-[#C96442]" style={{ fontFamily: "'Lora', serif", letterSpacing: '-0.03em', lineHeight: 1.2 }}>
             <AnimatedPrice value={total} />
-          </div>
+          </span>
         </div>
       </div>
-    </div>
 
+      {/* 凑单提示 / 抽奖状态（平滑过渡） */}
+      {(() => {
+        const lotteryMet = lotteryEnabled && cart.total_quantity > 0 && cart.total_price >= validLotteryThreshold;
+        const showPromo = needsShipping || needsLottery || lotteryMet;
+        // 统一计算进度条目标
+        const barTarget = needsShipping && needsLottery
+          ? Math.max(shippingThreshold, validLotteryThreshold)
+          : needsShipping ? shippingThreshold
+          : needsLottery ? validLotteryThreshold
+          : validLotteryThreshold;
+        const barPct = Math.min(100, (cart.total_price / (barTarget || 10)) * 100);
+        return (
+          <AnimatePresence initial={false}>
+            {showPromo && (
+              <motion.div
+                key="promo-section"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+                style={{ overflow: 'hidden', borderBottom: '1px solid #E8E2D8' }}
+              >
+                <div className="px-6 py-4 flex items-center gap-3 text-[13px] text-[#6B6860]" style={{ background: 'repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(217,119,87,0.02) 8px, rgba(217,119,87,0.02) 16px)' }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-base" style={{ background: lotteryMet && !needsShipping ? 'rgba(107,143,71,0.18)' : 'rgba(107,143,71,0.1)' }}>🎁</div>
+                  <div className="flex-1 leading-snug">
+                    {(needsShipping || needsLottery) ? (
+                      <>
+                        <span>还差 </span>
+                        {sameTarget ? (
+                          <><span className="font-semibold text-[#D97757]">¥{missingShipping.toFixed(2)}</span> 免运费和抽奖</>
+                        ) : (
+                          <>
+                            {needsShipping && <><span className="font-semibold text-[#D97757]">¥{missingShipping.toFixed(2)}</span> 免运费</>}
+                            {needsShipping && needsLottery && <span className="mx-1">·</span>}
+                            {needsLottery && <><span className="font-semibold text-[#D97757]">¥{missingLottery.toFixed(2)}</span> 抽奖</>}
+                          </>
+                        )}
+                        <a href="/shop" className="ml-1 text-[#D97757] font-medium">去凑单 →</a>
+                      </>
+                    ) : null}
+                    {lotteryMet && !needsLottery && (
+                      <span className="text-[#6B8F47] font-medium">🎉 已满 ¥{validLotteryThreshold}，获得抽奖资格</span>
+                    )}
+                    {/* 进度条 - 始终渲染，用 CSS transition 平滑变化 */}
+                    <div className="w-full h-1 rounded-full mt-1.5 overflow-hidden" style={{ background: '#E8E2D8' }}>
+                      <div className="h-full rounded-full" style={{ background: barPct >= 100 ? '#6B8F47' : '#788C5D', width: `${barPct}%`, transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease' }} />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        );
+      })()}
+
+      {/* 状态提示 */}
       {addressInvalid && (
-        <div className="mt-4 mb-2 flex items-start gap-3 rounded-xl border border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
-          <i className="fas fa-exclamation-triangle mt-0.5 text-rose-500"></i>
-          <span className="flex-1 font-medium">{addressAlertMessage}</span>
+        <div className="mx-6 mt-4 flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] text-[#C0453A]" style={{ background: 'rgba(192,69,58,0.06)', border: '1px solid rgba(192,69,58,0.15)' }}>
+          <span className="flex-1">{addressAlertMessage}</span>
           {typeof onFixAddress === 'function' && (
-            <button
-              type="button"
-              onClick={onFixAddress}
-              className="ml-2 text-rose-600 hover:text-rose-800 font-semibold underline decoration-2 transition-colors"
-            >
-              重新选择
-            </button>
+            <button onClick={onFixAddress} className="font-medium text-[#C0453A] underline">修改</button>
           )}
         </div>
       )}
-
       {shouldReserve && (
-        <div className="mb-4 rounded-xl border border-sky-300/50 bg-gradient-to-r from-sky-50 to-blue-50 px-4 py-3 text-xs text-sky-800 shadow-sm">
-          <div className="flex items-center gap-2 font-semibold">
-            <i className="fas fa-calendar-day text-sky-600"></i>
-            <span>{reservationFromClosure ? '店铺当前打烊，提交后将转换为预约订单。' : '本单包含需预约商品，将以预约方式提交。'}</span>
-          </div>
+        <div className="mx-6 mt-3 rounded-lg px-3 py-2.5 text-[12px] text-[#6B6860]" style={{ background: 'rgba(120,140,93,0.06)', border: '1px solid rgba(120,140,93,0.15)' }}>
+          <span className="font-medium">{reservationFromClosure ? '打烊中，将转为预约订单' : '含预约商品，将以预约方式提交'}</span>
           {hasReservationItems && (
-            <div className="mt-2 leading-relaxed text-sky-700">
-              请关注预约说明，配送时间将以预约信息为准。
-            </div>
+            <div className="mt-1 text-[#788C5D]">配送时间以预约信息为准</div>
           )}
           {isClosed && !reservationAllowed && !allReservationItems && (
-            <div className="mt-3 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 font-medium">
-              打烊期间仅支持预约商品，请移除非预约商品后再试。
+            <div className="mt-2 rounded px-2 py-1.5 text-[11px] text-[#C9943A]" style={{ background: 'rgba(201,148,58,0.06)', border: '1px solid rgba(201,148,58,0.15)' }}>
+              打烊仅支持预约商品，请先移除非预约商品
             </div>
           )}
         </div>
       )}
       {cycleLocked && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 font-medium">
+        <div className="mx-6 mt-3 rounded-lg px-3 py-2.5 text-[12px] text-[#C9943A]" style={{ background: 'rgba(201,148,58,0.06)', border: '1px solid rgba(201,148,58,0.15)' }}>
           暂时无法结算，请联系管理员
         </div>
       )}
 
-      <button
-        onClick={onCheckout}
-        disabled={checkoutDisabled}
-        aria-busy={isProcessingCheckout}
-        className="w-full bg-gradient-to-r from-orange-400 to-orange-500 text-white py-4 px-6 rounded-full font-bold text-lg shadow-lg hover:shadow-xl hover:from-orange-500 hover:to-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-300 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
-      >
-        {isProcessingCheckout ? '正在检查库存...' : buttonLabel}
-      </button>
+      {/* 结算按钮 */}
+      <div className="px-6 py-5">
+        <button
+          onClick={onCheckout}
+          disabled={checkoutDisabled}
+          aria-busy={isProcessingCheckout}
+          className="w-full py-4 rounded-lg text-[15px] font-medium tracking-wide text-[#FAF9F5] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 relative overflow-hidden"
+          style={{
+            background: checkoutDisabled ? '#DDD8D0' : '#141413',
+            letterSpacing: '0.02em',
+          }}
+          onMouseEnter={e => { if (!checkoutDisabled) e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(20,20,19,0.10)'; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+        >
+          {isProcessingCheckout ? '正在检查库存...' : `${buttonLabel}${!checkoutDisabled && total > 0 ? ` · ¥${total.toFixed(2)}` : ''}`}
+        </button>
+      </div>
     </div>
   );
 };
@@ -691,7 +424,6 @@ export default function Cart() {
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
-  const [couponExpanded, setCouponExpanded] = useState(false);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
@@ -1231,6 +963,55 @@ export default function Cart() {
       <Head>
         <title>{pageTitle}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <style>{`
+          .cart-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 32px; align-items: start; }
+          @media (max-width: 960px) {
+            .cart-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+            .cart-grid .lg\\:hidden { display: block !important; }
+            .cart-grid .hidden.lg\\:block { display: none !important; }
+          }
+          @media (min-width: 961px) {
+            .cart-grid .lg\\:hidden { display: none !important; }
+            .cart-grid .hidden.lg\\:block { display: block !important; }
+          }
+          @keyframes cartRevealUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          .cart-reveal {
+            animation: cartRevealUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+          }
+          .cart-d0 { animation-delay: 0ms; }
+          .cart-d1 { animation-delay: 60ms; }
+          .cart-d2 { animation-delay: 120ms; }
+          .cart-d3 { animation-delay: 180ms; }
+          .cart-d4 { animation-delay: 240ms; }
+          .cart-d5 { animation-delay: 300ms; }
+          .cart-d6 { animation-delay: 360ms; }
+          @media (prefers-reduced-motion: reduce) {
+            .cart-reveal { animation: none !important; opacity: 1 !important; transform: none !important; }
+          }
+          .cart-coupon-scroll { scrollbar-width: thin; scrollbar-color: #DDD8D0 transparent; }
+          .cart-coupon-scroll::-webkit-scrollbar { height: 6px; }
+          .cart-coupon-scroll::-webkit-scrollbar-track { background: transparent; }
+          .cart-coupon-scroll::-webkit-scrollbar-thumb { background: #DDD8D0; border-radius: 3px; }
+          .cart-coupon-scroll::-webkit-scrollbar-thumb:hover { background: #B0AEA5; }
+          @media (max-width: 640px) {
+            .cart-coupon-scroll { scrollbar-width: none; }
+            .cart-coupon-scroll::-webkit-scrollbar { display: none; }
+            .cart-page-main { padding: 20px 16px 60px !important; }
+            /* 所有卡片内 px-6 (24px) 缩为 16px */
+            .cart-page-main [class*="px-6"] { padding-left: 16px !important; padding-right: 16px !important; }
+            .cart-item-pad { padding-left: 12px !important; padding-right: 12px !important; gap: 12px !important; }
+            .cart-item-img { width: 56px !important; height: 56px !important; }
+            .cart-title-row { gap: 8px !important; }
+            .cart-addr-btn { padding: 5px 8px !important; gap: 5px !important; }
+            .cart-addr-btn span { max-width: 140px !important; font-size: 12px !important; }
+            .cart-back-link { display: inline-flex !important; }
+            /* 摘要内 mx-6 缩为 16px */
+            .cart-page-main [class*="mx-6"] { margin-left: 16px !important; margin-right: 16px !important; }
+          }
+        `}</style>
       </Head>
       <Script
         id="dotlottie-wc"
@@ -1240,655 +1021,315 @@ export default function Cart() {
       />
 
 
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 pt-16">
-        {/* 主要内容 */}
-        {/* 主要内容 */}
-        <motion.main 
+      <div className={`min-h-screen pt-16 ${!isLoading && (!cart.items || cart.items.length === 0) ? 'overflow-hidden h-screen' : ''}`} style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'hidden' }}>
+        <motion.main
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+          className="pb-20 cart-page-main"
+          style={{ maxWidth: 1200, margin: '0 auto', padding: '32px clamp(20px, 5vw, 64px) 80px' }}
         >
-          <motion.div 
-            className="mb-8 pb-6 flex justify-between items-center"
-            variants={headerVariants}
-            initial="hidden"
-            animate="visible"
-          >
-            <div>
-              <motion.h1 
-                className="text-4xl font-black text-slate-900 mb-2 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.1 }}
-              >
-                购物车
-              </motion.h1>
-              <motion.p 
-                className="text-slate-600 mt-1 flex items-center gap-2"
-                initial={{ opacity: 0, x: -15 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.2 }}
-              >
-                <i className="fas fa-shopping-bag text-emerald-500"></i>
-                管理您的购物车商品
-              </motion.p>
-            </div>
-            
-            {cart.items && cart.items.length > 0 && (
-              <motion.button
-                onClick={handleClearCart}
-                className="text-sm text-slate-600 hover:text-rose-600 border-2 border-slate-300 hover:border-rose-400 px-4 py-2.5 rounded-xl hover:bg-rose-50 transition-colors duration-200 font-semibold flex items-center gap-2"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ type: "spring", stiffness: 400, damping: 25, delay: 0.3 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <i className="fas fa-trash-alt"></i>
-                清空购物车
-              </motion.button>
-            )}
-          </motion.div>
-
-          {/* 加载状态 - 优化骨架屏动画 */}
-          {isLoading ? (
-            <motion.div 
-              className="space-y-4"
-              initial="hidden"
-              animate="visible"
-              variants={{
-                hidden: { opacity: 0 },
-                visible: {
-                  opacity: 1,
-                  transition: { staggerChildren: 0.1 }
-                }
-              }}
-            >
-              {[...Array(3)].map((_, i) => (
-                <motion.div 
-                  key={i} 
-                  custom={i}
-                  variants={skeletonVariants}
-                  className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6"
+          {/* 页头 */}
+          <div className="mb-1 cart-reveal cart-d0">
+            <Link href="/shop" className="cart-back-link hidden items-center gap-1.5 text-[14px] text-[#6B6860] hover:text-[#D97757] transition-colors mb-4">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              继续购物
+            </Link>
+            <div className="cart-title-row flex items-center justify-between gap-4">
+              <div className="flex items-baseline gap-4">
+                <h1 className="text-[#141413]" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif", fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1.3 }}>
+                  购物车
+                </h1>
+                {cart.total_quantity > 0 && (
+                  <span className="text-[14px] text-[#B0AEA5] font-medium px-3 py-0.5 rounded-full" style={{ background: 'rgba(217,119,87,0.1)' }}>
+                    {cart.total_quantity} 件商品
+                  </span>
+                )}
+              </div>
+              {/* 地址（右侧紧凑） */}
+              {user?.type === 'user' && (
+                <button
+                  onClick={openLocationModal}
+                  className="cart-addr-btn flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:border-[#D97757]"
+                  style={{ background: '#FFFFFF', border: '1px solid #E8E2D8' }}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-xl overflow-hidden relative">
-                      <motion.div 
-                        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                        animate={{ x: ["-100%", "100%"] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 }}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <div className="h-5 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg mb-3 w-3/4 overflow-hidden relative">
-                        <motion.div 
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.1 }}
-                        />
-                      </div>
-                      <div className="h-4 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/2 mb-2 overflow-hidden relative">
-                        <motion.div 
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.2 }}
-                        />
-                      </div>
-                      <div className="h-3 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg w-1/3 overflow-hidden relative">
-                        <motion.div 
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.3 }}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <div className="w-20 h-6 bg-gradient-to-r from-slate-100 to-slate-200 rounded-lg overflow-hidden relative">
-                        <motion.div 
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.4 }}
-                        />
-                      </div>
-                      <div className="w-24 h-9 bg-gradient-to-r from-slate-100 to-slate-200 rounded-xl overflow-hidden relative">
-                        <motion.div 
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear", delay: i * 0.15 + 0.5 }}
-                        />
-                      </div>
-                    </div>
+                  <svg width="14" height="14" viewBox="0 0 18 18" fill="none" className="flex-shrink-0"><path d="M9 1.5C5.96 1.5 3.5 3.96 3.5 7c0 4.5 5.5 9.5 5.5 9.5s5.5-5 5.5-9.5c0-3.04-2.46-5.5-5.5-5.5z" stroke="#D97757" strokeWidth="1.4"/><circle cx="9" cy="7" r="2" stroke="#D97757" strokeWidth="1.4"/></svg>
+                  <span className="text-[13px] font-medium text-[#141413] truncate max-w-[220px]">{displayLocation}</span>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-[#B0AEA5]"><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 加载骨架屏 */}
+          {isLoading ? (
+            <div className="mt-8 rounded-2xl overflow-hidden" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', maxWidth: '100%' }}>
+              <div className="px-6 py-4 flex items-center gap-2 text-[15px] font-medium text-[#141413]" style={{ borderBottom: '1px solid #E8E2D8' }}>
+                <span className="w-5 h-5 rounded bg-[#F5F2ED] animate-pulse"></span>
+                <span className="w-16 h-4 rounded bg-[#F5F2ED] animate-pulse"></span>
+              </div>
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4 py-4 px-6" style={{ borderBottom: i < 2 ? '1px solid #E8E2D8' : 'none' }}>
+                  <div className="w-[68px] h-[68px] rounded-lg animate-pulse" style={{ background: '#F5F2ED' }} />
+                  <div className="flex-1">
+                    <div className="h-4 rounded w-3/4 mb-2 animate-pulse" style={{ background: '#E8E2D8' }} />
+                    <div className="h-3 rounded w-1/2 animate-pulse" style={{ background: '#E8E2D8' }} />
                   </div>
-                </motion.div>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="h-5 rounded w-16 animate-pulse" style={{ background: '#E8E2D8' }} />
+                    <div className="h-[30px] rounded w-24 animate-pulse" style={{ background: '#E8E2D8' }} />
+                  </div>
+                </div>
               ))}
-            </motion.div>
+            </div>
           ) : cart.items && cart.items.length > 0 ? (
-            <>
-              {/* 整体网格布局：左侧内容 + 右侧订单摘要 */}
-              <div className="lg:grid lg:grid-cols-3 lg:gap-8">
-                {/* 左侧内容区域 */}
-                <div className="lg:col-span-2 space-y-6">
-                  {/* 地址和打烊提示 */}
-                  {user?.type === 'user' && (
-                    <motion.div 
-                      className="flex flex-col sm:flex-row gap-3"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.15 }}
-                    >
-                      <motion.button
-                        onClick={openLocationModal}
-                        className="group flex items-center gap-3 px-5 py-4 bg-white border-2 border-emerald-300/50 rounded-2xl text-emerald-700 hover:shadow-xl hover:border-emerald-400 transition-colors duration-200 bg-gradient-to-r from-emerald-50/50 to-teal-50/50"
-                        whileHover={{ scale: 1.02, y: -2 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <motion.span 
-                          className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-lg"
-                          whileHover={{ rotate: 10, scale: 1.1 }}
-                          transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                        >
-                          <i className="fas fa-location-dot"></i>
-                        </motion.span>
-                        <div className="text-left flex-1">
-                          <div className="text-xs text-emerald-600 font-semibold">当前配送地址</div>
-                          <div className="text-base font-bold text-emerald-800 mt-0.5">{displayLocation}</div>
-                        </div>
-                        <span className="text-emerald-600 font-semibold flex items-center gap-1 group-hover:gap-2 transition-all">
-                          修改
-                          <i className="fas fa-chevron-right text-xs"></i>
-                        </span>
-                      </motion.button>
+            <div className="cart-grid mt-8">
+              {/* ──── 左侧内容 ──── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0, maxWidth: '100%' }}>
+                {/* 预约提示 */}
+                {reservationFromClosure && (
+                  <div className="rounded-lg px-4 py-3 text-[13px] text-[#788C5D] flex items-center gap-2" style={{ background: 'rgba(120,140,93,0.06)', border: '1px solid rgba(120,140,93,0.15)' }}>
+                    <i className="fas fa-calendar-check text-[12px]"></i>
+                    打烊中，支持预约下单
+                  </div>
+                )}
 
-                      {reservationFromClosure && (
-                        <motion.div 
-                          className="rounded-2xl border-2 border-sky-300/50 bg-gradient-to-r from-sky-50 to-blue-50 px-5 py-4 text-sky-800 flex items-start gap-3 flex-1 shadow-sm"
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.25 }}
-                        >
-                          <motion.div 
-                            className="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-500 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg"
-                            animate={{ scale: [1, 1.05, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          >
-                            <i className="fas fa-calendar-check text-white"></i>
-                          </motion.div>
-                          <div>
-                            <p className="text-sm font-bold text-sky-900">店铺打烊中，支持预约下单</p>
-                            <p className="text-xs text-sky-700 leading-snug mt-1">提交订单后将作为预约订单保存，我们会在营业后优先处理。</p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </motion.div>
-                  )}
+                {/* 提示信息 */}
+                {addressInvalid && (
+                  <div className="flex items-center gap-2 rounded-lg px-4 py-3 text-[13px] text-[#C0453A]" style={{ background: 'rgba(192,69,58,0.06)', border: '1px solid rgba(192,69,58,0.15)' }}>
+                    <span className="flex-1">{addressAlertMessage}</span>
+                    <button onClick={openLocationModal} className="font-medium text-[#C0453A] underline">修改</button>
+                  </div>
+                )}
+                {infoMessage && (
+                  <div className="flex items-center gap-2 rounded-lg px-4 py-3 text-[13px] text-[#788C5D]" style={{ background: 'rgba(120,140,93,0.06)', border: '1px solid rgba(120,140,93,0.15)' }}>
+                    <span className="flex-1">{infoMessage}</span>
+                    <button onClick={() => setInfoMessage('')} className="text-[#B0AEA5] hover:text-[#141413] transition-colors">
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    </button>
+                  </div>
+                )}
+                {error && (
+                  <div className="rounded-lg px-4 py-3 text-[13px] text-[#C0453A]" style={{ background: 'rgba(192,69,58,0.06)', border: '1px solid rgba(192,69,58,0.15)' }}>
+                    {error}
+                  </div>
+                )}
 
-                  {/* 地址验证错误提示 */}
-                  {addressInvalid && (
-                    <motion.div 
-                      className="flex items-start gap-3 rounded-2xl border-2 border-rose-300/50 bg-gradient-to-r from-rose-50 to-pink-50 px-5 py-4 text-sm text-rose-800 shadow-sm"
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                    >
-                      <motion.i 
-                        className="fas fa-exclamation-triangle mt-0.5 text-rose-500 text-lg"
-                        animate={{ rotate: [0, -10, 10, -10, 0] }}
-                        transition={{ duration: 0.5, delay: 0.3 }}
-                      />
-                      <span className="flex-1 font-semibold">{addressAlertMessage}</span>
-                      <motion.button
-                        onClick={openLocationModal}
-                        className="ml-3 text-rose-600 hover:text-rose-800 font-bold underline decoration-2 underline-offset-2 transition-colors"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        重新选择
-                      </motion.button>
-                    </motion.div>
-                  )}
-
-                  {/* 信息提示 */}
-                  {infoMessage && (
-                    <motion.div 
-                      className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/50 text-emerald-800 px-5 py-4 rounded-2xl flex items-start gap-3 shadow-sm"
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                    >
-                      <i className="fas fa-info-circle mt-0.5 text-emerald-600 text-lg"></i>
-                      <span className="flex-1 font-semibold">{infoMessage}</span>
-                      <motion.button
-                        onClick={() => setInfoMessage('')}
-                        className="ml-auto text-emerald-600 hover:text-emerald-800 transition-colors"
-                        aria-label="关闭提示"
-                        whileHover={{ scale: 1.1, rotate: 90 }}
-                        whileTap={{ scale: 0.9 }}
-                      >
-                        <i className="fas fa-times"></i>
-                      </motion.button>
-                    </motion.div>
-                  )}
-
-                  {/* 错误提示 */}
-                  {error && (
-                    <motion.div 
-                      className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200/50 text-red-800 px-5 py-4 rounded-2xl shadow-sm font-semibold"
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                    >
-                      <motion.i 
-                        className="fas fa-exclamation-circle mr-2"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 0.3 }}
-                      />
-                      {error}
-                    </motion.div>
-                  )}
-
-                  {/* 优惠券概览 */}
-                  {coupons && coupons.length > 0 && (
-                    <motion.div 
-                      className="border-2 border-pink-200/50 rounded-2xl overflow-hidden shadow-sm bg-white"
-                      initial={{ opacity: 0, y: 20, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30, delay: 0.2 }}
-                    >
-                      <motion.button
-                        className="w-full flex items-center justify-between px-5 py-4 bg-gradient-to-r from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 transition-colors duration-200"
-                        onClick={() => setCouponExpanded(!couponExpanded)}
-                        whileHover={{ backgroundColor: "rgba(251, 207, 232, 0.3)" }}
-                        whileTap={{ scale: 0.99 }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <motion.div 
-                            className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-full flex items-center justify-center text-white shadow-lg"
-                            whileHover={{ rotate: 15, scale: 1.1 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                          >
-                            <i className="fas fa-ticket-alt"></i>
-                          </motion.div>
-                          <span className="font-bold text-slate-900 text-lg">我的优惠券</span>
-                          <motion.span 
-                            className="text-sm text-pink-600 font-semibold bg-white px-3 py-1 rounded-full shadow-sm"
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 20, delay: 0.4 }}
-                          >
-                            {coupons.length} 张
-                          </motion.span>
-                        </div>
-                        <motion.i 
-                          className={`fas fa-chevron-down text-pink-500`}
-                          animate={{ rotate: couponExpanded ? 180 : 0 }}
-                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                        />
-                      </motion.button>
-                      {(() => {
-                        const sub = cart?.total_price || 0;
-                        const groups = {};
-                        for (const c of coupons) {
-                          const k = `${parseFloat(c.amount) || 0}|${c.expires_at || 'forever'}`;
-                          if (!groups[k]) groups[k] = { list: [], amount: parseFloat(c.amount) || 0, expires_at: c.expires_at || null };
-                          groups[k].list.push(c);
-                        }
-                        const keys = Object.keys(groups).sort((a, b) => (groups[b].amount - groups[a].amount));
-                        return (
-                          <div 
-                            className="bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden transition-all duration-300 ease-out"
-                            style={{
-                              maxHeight: couponExpanded ? `${keys.length * 100 + 32}px` : '0px',
-                              opacity: couponExpanded ? 1 : 0,
-                              padding: couponExpanded ? '1rem 1.25rem' : '0 1.25rem',
-                            }}
-                          >
-                            {keys.map((k, idx) => {
-                              const g = groups[k];
-                              const usable = sub > g.amount;
-                              return (
-                                <div 
-                                  key={k} 
-                                  className={`flex items-center justify-between border-2 bg-white rounded-xl px-4 py-3 mb-3 shadow-sm transition-all duration-200 hover:shadow-md hover:scale-[1.01] hover:translate-x-1 ${usable ? 'border-pink-300/50 hover:border-pink-400' : 'border-slate-200 opacity-60'}`}
-                                  style={{
-                                    transform: couponExpanded ? 'translateX(0)' : 'translateX(-20px)',
-                                    opacity: couponExpanded ? 1 : 0,
-                                    transition: `all 0.25s ease-out ${idx * 0.05}s`,
-                                  }}
-                                >
-                                  <div className="flex items-center gap-4">
-                                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-lg shadow-inner ${usable ? 'bg-gradient-to-br from-pink-500 to-rose-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                                      ¥{g.amount}
-                                    </div>
-                                    <div>
-                                      <div className={`text-sm font-bold ${usable ? 'text-emerald-600' : 'text-slate-500'}`}>
-                                        {usable ? '✓ 可用' : '✗ 不可用（需大于券额）'}
-                                      </div>
-                                      <div className="text-xs text-slate-600 mt-1">{g.expires_at ? `到期：${new Date(g.expires_at.replace(' ', 'T') + 'Z').toLocaleString('zh-CN')}` : '永久有效'}</div>
-                                      <div className="text-xs text-slate-500">满 ¥{g.amount} 可用</div>
-                                    </div>
-                                  </div>
-                                  <div className="text-base font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full">
-                                    ×{g.list.length}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                    </motion.div>
-                  )}
-
-                  {/* 商品列表容器 */}
-                  <motion.div 
-                    className="space-y-0"
-                    initial="hidden"
-                    animate="visible"
-                    variants={{
-                      hidden: { opacity: 0 },
-                      visible: {
-                        opacity: 1,
-                        transition: {
-                          staggerChildren: 0.06,
-                          delayChildren: 0.1
-                        }
-                      }
-                    }}
-                  >
+                {/* 商品清单 */}
+                <div className="rounded-2xl overflow-hidden cart-reveal cart-d1" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8' }}>
+                  <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid #E8E2D8' }}>
+                    <span className="flex items-center gap-2 text-[15px] font-medium text-[#141413]">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M6.5 1.5L3 5.5v10a1 1 0 001 1h10a1 1 0 001-1v-10L11.5 1.5h-5z" stroke="#D97757" strokeWidth="1.3" strokeLinejoin="round"/><path d="M3 5.5h12" stroke="#D97757" strokeWidth="1.3"/><path d="M6.5 8.5a2.5 2.5 0 005 0" stroke="#D97757" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                      商品清单
+                    </span>
+                    {cart.items.length > 0 && (
+                      <button onClick={handleClearCart} className="text-[13px] text-[#B0AEA5] hover:text-[#C0453A] transition-colors">清空</button>
+                    )}
+                  </div>
+                  <div>
                     <AnimatePresence mode="popLayout">
-                    {cart.items
-                      .sort((a, b) => {
-                        // 非卖品排到最后
-                        const aIsNonSellable = Boolean(a.is_not_for_sale);
-                        const bIsNonSellable = Boolean(b.is_not_for_sale);
-                        if (aIsNonSellable && !bIsNonSellable) return 1;
-                        if (!aIsNonSellable && bIsNonSellable) return -1;
-                        return 0;
-                      })
-                      .map((item, index) => (
-                      <CartItem
-                        key={`${item.product_id}-${item.variant_id || 'default'}`}
-                        item={{...item, _animIndex: index}}
-                        onUpdateQuantity={handleUpdateQuantity}
-                        onRemove={handleRemoveItem}
-                      />
-                    ))}
-                    </AnimatePresence>
-                  </motion.div>
-
-                  {/* 抽奖奖品展示（不计入金额，达抽奖门槛自动附带）*/}
-                  {eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
-                    <div className="mt-8">
-                    <div className="mb-2 flex items-center gap-2">
-                      <div className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center">
-                        <i className="fas fa-gift text-amber-600 text-xs"></i>
-                      </div>
-                      <h3 className="text-sm font-semibold text-gray-900">我的抽奖奖品</h3>
-                    </div>
-
-                    {eligibleRewards.map((r) => {
-                      const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
-                      return (
-                        <div
-                          key={r.id}
-                          className={`border p-4 mb-3 ${meet ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200 opacity-80'}`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${meet ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>
-                                  抽奖奖品
-                                </span>
-                                <span className={`text-sm font-medium ${meet ? 'text-emerald-800' : 'text-gray-700'}`}>{r.prize_name || '奖品'}</span>
-                                <span className={`text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>× {r.prize_quantity || 1}</span>
-                              </div>
-                              {(r.prize_product_name || r.prize_variant_name) && (
-                                <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
-                                  奖品：{r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
-                                </p>
-                              )}
-                              <p className={`mt-1 text-xs ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>
-                                {meet
-                                  ? `满${formattedLotteryThreshold}元，本单将自动附带并随单配送`
-                                  : `未满${formattedLotteryThreshold}元，本单结算不会附带；达标后自动附带并配送`}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <span className={`text-sm font-semibold ${meet ? 'text-emerald-700' : 'text-gray-600'}`}>¥0.00</span>
-                              <p className={`text-xs ${meet ? 'text-emerald-600' : 'text-gray-500'}`}>
-                                赠品
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    </div>
-                  )}
-
-                  {/* 满额门槛 - 现在在space-y-0外面了 */}
-                  {cart.items.length > 0 && autoGifts.length > 0 && (() => {
-                    const cartTotal = cart?.total_price || 0;
-                    const hasAnyUnlocked = autoGifts.some(threshold => cartTotal >= (threshold.threshold_amount || 0));
-                    
-                    // 根据是否有抽奖奖品来调整间距
-                    const hasRewards = eligibleRewards.length > 0;
-                    const topMargin = hasRewards ? 'mt-8' : 'mt-16'; // 有奖品时用正常间距，无奖品时用大间距
-                    
-                    const containerClass = hasAnyUnlocked 
-                      ? `${topMargin} border border-dashed border-pink-200 rounded-lg bg-pink-50 p-4`
-                      : `${topMargin} border border-dashed border-gray-200 rounded-lg bg-gray-50 p-4`;
-                    const titleIconClass = hasAnyUnlocked ? 'text-pink-500' : 'text-gray-500';
-                    const titleTextClass = hasAnyUnlocked ? 'text-pink-700' : 'text-gray-500';
-                    
-                    return (
-                      <motion.div 
-                        className={containerClass}
-                        initial={{ opacity: 0, y: 25 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ type: "spring", stiffness: 350, damping: 30, delay: 0.3 }}
-                      >
-                        <motion.div 
-                          className="flex items-center gap-2 mb-3"
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.4 }}
-                        >
-                          <motion.i 
-                            className={`fas fa-gift ${titleIconClass}`}
-                            animate={{ rotate: [0, -10, 10, 0] }}
-                            transition={{ duration: 0.5, delay: 0.5 }}
+                      {cart.items
+                        .sort((a, b) => {
+                          const aIsNonSellable = Boolean(a.is_not_for_sale);
+                          const bIsNonSellable = Boolean(b.is_not_for_sale);
+                          if (aIsNonSellable && !bIsNonSellable) return 1;
+                          if (!aIsNonSellable && bIsNonSellable) return -1;
+                          return 0;
+                        })
+                        .map((item, index) => (
+                          <CartItem
+                            key={`${item.product_id}-${item.variant_id || 'default'}`}
+                            item={{...item, _animIndex: index}}
+                            onUpdateQuantity={handleUpdateQuantity}
+                            onRemove={handleRemoveItem}
                           />
-                          <span className={`text-sm font-semibold ${titleTextClass}`}>满额门槛</span>
-                        </motion.div>
-                        <motion.div 
-                          className="grid gap-2"
-                          initial="hidden"
-                          animate="visible"
-                          variants={{
-                            visible: { transition: { staggerChildren: 0.08 } }
-                          }}
-                        >
-                          {autoGifts.map((threshold, index) => {
-                            const thresholdAmount = threshold.threshold_amount || 0;
-                            const unlocked = cartTotal >= thresholdAmount;
-                            const cardClass = unlocked
-                              ? 'border-pink-200 bg-pink-50 text-pink-700'
-                              : 'border-gray-300 bg-gray-200 text-gray-600';
-                            
-                            const rewardParts = [];
-                            if (threshold.gift_products && threshold.selected_product_name) {
-                              rewardParts.push(threshold.selected_product_name);
-                            }
-                            if (threshold.gift_coupon && threshold.coupon_amount > 0) {
-                              rewardParts.push(`${threshold.coupon_amount}元优惠券`);
-                            }
-                            const rewardText = rewardParts.length > 0 ? rewardParts.join(' + ') : '暂无奖励';
-                            const hint = unlocked ? '已满足条件' : `还差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`;
-                            
-                            return (
-                              <motion.div
-                                key={threshold.threshold_amount || index}
-                                className={`text-xs rounded-md px-3 py-2 border ${cardClass}`}
-                                variants={{
-                                  hidden: { opacity: 0, x: -15, scale: 0.95 },
-                                  visible: { 
-                                    opacity: 1, x: 0, scale: 1,
-                                    transition: { type: "spring", stiffness: 400, damping: 25 }
-                                  }
-                                }}
-                                whileHover={{ 
-                                  scale: 1.02, 
-                                  x: 3,
-                                  transition: { duration: 0.2, ease: "easeOut" }
-                                }}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="font-medium">满 ¥{thresholdAmount}</div>
-                                    <div className="mt-1 text-[11px] break-words">{rewardText}</div>
-                                  </div>
-                                  <motion.div 
-                                    className="text-[11px] ml-2 flex-shrink-0"
-                                    animate={unlocked ? { scale: [1, 1.1, 1] } : {}}
-                                    transition={{ duration: 0.3 }}
-                                  >
-                                    {hint}
-                                  </motion.div>
-                                </div>
-                              </motion.div>
-                            );
-                          })}
-                        </motion.div>
-                      </motion.div>
-                    );
-                  })()}
+                        ))}
+                    </AnimatePresence>
+                  </div>
                 </div>
 
-                {/* 右侧订单摘要 */}
-                <motion.div 
-                  className="lg:col-span-1 mt-6 lg:mt-0"
-                  variants={sidebarVariants}
-                  initial="hidden"
-                  animate="visible"
-                >
-                  <div className="lg:sticky lg:top-24">
-                    <OrderSummary
-                      cart={cart}
-                      onCheckout={handleCheckout}
-                      isClosed={!shopOpen}
-                      cycleLocked={cycleLocked}
-                      reservationAllowed={reservationAllowed}
-                      shouldReserve={shouldReserve}
-                      reservationFromClosure={reservationFromClosure}
-                      hasReservationItems={hasReservationItems}
-                      allReservationItems={allReservationItems}
-                      coupons={coupons}
-                      selectedCouponId={selectedCouponId}
-                      setSelectedCouponId={setSelectedCouponId}
-                      applyCoupon={applyCoupon}
-                      setApplyCoupon={setApplyCoupon}
-                      addressValidation={addressValidation}
-                      onFixAddress={openLocationModal}
-                      locationReady={locationReady}
-                      lotteryThreshold={lotteryThreshold}
-                      lotteryEnabled={cart?.lottery_enabled !== false}
-                      deliveryConfig={deliveryConfig}
-                      isProcessingCheckout={isCheckingOut}
-                    />
+                {/* 优惠券横向滚动（点击选择/取消） */}
+                {coupons && coupons.length > 0 && (
+                  <div className="rounded-2xl overflow-hidden cart-reveal cart-d2" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8' }}>
+                    <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid #E8E2D8' }}>
+                      <span className="flex items-center gap-2 text-[15px] font-medium text-[#141413]">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1.5" y="4" width="15" height="10" rx="2" stroke="#D97757" strokeWidth="1.3"/><circle cx="1.5" cy="9" r="2" fill="#F5F2ED" stroke="#D97757" strokeWidth="1.3"/><circle cx="16.5" cy="9" r="2" fill="#F5F2ED" stroke="#D97757" strokeWidth="1.3"/><path d="M7 4v10" stroke="#D97757" strokeWidth="1.3" strokeDasharray="2 2"/></svg>
+                        可用优惠券
+                      </span>
+                      <span className="text-[12px] text-[#B0AEA5]">{coupons.length} 张</span>
+                    </div>
+                    {(() => {
+                      const sub = cart?.total_price || 0;
+                      // 按面额+有效期聚合
+                      const groups = {};
+                      for (const c of coupons) {
+                        const k = `${parseFloat(c.amount) || 0}|${c.expires_at || 'forever'}`;
+                        if (!groups[k]) groups[k] = { list: [], amount: parseFloat(c.amount) || 0, expires_at: c.expires_at || null };
+                        groups[k].list.push(c);
+                      }
+                      const keys = Object.keys(groups).sort((a, b) => (groups[b].amount - groups[a].amount));
+                      return (
+                        <div className="cart-coupon-scroll flex gap-3 px-6 py-4 overflow-x-auto">
+                          {keys.map((k) => {
+                            const g = groups[k];
+                            const usable = sub > g.amount;
+                            // 选中状态：当前选中的券在这个组内
+                            const isActive = applyCoupon && g.list.some(c => c.id === selectedCouponId);
+                            return (
+                              <div
+                                key={k}
+                                className="flex-shrink-0 relative flex items-center gap-3 px-4 py-3.5 rounded-lg min-w-[170px] cursor-pointer transition-all"
+                                style={{
+                                  border: isActive ? '1.5px solid #D97757' : `1.5px dashed ${usable ? '#DDD8D0' : '#E8E2D8'}`,
+                                  background: isActive ? 'rgba(217,119,87,0.08)' : '#FAF8F4',
+                                  opacity: usable ? 1 : 0.45,
+                                  pointerEvents: usable ? 'auto' : 'none',
+                                }}
+                                onClick={() => {
+                                  if (!usable) return;
+                                  if (isActive) {
+                                    setApplyCoupon && setApplyCoupon(false);
+                                  } else {
+                                    // 选这组里的第一张券
+                                    setSelectedCouponId && setSelectedCouponId(g.list[0].id);
+                                    setApplyCoupon && setApplyCoupon(true);
+                                  }
+                                }}
+                              >
+                                {isActive && (
+                                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#D97757] text-white text-[11px] flex items-center justify-center">✓</span>
+                                )}
+                                <span className="text-[22px] font-semibold text-[#D97757] leading-none" style={{ fontFamily: "'Lora', serif" }}>¥{g.amount}</span>
+                                <div>
+                                  <div className="text-[12px] text-[#6B6860] leading-snug">{g.expires_at ? new Date(g.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString() + ' 到期' : '永久有效'}</div>
+                                  {g.list.length > 1 && (
+                                    <div className="text-[11px] text-[#B0AEA5]">×{g.list.length}</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
-                </motion.div>
+                )}
+
+                {/* 抽奖奖品 */}
+                {eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
+                  <div className="rounded-2xl overflow-hidden cart-reveal cart-d3" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8' }}>
+                    <div className="flex items-center gap-2 px-6 py-4 text-[15px] font-medium text-[#141413]" style={{ borderBottom: '1px solid #E8E2D8' }}>🎁 抽奖奖品</div>
+                    <div className="px-6 py-4">
+                      {eligibleRewards.map((r) => {
+                        const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
+                        return (
+                          <div key={r.id} className="flex items-center justify-between py-2 text-[13px]" style={{ color: meet ? '#6B8F47' : '#B0AEA5' }}>
+                            <div>
+                              <span className="font-medium">{r.prize_name || '奖品'}</span> x{r.prize_quantity || 1}
+                              {(r.prize_product_name || r.prize_variant_name) && <span className="text-[12px] ml-1">{r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}</span>}
+                            </div>
+                            <div className="text-right text-[12px]">{meet ? `满${formattedLotteryThreshold}元随单配送` : `差 ¥${Math.max(0, lotteryThreshold - (cart?.total_price ?? 0)).toFixed(2)}`}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 满额门槛 */}
+                {cart.items.length > 0 && autoGifts.length > 0 && (() => {
+                  const cartTotal = cart?.total_price || 0;
+                  return (
+                    <div className="rounded-2xl overflow-hidden cart-reveal cart-d4" style={{ background: '#FFFFFF', border: '1px dashed #DDD8D0' }}>
+                      <div className="flex items-center gap-2 px-6 py-4 text-[15px] font-medium text-[#141413]" style={{ borderBottom: '1px solid #E8E2D8' }}>🎁 满额门槛</div>
+                      <div className="px-6 py-4 space-y-2">
+                        {autoGifts.map((threshold, index) => {
+                          const thresholdAmount = threshold.threshold_amount || 0;
+                          const unlocked = cartTotal >= thresholdAmount;
+                          const rewardParts = [];
+                          if (threshold.gift_products && threshold.selected_product_name) rewardParts.push(threshold.selected_product_name);
+                          if (threshold.gift_coupon && threshold.coupon_amount > 0) rewardParts.push(`${threshold.coupon_amount}元券`);
+                          const rewardText = rewardParts.length > 0 ? rewardParts.join(' + ') : '暂无奖励';
+                          return (
+                            <div key={threshold.threshold_amount || index} className="flex items-center justify-between text-[13px] py-1.5" style={{ color: unlocked ? '#6B8F47' : '#B0AEA5' }}>
+                              <span className="font-medium">满 ¥{thresholdAmount} — {rewardText}</span>
+                              <span className="text-[12px]">{unlocked ? '✓ 已达标' : `差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-            </>
+
+              {/* ──── 右侧订单摘要 ──── */}
+              <div className="hidden lg:block cart-reveal cart-d2" style={{ position: 'sticky', top: 24 }}>
+                <OrderSummary
+                  cart={cart} onCheckout={handleCheckout} isClosed={!shopOpen} cycleLocked={cycleLocked}
+                  reservationAllowed={reservationAllowed} shouldReserve={shouldReserve}
+                  reservationFromClosure={reservationFromClosure} hasReservationItems={hasReservationItems}
+                  allReservationItems={allReservationItems} coupons={coupons}
+                  selectedCouponId={selectedCouponId} setSelectedCouponId={setSelectedCouponId}
+                  applyCoupon={applyCoupon} setApplyCoupon={setApplyCoupon}
+                  addressValidation={addressValidation} onFixAddress={openLocationModal}
+                  locationReady={locationReady} lotteryThreshold={lotteryThreshold}
+                  lotteryEnabled={cart?.lottery_enabled !== false} deliveryConfig={deliveryConfig}
+                  isProcessingCheckout={isCheckingOut}
+                />
+              </div>
+              {/* 移动端摘要 */}
+              <div className="lg:hidden cart-reveal cart-d5" style={{ gridColumn: '1 / -1' }}>
+                <OrderSummary
+                  cart={cart} onCheckout={handleCheckout} isClosed={!shopOpen} cycleLocked={cycleLocked}
+                  reservationAllowed={reservationAllowed} shouldReserve={shouldReserve}
+                  reservationFromClosure={reservationFromClosure} hasReservationItems={hasReservationItems}
+                  allReservationItems={allReservationItems} coupons={coupons}
+                  selectedCouponId={selectedCouponId} setSelectedCouponId={setSelectedCouponId}
+                  applyCoupon={applyCoupon} setApplyCoupon={setApplyCoupon}
+                  addressValidation={addressValidation} onFixAddress={openLocationModal}
+                  locationReady={locationReady} lotteryThreshold={lotteryThreshold}
+                  lotteryEnabled={cart?.lottery_enabled !== false} deliveryConfig={deliveryConfig}
+                  isProcessingCheckout={isCheckingOut}
+                />
+              </div>
+            </div>
           ) : (
-            /* 购物车为空时的状态 - 完整宽度居中显示 */
-            <motion.div 
-              className="text-center py-20"
-              variants={emptyStateVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <div className="max-w-md mx-auto">
-                <motion.div 
-                  className="w-24 h-24 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full mx-auto mb-6 flex items-center justify-center shadow-inner"
-                  variants={{
-                    hidden: { scale: 0, rotate: -180 },
-                    visible: { 
-                      scale: 1, 
-                      rotate: 0,
-                      transition: { type: "spring", stiffness: 200, damping: 15, delay: 0.1 }
-                    }
-                  }}
-                  whileHover={{ scale: 1.1, rotate: 10 }}
-                >
-                  <motion.i 
-                    className="fas fa-shopping-cart text-slate-400 text-3xl"
-                    animate={{ y: [0, -3, 0] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                </motion.div>
-                <motion.h3 
-                  className="text-2xl font-bold text-slate-900 mb-3"
-                  variants={{
-                    hidden: { opacity: 0, y: 20 },
-                    visible: { opacity: 1, y: 0, transition: { delay: 0.2 } }
-                  }}
-                >
-                  购物车是空的
-                </motion.h3>
-                <motion.p 
-                  className="text-slate-600 mb-8 text-lg"
-                  variants={{
-                    hidden: { opacity: 0, y: 15 },
-                    visible: { opacity: 1, y: 0, transition: { delay: 0.3 } }
-                  }}
-                >
-                  快去商城逛逛，发现喜欢的商品吧！
-                </motion.p>
-                <motion.div
-                  variants={{
-                    hidden: { opacity: 0, y: 20, scale: 0.9 },
-                    visible: { opacity: 1, y: 0, scale: 1, transition: { delay: 0.4 } }
-                  }}
-                >
-                  <Link
-                    href="/shop"
-                    className="inline-block px-10 py-3 bg-black text-white font-semibold text-base rounded-full hover:bg-gray-800 transition-colors duration-200"
-                  >
-                    去购物
-                  </Link>
-                </motion.div>
+            /* 空状态 */
+            <div className="flex flex-col items-center justify-center cart-reveal cart-d1" style={{ height: 'calc(100dvh - 240px)' }}>
+              <div className="w-20 h-20 mb-5 rounded-full flex items-center justify-center" style={{ background: '#F5F2ED' }}>
+                <i className="fas fa-shopping-cart text-[28px] text-[#D97757] opacity-60"></i>
               </div>
-            </motion.div>
+              <p className="text-[18px] text-[#B0AEA5]" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>购物车是空的</p>
+              <Link href="/shop" className="inline-block mt-6 px-8 py-3 text-[15px] font-medium text-[#FAF9F5] rounded-full transition-all hover:-translate-y-px hover:shadow-lg" style={{ background: '#141413', letterSpacing: '0.02em' }}>
+                去逛逛
+              </Link>
+            </div>
           )}
         </motion.main>
       </div>
 
       {/* 打烊提示模态框 */}
       {shopClosedModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(20,20,19,0.45)', backdropFilter: 'blur(6px)' }}>
           <div className="absolute inset-0" onClick={() => setShopClosedModalOpen(false)}></div>
-          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-scaleIn">
-            <div className="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-orange-50 to-amber-50">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-amber-500 rounded-full flex items-center justify-center shadow-lg">
-                  <i className="fas fa-exclamation-triangle text-white text-lg"></i>
-                </div>
-                <h3 className="text-xl font-black text-slate-900">店铺提醒</h3>
-              </div>
+          <div className="relative w-full max-w-[480px] rounded-3xl overflow-hidden" style={{ background: '#FFFFFF', boxShadow: '0 8px 32px rgba(20,20,19,0.10)' }}>
+            <div className="flex items-center justify-between px-7 pt-6 pb-4">
+              <h3 className="text-[20px] font-normal text-[#141413]" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>店铺提醒</h3>
+              <button onClick={() => setShopClosedModalOpen(false)} className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0AEA5] hover:bg-[#F5F2ED] hover:text-[#141413] transition-colors">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              </button>
             </div>
-            <div className="px-6 py-6">
-              <SimpleMarkdown className="text-slate-700 leading-relaxed text-base">
+            <div className="px-7 pb-5">
+              <SimpleMarkdown className="text-[14px] text-[#6B6860] leading-relaxed">
                 {shopNote || '当前打烊，暂不支持结算，仅可加入购物车'}
               </SimpleMarkdown>
             </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end">
-              <button
-                onClick={() => setShopClosedModalOpen(false)}
-                className="px-6 py-3 bg-gradient-to-r from-slate-800 to-slate-900 text-white font-bold rounded-xl hover:from-slate-900 hover:to-black transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
-              >
+            <div className="px-7 pb-6 flex gap-3 justify-end">
+              <button onClick={() => setShopClosedModalOpen(false)} className="px-6 py-2.5 rounded-lg text-[14px] font-medium text-[#6B6860]" style={{ background: '#F5F2ED', border: '1px solid #DDD8D0' }}>
+                取消
+              </button>
+              <button onClick={() => setShopClosedModalOpen(false)} className="px-6 py-2.5 rounded-lg text-[14px] font-medium text-[#FAF9F5]" style={{ background: '#141413' }}>
                 知道了
               </button>
             </div>
