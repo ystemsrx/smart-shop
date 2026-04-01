@@ -1759,7 +1759,7 @@ export default function Checkout() {
                         transition: "all .2s ease",
                         ...(applyCoupon
                           ? {
-                              borderColor: "rgba(217,119,87,0.25)",
+                              border: "1px solid rgba(217,119,87,0.25)",
                               background: "rgba(217,119,87,0.04)",
                             }
                           : {}),

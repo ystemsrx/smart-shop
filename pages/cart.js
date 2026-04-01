@@ -66,7 +66,7 @@ const cartItemVariants = {
 };
 
 // 购物车商品项组件
-const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
+const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) => {
   const isDown = item.is_active === 0 || item.is_active === false;
   const isNonSellable = Boolean(item.is_not_for_sale);
   const rawStock = item.stock;
@@ -93,6 +93,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
 
   return (
     <motion.div
+      ref={ref}
       layout
       layoutId={`cart-item-${item.product_id}-${item.variant_id || 'default'}`}
       initial="hidden"
@@ -184,7 +185,7 @@ const CartItem = ({ item, onUpdateQuantity, onRemove }) => {
 
     </motion.div>
   );
-};
+});
 
 // 订单摘要组件
 const OrderSummary = ({
