@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts, useCart, useAuth, useUserAgentStatus, useApi } from '../hooks/useAuth';
 import { useLocation } from '../hooks/useLocation';
 import RetryImage from '../components/RetryImage';
+import AnimatedPrice from '../components/AnimatedPrice';
 
 import { getProductImage } from '../utils/urls';
 import SimpleMarkdown from '../components/SimpleMarkdown';
@@ -687,6 +688,7 @@ export default function Shop({ initialShopData }) {
   const [showCartDrawer, setShowCartDrawer] = useState(false); // 购物车浮窗状态
   const [isClosingDrawer, setIsClosingDrawer] = useState(false); // 购物车浮窗关闭动画状态
   const [cartDrawerJustOpened, setCartDrawerJustOpened] = useState(false);
+  const [cartItemExiting, setCartItemExiting] = useState(false); // 购物车商品退出动画进行中
   const [coupons, setCoupons] = useState([]); // 用户的优惠券列表
   const [applyCoupon, setApplyCoupon] = useState(false); // 是否使用优惠券
   const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
@@ -1840,16 +1842,15 @@ export default function Shop({ initialShopData }) {
 
               {/* 商品列表区域 */}
               <div className="flex-1 overflow-y-auto px-5 pb-5 cart-drawer-scroll custom-scrollbar" style={{ maxHeight: '50vh' }}>
-                {!cart?.items || cart.items.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-3">
-                      <i className="fas fa-shopping-cart text-gray-300 text-xl"></i>
-                    </div>
-                    <p className="text-gray-400 text-sm">购物车是空的</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {cart.items.map((item, index) => {
+                  <div style={{
+                    minHeight: (!cart?.items?.length) ? '12rem' : '5.5rem',
+                    transition: 'min-height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }}>
+                    <AnimatePresence
+                      initial={false}
+                      onExitComplete={() => setCartItemExiting(false)}
+                    >
+                    {(cart?.items || []).map((item, index) => {
                       const isDown = item.is_active === 0 || item.is_active === false;
                       const isNonSellable = Boolean(item.is_not_for_sale);
                       const rawStock = item.stock;
@@ -1863,69 +1864,102 @@ export default function Shop({ initialShopData }) {
                       const isStockLimitReached = normalizedStock !== null && (normalizedStock <= 0 || item.quantity >= normalizedStock);
 
                       return (
-                        <div
+                        <motion.div
                           key={`${item.product_id}-${item.variant_id || 'no-variant'}`}
-                          className={`flex items-center gap-4 ${cartDrawerJustOpened ? 'cart-item-enter' : ''} ${isDown ? 'opacity-50' : ''}`}
-                          style={cartDrawerJustOpened ? { animationDelay: `${index * 0.05}s` } : undefined}
+                          initial={cartDrawerJustOpened ? { opacity: 0, height: 0 } : false}
+                          animate={{ opacity: isDown ? 0.5 : 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                          style={{ overflow: 'hidden' }}
+                          onExitStart={() => setCartItemExiting(true)}
                         >
-                          {/* 商品图片 */}
-                          <div className="flex-shrink-0 w-[72px] h-[72px] bg-gray-100/80 rounded-2xl overflow-hidden">
-                            {item.img_path ? (
-                              <RetryImage
-                                src={getProductImage(item)}
-                                alt={item.name}
-                                className="w-full h-full object-cover"
-                                maxRetries={2}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <i className="fas fa-image text-gray-300 text-sm"></i>
-                              </div>
-                            )}
-                          </div>
+                          <div
+                            className="flex items-center gap-4 pb-4"
+                            style={cartDrawerJustOpened ? { animationDelay: `${index * 0.05}s` } : undefined}
+                          >
+                            {/* 商品图片 */}
+                            <div className="flex-shrink-0 w-[72px] h-[72px] bg-gray-100/80 rounded-2xl overflow-hidden">
+                              {item.img_path ? (
+                                <RetryImage
+                                  src={getProductImage(item)}
+                                  alt={item.name}
+                                  className="w-full h-full object-cover"
+                                  maxRetries={2}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <i className="fas fa-image text-gray-300 text-sm"></i>
+                                </div>
+                              )}
+                            </div>
 
-                          {/* 商品信息 */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-500 mb-0.5">
-                              ¥{isNonSellable ? '0' : (item.price || item.subtotal)}
-                            </p>
-                            <h4 className="text-base font-bold text-gray-900 line-clamp-1">
-                              {item.name}
-                            </h4>
-                            {item.variant_name && (
-                              <span className="inline-block text-xs text-gray-400 mt-0.5">
-                                {item.variant_name}
+                            {/* 商品信息 */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-500 mb-0.5">
+                                <AnimatedPrice
+                                  value={isNonSellable ? 0 : parseFloat(item.price || item.subtotal || 0)}
+                                  prefix="¥"
+                                  precision={2}
+                                />
+                              </p>
+                              <h4 className="text-base font-bold text-gray-900 line-clamp-1">
+                                {item.name}
+                              </h4>
+                              {item.variant_name && (
+                                <span className="inline-block text-xs text-gray-400 mt-0.5">
+                                  {item.variant_name}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 数量控制 */}
+                            <div className="flex items-center gap-0 flex-shrink-0 bg-white rounded-full border border-gray-200 shadow-sm">
+                              <button
+                                onClick={() => {
+                                  if (item.quantity <= 1) setCartItemExiting(true);
+                                  handleUpdateQuantity(item.product_id, item.quantity - 1, item.variant_id || null);
+                                }}
+                                disabled={isDown}
+                                className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                aria-label="减少"
+                              >
+                                <span className="text-lg leading-none font-light">&minus;</span>
+                              </button>
+                              <span className="min-w-[28px] text-center text-sm font-semibold text-gray-900 select-none">
+                                {item.quantity}
                               </span>
-                            )}
+                              <button
+                                onClick={() => handleUpdateQuantity(item.product_id, item.quantity + 1, item.variant_id || null)}
+                                disabled={isDown || isStockLimitReached}
+                                className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                aria-label="增加"
+                              >
+                                <span className="text-lg leading-none font-light">+</span>
+                              </button>
+                            </div>
                           </div>
-
-                          {/* 数量控制 */}
-                          <div className="flex items-center gap-0 flex-shrink-0 bg-white rounded-full border border-gray-200 shadow-sm">
-                            <button
-                              onClick={() => handleUpdateQuantity(item.product_id, item.quantity - 1, item.variant_id || null)}
-                              disabled={isDown}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                              aria-label="减少"
-                            >
-                              <span className="text-lg leading-none font-light">&minus;</span>
-                            </button>
-                            <span className="min-w-[28px] text-center text-sm font-semibold text-gray-900 select-none">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => handleUpdateQuantity(item.product_id, item.quantity + 1, item.variant_id || null)}
-                              disabled={isDown || isStockLimitReached}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                              aria-label="增加"
-                            >
-                              <span className="text-lg leading-none font-light">+</span>
-                            </button>
-                          </div>
-                        </div>
+                        </motion.div>
                       );
                     })}
+                    </AnimatePresence>
+
+                    {/* 空状态 - 等退出动画完成后淡入，min-height 已经撑住了容器高度 */}
+                    {(!cart?.items || cart.items.length === 0) && !cartItemExiting && (
+                      <motion.div
+                        key="empty-cart"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                      >
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                            <i className="fas fa-shopping-cart text-gray-300 text-xl"></i>
+                          </div>
+                          <p className="text-gray-400 text-sm">购物车是空的</p>
+                        </div>
+                      </motion.div>
+                    )}
                   </div>
-                )}
               </div>
             </div>
           </>
