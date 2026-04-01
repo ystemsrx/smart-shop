@@ -8,6 +8,7 @@ import { formatPriceDisplay, formatReservationCutoff } from '../utils/formatters
 const ProductDetailSlide = ({
   product,
   onClose,
+  onRequestClose,
   onAddToCart,
   onUpdateQuantity,
   cartItemsMap = {},
@@ -146,27 +147,36 @@ const ProductDetailSlide = ({
       return;
     }
 
-    onStartFly && onStartFly(e.currentTarget);
+    onStartFly && onStartFly(e.currentTarget, product);
     onAddToCart(product.id, isVariant ? selectedVariant : null);
   };
 
   const handleQuantityChange = (newQuantity, e) => {
     if (!user) return;
     if (e && newQuantity > getCartQuantity(isVariant ? selectedVariant : null)) {
-      onStartFly && onStartFly(e.currentTarget);
+      onStartFly && onStartFly(e.currentTarget, product);
     }
     onUpdateQuantity(product.id, newQuantity, isVariant ? selectedVariant : null);
   };
 
   const handleMobileClosePress = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (onRequestClose) {
+      onRequestClose();
+      return;
+    }
     onClose && onClose();
   };
 
   const currentQuantity = getCartQuantity(isVariant ? selectedVariant : null);
   const currentStock = getCurrentStock();
   const isInCart = currentQuantity > 0;
+  const showQuantityControl = isInCart && !isVariant;
+  const showVariantQuantityControl = isVariant && !!selectedVariant && currentQuantity > 0;
+  const canIncreaseCurrentSelection = isNonSellable || currentQuantity < currentStock;
   const ratingValue = typeof product.rating === 'number' ? product.rating.toFixed(1) : null;
   const tagList = Array.isArray(product.tags) ? product.tags.filter(Boolean) : [];
 
@@ -313,7 +323,38 @@ const ProductDetailSlide = ({
               </button>
             ) : isVariant && !selectedVariant ? (
               <div className="text-sm text-stone-400 font-medium">请选择规格</div>
-            ) : isInCart ? (
+            ) : showVariantQuantityControl ? (
+              <div className="flex-1 flex items-center gap-3">
+                <div className="h-12 flex items-center border border-stone-200 rounded-full px-3 gap-3 bg-stone-50/80">
+                  <button
+                    onClick={(e) => handleQuantityChange(currentQuantity - 1, e)}
+                    disabled={isLoading}
+                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    aria-label="减少"
+                  >
+                    <i className="fas fa-minus text-sm"></i>
+                  </button>
+                  <span className="font-bold min-w-[20px] text-center">{currentQuantity}</span>
+                  <button
+                    onClick={(e) => handleQuantityChange(currentQuantity + 1, e)}
+                    disabled={isLoading || !canIncreaseCurrentSelection}
+                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    aria-label="增加"
+                  >
+                    <i className="fas fa-plus text-sm"></i>
+                  </button>
+                </div>
+                <button
+                  onClick={handleAddToCart}
+                  disabled={isLoading || !canIncreaseCurrentSelection}
+                  className="flex-1 h-12 bg-[#1c1917] text-white rounded-full font-bold hover:bg-primary transition-colors flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/30 disabled:opacity-50"
+                  aria-label="加入购物车"
+                >
+                  <i className="fas fa-shopping-bag text-base"></i>
+                  加入购物车
+                </button>
+              </div>
+            ) : showQuantityControl ? (
               <div className="flex-1 h-12 flex items-center justify-center">
                 <div className="h-12 flex items-center border border-stone-200 rounded-full px-3 gap-3">
                   <button
@@ -379,11 +420,11 @@ const ProductDetailSlide = ({
       {/* ============ 顶部操作栏 ============ */}
       <div className="absolute top-0 left-0 right-0 z-20 px-5 pt-12 pb-6 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
         <button 
-          onPointerDown={handleMobileClosePress}
-          onClick={(e) => {
-            // Keep keyboard accessibility while avoiding duplicate close on touch/mouse.
-            if (e.detail === 0) handleMobileClosePress(e);
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
           }}
+          onClick={handleMobileClosePress}
           className="w-10 h-10 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-white hover:bg-black/50 active:scale-95 transition-all"
           aria-label="关闭"
         >
@@ -548,7 +589,46 @@ const ProductDetailSlide = ({
               <i className="fas fa-hand-pointer text-xs"></i>
               请选择规格
             </div>
-          ) : isInCart ? (
+          ) : showVariantQuantityControl ? (
+            <div className="flex items-center gap-3">
+              <div className="h-12 px-1.5 flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20">
+                <button
+                  onClick={(e) => handleQuantityChange(currentQuantity - 1, e)}
+                  disabled={isLoading}
+                  className="w-9 h-9 flex items-center justify-center rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+                  aria-label="减少"
+                >
+                  <i className="fas fa-minus text-sm"></i>
+                </button>
+                <span className="w-6 text-center font-bold text-white text-sm">{currentQuantity}</span>
+                <button
+                  onClick={(e) => handleQuantityChange(currentQuantity + 1, e)}
+                  disabled={isLoading || !canIncreaseCurrentSelection}
+                  className="w-9 h-9 flex items-center justify-center rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+                  aria-label="增加"
+                >
+                  <i className="fas fa-plus text-sm"></i>
+                </button>
+              </div>
+              <button
+                onClick={handleAddToCart}
+                disabled={isLoading || !canIncreaseCurrentSelection}
+                className={`${
+                  requiresReservation 
+                    ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' 
+                    : 'bg-primary hover:bg-orange-600 shadow-primary/30'
+                } h-12 text-white pl-6 pr-2 rounded-full flex items-center gap-3 transition-all shadow-lg active:scale-95 duration-200 disabled:opacity-50`}
+                aria-label="加入购物车"
+              >
+                <span className="font-bold text-sm">加入购物车</span>
+                <div className={`${
+                  requiresReservation ? 'bg-blue-600' : 'bg-white text-primary'
+                } w-8 h-8 rounded-full flex items-center justify-center`}>
+                  <i className={`fas fa-plus text-sm ${requiresReservation ? 'text-white' : ''}`}></i>
+                </div>
+              </button>
+            </div>
+          ) : showQuantityControl ? (
             <div className="h-12 flex items-center gap-3">
               <div className="h-12 px-1.5 flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20">
                 <button
@@ -569,7 +649,6 @@ const ProductDetailSlide = ({
                   <i className="fas fa-plus text-sm"></i>
                 </button>
               </div>
-              <span className="text-xs text-gray-400">已选 {currentQuantity} 件</span>
             </div>
           ) : (
             <button

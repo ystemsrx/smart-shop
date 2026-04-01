@@ -12,7 +12,7 @@ import ChatPageSkeleton from "../../components/ChatPageSkeleton";
 
 const ChatModern = dynamic(() => import("../../components/ChatUI"), {
   ssr: false,
-  loading: () => <ChatPageSkeleton />
+  loading: () => <ChatPageSkeleton variant="hero" />
 });
 
 const shopName = getShopName();

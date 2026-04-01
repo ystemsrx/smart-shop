@@ -87,6 +87,17 @@ const ProductDetailModal = ({
     onClose && onClose();
   };
 
+  const requestClose = () => {
+    if (containerRef.current) {
+      containerRef.current.style.pointerEvents = 'none';
+      if (containerRef.current.parentElement) {
+        containerRef.current.parentElement.style.pointerEvents = 'none';
+      }
+    }
+    setIsGestureClosing(true);
+    onClose && onClose();
+  };
+
   // Prevent background scrolling
   useEffect(() => {
     if (isOpen) {
@@ -258,7 +269,7 @@ const ProductDetailModal = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            onClick={onClose}
+            onClick={requestClose}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -269,7 +280,7 @@ const ProductDetailModal = ({
               className="relative bg-white rounded-3xl shadow-2xl overflow-hidden w-[min(92vw,860px)]"
             >
               <button
-                onClick={onClose}
+                onClick={requestClose}
                 className="absolute top-4 right-4 z-30 w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur rounded-full hover:bg-white text-[#1c1917] transition-colors shadow-sm shrink-0"
                 aria-label="关闭"
               >
@@ -277,7 +288,8 @@ const ProductDetailModal = ({
               </button>
               <ProductDetailSlide
                 product={product}
-                onClose={onClose}
+                onClose={requestClose}
+                onRequestClose={requestClose}
                 onAddToCart={onAddToCart}
                 onUpdateQuantity={onUpdateQuantity}
                 cartItemsMap={cartItemsMap}
@@ -326,7 +338,8 @@ const ProductDetailModal = ({
                 >
                   <ProductDetailSlide
                     product={slide}
-                    onClose={onClose}
+                    onClose={requestClose}
+                    onRequestClose={requestClose}
                     onAddToCart={onAddToCart}
                     onUpdateQuantity={onUpdateQuantity}
                     cartItemsMap={cartItemsMap}

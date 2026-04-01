@@ -15,6 +15,7 @@ import { usePaymentQr } from "../hooks/usePaymentQr";
 import { useRouter } from "next/router";
 
 import AnimatedPrice from "../components/AnimatedPrice";
+import CheckoutPageSkeleton from "../components/CheckoutPageSkeleton";
 import { getShopName } from "../utils/runtimeConfig";
 import { getProductImage } from "../utils/urls";
 import LegalModal from "../components/LegalModal";
@@ -974,8 +975,38 @@ export default function Checkout() {
     }
   }, [applyCoupon, coupons, cart?.total_price]);
 
+  if (!isInitialized) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+          />
+        </Head>
+        <CheckoutPageSkeleton />
+      </>
+    );
+  }
+
   if (!user) {
     return null;
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+          />
+        </Head>
+        <CheckoutPageSkeleton />
+      </>
+    );
   }
 
   /* ═══════════════════════════════════════
@@ -1050,7 +1081,11 @@ export default function Checkout() {
             }}
           >
             <svg
-              onClick={() => router.back()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                router.back();
+              }}
               width="22"
               height="22"
               viewBox="0 0 24 24"
@@ -1119,56 +1154,7 @@ export default function Checkout() {
             </div>
           )}
 
-          {isLoading ? (
-            /* ── Skeleton ── */
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: bgRaised,
-                    border: `1px solid ${borderSubtle}`,
-                    borderRadius: 20,
-                    padding: 20,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: 16,
-                      width: "35%",
-                      borderRadius: 8,
-                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
-                      backgroundSize: "600px 100%",
-                      animation: "shimmer 1.5s infinite linear",
-                      marginBottom: 14,
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: 14,
-                      width: "100%",
-                      borderRadius: 6,
-                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
-                      backgroundSize: "600px 100%",
-                      animation: "shimmer 1.5s infinite linear",
-                      marginBottom: 10,
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: 14,
-                      width: "70%",
-                      borderRadius: 6,
-                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
-                      backgroundSize: "600px 100%",
-                      animation: "shimmer 1.5s infinite linear",
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
+          {
             <>
               <div className="checkout-grid">
                 {/* ── Left Column ── */}
@@ -2072,7 +2058,7 @@ export default function Checkout() {
                 </div>
               </div>
             </>
-          )}
+          }
         </div>
 
         {/* ── Bottom Bar ── */}

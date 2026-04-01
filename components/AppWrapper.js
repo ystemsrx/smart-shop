@@ -9,6 +9,7 @@ import Nav from './Nav';
 import PageTransitionSkeleton from './PageTransitionSkeleton';
 import CartPageSkeleton from './CartPageSkeleton';
 import OrdersPageSkeleton from './OrdersPageSkeleton';
+import CheckoutPageSkeleton from './CheckoutPageSkeleton';
 import ShopPageSkeleton from './ShopPageSkeleton';
 import ChatPageSkeleton from './ChatPageSkeleton';
 import AdminChatPageSkeleton from './AdminChatPageSkeleton';
@@ -42,7 +43,9 @@ function getTransitionSkeleton(path) {
   if (path === '/shop') return <ShopPageSkeleton overlay />;
   if (path === '/cart') return <CartPageSkeleton overlay />;
   if (path === '/orders') return <OrdersPageSkeleton overlay />;
-  if (path === '/c' || path.startsWith('/c/')) return <ChatPageSkeleton overlay />;
+  if (path === '/checkout') return <CheckoutPageSkeleton overlay />;
+  if (path === '/c') return <ChatPageSkeleton overlay variant="hero" />;
+  if (path.startsWith('/c/')) return <ChatPageSkeleton overlay variant="conversation" />;
   if (path === '/admin/ai-chat' || path.startsWith('/admin/ai-chat/')) return <AdminChatPageSkeleton overlay />;
   if (path === '/agent/ai-chat' || path.startsWith('/agent/ai-chat/')) return <AdminChatPageSkeleton overlay />;
   return <PageTransitionSkeleton />;

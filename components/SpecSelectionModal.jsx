@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { getProductImage } from '../utils/urls';
 import { getLogo } from '../utils/runtimeConfig';
 import { formatPriceDisplay, getPricingMeta, formatReservationCutoff } from '../utils/formatters';
@@ -38,6 +38,20 @@ const SpecSelectionModal = ({
     if (info.offset.y > 100) {
       onClose();
     }
+  };
+
+  const getVariantQuantity = (variantId) => {
+    if (!variantId) return 0;
+    return cartItemsMap[`${product.id}@@${variantId}`] || 0;
+  };
+
+  const handleVariantQuantityChange = (variantId, newQuantity, triggerElement) => {
+    if (!variantId || !onUpdateQuantity) return;
+    const currentQuantity = getVariantQuantity(variantId);
+    if (triggerElement && newQuantity > currentQuantity) {
+      onStartFly && onStartFly(triggerElement, product);
+    }
+    onUpdateQuantity(product.id, newQuantity, variantId);
   };
 
   return (
@@ -171,54 +185,67 @@ const SpecSelectionModal = ({
           <div className="pt-4 min-h-14">
             {selectedVariant ? (
               (() => {
-                const qty = cartItemsMap[`${product.id}@@${selectedVariant}`] || 0;
                 const stock = (product.variants || []).find(v => v.id === selectedVariant)?.stock ?? 0;
                 const hasStock = isModalNonSellable || stock > 0;
-                
-                if (qty > 0) {
-                  return (
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center bg-gray-50 rounded-2xl p-1 border border-gray-200 h-14">
-                        <button
-                          onClick={() => onUpdateQuantity(product.id, qty - 1, selectedVariant)}
-                          className="w-12 h-full flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-900 hover:bg-white transition-colors"
-                        >
-                          <i className="fas fa-minus text-sm"></i>
-                        </button>
-                        <span className="w-8 text-center font-bold text-lg text-gray-900">{qty}</span>
-                        <button
-                          onClick={(e) => { onStartFly && onStartFly(e.currentTarget); onUpdateQuantity(product.id, qty + 1, selectedVariant); }}
-                          disabled={!isModalNonSellable && qty >= stock}
-                          className="w-12 h-full flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-900 hover:bg-white transition-colors disabled:opacity-50"
-                        >
-                          <i className="fas fa-plus text-sm"></i>
-                        </button>
-                      </div>
-                      <button
-                        onClick={(e) => { onStartFly && onStartFly(e.currentTarget); onAddToCart(product.id, selectedVariant); }}
-                        className={`flex-1 h-14 ${modalRequiresReservation ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/25' : 'bg-primary hover:bg-primary/90 shadow-primary/25'} text-white font-bold rounded-2xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3`}
-                      >
-                        <i className="fas fa-shopping-cart"></i>
-                        <span>已选 {qty} 件 · ¥{formatPriceDisplay(mFinalPrice * qty)}</span>
-                      </button>
-                    </div>
-                  );
-                }
+                const currentQuantity = getVariantQuantity(selectedVariant);
+                const canIncrease = isModalNonSellable || currentQuantity < stock;
                 return (
-                  <button
-                    onClick={(e) => { onStartFly && onStartFly(e.currentTarget); onAddToCart(product.id, selectedVariant); }}
-                    disabled={!hasStock}
-                    className={`w-full h-14 rounded-2xl text-base font-display font-bold transition-all duration-200 flex items-center justify-center gap-3 ${
-                      !hasStock
-                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                        : modalRequiresReservation
-                          ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
-                          : 'bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/25 active:scale-[0.98]'
-                    }`}
+                  <motion.div
+                    layout
+                    transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex items-center gap-3"
                   >
-                    <i className={`fas fa-shopping-cart ${!hasStock ? '' : 'group-hover:animate-bounce'}`}></i>
-                    <span>{!hasStock ? '暂时缺货' : `加入购物车 · ¥${formatPriceDisplay(mFinalPrice)}`}</span>
-                  </button>
+                    <AnimatePresence initial={false}>
+                      {currentQuantity > 0 && (
+                        <motion.div
+                          key="variant-qty-control"
+                          layout
+                          initial={{ width: 0, opacity: 0 }}
+                          animate={{ width: 'auto', opacity: 1 }}
+                          exit={{ width: 0, opacity: 0 }}
+                          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                          className="overflow-hidden shrink-0"
+                        >
+                          <div className="h-14 rounded-full border border-gray-200 bg-gray-50/80 px-2 flex items-center gap-1.5 shadow-sm">
+                            <button
+                              onClick={(e) => handleVariantQuantityChange(selectedVariant, currentQuantity - 1, e.currentTarget)}
+                              className="w-10 h-10 rounded-full text-gray-600 hover:bg-white hover:text-gray-900 transition-colors"
+                              aria-label="减少"
+                            >
+                              <i className="fas fa-minus text-sm"></i>
+                            </button>
+                            <span className="min-w-[28px] text-center text-base font-semibold text-gray-900">
+                              {currentQuantity}
+                            </span>
+                            <button
+                              onClick={(e) => handleVariantQuantityChange(selectedVariant, currentQuantity + 1, e.currentTarget)}
+                              disabled={!canIncrease}
+                              className="w-10 h-10 rounded-full text-gray-600 hover:bg-white hover:text-gray-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              aria-label="增加"
+                            >
+                              <i className="fas fa-plus text-sm"></i>
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <motion.button
+                      layout
+                      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                      onClick={(e) => { onStartFly && onStartFly(e.currentTarget, product); onAddToCart(product.id, selectedVariant); }}
+                      disabled={!hasStock || (!isModalNonSellable && currentQuantity >= stock)}
+                      className={`h-14 min-w-0 flex-1 rounded-full text-base font-display font-bold flex items-center justify-center gap-3 transition-[background-color,box-shadow,transform,opacity] duration-200 ${
+                        !hasStock || (!isModalNonSellable && currentQuantity >= stock)
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : modalRequiresReservation
+                            ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
+                            : 'bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/25 active:scale-[0.98]'
+                      }`}
+                    >
+                      <i className="fas fa-shopping-cart"></i>
+                      <span>{!hasStock ? '暂时缺货' : '加入购物车'}</span>
+                    </motion.button>
+                  </motion.div>
                 );
               })()
             ) : (

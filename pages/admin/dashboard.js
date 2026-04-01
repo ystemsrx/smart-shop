@@ -1958,15 +1958,19 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Skeleton: Cycle selector bar */}
           <div className="mb-8">
-            <div className="flex items-center gap-4 py-2.5 px-4 bg-white/80 rounded-xl border border-slate-100/80 shadow-sm">
-              <div className="skeleton-shimmer h-4 w-24 rounded-md" />
-              <div className="w-px h-5 bg-slate-200" />
-              <div className="flex-1 flex items-center justify-between">
-                <div className="skeleton-shimmer h-3 w-32 rounded-md" />
-                <div className="flex items-center gap-4">
-                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
-                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
-                  <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+            <div className="rounded-2xl border border-slate-100/80 bg-white/80 px-4 py-3 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="skeleton-shimmer h-4 w-24 rounded-md shrink-0" />
+                  <div className="hidden sm:block w-px h-5 bg-slate-200" />
+                </div>
+                <div className="min-w-0 flex-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="skeleton-shimmer h-3 w-28 sm:w-32 rounded-md max-w-full" />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                    <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                    <div className="skeleton-shimmer h-3 w-16 rounded-md" />
+                  </div>
                 </div>
               </div>
             </div>

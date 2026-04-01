@@ -661,6 +661,7 @@ export default function Shop({ initialShopData }) {
   const shopName = getShopName();
   
   const cartWidgetRef = useRef(null);
+  const cartDrawerAnimationTimerRef = useRef(null);
   const ssrLoaded = Boolean(initialShopData?.ssrLoaded);
   const [allProducts, setAllProducts] = useState(initialShopData?.allProducts || []); // 所有商品（用于前端过滤）
   const [products, setProducts] = useState(initialShopData?.products || []);
@@ -685,6 +686,7 @@ export default function Shop({ initialShopData }) {
   const [viewMode, setViewMode] = useState('grid'); // grid | sphere
   const [showCartDrawer, setShowCartDrawer] = useState(false); // 购物车浮窗状态
   const [isClosingDrawer, setIsClosingDrawer] = useState(false); // 购物车浮窗关闭动画状态
+  const [cartDrawerJustOpened, setCartDrawerJustOpened] = useState(false);
   const [coupons, setCoupons] = useState([]); // 用户的优惠券列表
   const [applyCoupon, setApplyCoupon] = useState(false); // 是否使用优惠券
   const [selectedCouponId, setSelectedCouponId] = useState(null); // 选中的优惠券ID
@@ -874,7 +876,7 @@ export default function Shop({ initialShopData }) {
   };
 
   // 飞入购物车动画（从元素飞到右下角悬浮购物车）
-  const flyToCart = (startEl) => {
+  const flyToCart = (startEl, productMeta = null) => {
     if (typeof window === 'undefined') return;
     
     // 获取购物车图标位置
@@ -898,8 +900,17 @@ export default function Shop({ initialShopData }) {
     document.body.appendChild(ball);
 
     const size = 14;
+    const isReservationProduct = Boolean(
+      productMeta?.reservation_required ??
+      productMeta?.reservationRequired ??
+      productMeta?.product?.reservation_required
+    );
     ball.style.width = `${size}px`;
     ball.style.height = `${size}px`;
+    ball.style.background = isReservationProduct ? '#3b82f6' : '#d97757';
+    ball.style.boxShadow = isReservationProduct
+      ? '0 6px 14px rgba(59, 130, 246, 0.35)'
+      : '0 6px 14px rgba(217, 119, 87, 0.35)';
 
     const duration = 500; // ms
     const cpX = (startX + endX) / 2;
@@ -1150,6 +1161,36 @@ export default function Shop({ initialShopData }) {
     setDetailModalProduct(null);
   };
 
+  const openCartDrawer = useCallback(() => {
+    if (cartDrawerAnimationTimerRef.current) {
+      clearTimeout(cartDrawerAnimationTimerRef.current);
+    }
+    setCartDrawerJustOpened(true);
+    setIsClosingDrawer(false);
+    setShowCartDrawer(true);
+    cartDrawerAnimationTimerRef.current = setTimeout(() => {
+      setCartDrawerJustOpened(false);
+      cartDrawerAnimationTimerRef.current = null;
+    }, 420);
+  }, []);
+
+  const closeCartDrawer = useCallback((afterClose) => {
+    if (cartDrawerAnimationTimerRef.current) {
+      clearTimeout(cartDrawerAnimationTimerRef.current);
+      cartDrawerAnimationTimerRef.current = null;
+    }
+    setCartDrawerJustOpened(false);
+    setIsClosingDrawer(true);
+    setTimeout(() => {
+      setShowCartDrawer(false);
+      setIsClosingDrawer(false);
+      setShowCouponDropdown(false);
+      if (typeof afterClose === 'function') {
+        afterClose();
+      }
+    }, 200);
+  }, []);
+
   const handleSphereAction = (item, sourceElement) => {
     const product = item?.payload;
     if (!product) return;
@@ -1190,7 +1231,7 @@ export default function Shop({ initialShopData }) {
     }
 
     if (sourceElement && typeof sourceElement.getBoundingClientRect === 'function') {
-      flyToCart(sourceElement);
+      flyToCart(sourceElement, product);
     }
     handleAddToCart(product.id, null);
   };
@@ -1379,17 +1420,13 @@ export default function Shop({ initialShopData }) {
         showToast(`以下商品缺货：${outOfStockNames.join('、')}`);
         return;
       }
-      setIsClosingDrawer(true);
-      setTimeout(() => {
-        setShowCartDrawer(false);
-        setIsClosingDrawer(false);
-        setShowCouponDropdown(false); // 重置优惠券下拉框状态
+      closeCartDrawer(() => {
         if (applyCoupon && selectedCouponId) {
           router.push(`/checkout?apply=1&coupon_id=${encodeURIComponent(selectedCouponId)}`);
         } else {
           router.push('/checkout?apply=0');
         }
-      }, 200);
+      });
     } catch (err) {
       showToast(err.message || '检查库存失败，请稍后重试');
     } finally {
@@ -1519,6 +1556,13 @@ export default function Shop({ initialShopData }) {
     }
     setPrevQty(qty);
   }, [cart?.total_quantity]);
+
+  useEffect(() => () => {
+    if (cartDrawerAnimationTimerRef.current) {
+      clearTimeout(cartDrawerAnimationTimerRef.current);
+      cartDrawerAnimationTimerRef.current = null;
+    }
+  }, []);
 
   const shouldShowInitialSkeleton = isLoading && !ssrLoaded && allProducts.length === 0 && categories.length === 0 && products.length === 0;
 
@@ -1699,7 +1743,7 @@ export default function Shop({ initialShopData }) {
                             product={product}
                             onAddToCart={(pid, variantId=null) => handleAddToCart(pid, variantId)}
                             onUpdateQuantity={(pid, qty, variantId=null) => handleUpdateQuantity(pid, qty, variantId)}
-                            onStartFly={(el) => flyToCart(el)}
+                            onStartFly={(el, product) => flyToCart(el, product)}
                             onOpenSpecModal={openSpecModal}
                             onOpenDetailModal={openDetailModal}
                             itemsMap={cartItemsMap}
@@ -1755,7 +1799,7 @@ export default function Shop({ initialShopData }) {
           count={cart?.total_quantity ?? 0}
           onClick={() => {
             // 立即弹出浮窗（使用已有缓存数据），后台刷新最新数据
-            setShowCartDrawer(true);
+            openCartDrawer();
             loadCart();
             loadCoupons();
           }}
@@ -1767,14 +1811,7 @@ export default function Shop({ initialShopData }) {
             {/* 背景遮罩 - 无模糊效果 */}
             <div 
               className={`fixed inset-0 bg-black/20 z-50 ${isClosingDrawer ? 'animate-fade-out' : 'animate-apple-fade-in'}`}
-              onClick={() => {
-                setIsClosingDrawer(true);
-                setTimeout(() => {
-                  setShowCartDrawer(false);
-                  setIsClosingDrawer(false);
-                  setShowCouponDropdown(false); // 重置优惠券下拉框状态
-                }, 200);
-              }}
+              onClick={() => closeCartDrawer()}
             />
             
             {/* 浮窗主体 - 简约风格 */}
@@ -1828,8 +1865,8 @@ export default function Shop({ initialShopData }) {
                       return (
                         <div
                           key={`${item.product_id}-${item.variant_id || 'no-variant'}`}
-                          className={`flex items-center gap-4 cart-item-enter ${isDown ? 'opacity-50' : ''}`}
-                          style={{ animationDelay: `${index * 0.05}s` }}
+                          className={`flex items-center gap-4 ${cartDrawerJustOpened ? 'cart-item-enter' : ''} ${isDown ? 'opacity-50' : ''}`}
+                          style={cartDrawerJustOpened ? { animationDelay: `${index * 0.05}s` } : undefined}
                         >
                           {/* 商品图片 */}
                           <div className="flex-shrink-0 w-[72px] h-[72px] bg-gray-100/80 rounded-2xl overflow-hidden">

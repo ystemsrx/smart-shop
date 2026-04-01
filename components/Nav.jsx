@@ -57,6 +57,7 @@ export default function Nav({ active = 'home' }) {
   };
 
   const mobileNavOpen = mobileOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0';
+  const userIconShell = 'rounded-full bg-[linear-gradient(135deg,#F6E7D6,#EDCDA7)] text-[#C96442] border border-[#F2D7BA]';
 
   return (
     <>
@@ -158,8 +159,8 @@ export default function Nav({ active = 'home' }) {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <div className="hidden sm:flex items-center space-x-3 px-3 py-2 rounded-xl bg-white/50 backdrop-blur-sm border border-white/20">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                      <i className="fas fa-user text-white text-sm"></i>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shadow-sm ${userIconShell}`}>
+                      <i className="fas fa-user text-sm"></i>
                     </div>
                     <div className="text-sm">
                       <div className="font-medium text-gray-900">{user.name}</div>
@@ -248,8 +249,8 @@ export default function Nav({ active = 'home' }) {
             {user && (
               <div className="card-glass p-4 mb-6 animate-apple-slide-up">
                 <div className="flex items-center space-x-3">
-                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                     <i className="fas fa-user text-white"></i>
+                   <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm ${userIconShell}`}>
+                     <i className="fas fa-user"></i>
                    </div>
                   <div>
                     <div className="font-semibold text-gray-900">{user.name}</div>
