@@ -1069,14 +1069,18 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
       let toolCallsInProgress = new Set(); // 跟踪进行中的工具调用
       let collectedToolCalls = []; // 收集所有的 tool_calls（用于构建 assistant 消息）
       let assistantWithToolCallsAdded = false; // 标记是否已添加包含 tool_calls 的 assistant 消息
+      let sseBuffer = ""; // SSE 行缓冲区：处理跨 chunk 的不完整行
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
+        sseBuffer += chunk;
+        const lines = sseBuffer.split('\n');
+        // 最后一个元素可能是不完整的行，保留到下次
+        sseBuffer = lines.pop() || "";
+
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const dataStr = line.slice(6).trim();

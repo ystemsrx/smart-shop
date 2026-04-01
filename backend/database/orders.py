@@ -698,8 +698,13 @@ class OrderDB:
                 params.append(f'%{order_id_text}%')
 
             if user_id_text:
-                where_sql.append('COALESCE(o.user_id, "") = ?')
-                params.append(user_id_text)
+                try:
+                    uid_int = int(user_id_text)
+                    where_sql.append('o.user_id = ?')
+                    params.append(uid_int)
+                except (ValueError, TypeError):
+                    where_sql.append('o.student_id = ?')
+                    params.append(user_id_text)
 
             if keyword_text:
                 like_value = f'%{keyword_text}%'

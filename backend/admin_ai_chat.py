@@ -1427,7 +1427,7 @@ def _search_users_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str,
                             CAST(COALESCE(u.user_id, '') AS TEXT) AS user_id,
                             u.name AS name,
                             up.phone AS phone,
-                            (SELECT COUNT(*) FROM orders o WHERE o.student_id = u.id) AS order_count
+                            (SELECT COUNT(*) FROM orders o WHERE o.student_id = u.id OR o.user_id = u.user_id) AS order_count
                         FROM users u
                         LEFT JOIN user_profiles up
                           ON (up.user_id = u.user_id OR (up.user_id IS NULL AND up.student_id = u.id))
