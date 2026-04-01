@@ -24,7 +24,7 @@ from ..services.orders import (
     write_export_workbook,
 )
 from ..services.products import normalize_reservation_cutoff
-from ..utils import build_export_filename, convert_sqlite_timestamp_to_unix, format_export_range_label, is_non_sellable
+from ..utils import build_export_filename, convert_sqlite_timestamp_to_unix, format_export_range_label, is_non_sellable, resolve_image_url
 
 
 router = APIRouter()
@@ -149,7 +149,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                     "quantity": quantity,
                     "subtotal": round(subtotal, 2),
                     "category": product.get("category", ""),
-                    "img_path": product.get("img_path", ""),
+                    "img_path": resolve_image_url(product.get("img_path", "")),
                     "is_not_for_sale": non_sellable,
                 }
                 if requires_reservation:
@@ -216,7 +216,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                                 "quantity": gift_quantity,
                                 "subtotal": 0.0,
                                 "category": gift.get("category") or "满额赠品",
-                                "img_path": gift.get("img_path") or "",
+                                "img_path": resolve_image_url(gift.get("img_path") or ""),
                                 "is_auto_gift": True,
                                 "auto_gift_item_id": gift.get("threshold_item_id"),
                                 "auto_gift_product_name": gift.get("product_name"),
@@ -254,7 +254,7 @@ async def create_order(order_request: OrderCreateRequest, request: Request):
                     prize_variant_id = r.get("prize_variant_id")
                     prize_variant_name = r.get("prize_variant_name")
                     prize_product_name = r.get("prize_product_name") or prize_name
-                    prize_img_path = r.get("prize_img_path") or ""
+                    prize_img_path = resolve_image_url(r.get("prize_img_path") or "")
                     try:
                         recorded_value = float(r.get("prize_unit_price") or 0.0)
                     except Exception:
@@ -391,15 +391,28 @@ def _enrich_order_items_with_images(order: Dict) -> Dict:
     if not items:
         return order
 
+    # Resolve bare hashes (e.g. "987adbc44feb") to full URLs ("/items/987adbc44feb.webp")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("img_path", "")
+        if raw:
+            resolved = resolve_image_url(raw)
+            if resolved != raw:
+                item["img_path"] = resolved
+                item["image_url"] = resolved
+
     product_ids_to_fetch = set()
     for item in items:
         if not isinstance(item, dict):
             continue
-        if item.get("is_lottery") or item.get("is_auto_gift"):
-            if not item.get("img_path") and not item.get("image_url"):
+        if not item.get("img_path") and not item.get("image_url"):
+            if item.get("is_lottery") or item.get("is_auto_gift"):
                 pid = item.get("lottery_product_id") or item.get("product_id")
-                if pid and not pid.startswith("prize_"):
-                    product_ids_to_fetch.add(pid)
+            else:
+                pid = item.get("product_id")
+            if pid and not pid.startswith("prize_"):
+                product_ids_to_fetch.add(pid)
 
     if not product_ids_to_fetch:
         return order
@@ -409,19 +422,21 @@ def _enrich_order_items_with_images(order: Dict) -> Dict:
         try:
             product = ProductDB.get_product_by_id(pid)
             if product and product.get("img_path"):
-                product_images[pid] = product["img_path"]
+                product_images[pid] = resolve_image_url(product["img_path"])
         except Exception:
             pass
 
     for item in items:
         if not isinstance(item, dict):
             continue
-        if item.get("is_lottery") or item.get("is_auto_gift"):
-            if not item.get("img_path") and not item.get("image_url"):
+        if not item.get("img_path") and not item.get("image_url"):
+            if item.get("is_lottery") or item.get("is_auto_gift"):
                 pid = item.get("lottery_product_id") or item.get("product_id")
-                if pid and pid in product_images:
-                    item["img_path"] = product_images[pid]
-                    item["image_url"] = product_images[pid]
+            else:
+                pid = item.get("product_id")
+            if pid and pid in product_images:
+                item["img_path"] = product_images[pid]
+                item["image_url"] = product_images[pid]
 
     return order
 
