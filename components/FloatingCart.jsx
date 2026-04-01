@@ -50,12 +50,11 @@ const FloatingCart = forwardRef(function FloatingCart({ count = 0, onClick }, re
       className="fixed bottom-6 right-6 z-40 group cursor-pointer select-none"
     >
         {/* 主要购物车图标 */}
-        <motion.div 
+        <motion.div
           animate={controls}
-          className="relative w-14 h-14 bg-white/90 backdrop-blur-md border border-white/40 rounded-full flex items-center justify-center shadow-xl overflow-hidden"
+          className="relative w-14 h-14 bg-gradient-to-br from-orange-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg"
         >
-          {/* 购物车图标 */}
-          <i className="fas fa-shopping-cart text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-purple-600 text-xl"></i>
+          <i className="fas fa-shopping-cart text-white text-lg"></i>
         </motion.div>
 
         {/* 数量角标 */}
@@ -69,9 +68,9 @@ const FloatingCart = forwardRef(function FloatingCart({ count = 0, onClick }, re
             >
               <motion.div
                 animate={badgeControls}
-                className="min-w-[20px] h-5 px-1.5 bg-gradient-to-r from-red-500 to-pink-600 rounded-full flex items-center justify-center shadow-lg border border-white"
+                className="min-w-[20px] h-5 px-1.5 bg-white rounded-full flex items-center justify-center shadow-md border border-orange-200"
               >
-                <span className="text-white text-[10px] font-bold leading-none">
+                <span className="text-orange-600 text-[10px] font-bold leading-none">
                   {count > 99 ? '99+' : count}
                 </span>
               </motion.div>
