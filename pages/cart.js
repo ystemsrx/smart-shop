@@ -13,6 +13,7 @@ import { useToast } from '../hooks/useToast';
 import AnimatedPrice from '../components/AnimatedPrice';
 import RetryImage from '../components/RetryImage';
 import SimpleMarkdown from '../components/SimpleMarkdown';
+import CartPageSkeleton from '../components/CartPageSkeleton';
 import { getProductImage } from '../utils/urls';
 import { getShopName, getLogo } from '../utils/runtimeConfig';
 
@@ -954,8 +955,32 @@ export default function Cart() {
   }, [location]);
 
   // 如果用户未登录，不渲染内容
+  if (!isInitialized) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <CartPageSkeleton />
+      </>
+    );
+  }
+
   if (!user) {
     return null;
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <CartPageSkeleton />
+      </>
+    );
   }
 
   return (
@@ -1062,27 +1087,7 @@ export default function Cart() {
           </div>
 
           {/* 加载骨架屏 */}
-          {isLoading ? (
-            <div className="mt-8 rounded-2xl overflow-hidden" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', maxWidth: '100%' }}>
-              <div className="px-6 py-4 flex items-center gap-2 text-[15px] font-medium text-[#141413]" style={{ borderBottom: '1px solid #E8E2D8' }}>
-                <span className="w-5 h-5 rounded bg-[#F5F2ED] animate-pulse"></span>
-                <span className="w-16 h-4 rounded bg-[#F5F2ED] animate-pulse"></span>
-              </div>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4 py-4 px-6" style={{ borderBottom: i < 2 ? '1px solid #E8E2D8' : 'none' }}>
-                  <div className="w-[68px] h-[68px] rounded-lg animate-pulse" style={{ background: '#F5F2ED' }} />
-                  <div className="flex-1">
-                    <div className="h-4 rounded w-3/4 mb-2 animate-pulse" style={{ background: '#E8E2D8' }} />
-                    <div className="h-3 rounded w-1/2 animate-pulse" style={{ background: '#E8E2D8' }} />
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="h-5 rounded w-16 animate-pulse" style={{ background: '#E8E2D8' }} />
-                    <div className="h-[30px] rounded w-24 animate-pulse" style={{ background: '#E8E2D8' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : cart.items && cart.items.length > 0 ? (
+          {cart.items && cart.items.length > 0 ? (
             <div className="cart-grid mt-8">
               {/* ──── 左侧内容 ──── */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0, maxWidth: '100%' }}>

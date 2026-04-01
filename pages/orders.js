@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
+import OrdersPageSkeleton from '../components/OrdersPageSkeleton';
 import { getShopName } from '../utils/runtimeConfig';
 import { getProductImage } from '../utils/urls';
 
@@ -133,8 +134,8 @@ function OrderProgress({ status }) {
               style={{
                 borderColor: stepColor,
                 background: isCurrent ? stepColor : '#FDFBF7',
-                transform: isCurrent ? 'scale(1.6)' : 'scale(1)',
-                boxShadow: isCurrent ? '0 0 0 3px #FDFBF7, 0 0 0 4px rgba(0,0,0,0.04)' : 'none'
+                transform: isCurrent ? 'scale(1.35)' : 'scale(1)',
+                boxShadow: isCurrent ? '0 0 0 2px #FDFBF7, 0 0 0 3px rgba(0,0,0,0.04)' : 'none'
               }}
             ></div>
             <div
@@ -453,7 +454,29 @@ export default function Orders() {
     return orders.filter(o => getUnifiedStatus(o) === filter);
   }, [orders, filter]);
 
+  if (!isInitialized) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <OrdersPageSkeleton />
+      </>
+    );
+  }
   if (!user) return null;
+  if (loading) {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </Head>
+        <OrdersPageSkeleton />
+      </>
+    );
+  }
 
   const formatDate = (val) => {
     if (typeof val === 'number' && isFinite(val)) {
@@ -501,12 +524,7 @@ export default function Orders() {
             </div>
           )}
 
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-32 animate-fade-in-up">
-              <div className="w-10 h-10 border-4 rounded-full animate-spin" style={{ borderColor: '#E8E2D8', borderTopColor: '#D97757' }}></div>
-              <p className="mt-4 text-sm font-medium" style={{ color: '#B0AEA5' }}>正在加载订单...</p>
-            </div>
-          ) : orders.length === 0 ? (
+          {orders.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-32 animate-fade-in-up">
               <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6" style={{ background: '#F5F2ED' }}>
                 <i className="fas fa-shopping-bag text-3xl" style={{ color: '#DDD8D0' }}></i>
@@ -751,7 +769,7 @@ export default function Orders() {
               >
                 <div className="absolute inset-0 backdrop-blur-[2px]" style={{ background: 'rgba(20,20,19,0.2)' }} onClick={() => setViewingOrder(null)}></div>
                 <motion.div
-                  className="absolute right-0 top-0 h-full w-full max-w-lg shadow-2xl flex flex-col"
+                  className="absolute right-0 top-0 h-full w-full max-w-[560px] lg:max-w-[600px] shadow-2xl flex flex-col"
                   style={{ background: '#FDFBF7' }}
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}

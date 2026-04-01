@@ -6,10 +6,10 @@ import React from 'react';
  */
 export default function ChatPageSkeleton() {
   return (
-    <div className="relative flex h-screen bg-white text-gray-900 overflow-hidden animate-fade-in-fast">
+    <div className="relative flex h-screen bg-[#FDFBF7] text-gray-900 overflow-hidden animate-fade-in-fast">
       {/* ---- 侧边栏 (仅桌面端可见, 240px) ---- */}
       <aside
-        className="hidden lg:flex h-full flex-col border-r border-gray-100 bg-gray-50/70 overflow-hidden"
+        className="hidden lg:flex h-full flex-col border-r border-[#ece6dd] bg-[#F5F0E8]/70 overflow-hidden"
         style={{ width: 240, minWidth: 240 }}
       >
         {/* Logo + 店铺名 */}
@@ -37,7 +37,7 @@ export default function ChatPageSkeleton() {
         </div>
 
         {/* 底部用户信息 */}
-        <div className="border-t border-gray-100 p-4">
+        <div className="border-t border-[#ece6dd] p-4">
           <div className="flex items-center gap-2">
             <div className="skeleton-shimmer h-9 w-9 flex-shrink-0 rounded-full" />
             <div className="min-w-0 flex-1 space-y-1">
@@ -52,7 +52,7 @@ export default function ChatPageSkeleton() {
       <div className="relative flex flex-1 flex-col">
         {/* 固定头部 (top-16 = Nav高度64px, h-14 = 56px) */}
         <header
-          className="fixed top-16 z-30 bg-white left-0 right-0 lg:left-[240px]"
+          className="fixed top-16 z-30 bg-[#FDFBF7] left-0 right-0 lg:left-[240px]"
         >
           <div className="flex h-14 items-center justify-between px-4">
             {/* 模型选择器 */}
@@ -72,7 +72,7 @@ export default function ChatPageSkeleton() {
               <div className="w-full max-w-2xl px-4">
                 {/* 输入栏 */}
                 <div className="mx-auto w-full max-w-3xl">
-                  <div className="bg-white border border-gray-300 shadow-sm p-1.5 grid gap-2 items-center rounded-full grid-cols-[1fr_auto]">
+                  <div className="bg-[#FDFBF7] border border-[#ece6dd] shadow-sm p-1.5 grid gap-2 items-center rounded-full grid-cols-[1fr_auto]">
                     <div className="min-h-[32px] flex items-center px-3">
                       <div className="skeleton-shimmer h-4 w-40 rounded-md" />
                     </div>
