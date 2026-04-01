@@ -1,44 +1,195 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import Head from 'next/head';
-import Script from 'next/script';
-import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth, useCart, useApi, useUserAgentStatus } from '../hooks/useAuth';
-import { useProducts } from '../hooks/useAuth';
-import { useLocation } from '../hooks/useLocation';
-import { usePaymentQr } from '../hooks/usePaymentQr';
-import { useRouter } from 'next/router';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
+import Head from "next/head";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import { useAuth, useCart, useApi, useUserAgentStatus } from "../hooks/useAuth";
+import { useProducts } from "../hooks/useAuth";
+import { useLocation } from "../hooks/useLocation";
+import { usePaymentQr } from "../hooks/usePaymentQr";
+import { useRouter } from "next/router";
 
-import AnimatedPrice from '../components/AnimatedPrice';
-import { getShopName } from '../utils/runtimeConfig';
-import LegalModal from '../components/LegalModal';
+import AnimatedPrice from "../components/AnimatedPrice";
+import { getShopName } from "../utils/runtimeConfig";
+import { getProductImage } from "../utils/urls";
+import LegalModal from "../components/LegalModal";
 
 // 格式化预约截止时间显示
 const formatReservationCutoff = (cutoffTime) => {
-  if (!cutoffTime) return '需提前预约';
-  
+  if (!cutoffTime) return "需提前预约";
+
   // 获取当前时间
   const now = new Date();
-  const [hours, minutes] = cutoffTime.split(':').map(Number);
-  
+  const [hours, minutes] = cutoffTime.split(":").map(Number);
+
   // 创建今天的截止时间
   const todayCutoff = new Date();
   todayCutoff.setHours(hours, minutes, 0, 0);
-  
+
   // 如果当前时间已过今天的截止时间，显示明日配送
   if (now > todayCutoff) {
     return `明日 ${cutoffTime} 后配送`;
   }
-  
+
   return `今日 ${cutoffTime} 后配送`;
 };
 
 const createDefaultValidation = () => ({
   is_valid: true,
   reason: null,
-  message: '',
+  message: "",
   should_force_reselect: false,
 });
+
+/* ═══════════════════════════════════════
+   Anthropic Warm-Style UI Primitives
+═══════════════════════════════════════ */
+
+const Card = ({ children, style }) => (
+  <div
+    className="warm-card"
+    style={{
+      background: "#FAF9F5",
+      border: "1px solid #EAE8E3",
+      borderRadius: 20,
+      padding: "20px 18px",
+      marginBottom: 14,
+      ...style,
+    }}
+  >
+    {children}
+  </div>
+);
+
+const SectionLabel = ({ icon, title, extra }) => (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 16,
+    }}
+  >
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 15 }}>{icon}</span>
+      <span
+        style={{
+          fontFamily: "'Poppins', 'Noto Sans SC', 'PingFang SC', sans-serif",
+          fontSize: 15,
+          fontWeight: 600,
+          color: "#141413",
+          letterSpacing: ".02em",
+        }}
+      >
+        {title}
+      </span>
+    </div>
+    {extra}
+  </div>
+);
+
+const WarmInput = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  id,
+  name,
+  required,
+  error,
+  flex,
+  readOnly,
+  children,
+}) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ flex: flex || "1 1 100%", minWidth: 0 }}>
+      <label
+        style={{
+          display: "block",
+          fontSize: 12,
+          fontWeight: 500,
+          color: "#6B6860",
+          fontFamily: "'Poppins', 'Noto Sans SC', sans-serif",
+          letterSpacing: ".04em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+        {required && <span style={{ color: "#D97757" }}> *</span>}
+      </label>
+      {children || (
+        <input
+          id={id}
+          name={name}
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          readOnly={readOnly}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{
+            width: "100%",
+            padding: "11px 14px",
+            fontSize: 14,
+            fontFamily: "'Poppins', 'Noto Sans SC', sans-serif",
+            border: `1.5px solid ${error ? "#C0453A" : focused ? "#D97757" : "#EAE8E3"}`,
+            borderRadius: 12,
+            outline: "none",
+            color: "#141413",
+            background: readOnly ? "#F0EFE9" : focused ? "#FEFEFE" : "#FAF9F5",
+            transition: "all .2s cubic-bezier(.16,1,.3,1)",
+            boxSizing: "border-box",
+          }}
+        />
+      )}
+      {error && (
+        <p
+          style={{
+            marginTop: 4,
+            fontSize: 12,
+            color: "#C0453A",
+            fontFamily: "'Poppins', 'Noto Sans SC', sans-serif",
+          }}
+        >
+          {error}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const ProgressBar = ({ current, target }) => {
+  const pct = Math.min((current / target) * 100, 100);
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: 4,
+        borderRadius: 2,
+        background: "#EDECEA",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          width: `${pct}%`,
+          height: "100%",
+          borderRadius: 2,
+          background: pct >= 100 ? "#6B8F47" : "#D97757",
+          transition: "width .6s cubic-bezier(.16,1,.3,1)",
+        }}
+      />
+    </div>
+  );
+};
 
 export default function Checkout() {
   const router = useRouter();
@@ -50,54 +201,69 @@ export default function Checkout() {
   const { getCachedPaymentQr, getPaymentQr, preloadPaymentQr } = usePaymentQr();
   const shopName = getShopName();
   const pageTitle = `结算 - ${shopName}`;
-  
-  const [cart, setCart] = useState({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
-  const [deliveryConfig, setDeliveryConfig] = useState({ delivery_fee: 1.0, free_delivery_threshold: 10.0 });
+
+  const [cart, setCart] = useState({
+    items: [],
+    total_quantity: 0,
+    total_price: 0,
+    lottery_threshold: 10,
+  });
+  const [deliveryConfig, setDeliveryConfig] = useState({
+    delivery_fee: 1.0,
+    free_delivery_threshold: 10.0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    dormitory: '',
-    building: '',
-    room: '',
-    note: ''
+    name: "",
+    phone: "",
+    dormitory: "",
+    building: "",
+    room: "",
+    note: "",
   });
   const [fieldErrors, setFieldErrors] = useState({
-    name: '',
-    phone: '',
-    room: ''
+    name: "",
+    phone: "",
+    room: "",
   });
-  const { location, openLocationModal, revision: locationRevision, isLoading: locationLoading, forceReselectAddress } = useLocation();
+  const {
+    location,
+    openLocationModal,
+    revision: locationRevision,
+    isLoading: locationLoading,
+    forceReselectAddress,
+  } = useLocation();
   const [orderId, setOrderId] = useState(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [shopOpen, setShopOpen] = useState(true);
-  const [shopNote, setShopNote] = useState('');
+  const [shopNote, setShopNote] = useState("");
   const [reservationAllowed, setReservationAllowed] = useState(false);
   const [cycleLocked, setCycleLocked] = useState(false);
-  const [legalModal, setLegalModal] = useState({ open: false, tab: 'terms' });
+  const [legalModal, setLegalModal] = useState({ open: false, tab: "terms" });
   const [eligibleRewards, setEligibleRewards] = useState([]);
   const [autoGifts, setAutoGifts] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [applyCoupon, setApplyCoupon] = useState(false);
   const [showCouponDropdown, setShowCouponDropdown] = useState(false);
-  const [couponDropdownDirection, setCouponDropdownDirection] = useState('down'); // 'up' 或 'down'
+  const [couponDropdownDirection, setCouponDropdownDirection] =
+    useState("down");
   const couponDropdownRef = useRef(null);
-  const [addressValidation, setAddressValidation] = useState(createDefaultValidation());
-  // 抽奖弹窗
+  const [addressValidation, setAddressValidation] = useState(
+    createDefaultValidation(),
+  );
   const [lotteryOpen, setLotteryOpen] = useState(false);
   const [lotteryNames, setLotteryNames] = useState([]);
-  // 支付收款码
   const [paymentQr, setPaymentQr] = useState(null);
-  const [lotteryResult, setLotteryResult] = useState('');
-  const [lotteryDisplay, setLotteryDisplay] = useState('');
+  const [lotteryResult, setLotteryResult] = useState("");
+  const [lotteryDisplay, setLotteryDisplay] = useState("");
   const [lotteryPrize, setLotteryPrize] = useState(null);
   const [spinning, setSpinning] = useState(false);
-  // 成功动画弹窗
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  const [showNote, setShowNote] = useState(false);
 
   const normalizeValidation = useCallback((raw) => {
     if (!raw) {
@@ -106,7 +272,7 @@ export default function Checkout() {
     return {
       is_valid: raw.is_valid !== false,
       reason: raw.reason || null,
-      message: raw.message || '',
+      message: raw.message || "",
       should_force_reselect: !!raw.should_force_reselect,
     };
   }, []);
@@ -114,39 +280,41 @@ export default function Checkout() {
   // 验证个人信息字段，失败时聚焦到第一个错误字段
   const validatePersonalInfo = () => {
     const errors = {
-      name: '',
-      phone: '',
-      room: ''
+      name: "",
+      phone: "",
+      room: "",
     };
 
     if (!formData.name) {
-      errors.name = '请输入昵称';
+      errors.name = "请输入昵称";
     }
 
     if (!formData.phone) {
-      errors.phone = '请输入手机号';
+      errors.phone = "请输入手机号";
     } else {
-      // 简单的手机号验证
       const phoneRegex = /^1[3-9]\d{9}$/;
       if (!phoneRegex.test(formData.phone)) {
-        errors.phone = '请输入正确的手机号';
+        errors.phone = "请输入正确的手机号";
       }
     }
 
     if (!formData.room) {
-      errors.room = '请输入房间号';
+      errors.room = "请输入房间号";
     }
 
     setFieldErrors(errors);
 
-    // 如果有错误，聚焦到第一个错误字段
     const firstError = errors.name || errors.phone || errors.room;
     if (firstError) {
-      const firstErrorField = errors.name ? 'name' : (errors.phone ? 'phone' : 'room');
+      const firstErrorField = errors.name
+        ? "name"
+        : errors.phone
+          ? "phone"
+          : "room";
       const input = document.getElementById(firstErrorField);
       if (input) {
         input.focus();
-        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       return false;
     }
@@ -154,99 +322,146 @@ export default function Checkout() {
     return true;
   };
 
-  const locationReady = user?.type !== 'user' || (location && location.address_id && location.building_id);
+  const locationReady =
+    user?.type !== "user" ||
+    (location && location.address_id && location.building_id);
   const displayLocation = location
-    ? `${location.dormitory || ''}${location.building ? '·' + location.building : ''}`.trim() || '已选择地址'
-    : '未选择地址';
+    ? `${location.dormitory || ""}${location.building ? "·" + location.building : ""}`.trim() ||
+      "已选择地址"
+    : "未选择地址";
 
   const lotteryThreshold = useMemo(() => {
     const raw = cart?.lottery_threshold;
-    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    const value =
+      typeof raw === "string" ? Number.parseFloat(raw) : Number(raw);
     if (Number.isFinite(value) && value > 0) {
       return value;
     }
     return 10;
   }, [cart?.lottery_threshold]);
 
-  const formattedLotteryThreshold = useMemo(() => (
-    Number.isInteger(lotteryThreshold)
-      ? lotteryThreshold.toString()
-      : lotteryThreshold.toFixed(2)
-  ), [lotteryThreshold]);
+  const formattedLotteryThreshold = useMemo(
+    () =>
+      Number.isInteger(lotteryThreshold)
+        ? lotteryThreshold.toString()
+        : lotteryThreshold.toFixed(2),
+    [lotteryThreshold],
+  );
 
-  const hasReservationItems = useMemo(() => !!(cart?.has_reservation_items), [cart?.has_reservation_items]);
+  const hasReservationItems = useMemo(
+    () => !!cart?.has_reservation_items,
+    [cart?.has_reservation_items],
+  );
   const allReservationItems = useMemo(() => {
     if (cart?.all_reservation_items !== undefined) {
       return !!cart.all_reservation_items;
     }
-    const activeItems = (cart?.items || []).filter(item => {
+    const activeItems = (cart?.items || []).filter((item) => {
       const isActive = !(item.is_active === 0 || item.is_active === false);
       const qty = Number(item.quantity || 0);
       return isActive && qty > 0;
     });
     if (activeItems.length === 0) return false;
-    return activeItems.every(item => item.reservation_required);
+    return activeItems.every((item) => item.reservation_required);
   }, [cart?.all_reservation_items, cart?.items]);
   const closedReservationOnly = useMemo(
-    () => !shopOpen && allReservationItems && ((cart?.total_quantity || 0) > 0),
-    [shopOpen, allReservationItems, cart?.total_quantity]
+    () => !shopOpen && allReservationItems && (cart?.total_quantity || 0) > 0,
+    [shopOpen, allReservationItems, cart?.total_quantity],
   );
-  const canReserveWhileClosed = useMemo(() => closedReservationOnly, [closedReservationOnly]);
-  const reservationFromClosure = useMemo(() => canReserveWhileClosed, [canReserveWhileClosed]);
-  const shouldReserve = useMemo(() => hasReservationItems || canReserveWhileClosed, [hasReservationItems, canReserveWhileClosed]);
-  
-  const addressInvalid = useMemo(() => (
-    locationReady && addressValidation && addressValidation.is_valid === false
-  ), [locationReady, addressValidation]);
-  
-  const addressAlertMessage = useMemo(() => (
-    addressInvalid ? (addressValidation?.message || '配送地址不可用，请重新选择') : ''
-  ), [addressInvalid, addressValidation]);
+  const canReserveWhileClosed = useMemo(
+    () => closedReservationOnly,
+    [closedReservationOnly],
+  );
+  const reservationFromClosure = useMemo(
+    () => canReserveWhileClosed,
+    [canReserveWhileClosed],
+  );
+  const shouldReserve = useMemo(
+    () => hasReservationItems || canReserveWhileClosed,
+    [hasReservationItems, canReserveWhileClosed],
+  );
+
+  const addressInvalid = useMemo(
+    () =>
+      locationReady &&
+      addressValidation &&
+      addressValidation.is_valid === false,
+    [locationReady, addressValidation],
+  );
+
+  const addressAlertMessage = useMemo(
+    () =>
+      addressInvalid
+        ? addressValidation?.message || "配送地址不可用，请重新选择"
+        : "",
+    [addressInvalid, addressValidation],
+  );
 
   const couponDiscountAmount = useMemo(() => {
     if (!(applyCoupon && selectedCouponId)) return 0;
-    const coupon = coupons.find(c => c.id === selectedCouponId);
-    return coupon ? (parseFloat(coupon.amount) || 0) : 0;
+    const coupon = coupons.find((c) => c.id === selectedCouponId);
+    return coupon ? parseFloat(coupon.amount) || 0 : 0;
   }, [applyCoupon, selectedCouponId, coupons]);
   const payableAmount = useMemo(() => {
     const baseTotal = (cart?.payable_total ?? cart?.total_price) || 0;
     return Math.max(0, baseTotal - couponDiscountAmount);
   }, [cart?.payable_total, cart?.total_price, couponDiscountAmount]);
-  // 打烊逻辑：开启预约时允许所有商品，未开启时仅允许预约商品
-  const closedBlocked = !shopOpen && !reservationAllowed && !allReservationItems;
+  const closedBlocked =
+    !shopOpen && !reservationAllowed && !allReservationItems;
   const checkoutButtonLabel = useMemo(() => {
-    if (!locationReady) return '请选择配送地址';
-    if (addressInvalid) return addressAlertMessage || '配送地址不可用，请重新选择';
-    if (cycleLocked) return '暂时无法结算，请联系管理员';
+    if (!locationReady) return "请选择配送地址";
+    if (addressInvalid)
+      return addressAlertMessage || "配送地址不可用，请重新选择";
+    if (cycleLocked) return "暂时无法结算，请联系管理员";
     if (closedBlocked) {
-      return '打烊中 · 仅限预约商品';
+      return "打烊中 · 仅限预约商品";
     }
     if (closedReservationOnly) return `预约购买 ¥${payableAmount.toFixed(2)}`;
-    if (!shopOpen && reservationAllowed) return `预约购买 ¥${payableAmount.toFixed(2)}`;
-    if (hasReservationItems && shouldReserve) return `提交预约 ¥${payableAmount.toFixed(2)}`;
+    if (!shopOpen && reservationAllowed)
+      return `预约购买 ¥${payableAmount.toFixed(2)}`;
+    if (hasReservationItems && shouldReserve)
+      return `提交预约 ¥${payableAmount.toFixed(2)}`;
     return `立即支付 ¥${payableAmount.toFixed(2)}`;
-  }, [locationReady, addressInvalid, addressAlertMessage, cycleLocked, closedBlocked, shopOpen, reservationAllowed, closedReservationOnly, payableAmount, hasReservationItems, shouldReserve]);
+  }, [
+    locationReady,
+    addressInvalid,
+    addressAlertMessage,
+    cycleLocked,
+    closedBlocked,
+    shopOpen,
+    reservationAllowed,
+    closedReservationOnly,
+    payableAmount,
+    hasReservationItems,
+    shouldReserve,
+  ]);
 
   const closedBlockedMessage = useMemo(() => {
     if (cycleLocked) {
-      return '暂时无法结算，请联系管理员';
+      return "暂时无法结算，请联系管理员";
     }
     if (!shopOpen) {
-      // 打烊时：未开启预约且不是全预约商品
       if (!reservationAllowed && !allReservationItems) {
-        return '当前打烊期间仅支持预约商品，请移除非预约商品后再试';
+        return "当前打烊期间仅支持预约商品，请移除非预约商品后再试";
       }
-      // 其他情况显示打烊提示
-      return shopNote ? `店铺已打烊：${shopNote}` : '店铺已打烊，暂不支持下单';
+      return shopNote ? `店铺已打烊：${shopNote}` : "店铺已打烊，暂不支持下单";
     }
-    return '当前暂无法提交订单';
-  }, [cycleLocked, shopOpen, reservationAllowed, allReservationItems, shopNote]);
+    return "当前暂无法提交订单";
+  }, [
+    cycleLocked,
+    shopOpen,
+    reservationAllowed,
+    allReservationItems,
+    shopNote,
+  ]);
 
   const lastInvalidKeyRef = useRef(null);
   const reselectInFlightRef = useRef(false);
 
   useEffect(() => {
-    const shouldForce = !!(addressValidation && addressValidation.should_force_reselect);
+    const shouldForce = !!(
+      addressValidation && addressValidation.should_force_reselect
+    );
     if (!shouldForce) {
       reselectInFlightRef.current = false;
       lastInvalidKeyRef.current = null;
@@ -257,7 +472,7 @@ export default function Checkout() {
       return;
     }
 
-    const key = `${addressValidation.reason || 'unknown'}|${location?.address_id || ''}|${location?.building_id || ''}`;
+    const key = `${addressValidation.reason || "unknown"}|${location?.address_id || ""}|${location?.building_id || ""}`;
     if (lastInvalidKeyRef.current === key || reselectInFlightRef.current) {
       return;
     }
@@ -266,66 +481,65 @@ export default function Checkout() {
     forceReselectAddress();
   }, [addressInvalid, addressValidation, location, forceReselectAddress]);
 
-  // 稍后支付：创建未支付订单，清空购物车并跳转到我的订单
+  // 稍后支付
   const handlePayLater = async () => {
     if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
     if (!locationReady) {
-      alert('请先选择配送地址');
+      alert("请先选择配送地址");
       openLocationModal();
       return;
     }
     if (addressInvalid) {
-      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      alert(addressAlertMessage || "配送地址不可用，请重新选择");
       openLocationModal();
       return;
     }
-    
-    // 验证个人信息字段
+
     if (!validatePersonalInfo()) {
       return;
     }
 
     try {
-      // 创建订单（但不标记为已付款）
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
         dormitory: location?.dormitory || formData.dormitory,
         building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
-        address_id: location?.address_id || '',
-        building_id: location?.building_id || '',
-        agent_id: location?.agent_id || ''
+        full_address:
+          `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || "",
+        building_id: location?.building_id || "",
+        agent_id: location?.agent_id || "",
       };
-      
-      const orderResponse = await apiRequest('/orders', {
-        method: 'POST',
+
+      const orderResponse = await apiRequest("/orders", {
+        method: "POST",
         body: JSON.stringify({
           shipping_info: shippingInfo,
-          payment_method: 'wechat',
+          payment_method: "wechat",
           note: formData.note,
-          coupon_id: applyCoupon ? (selectedCouponId || null) : null,
+          coupon_id: applyCoupon ? selectedCouponId || null : null,
           apply_coupon: !!applyCoupon,
-          reservation_requested: shouldReserve
-        })
+          reservation_requested: shouldReserve,
+        }),
       });
-      
+
       if (!orderResponse.success) {
-        throw new Error(orderResponse.message || '订单创建失败');
+        throw new Error(orderResponse.message || "订单创建失败");
       }
-      
-      // 清空购物车并跳转
-      try { await clearCart(); } catch (e) {}
+
+      try {
+        await clearCart();
+      } catch (e) {}
       setShowPayModal(false);
       setPaymentQr(null);
-      router.push('/orders');
-      
+      router.push("/orders");
     } catch (e) {
-      alert(e.message || '创建订单失败');
+      alert(e.message || "创建订单失败");
     }
   };
 
@@ -333,51 +547,66 @@ export default function Checkout() {
   useEffect(() => {
     if (!router.isReady || !isInitialized) return;
     if (!user) {
-      const redirect = encodeURIComponent(router.asPath || '/checkout');
+      const redirect = encodeURIComponent(router.asPath || "/checkout");
       router.replace(`/login?redirect=${redirect}`);
       return;
     }
-    // 同步店铺/代理状态
     (async () => {
       try {
         const addressId = location?.address_id;
         const buildingId = location?.building_id;
         const res = await getUserAgentStatus(addressId, buildingId);
-        
+
         const locked = !!res.data?.cycle_locked;
         const open = !!res.data?.is_open && !locked;
         setCycleLocked(locked);
         setShopOpen(open);
         setReservationAllowed(locked ? false : !!res.data?.allow_reservation);
-        
+
         if (locked) {
-          setShopNote('暂时无法结算，请联系管理员');
+          setShopNote("暂时无法结算，请联系管理员");
         } else if (open) {
-          setShopNote('');
+          setShopNote("");
         } else {
-          const defaultNote = res.data?.is_agent 
-            ? '当前区域代理已暂停营业，暂不支持结算' 
-            : '店铺已暂停营业，暂不支持结算';
+          const defaultNote = res.data?.is_agent
+            ? "当前区域代理已暂停营业，暂不支持结算"
+            : "店铺已暂停营业，暂不支持结算";
           setShopNote(res.data?.note || defaultNote);
         }
       } catch (e) {
-        // 出错时默认为营业状态
         setShopOpen(true);
-        setShopNote('');
+        setShopNote("");
         setReservationAllowed(false);
         setCycleLocked(false);
       }
     })();
-  }, [user, isInitialized, router, router.asPath, router.isReady, location, getUserAgentStatus]);
+  }, [
+    user,
+    isInitialized,
+    router,
+    router.asPath,
+    router.isReady,
+    location,
+    getUserAgentStatus,
+  ]);
 
   // 加载购物车数据
   const loadCart = async () => {
     setIsLoading(true);
-    setError('');
+    setError("");
 
-    if (user && user.type === 'user' && (!location || !location.address_id || !location.building_id)) {
+    if (
+      user &&
+      user.type === "user" &&
+      (!location || !location.address_id || !location.building_id)
+    ) {
       setIsLoading(false);
-      setCart({ items: [], total_quantity: 0, total_price: 0, lottery_threshold: 10 });
+      setCart({
+        items: [],
+        total_quantity: 0,
+        total_price: 0,
+        lottery_threshold: 10,
+      });
       setEligibleRewards([]);
       setAutoGifts([]);
       setCoupons([]);
@@ -391,37 +620,58 @@ export default function Checkout() {
       const data = await getCart();
       setCart(data.data);
       setAddressValidation(normalizeValidation(data?.data?.address_validation));
-      // 加载可用抽奖奖品
       try {
-        const rw = await apiRequest('/rewards/eligible');
+        const rw = await apiRequest("/rewards/eligible");
         setEligibleRewards(rw?.data?.rewards || []);
       } catch (e) {
         setEligibleRewards([]);
       }
       try {
-        const giftsResp = await apiRequest('/gift-thresholds');
+        const giftsResp = await apiRequest("/gift-thresholds");
         setAutoGifts(giftsResp?.data?.thresholds || []);
       } catch (e) {
         setAutoGifts([]);
       }
-      // 加载我的优惠券并默认选择
       try {
-        const resp = await apiRequest('/coupons/my');
+        const resp = await apiRequest("/coupons/my");
         const list = resp?.data?.coupons || [];
         setCoupons(list);
         const sub = data?.data?.total_price || 0;
-        const fromQuery = (router?.query?.coupon_id || '').toString();
-        const applyParam = (router?.query?.apply || router?.query?.apply_coupon || '').toString().toLowerCase();
-        if (applyParam === '0' || applyParam === 'false') {
+        const fromQuery = (router?.query?.coupon_id || "").toString();
+        const applyParam = (
+          router?.query?.apply ||
+          router?.query?.apply_coupon ||
+          ""
+        )
+          .toString()
+          .toLowerCase();
+        if (applyParam === "0" || applyParam === "false") {
           setSelectedCouponId(null);
           setApplyCoupon(false);
-        } else if (fromQuery && list.some(x => x.id === fromQuery) && sub > (parseFloat(list.find(x => x.id === fromQuery).amount) || 0)) {
+        } else if (
+          fromQuery &&
+          list.some((x) => x.id === fromQuery) &&
+          sub > (parseFloat(list.find((x) => x.id === fromQuery).amount) || 0)
+        ) {
           setSelectedCouponId(fromQuery);
           setApplyCoupon(true);
         } else {
-          const applicable = list.filter(x => sub > (parseFloat(x.amount) || 0));
+          const applicable = list.filter(
+            (x) => sub > (parseFloat(x.amount) || 0),
+          );
           if (applicable.length > 0) {
-            applicable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+            applicable.sort((a, b) => {
+              const amtDiff =
+                (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0);
+              if (amtDiff !== 0) return amtDiff;
+              const aExp = a.expires_at
+                ? new Date(a.expires_at.replace(" ", "T") + "Z").getTime()
+                : Infinity;
+              const bExp = b.expires_at
+                ? new Date(b.expires_at.replace(" ", "T") + "Z").getTime()
+                : Infinity;
+              return aExp - bExp;
+            });
             setSelectedCouponId(applicable[0].id);
             setApplyCoupon(true);
           } else {
@@ -434,120 +684,104 @@ export default function Checkout() {
         setSelectedCouponId(null);
         setApplyCoupon(false);
       }
-      
-      // 如果购物车为空，跳转到购物车页面
+
       if (!data.data.items || data.data.items.length === 0) {
-        router.push('/cart');
+        router.push("/cart");
         return;
       }
-      
-      // 自动填充用户信息
+
       if (user) {
-        setFormData(prev => ({
+        setFormData((prev) => ({
           ...prev,
-          name: user.name || ''
+          name: user.name || "",
         }));
       }
     } catch (err) {
-      setError(err.message || '加载购物车失败');
+      setError(err.message || "加载购物车失败");
       setAddressValidation(createDefaultValidation());
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 表单输入处理
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    
-    // 清除该字段的错误信息
+
     if (fieldErrors[name]) {
-      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+      setFieldErrors((prev) => ({ ...prev, [name]: "" }));
     }
-    
-    if (name === 'dormitory') {
-      // 切换园区时清空已选楼栋
-      setFormData({ ...formData, dormitory: value, building: '' });
+
+    if (name === "dormitory") {
+      setFormData({ ...formData, dormitory: value, building: "" });
     } else {
       setFormData({
         ...formData,
-        [name]: value
+        [name]: value,
       });
     }
   };
 
-  // 表单提交处理
   const handleSubmit = (e) => {
-    e.preventDefault(); // 防止默认表单提交行为
-    // 当用户按回车或点击提交时，触发支付创建
+    e.preventDefault();
     if (!isCreatingPayment && shopOpen && !cycleLocked) handleCreatePayment();
   };
 
-  // 获取收款码并打开支付弹窗（不创建订单）
   const handleCreatePayment = async () => {
     if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
     if (addressInvalid) {
-      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      alert(addressAlertMessage || "配送地址不可用，请重新选择");
       openLocationModal();
       return;
     }
-    
-    // 验证个人信息字段
+
     if (!validatePersonalInfo()) {
       return;
     }
-    
-    // 验证配送地址（这时才弹出配送地址设置）
+
     if (!location || !location.address_id || !location.building_id) {
-      alert('请填写完整的收货信息并选择配送地址');
+      alert("请填写完整的收货信息并选择配送地址");
       openLocationModal();
       return;
     }
 
     setIsCreatingPayment(true);
-    setError('');
-    
+    setError("");
+
     try {
-      // 优先使用预加载的收款码，否则实时获取
       const buildingId = location?.building_id;
       const addressId = location?.address_id;
-      
-      // 先尝试获取缓存的收款码（同步，无等待）
+
       let qr = getCachedPaymentQr(addressId, buildingId);
-      
+
       if (!qr) {
-        // 如果缓存中没有，则异步获取
         qr = await getPaymentQr(addressId, buildingId);
       }
-      
+
       if (qr) {
         setPaymentQr(qr);
       } else {
-        // 没有收款码
         setPaymentQr({
-          owner_type: 'default',
-          name: "无收款码"
+          owner_type: "default",
+          name: "无收款码",
         });
       }
-      
-      // 显示支付弹窗
-      setShowPayModal(true);
 
+      setShowPayModal(true);
     } catch (error) {
-      const message = error?.message || '获取收款码失败';
+      const message = error?.message || "获取收款码失败";
       if (/地址不存在|未启用/.test(message)) {
-        alert('地址不存在或未启用，请联系管理员');
+        alert("地址不存在或未启用，请联系管理员");
         setShowPayModal(false);
         setPaymentQr(null);
         return;
       }
-      console.warn('Failed to load payment QR:', error);
+      console.warn("Failed to load payment QR:", error);
       setPaymentQr({
-        owner_type: 'default',
-        name: "无收款码"
+        owner_type: "default",
+        name: "无收款码",
       });
       setShowPayModal(true);
     } finally {
@@ -555,151 +789,119 @@ export default function Checkout() {
     }
   };
 
-  // 用户点击"已付款"：创建订单并标记为已确认，清空购物车并跳转订单页
   const handleMarkPaid = async () => {
     if (cycleLocked || closedBlocked) {
       alert(closedBlockedMessage);
       return;
     }
     if (!locationReady) {
-      alert('请先选择配送地址');
+      alert("请先选择配送地址");
       openLocationModal();
       return;
     }
     if (addressInvalid) {
-      alert(addressAlertMessage || '配送地址不可用，请重新选择');
+      alert(addressAlertMessage || "配送地址不可用，请重新选择");
       openLocationModal();
       return;
     }
-    
-    // 验证个人信息字段
+
     if (!validatePersonalInfo()) {
       return;
     }
 
     try {
-      // 创建订单
       const shippingInfo = {
         name: formData.name,
         phone: formData.phone,
         dormitory: location?.dormitory || formData.dormitory,
         building: location?.building || formData.building,
         room: formData.room,
-        full_address: `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
-        address_id: location?.address_id || '',
-        building_id: location?.building_id || '',
-        agent_id: location?.agent_id || ''
+        full_address:
+          `${location?.dormitory || formData.dormitory} ${location?.building || formData.building} ${formData.room}`.trim(),
+        address_id: location?.address_id || "",
+        building_id: location?.building_id || "",
+        agent_id: location?.agent_id || "",
       };
-      
-      const orderResponse = await apiRequest('/orders', {
-        method: 'POST',
+
+      const orderResponse = await apiRequest("/orders", {
+        method: "POST",
         body: JSON.stringify({
           shipping_info: shippingInfo,
-          payment_method: 'wechat',
+          payment_method: "wechat",
           note: formData.note,
-          coupon_id: applyCoupon ? (selectedCouponId || null) : null,
+          coupon_id: applyCoupon ? selectedCouponId || null : null,
           apply_coupon: !!applyCoupon,
-          reservation_requested: shouldReserve
-        })
+          reservation_requested: shouldReserve,
+        }),
       });
-      
+
       if (!orderResponse.success) {
-        throw new Error(orderResponse.message || '订单创建失败');
+        throw new Error(orderResponse.message || "订单创建失败");
       }
-      
+
       const createdOrderId = orderResponse.data.order_id;
       setOrderId(createdOrderId);
-      
-      // 标记订单为已付款
-      const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, { method: 'POST' });
+
+      const res = await apiRequest(`/orders/${createdOrderId}/mark-paid`, {
+        method: "POST",
+      });
       if (res.success) {
-        try { await clearCart(); } catch (e) {}
+        try {
+          await clearCart();
+        } catch (e) {}
         setShowPayModal(false);
         setPaymentQr(null);
-        
-        // 触发抽奖动画并自动跳转到订单页（仅在抽奖启用时）
+
         let hasLottery = false;
         const lotteryEnabled = cart?.lottery_enabled !== false;
         if (lotteryEnabled) {
           try {
-            const draw = await apiRequest(`/orders/${createdOrderId}/lottery/draw`, { method: 'POST' });
-          if (draw.success) {
-            const resultName = draw.data?.prize_name || '';
-            const names = (draw.data?.names && draw.data.names.length > 0)
-              ? draw.data.names
-              : (resultName ? [resultName] : ['谢谢参与']);
-            setLotteryPrize(draw.data?.prize || null);
-            setLotteryNames(names);
-            setLotteryResult(resultName);
-            setLotteryDisplay(names[0] || '');
-            setLotteryOpen(true);
-            setSpinning(true);
-            hasLottery = true;
-            const duration = 2000;
-            const interval = 80;
-            let idx = 0;
-            const timer = setInterval(() => {
-              idx = (idx + 1) % names.length;
-              setLotteryDisplay(names[idx]);
-            }, interval);
-            setTimeout(() => {
-              clearInterval(timer);
-              setSpinning(false);
-              setLotteryDisplay(resultName || names[0]);
-              // 不再自动跳转，让用户看到抽奖结果
-            }, duration + 200);
-          }
+            const draw = await apiRequest(
+              `/orders/${createdOrderId}/lottery/draw`,
+              { method: "POST" },
+            );
+            if (draw.success) {
+              const resultName = draw.data?.prize_name || "";
+              const names =
+                draw.data?.names && draw.data.names.length > 0
+                  ? draw.data.names
+                  : resultName
+                    ? [resultName]
+                    : ["谢谢参与"];
+              setLotteryPrize(draw.data?.prize || null);
+              setLotteryNames(names);
+              setLotteryResult(resultName);
+              setLotteryDisplay(names[0] || "");
+              setLotteryOpen(true);
+              setSpinning(true);
+              hasLottery = true;
+              const duration = 2000;
+              const interval = 80;
+              let idx = 0;
+              const timer = setInterval(() => {
+                idx = (idx + 1) % names.length;
+                setLotteryDisplay(names[idx]);
+              }, interval);
+              setTimeout(() => {
+                clearInterval(timer);
+                setSpinning(false);
+                setLotteryDisplay(resultName || names[0]);
+              }, duration + 200);
+            }
           } catch (e) {
             setLotteryPrize(null);
           }
         }
-        // 如果没有抽奖，直接显示成功动画
         if (!hasLottery) {
           setShowSuccessAnimation(true);
-          // 动画播放完成前跳转，让过渡更流畅
-          setTimeout(() => {
-            router.push('/orders');
-          }, 1700);
         }
       } else {
-        alert(res.message || '操作失败');
+        alert(res.message || "操作失败");
       }
     } catch (err) {
-      alert(err.message || '操作失败');
+      alert(err.message || "操作失败");
     }
   };
-
-  // 预加载 Lottie 动画
-  useEffect(() => {
-    // 在页面加载时预加载动画,避免点击付款时卡顿
-    if (typeof window !== 'undefined' && window.customElements) {
-      const preloadAnimation = () => {
-        try {
-          // 创建一个隐藏的 dotlottie-wc 元素来预加载动画
-          const tempElement = document.createElement('dotlottie-wc');
-          tempElement.setAttribute('src', 'https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie');
-          tempElement.style.cssText = 'position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
-          document.body.appendChild(tempElement);
-          
-          // 5秒后移除预加载元素
-          setTimeout(() => {
-            if (tempElement && tempElement.parentNode) {
-              tempElement.parentNode.removeChild(tempElement);
-            }
-          }, 5000);
-        } catch (e) {
-          console.warn('Animation preload failed:', e);
-        }
-      };
-      
-      // 等待 Web Component 注册完成后预加载
-      if (window.customElements.get('dotlottie-wc')) {
-        preloadAnimation();
-      } else {
-        window.customElements.whenDefined('dotlottie-wc').then(preloadAnimation).catch(() => {});
-      }
-    }
-  }, []);
 
   // 初始化加载
   useEffect(() => {
@@ -707,10 +909,10 @@ export default function Checkout() {
     loadCart();
     (async () => {
       try {
-        const res = await apiRequest('/profile/shipping');
+        const res = await apiRequest("/profile/shipping");
         const ship = res?.data?.shipping;
         if (ship) {
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
             name: ship.name || prev.name,
             phone: ship.phone || prev.phone,
@@ -720,38 +922,49 @@ export default function Checkout() {
       } catch (e) {
         // ignore
       }
-      
-      // 获取配送费配置
+
       try {
-        const deliveryRes = await apiRequest('/delivery-config');
+        const deliveryRes = await apiRequest("/delivery-config");
         const config = deliveryRes?.data?.delivery_config;
         if (config) {
           setDeliveryConfig(config);
         }
       } catch (e) {
-        console.warn('Failed to fetch delivery fee config:', e);
+        console.warn("Failed to fetch delivery fee config:", e);
       }
     })();
   }, [user, locationRevision, location?.address_id, location?.building_id]);
 
   useEffect(() => {
     if (location) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        dormitory: location.dormitory || '',
-        building: location.building || '',
+        dormitory: location.dormitory || "",
+        building: location.building || "",
       }));
     }
   }, [location]);
 
-  // 当勾选状态/购物车金额/券列表变化时，自动选择最大可用券
   useEffect(() => {
     const sub = cart?.total_price || 0;
-    const usable = (coupons || []).filter(c => sub > (parseFloat(c.amount) || 0));
+    const usable = (coupons || []).filter(
+      (c) => sub > (parseFloat(c.amount) || 0),
+    );
     if (applyCoupon) {
-      if (!selectedCouponId || !usable.some(x => x.id === selectedCouponId)) {
+      if (!selectedCouponId || !usable.some((x) => x.id === selectedCouponId)) {
         if (usable.length > 0) {
-          usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+          usable.sort((a, b) => {
+            const amtDiff =
+              (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0);
+            if (amtDiff !== 0) return amtDiff;
+            const aExp = a.expires_at
+              ? new Date(a.expires_at.replace(" ", "T") + "Z").getTime()
+              : Infinity;
+            const bExp = b.expires_at
+              ? new Date(b.expires_at.replace(" ", "T") + "Z").getTime()
+              : Infinity;
+            return aExp - bExp;
+          });
           setSelectedCouponId(usable[0].id);
         } else {
           setSelectedCouponId(null);
@@ -760,809 +973,1932 @@ export default function Checkout() {
     }
   }, [applyCoupon, coupons, cart?.total_price]);
 
-  // 如果用户未登录，不渲染内容
   if (!user) {
     return null;
   }
+
+  /* ═══════════════════════════════════════
+     Inline style constants
+  ═══════════════════════════════════════ */
+  const fontUI =
+    "'Poppins', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  const fontDisplay = "'Lora', 'LXGW WenKai', 'Songti SC', serif";
+  const accent = "#D97757";
+  const accentWarm = "#C96442";
+  const bgBase = "#F5F3EE";
+  const bgRaised = "#FAF9F5";
+  const bgOverlay = "#FEFEFE";
+  const textPrimary = "#141413";
+  const textSecondary = "#6B6860";
+  const textMuted = "#B0AEA5";
+  const borderDefault = "#DDD9D0";
+  const borderSubtle = "#EDECEA";
+  const colorError = "#C0453A";
+  const colorSuccess = "#6B8F47";
+
+  const usableCoupons = (coupons || []).filter(
+    (c) => (cart?.total_price || 0) > (parseFloat(c.amount) || 0),
+  );
 
   return (
     <>
       <Head>
         <title>{pageTitle}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Lora:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
       </Head>
-      <Script
-        id="dotlottie-wc"
-        src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"
-        type="module"
-        strategy="afterInteractive"
-      />
 
-       <div className="min-h-screen" style={{
-         background: 'linear-gradient(135deg, rgba(147, 197, 253, 0.2) 0%, rgba(252, 231, 243, 0.25) 50%, rgba(191, 219, 254, 0.2) 100%), #fafafa'
-       }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          background: `radial-gradient(ellipse 80% 50% at 30% 0%, rgba(217,119,87,0.04) 0%, transparent 55%), ${bgBase}`,
+          fontFamily: fontUI,
+          WebkitFontSmoothing: "antialiased",
+        }}
+      >
 
-
-        {/* 主要内容 */}
-        <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
-          {/* 页面标题 */}
-          <div className="text-center mb-12 animate-fade-in-up">
-            <div className="flex justify-center mb-6">
-              <div className="relative">
-                <div className="absolute -inset-2 bg-gradient-to-r from-purple-500 to-pink-600 rounded-2xl blur opacity-60"></div>
-                <div className="relative w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-2xl">
-                  <i className="fas fa-credit-card text-white text-xl"></i>
-                </div>
-              </div>
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">确认订单</h1>
-            <p className="text-gray-700">请确认您的订单信息和收货地址</p>
+        {/* ── Nav ── */}
+        <nav
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "14px 16px",
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            background: "rgba(245,243,238,.85)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            borderBottom: `1px solid ${borderSubtle}`,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 1080,
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg
+              onClick={() => router.back()}
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={textPrimary}
+              strokeWidth="2"
+              strokeLinecap="round"
+              style={{ position: "absolute", left: 0, cursor: "pointer" }}
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            <span
+              style={{
+                fontSize: 16,
+                fontWeight: 600,
+                color: textPrimary,
+                letterSpacing: ".01em",
+              }}
+            >
+              确认订单
+            </span>
           </div>
+        </nav>
 
-          {/* 错误提示 */}
+        {/* ── Main ── */}
+        <div
+          className="checkout-main"
+          style={{
+            maxWidth: 1080,
+            margin: "0 auto",
+            padding: "20px 16px 84px",
+          }}
+        >
+          {/* Error banner */}
           {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "12px 16px",
+                marginBottom: 14,
+                background: "rgba(192,69,58,0.08)",
+                border: "1px solid rgba(192,69,58,0.25)",
+                borderRadius: 14,
+                fontSize: 13,
+                color: colorError,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="7"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M8 5v4M8 11v.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span style={{ flex: 1 }}>{error}</span>
             </div>
           )}
 
-          {/* 加载状态 */}
           {isLoading ? (
-            <div className="space-y-6">
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="animate-pulse space-y-4">
-                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                  <div className="space-y-3">
-                    <div className="h-4 bg-gray-200 rounded"></div>
-                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                  </div>
+            /* ── Skeleton ── */
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: bgRaised,
+                    border: `1px solid ${borderSubtle}`,
+                    borderRadius: 20,
+                    padding: 20,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: 16,
+                      width: "35%",
+                      borderRadius: 8,
+                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
+                      backgroundSize: "600px 100%",
+                      animation: "shimmer 1.5s infinite linear",
+                      marginBottom: 14,
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: 14,
+                      width: "100%",
+                      borderRadius: 6,
+                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
+                      backgroundSize: "600px 100%",
+                      animation: "shimmer 1.5s infinite linear",
+                      marginBottom: 10,
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: 14,
+                      width: "70%",
+                      borderRadius: 6,
+                      background: `linear-gradient(90deg, ${borderSubtle} 25%, ${bgRaised} 50%, ${borderSubtle} 75%)`,
+                      backgroundSize: "600px 100%",
+                      animation: "shimmer 1.5s infinite linear",
+                    }}
+                  />
                 </div>
-              </div>
+              ))}
             </div>
           ) : (
-            <div className="lg:grid lg:grid-cols-3 lg:gap-8">
-              {/* 订单表单 */}
-              <div className="lg:col-span-2 space-y-8">
-                {/* 收货信息 */}
-                <div className="card-glass p-8 border border-white/30 animate-fade-in-up" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-map-marker-alt text-white"></i>
-                    </div>
-                    <h2 className="text-xl font-semibold text-gray-900">收货信息</h2>
-                  </div>
-                  
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <div>
-                        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-user mr-2"></i>昵称 *
-                        </label>
-                        <input
-                          type="text"
+            <>
+              <div className="checkout-grid">
+                {/* ── Left Column ── */}
+                <div className="checkout-col-left">
+                  {/* ═══ 收货信息 ═══ */}
+                  <Card>
+                    <SectionLabel icon="📍" title="收货信息" />
+                    <form onSubmit={handleSubmit}>
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
+                      >
+                        <WarmInput
+                          label="昵称"
                           id="name"
                           name="name"
-                          required
                           value={formData.name}
                           onChange={handleInputChange}
-                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.name ? 'border-red-300 ring-2 ring-red-100' : ''}`}
-                          placeholder="请输入您的昵称"
+                          placeholder="怎么称呼您"
+                          flex="1 1 calc(50% - 5px)"
+                          required
+                          error={fieldErrors.name}
                         />
-                        {fieldErrors.name && (
-                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
-                            <i className="fas fa-exclamation-circle text-xs"></i>
-                            {fieldErrors.name}
-                          </p>
-                        )}
-                      </div>
-                      
-                      <div>
-                        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-phone mr-2"></i>手机号 *
-                        </label>
-                        <input
-                          type="tel"
+                        <WarmInput
+                          label="手机号"
                           id="phone"
                           name="phone"
-                          required
+                          type="tel"
                           value={formData.phone}
                           onChange={handleInputChange}
-                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.phone ? 'border-red-300 ring-2 ring-red-100' : ''}`}
-                          placeholder="请输入手机号码"
-                        />
-                        {fieldErrors.phone && (
-                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
-                            <i className="fas fa-exclamation-circle text-xs"></i>
-                            {fieldErrors.phone}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      {/* 配送区和楼栋容器 */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            <i className="fas fa-building mr-2"></i>配送区 *
-                          </label>
-                          <div className="input-glass w-full text-gray-900">
-                            {locationLoading ? '加载中...' : (location?.dormitory || '未选择')}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            <i className="fas fa-home mr-2"></i>楼栋 *
-                          </label>
-                          <div className="input-glass w-full text-gray-900">
-                            {locationLoading ? '加载中...' : (location?.building || '未选择')}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 房间号 */}
-                      <div>
-                        <label htmlFor="room" className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="fas fa-door-open mr-2"></i>房间号 *
-                        </label>
-                        <input
-                          type="text"
-                          id="room"
-                          name="room"
+                          placeholder="联系手机号"
+                          flex="1 1 calc(50% - 5px)"
                           required
-                          value={formData.room}
-                          onChange={handleInputChange}
-                          className={`input-glass w-full text-gray-900 placeholder-gray-500 ${fieldErrors.room ? 'border-red-300 ring-2 ring-red-100' : ''}`}
-                          placeholder="如：101"
+                          error={fieldErrors.phone}
                         />
-                        {fieldErrors.room && (
-                          <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
-                            <i className="fas fa-exclamation-circle text-xs"></i>
-                            {fieldErrors.room}
-                          </p>
-                        )}
                       </div>
-                    </div>
 
-                    {user?.type === 'user' && (
-                      <div className="mt-3 flex items-center justify-between text-xs text-gray-500 bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl">
-                        <span>若需修改园区或楼栋，请先更新配送地址。</span>
-                    <button
-                      type="button"
-                      onClick={openLocationModal}
-                      className="text-indigo-600 hover:text-indigo-800"
-                    >
-                      修改地址
-                    </button>
-                  </div>
-                )}
-
-                {addressInvalid && (
-                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                    <i className="fas fa-exclamation-triangle mt-0.5"></i>
-                    <span className="flex-1">{addressAlertMessage}</span>
-                    <button
-                      type="button"
-                      onClick={openLocationModal}
-                      className="ml-3 text-rose-600 hover:text-rose-800 underline"
-                    >
-                      重新选择
-                    </button>
-                  </div>
-                )}
-
-                <div>
-                  <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
-                    <i className="fas fa-comment mr-2"></i>备注信息
-                  </label>
-                      <textarea
-                        id="note"
-                        name="note"
-                        rows={3}
-                        value={formData.note}
-                        onChange={handleInputChange}
-                        className="input-glass w-full text-gray-900 placeholder-gray-500 resize-none"
-                        placeholder="有什么特别要求可以在这里说明..."
-                      />
-                    </div>
-                  </form>
-                </div>
-
-                {/* 支付方式说明 */}
-                <div className="card-glass p-6 border border-white/30 animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-credit-card text-white"></i>
-                    </div>
-                    <h2 className="text-xl font-semibold text-gray-900">支付方式</h2>
-                  </div>
-
-                  <div className="bg-green-500/20 border border-green-400/30 backdrop-blur-sm rounded-xl p-4">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                          <i className="fas fa-check text-white text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <i className="fab fa-weixin text-green-400 text-lg"></i>
-                          <span className="text-sm font-medium text-gray-900">微信扫码支付</span>
-                        </div>
-                        <p className="text-xs text-gray-700">点击立即支付获取收款码，扫码付款后点击"已完成付款"</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 订单摘要 */}
-              <div className="lg:col-span-1">
-                <div className="card-glass p-6 border border-white/30 sticky top-8 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-file-invoice-dollar text-white"></i>
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900">订单摘要</h3>
-                  </div>
-                  
-                  {/* 商品列表 */}
-                  <div className="space-y-4 mb-6 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                    {cart.items && cart.items
-                      .sort((a, b) => {
-                        // 非卖品排到最后
-                        const aIsNonSellable = Boolean(a.is_not_for_sale);
-                        const bIsNonSellable = Boolean(b.is_not_for_sale);
-                        if (aIsNonSellable && !bIsNonSellable) return 1;
-                        if (!aIsNonSellable && bIsNonSellable) return -1;
-                        return 0;
-                      })
-                      .map((item, index) => {
-                      const isDown = item.is_active === 0 || item.is_active === false;
-                      const isNonSellable = Boolean(item.is_not_for_sale);
-                      return (
-                        <div 
-                          key={(item.product_id + (item.variant_id || ''))} 
-                          className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 animate-fade-in-up ${isDown ? 'opacity-60 grayscale' : ''}`}
-                          style={{ animationDelay: `${index * 0.05 + 0.3}s`, animationFillMode: 'both' }}
-                        >
-                          <div className="flex justify-between items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              {/* 商品名和标识同行显示 */}
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className={`text-sm font-medium ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
-                                  {item.name}
-                                </p>
-                                {item.variant_name && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 flex-shrink-0">
-                                    {item.variant_name}
-                                  </span>
-                                )}
-                                {item.reservation_required && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex-shrink-0">
-                                    预约
-                                  </span>
-                                )}
-                                {isNonSellable && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 flex-shrink-0">
-                                    非卖品
-                                  </span>
-                                )}
-                                {isDown && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 flex-shrink-0">
-                                    暂时下架
-                                  </span>
-                                )}
+                      {/* 地址行 */}
+                      {user?.type === "user" && (
+                        <div style={{ marginTop: 12 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "12px 14px",
+                              borderRadius: 14,
+                              border: `1.5px solid ${borderSubtle}`,
+                              background: bgRaised,
+                              cursor: "pointer",
+                            }}
+                            onClick={openLocationModal}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke={accent}
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                              >
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+                                <circle cx="12" cy="10" r="3" />
+                              </svg>
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 500,
+                                  color: textPrimary,
+                                }}
+                              >
+                                {locationLoading
+                                  ? "加载中..."
+                                  : displayLocation}
                               </div>
                             </div>
-                            {/* 价格区域 - 始终显示在右上角 */}
-                            <div className="text-right flex-shrink-0">
-                              <span className={`text-sm font-semibold ${isDown ? 'text-gray-500' : 'text-gray-900'}`}>
-                                ¥{item.subtotal}
-                              </span>
-                              {isNonSellable && (
-                                <div className="text-[11px] text-purple-200">非卖品免计价</div>
-                              )}
-                            </div>
-                          </div>
-                          {/* 数量和预约信息行 */}
-                          <div className="flex justify-between items-baseline gap-2 mt-1">
-                            <p className="text-gray-600 text-xs">
-                              数量: {item.quantity} {(isDown || isNonSellable) && <span className="text-gray-500">（不计入金额）</span>}
-                            </p>
-                            {item.reservation_required && (
-                              <p className="text-blue-600 text-[11px] leading-snug text-right flex-shrink-0">
-                                {formatReservationCutoff(item.reservation_cutoff)}
-                                {item.reservation_note ? ` · ${item.reservation_note}` : ''}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  
-                  {/* 费用明细 */}
-                  <div className="space-y-4 mb-6 border-t border-white/20 pt-4">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 flex items-center gap-2">
-                        <i className="fas fa-shopping-bag"></i>
-                        商品金额
-                      </span>
-                      <span className="text-gray-900 font-medium">¥{cart.total_price}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 flex items-center gap-2">
-                        <i className="fas fa-truck"></i>
-                        配送费
-                      </span>
-                      <span className="text-gray-900 font-medium">
-                        {cart.shipping_fee > 0 ? `¥${cart.shipping_fee}` : (
-                          <span className="text-green-400">免费</span>
-                        )}
-                      </span>
-                    </div>
-                    {cart.shipping_fee > 0 && deliveryConfig.free_delivery_threshold < 999999999 && (
-                      <div className="text-xs text-gray-500 flex justify-end">
-                        满 ¥{deliveryConfig.free_delivery_threshold} 免配送费
-                      </div>
-                    )}
-                    {/* 优惠券选择（结算区域） */}
-                    <div className="flex items-center justify-between text-sm">
-                      <label className="flex items-center gap-2">
-                        <input 
-                          type="checkbox" 
-                          checked={applyCoupon} 
-                          disabled={(() => {
-                            const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                            return usable.length === 0;
-                          })()} 
-                          onChange={(e) => {
-                            const checked = !!e.target.checked;
-                            setApplyCoupon(checked);
-                            if (checked && !selectedCouponId) {
-                              // 如果勾选使用优惠券但没有选中券，自动选择最佳券
-                              const usable = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                              if (usable.length > 0) {
-                                usable.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
-                                setSelectedCouponId(usable[0].id);
-                              }
-                            }
-                          }} 
-                        />
-                        <span className="text-gray-900">使用优惠券</span>
-                      </label>
-                      <span className="text-gray-900 font-medium">
-                        {applyCoupon && selectedCouponId ? (() => {
-                          const c = coupons.find(x => x.id === selectedCouponId);
-                          return c ? `-¥${(parseFloat(c.amount) || 0).toFixed(2)}` : '—';
-                        })() : '—'}
-                      </span>
-                    </div>
-                    {/* 优惠券自定义下拉选择 */}
-                    {(() => {
-                      const usableCoupons = (coupons || []).filter(c => ((cart?.total_price || 0) > ((parseFloat(c.amount) || 0))));
-                      if (usableCoupons.length === 0) return null;
-                      
-                      // 计算弹出方向
-                      const handleToggleDropdown = () => {
-                        if (!showCouponDropdown && couponDropdownRef.current) {
-                          const rect = couponDropdownRef.current.getBoundingClientRect();
-                          const viewportHeight = window.innerHeight;
-                          const spaceBelow = viewportHeight - rect.bottom;
-                          const spaceAbove = rect.top;
-                          const dropdownHeight = 200; // 预估下拉框高度
-                          
-                          // 默认向下弹出，只有当下方空间不足且上方空间充足时才向上
-                          if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
-                            setCouponDropdownDirection('up');
-                          } else {
-                            setCouponDropdownDirection('down');
-                          }
-                        }
-                        setShowCouponDropdown(!showCouponDropdown);
-                      };
-                      
-                      return (
-                        <>
-                          {/* 点击外部关闭遮罩 - 放在最外层确保全屏覆盖 */}
-                          {showCouponDropdown && (
-                            <div 
-                              className="fixed inset-0 z-[100]" 
-                              onClick={() => setShowCouponDropdown(false)}
-                            ></div>
-                          )}
-                          <AnimatePresence>
-                            {applyCoupon && usableCoupons.length > 0 && (
-                              <motion.div 
-                                initial={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
-                                animate={{ opacity: 1, height: "auto", marginTop: "0.5rem", transitionEnd: { overflow: "visible" } }}
-                                exit={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
-                                transition={{ duration: 0.2, ease: "easeInOut" }}
-                                className="relative z-[101]"
-                              >
-                                <button
-                                ref={couponDropdownRef}
-                                type="button"
-                                onClick={handleToggleDropdown}
-                                className="relative z-20 w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 hover:border-pink-300 hover:shadow-sm transition-all duration-200"
-                              >
-                                <span className="truncate">
-                                  {selectedCouponId 
-                                    ? (() => {
-                                        const c = usableCoupons.find(c => c.id === selectedCouponId);
-                                        return c ? `${parseFloat(c.amount).toFixed(2)}元优惠券${c.expires_at ? ` (${new Date(c.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()})` : ''}` : '请选择优惠券';
-                                      })()
-                                    : '请选择优惠券'}
-                                </span>
-                                <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${showCouponDropdown ? (couponDropdownDirection === 'up' ? 'rotate-180' : '-rotate-180') : ''}`}></i>
-                              </button>
-
-                              <AnimatePresence>
-                                {showCouponDropdown && (
-                                  <motion.div
-                                    initial={{ opacity: 0, y: couponDropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
-                                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    exit={{ opacity: 0, y: couponDropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
-                                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                                    className={`absolute left-0 right-0 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-30 ${
-                                      couponDropdownDirection === 'up' 
-                                        ? 'bottom-full mb-1' 
-                                        : 'top-full mt-1'
-                                    }`}
-                                  >
-                                    <div className="max-h-48 overflow-y-auto custom-scrollbar p-1.5 space-y-1">
-                                      {usableCoupons
-                                        .sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))
-                                        .map(c => (
-                                          <button
-                                            key={c.id}
-                                            onClick={() => {
-                                              setSelectedCouponId(c.id);
-                                              setShowCouponDropdown(false);
-                                            }}
-                                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors duration-200 flex items-center justify-between group ${
-                                              selectedCouponId === c.id
-                                                ? 'bg-pink-50 text-pink-700 font-medium'
-                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                                            }`}
-                                          >
-                                            <span className="truncate">
-                                              {parseFloat(c.amount).toFixed(2)}元优惠券
-                                              <span className={`text-xs ml-2 ${selectedCouponId === c.id ? 'text-pink-500' : 'text-gray-400 group-hover:text-gray-500'}`}>
-                                                {c.expires_at ? `有效期至 ${new Date(c.expires_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : '永久有效'}
-                                              </span>
-                                            </span>
-                                            {selectedCouponId === c.id && (
-                                              <i className="fas fa-check text-pink-500"></i>
-                                            )}
-                                          </button>
-                                        ))}
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        </>
-                      );
-                    })()}
-                    <div className="bg-white/10 rounded-xl p-4 border border-white/20">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-900 font-semibold flex items-center gap-2">
-                          <i className="fas fa-calculator"></i>
-                          总计
-                        </span>
-                        {(() => {
-                          const base = (cart?.payable_total ?? cart.total_price) || 0;
-                          const disc = (applyCoupon && selectedCouponId) ? (parseFloat((coupons.find(x => x.id === selectedCouponId)?.amount) || 0)) : 0;
-                          const total = Math.max(0, base - disc);
-                          return <AnimatedPrice value={total} className="text-2xl font-bold text-gray-900" />;
-                        })()}
-                      </div>
-                    </div>
-                    {shouldReserve && (
-                      <div className="mb-6 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                        <div className="flex items-center gap-2 font-medium">
-                          <i className="fas fa-calendar-day"></i>
-                          <span>{reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交，我们会在营业后优先处理。' : '本单包含预约商品，将以预约订单处理。'}</span>
-                        </div>
-                        {hasReservationItems && (
-                          <div className="mt-1 text-blue-600/90 leading-relaxed">
-                            请确认预约说明，配送时间将根据预约安排。
-                          </div>
-                        )}
-                        {!shopOpen && !reservationAllowed && !allReservationItems && (
-                          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                            当前打烊期间仅支持预约商品，请移除非预约商品后再尝试提交。
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {cycleLocked && (
-                      <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 font-medium">
-                        暂时无法结算，请联系管理员
-                      </div>
-                    )}
-                  </div>
-                  {/* 抽奖奖品（仅展示，不计入金额；达标则自动随单配送）*/}
-                  {eligibleRewards && eligibleRewards.length > 0 && cart?.lottery_enabled !== false && (
-                    <div className="mb-6 border-t border-white/20 pt-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <i className="fas fa-gift text-pink-500"></i>
-                        <span className="text-sm font-medium text-gray-900">抽奖奖品</span>
-                      </div>
-                      <div className="space-y-1">
-                        {eligibleRewards.map((r) => {
-                          const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
-                          return (
-                            <div key={r.id} className={`flex justify-between items-baseline text-sm ${meet ? 'text-gray-900' : 'text-gray-400'}`}>
-                              <span className="flex flex-col">
-                                <span>{r.prize_name || '奖品'} × {r.prize_quantity || 1}</span>
-                                {(r.prize_product_name || r.prize_variant_name) && (
-                                  <span className="text-[11px] text-gray-500">
-                                    {r.prize_product_name || ''}{r.prize_variant_name ? `（${r.prize_variant_name}）` : ''}
-                                  </span>
-                                )}
-                              </span>
-                              <span className="text-right text-xs">
-                                <span className="text-sm">¥0.00</span>
-                                <span className="text-[11px] text-gray-500">赠品</span>
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {(() => {
-                        const meet = (cart?.total_price ?? 0) >= lotteryThreshold;
-                        return (
-                          <p className={`mt-2 text-xs ${meet ? 'text-green-600' : 'text-gray-500'}`}>
-                            {meet
-                              ? `本单满${formattedLotteryThreshold}元，将自动随单配送抽奖奖品（免费）`
-                              : `订单满${formattedLotteryThreshold}元将自动随下单配送抽奖奖品（免费）`}
-                          </p>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  {cart.items && cart.items.length > 0 && autoGifts.length > 0 && (
-                    <div className="mb-8 border-t border-white/20 pt-6">
-                      <div className="flex items-center gap-2 mb-2">
-                        <i className="fas fa-gifts text-pink-500"></i>
-                        <span className="text-sm font-medium text-gray-900">满额门槛</span>
-                      </div>
-                      <div className="space-y-1">
-                        {autoGifts.map((threshold, index) => {
-                          const thresholdAmount = threshold.threshold_amount || 0;
-                          const cartTotal = cart?.total_price || 0;
-                          const unlocked = cartTotal >= thresholdAmount;
-                          const rowClass = unlocked ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-200 border-gray-300 text-gray-600';
-                          
-                          const rewardParts = [];
-                          if (threshold.gift_products && threshold.selected_product_name) {
-                            rewardParts.push(threshold.selected_product_name);
-                          }
-                          if (threshold.gift_coupon && threshold.coupon_amount > 0) {
-                            rewardParts.push(`${threshold.coupon_amount}元优惠券`);
-                          }
-                          const rewardText = rewardParts.length > 0 ? rewardParts.join(' + ') : '暂无奖励';
-                          const hint = unlocked ? '已满足条件' : `还差 ¥${(thresholdAmount - cartTotal).toFixed(2)}`;
-                          
-                          return (
-                            <div
-                              key={threshold.threshold_amount || index}
-                              className={`flex flex-col text-xs border rounded-md px-3 py-2 ${rowClass}`}
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: accent,
+                                fontWeight: 500,
+                              }}
                             >
-                              <span className="font-medium">满 ¥{thresholdAmount}</span>
-                              <span className="mt-1 text-[11px] break-words">{rewardText} · {hint}</span>
-                            </div>
-                          );
-                        })}
+                              {location ? "修改" : "选择"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 地址警告 */}
+                      {addressInvalid && (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "10px 14px",
+                            borderRadius: 14,
+                            background: "rgba(192,69,58,0.08)",
+                            border: "1px solid rgba(192,69,58,0.2)",
+                            fontSize: 12,
+                            color: colorError,
+                          }}
+                        >
+                          <span style={{ flex: 1 }}>{addressAlertMessage}</span>
+                          <span
+                            onClick={openLocationModal}
+                            style={{
+                              color: colorError,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              flexShrink: 0,
+                            }}
+                          >
+                            重新选择
+                          </span>
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                        <WarmInput
+                          label="配送区"
+                          flex="1 1 calc(33% - 7px)"
+                          readOnly
+                        >
+                          <div
+                            style={{
+                              padding: "11px 14px",
+                              fontSize: 14,
+                              borderRadius: 12,
+                              border: `1.5px solid ${borderSubtle}`,
+                              background: bgBase,
+                              color: textSecondary,
+                            }}
+                          >
+                            {locationLoading
+                              ? "..."
+                              : location?.dormitory || "未选择"}
+                          </div>
+                        </WarmInput>
+                        <WarmInput
+                          label="楼栋"
+                          flex="1 1 calc(33% - 7px)"
+                          readOnly
+                        >
+                          <div
+                            style={{
+                              padding: "11px 14px",
+                              fontSize: 14,
+                              borderRadius: 12,
+                              border: `1.5px solid ${borderSubtle}`,
+                              background: bgBase,
+                              color: textSecondary,
+                            }}
+                          >
+                            {locationLoading
+                              ? "..."
+                              : location?.building || "未选择"}
+                          </div>
+                        </WarmInput>
+                        <WarmInput
+                          label="房间号"
+                          id="room"
+                          name="room"
+                          value={formData.room}
+                          onChange={handleInputChange}
+                          placeholder="如 502"
+                          flex="1 1 calc(33% - 7px)"
+                          required
+                          error={fieldErrors.room}
+                        />
                       </div>
+
+                      {/* 备注 */}
+                      {!showNote ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowNote(true)}
+                          style={{
+                            marginTop: 14,
+                            fontSize: 13,
+                            color: accent,
+                            fontWeight: 500,
+                            border: "none",
+                            background: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 5,
+                            fontFamily: fontUI,
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                          >
+                            <path d="M12 5v14M5 12h14" />
+                          </svg>
+                          添加备注
+                        </button>
+                      ) : (
+                        <div style={{ marginTop: 12 }}>
+                          <WarmInput
+                            label="备注"
+                            id="note"
+                            name="note"
+                            value={formData.note}
+                            onChange={handleInputChange}
+                            placeholder="口味偏好、送达时间等"
+                          >
+                            <textarea
+                              id="note"
+                              name="note"
+                              value={formData.note}
+                              onChange={handleInputChange}
+                              placeholder="口味偏好、送达时间等"
+                              rows={2}
+                              style={{
+                                width: "100%",
+                                padding: "11px 14px",
+                                fontSize: 14,
+                                fontFamily: fontUI,
+                                border: `1.5px solid ${borderSubtle}`,
+                                borderRadius: 12,
+                                outline: "none",
+                                color: textPrimary,
+                                background: bgRaised,
+                                resize: "vertical",
+                                boxSizing: "border-box",
+                                minHeight: 60,
+                                transition: "all .2s ease",
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = accent;
+                                e.target.style.background = bgOverlay;
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = borderSubtle;
+                                e.target.style.background = bgRaised;
+                              }}
+                            />
+                          </WarmInput>
+                        </div>
+                      )}
+                    </form>
+                  </Card>
+                </div>
+
+                {/* ── Right Column ── */}
+                <div className="checkout-col-right">
+                  {/* ═══ 订单摘要 ═══ */}
+                  <Card>
+                    <SectionLabel
+                      icon="📋"
+                      title="订单摘要"
+                      extra={
+                        <span style={{ fontSize: 12, color: textMuted }}>
+                          {cart.items?.reduce(
+                            (a, p) => a + Number(p.quantity || 0),
+                            0,
+                          ) || 0}{" "}
+                          件
+                        </span>
+                      }
+                    />
+                    <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                      {cart.items &&
+                        cart.items
+                          .sort((a, b) => {
+                            const aIsNonSellable = Boolean(a.is_not_for_sale);
+                            const bIsNonSellable = Boolean(b.is_not_for_sale);
+                            if (aIsNonSellable && !bIsNonSellable) return 1;
+                            if (!aIsNonSellable && bIsNonSellable) return -1;
+                            return 0;
+                          })
+                          .map((item) => {
+                            const isDown =
+                              item.is_active === 0 || item.is_active === false;
+                            const isNonSellable = Boolean(item.is_not_for_sale);
+                            return (
+                              <div
+                                key={item.product_id + (item.variant_id || "")}
+                                style={{
+                                  display: "flex",
+                                  gap: 12,
+                                  padding: "12px 0",
+                                  borderBottom: `1px solid ${borderSubtle}`,
+                                  opacity: isDown ? 0.5 : 1,
+                                }}
+                              >
+                                {getProductImage(item) ? (
+                                  <img
+                                    src={getProductImage(item)}
+                                    alt={item.name || ""}
+                                    style={{
+                                      width: 44,
+                                      height: 44,
+                                      borderRadius: 10,
+                                      flexShrink: 0,
+                                      objectFit: "cover",
+                                      background: bgBase,
+                                      border: `1px solid ${borderSubtle}`,
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: 44,
+                                      height: 44,
+                                      borderRadius: 10,
+                                      flexShrink: 0,
+                                      background: bgBase,
+                                      border: `1px solid ${borderSubtle}`,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      fontSize: 18,
+                                      color: textSecondary,
+                                    }}
+                                  >
+                                    {item.name?.charAt(0) || "?"}
+                                  </div>
+                                )}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "flex-start",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: 500,
+                                          color: textPrimary,
+                                        }}
+                                      >
+                                        {item.name}
+                                      </span>
+                                      {item.variant_name && (
+                                        <span
+                                          style={{
+                                            fontSize: 11,
+                                            padding: "1px 6px",
+                                            borderRadius: 4,
+                                            background: "rgba(217,119,87,0.1)",
+                                            color: accent,
+                                          }}
+                                        >
+                                          {item.variant_name}
+                                        </span>
+                                      )}
+                                      {item.reservation_required && (
+                                        <span
+                                          style={{
+                                            fontSize: 11,
+                                            padding: "1px 6px",
+                                            borderRadius: 4,
+                                            background: "rgba(106,155,204,0.1)",
+                                            color: "#5A89B8",
+                                          }}
+                                        >
+                                          预约
+                                        </span>
+                                      )}
+                                      {isNonSellable && (
+                                        <span
+                                          style={{
+                                            fontSize: 11,
+                                            padding: "1px 6px",
+                                            borderRadius: 4,
+                                            background: "rgba(217,119,87,0.1)",
+                                            color: accent,
+                                          }}
+                                        >
+                                          非卖品
+                                        </span>
+                                      )}
+                                      {isDown && (
+                                        <span
+                                          style={{
+                                            fontSize: 11,
+                                            padding: "1px 6px",
+                                            borderRadius: 4,
+                                            background: `${bgBase}`,
+                                            color: textMuted,
+                                          }}
+                                        >
+                                          已下架
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: 600,
+                                        color: textPrimary,
+                                        fontVariantNumeric: "tabular-nums",
+                                        flexShrink: 0,
+                                        marginLeft: 8,
+                                      }}
+                                    >
+                                      ¥{item.subtotal}
+                                    </span>
+                                  </div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      marginTop: 3,
+                                    }}
+                                  >
+                                    <span
+                                      style={{ fontSize: 12, color: textMuted }}
+                                    >
+                                      ×{item.quantity}{" "}
+                                      {(isDown || isNonSellable) && (
+                                        <span>（不计入金额）</span>
+                                      )}
+                                    </span>
+                                    {item.reservation_required && (
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#5A89B8",
+                                          textAlign: "right",
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {formatReservationCutoff(
+                                          item.reservation_cutoff,
+                                        )}
+                                        {item.reservation_note
+                                          ? ` · ${item.reservation_note}`
+                                          : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                    </div>
+
+                    {/* 费用明细 */}
+                    <div
+                      style={{
+                        borderTop: `1px solid ${borderSubtle}`,
+                        paddingTop: 14,
+                        marginTop: 4,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: 13,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span style={{ color: textSecondary }}>商品金额</span>
+                        <span
+                          style={{
+                            color: textPrimary,
+                            fontWeight: 500,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          ¥{cart.total_price}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: 13,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span style={{ color: textSecondary }}>配送费</span>
+                        <span
+                          style={{
+                            color:
+                              cart.shipping_fee > 0
+                                ? textPrimary
+                                : colorSuccess,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {cart.shipping_fee > 0
+                            ? `¥${cart.shipping_fee}`
+                            : "免费"}
+                        </span>
+                      </div>
+                      {cart.shipping_fee > 0 &&
+                        deliveryConfig.free_delivery_threshold < 999999999 && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: textMuted,
+                              textAlign: "right",
+                              marginBottom: 8,
+                            }}
+                          >
+                            满 ¥{deliveryConfig.free_delivery_threshold}{" "}
+                            免配送费
+                          </div>
+                        )}
+                    </div>
+                  </Card>
+
+                  {/* ═══ 优惠券 — 开关样式 ═══ */}
+                  {usableCoupons.length > 0 && (
+                    <label
+                      className="warm-card"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "16px 18px",
+                        background: bgRaised,
+                        borderRadius: 20,
+                        border: `1px solid ${borderSubtle}`,
+                        cursor: "pointer",
+                        marginBottom: 14,
+                        transition: "all .2s ease",
+                        ...(applyCoupon
+                          ? {
+                              borderColor: "rgba(217,119,87,0.25)",
+                              background: "rgba(217,119,87,0.04)",
+                            }
+                          : {}),
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                        }}
+                      >
+                        <span style={{ fontSize: 18 }}>🎟️</span>
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 500,
+                              color: textPrimary,
+                            }}
+                          >
+                            使用优惠券
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: textMuted,
+                              marginTop: 2,
+                            }}
+                          >
+                            {applyCoupon && selectedCouponId
+                              ? (() => {
+                                  const c = coupons.find(
+                                    (x) => x.id === selectedCouponId,
+                                  );
+                                  return c
+                                    ? `已选 ${parseFloat(c.amount).toFixed(2)}元券${c.expires_at ? `，${new Date(c.expires_at.replace(" ", "T") + "Z").toLocaleDateString()} 到期` : ""}`
+                                    : "已选推荐优惠";
+                                })()
+                              : "已选推荐最优组合"}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        {applyCoupon && couponDiscountAmount > 0 && (
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: accent,
+                            }}
+                          >
+                            -¥{couponDiscountAmount.toFixed(2)}
+                          </span>
+                        )}
+                        {/* Toggle switch */}
+                        <div
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setApplyCoupon(!applyCoupon);
+                          }}
+                          style={{
+                            position: "relative",
+                            width: 44,
+                            height: 24,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 44,
+                              height: 24,
+                              borderRadius: 12,
+                              background: applyCoupon ? accent : borderDefault,
+                              transition: "background .2s ease",
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: 3,
+                              left: applyCoupon ? 23 : 3,
+                              width: 18,
+                              height: 18,
+                              borderRadius: 9,
+                              background: "#fff",
+                              boxShadow: "0 1px 4px rgba(20,20,19,0.2)",
+                              transition: "left .2s cubic-bezier(.4,0,.2,1)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </label>
+                  )}
+
+                  {/* ═══ 满额活动 ═══ */}
+                  {cart.items &&
+                    cart.items.length > 0 &&
+                    autoGifts.length > 0 && (
+                      <Card>
+                        <SectionLabel icon="🎁" title="满赠活动" />
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 10,
+                          }}
+                        >
+                          {autoGifts.map((threshold, index) => {
+                            const thresholdAmount =
+                              threshold.threshold_amount || 0;
+                            const cartTotal = cart?.total_price || 0;
+                            const unlocked = cartTotal >= thresholdAmount;
+                            const diff = Math.max(
+                              thresholdAmount - cartTotal,
+                              0,
+                            );
+
+                            const rewardParts = [];
+                            if (
+                              threshold.gift_products &&
+                              threshold.selected_product_name
+                            )
+                              rewardParts.push(threshold.selected_product_name);
+                            if (
+                              threshold.gift_coupon &&
+                              threshold.coupon_amount > 0
+                            )
+                              rewardParts.push(
+                                `${threshold.coupon_amount}元优惠券`,
+                              );
+                            const rewardText =
+                              rewardParts.length > 0
+                                ? rewardParts.join(" + ")
+                                : "暂无奖励";
+
+                            return (
+                              <div
+                                key={threshold.threshold_amount || index}
+                                style={{
+                                  padding: "14px 14px 12px",
+                                  borderRadius: 14,
+                                  background: unlocked
+                                    ? "rgba(107,143,71,0.06)"
+                                    : bgBase,
+                                  border: `1px solid ${unlocked ? "rgba(107,143,71,0.2)" : borderSubtle}`,
+                                  transition: "all .3s ease",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 500,
+                                      color: textPrimary,
+                                    }}
+                                  >
+                                    满 ¥{thresholdAmount} 赠{" "}
+                                    <span style={{ color: accent }}>
+                                      {rewardText}
+                                    </span>
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 12,
+                                      fontWeight: 500,
+                                      color: unlocked ? colorSuccess : accent,
+                                    }}
+                                  >
+                                    {unlocked
+                                      ? "✓ 已达标"
+                                      : `差 ¥${diff.toFixed(2)}`}
+                                  </span>
+                                </div>
+                                <ProgressBar
+                                  current={cartTotal}
+                                  target={thresholdAmount}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Card>
+                    )}
+
+                  {/* ═══ 抽奖奖品 ═══ */}
+                  {eligibleRewards &&
+                    eligibleRewards.length > 0 &&
+                    cart?.lottery_enabled !== false && (
+                      <Card>
+                        <SectionLabel icon="🎰" title="抽奖奖品" />
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                          }}
+                        >
+                          {eligibleRewards.map((r) => {
+                            const meet =
+                              (cart?.total_price ?? 0) >= lotteryThreshold;
+                            return (
+                              <div
+                                key={r.id}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "baseline",
+                                  fontSize: 13,
+                                  color: meet ? textPrimary : textMuted,
+                                  padding: "6px 0",
+                                }}
+                              >
+                                <span>
+                                  <span>
+                                    {r.prize_name || "奖品"} ×{" "}
+                                    {r.prize_quantity || 1}
+                                  </span>
+                                  {(r.prize_product_name ||
+                                    r.prize_variant_name) && (
+                                    <span
+                                      style={{
+                                        fontSize: 11,
+                                        color: textMuted,
+                                        marginLeft: 6,
+                                      }}
+                                    >
+                                      {r.prize_product_name || ""}
+                                      {r.prize_variant_name
+                                        ? `（${r.prize_variant_name}）`
+                                        : ""}
+                                    </span>
+                                  )}
+                                </span>
+                                <span
+                                  style={{ fontSize: 11, color: textMuted }}
+                                >
+                                  赠品
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {(() => {
+                          const meet =
+                            (cart?.total_price ?? 0) >= lotteryThreshold;
+                          return (
+                            <p
+                              style={{
+                                marginTop: 8,
+                                fontSize: 12,
+                                color: meet ? colorSuccess : textMuted,
+                              }}
+                            >
+                              {meet
+                                ? `本单满${formattedLotteryThreshold}元，将自动参与抽奖`
+                                : `订单满${formattedLotteryThreshold}元可参与抽奖`}
+                            </p>
+                          );
+                        })()}
+                      </Card>
+                    )}
+
+                  {/* ═══ 预约 / 锁定提示 ═══ */}
+                  {shouldReserve && (
+                    <div
+                      style={{
+                        margin: "0 0 14px",
+                        padding: "12px 14px",
+                        borderRadius: 16,
+                        background: "rgba(106,155,204,0.06)",
+                        border: "1px solid rgba(106,155,204,0.18)",
+                        fontSize: 12,
+                        color: "#5A89B8",
+                      }}
+                    >
+                      <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                        {reservationFromClosure
+                          ? "店铺当前打烊，本单将以预约方式提交"
+                          : "本单包含预约商品，将以预约订单处理"}
+                      </div>
+                      {hasReservationItems && (
+                        <div
+                          style={{
+                            color: "rgba(90,137,184,0.8)",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          请确认预约说明，配送时间将根据预约安排。
+                        </div>
+                      )}
                     </div>
                   )}
-                  
-                  {/* 支付按钮 */}
-                  <button
-                    onClick={handleCreatePayment}
-                    disabled={isCreatingPayment || cycleLocked || closedBlocked || !locationReady || addressInvalid}
-                    className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transform hover:scale-105 transition-all duration-300 text-white shadow-2xl flex items-center justify-center gap-2"
-                  >
-                    {isCreatingPayment ? (
-                      <>
-                        <div className="loading-dots text-white"></div>
-                        <span>获取收款码中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-credit-card"></i>
-                        <span>{checkoutButtonLabel}</span>
-                      </>
-                    )}
-                  </button>
-                  
-                  <div className="mt-4 text-center">
-                    <p className="text-xs text-gray-600 leading-relaxed">
-                      点击支付即表示您同意我们的
-                      <span className="text-gray-700 hover:text-gray-900 underline cursor-pointer" onClick={() => setLegalModal({ open: true, tab: 'terms' })}> 服务条款</span>
-                      和
-                      <span className="text-gray-700 hover:text-gray-900 underline cursor-pointer" onClick={() => setLegalModal({ open: true, tab: 'privacy' })}> 隐私政策</span>
-                    </p>
-                  </div>
+                  {cycleLocked && (
+                    <div
+                      style={{
+                        margin: "0 0 14px",
+                        padding: "12px 14px",
+                        borderRadius: 16,
+                        background: "rgba(201,148,58,0.06)",
+                        border: "1px solid rgba(201,148,58,0.18)",
+                        fontSize: 12,
+                        color: "#C9943A",
+                        fontWeight: 500,
+                      }}
+                    >
+                      暂时无法结算，请联系管理员
+                    </div>
+                  )}
+                </div>
+
+                {/* ═══ 支付方式 — grid第三子元素，移动端排最后，桌面端归左栏下方 ═══ */}
+                <div className="checkout-payment-method">
+                  <Card style={{ marginBottom: 0 }}>
+                    <SectionLabel icon="💳" title="支付方式" />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        background: "rgba(107,143,71,0.06)",
+                        border: "1px solid rgba(107,143,71,0.15)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 10,
+                          flexShrink: 0,
+                          background: "#2DC100",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 1024 1024"
+                          fill="#fff"
+                        >
+                          <path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: textPrimary,
+                          }}
+                        >
+                          微信扫码支付
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: textSecondary,
+                            marginTop: 1,
+                          }}
+                        >
+                          获取收款码后扫码付款
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
                 </div>
               </div>
-            </div>
+            </>
           )}
-        </main>
+        </div>
+
+        {/* ── Bottom Bar ── */}
+        {!isLoading && (
+          <div
+            className="checkout-bottom-bar"
+            style={{
+              position: "fixed",
+              bottom: 12,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: "calc(100% - 24px)",
+              maxWidth: 1080,
+              zIndex: 20,
+              padding:
+                "14px 20px calc(14px + env(safe-area-inset-bottom, 4px)) 20px",
+              background: "rgba(250,249,245,.92)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: `1px solid ${borderSubtle}`,
+              borderRadius: 20,
+              boxShadow: "0 4px 24px rgba(20,20,19,0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 14,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: textMuted,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>合计</span>
+                {couponDiscountAmount > 0 && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: accent,
+                      fontWeight: 600,
+                      padding: "1px 6px",
+                      background: "rgba(217,119,87,0.08)",
+                      borderRadius: 4,
+                    }}
+                  >
+                    已减 ¥{couponDiscountAmount.toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  marginTop: 2,
+                }}
+              >
+                <AnimatedPrice
+                  value={payableAmount}
+                  className=""
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 700,
+                    color: accent,
+                    fontVariantNumeric: "tabular-nums",
+                    lineHeight: 1.2,
+                    fontFamily: fontUI,
+                  }}
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleCreatePayment}
+              disabled={
+                isCreatingPayment ||
+                cycleLocked ||
+                closedBlocked ||
+                !locationReady ||
+                addressInvalid
+              }
+              style={{
+                padding: "13px 28px",
+                fontSize: 14,
+                fontWeight: 600,
+                fontFamily: fontUI,
+                border: "none",
+                borderRadius: 14,
+                cursor:
+                  isCreatingPayment ||
+                  cycleLocked ||
+                  closedBlocked ||
+                  !locationReady ||
+                  addressInvalid
+                    ? "not-allowed"
+                    : "pointer",
+                background:
+                  isCreatingPayment ||
+                  cycleLocked ||
+                  closedBlocked ||
+                  !locationReady ||
+                  addressInvalid
+                    ? borderDefault
+                    : accent,
+                color:
+                  isCreatingPayment ||
+                  cycleLocked ||
+                  closedBlocked ||
+                  !locationReady ||
+                  addressInvalid
+                    ? textMuted
+                    : "#FAF9F5",
+                boxShadow:
+                  isCreatingPayment ||
+                  cycleLocked ||
+                  closedBlocked ||
+                  !locationReady ||
+                  addressInvalid
+                    ? "none"
+                    : "0 4px 16px rgba(217,119,87,0.35)",
+                transition: "all .25s cubic-bezier(.16,1,.3,1)",
+                letterSpacing: ".03em",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              {isCreatingPayment ? "获取中..." : checkoutButtonLabel}
+            </button>
+          </div>
+        )}
       </div>
+
       <LegalModal
         open={legalModal.open}
         initialTab={legalModal.tab}
-        onClose={() => setLegalModal({ open: false, tab: 'terms' })}
+        onClose={() => setLegalModal({ open: false, tab: "terms" })}
       />
 
-      {/* 微信收款码弹窗 */}
+      {/* ═══ 微信收款码弹窗 ═══ */}
       {showPayModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
-          <div className="absolute inset-0" onClick={() => {
-            setShowPayModal(false);
-            setPaymentQr(null);
-          }}></div>
-          <div className="relative card-glass max-w-sm w-full mx-4 p-8 border border-white/30 shadow-2xl animate-fade-in-up z-10">
-            {/* 弹窗标题 */}
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                <i className="fab fa-weixin text-white text-2xl"></i>
-              </div>
-              <h4 className="text-xl font-semibold text-gray-900 mb-2">长按图片扫描二维码支付</h4>
-            </div>
-
-            {/* 二维码区域 */}
-            <div className="mb-6 text-center">
-              {paymentQr ? (
-                paymentQr.owner_type === 'default' ? (
-                  <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <div className="text-center">
-                      <div className="text-4xl mb-4">⚠️</div>
-                      <p className="text-gray-600 text-lg font-medium">暂不可付款，请联系管理员</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <img 
-                      src={paymentQr.image_path} 
-                      alt={paymentQr.name || "收款码"} 
-                      className="mx-auto w-80 h-80 object-contain" 
-                    />
-                  </div>
-                )
-              ) : (
-                <div className="mx-auto w-80 h-80 flex items-center justify-center bg-gray-100 rounded">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-2"></div>
-                    <p className="text-gray-600 text-sm">正在加载收款码...</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-
-            {/* 操作按钮 */}
-            <div className="flex gap-3">
-              <button
-                onClick={handleMarkPaid}
-                disabled={cycleLocked || (paymentQr && paymentQr.owner_type === 'default') || addressInvalid}
-                className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-3 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-              >
-                <i className="fas fa-check-circle"></i>
-                <span>我已完成付款</span>
-              </button>
-              
-              <button
-                onClick={handlePayLater}
-                disabled={cycleLocked || addressInvalid || !locationReady}
-                className="flex-1 bg-gray-100 text-black py-3 px-3 rounded-xl font-medium hover:bg-gray-200 border border-gray-300 transition-all duration-300 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <i className="fas fa-clock text-black"></i>
-                <span>稍后支付</span>
-              </button>
-            </div>
-
-            {/* 底部链接 */}
-            <div className="mt-6 text-center">
-              <Link 
-                href="/orders" 
-                className="text-gray-600 hover:text-gray-900 text-sm underline transition-colors flex items-center justify-center gap-1"
-              >
-                <i className="fas fa-external-link-alt"></i>
-                <span>查看我的订单状态</span>
-              </Link>
-            </div>
-
-            {/* 关闭按钮 */}
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(20,20,19,0.5)",
+            backdropFilter: "blur(4px)",
+            padding: 24,
+            animation: "fadeIn .2s ease",
+          }}
+        >
+          <div
+            style={{ position: "absolute", inset: 0 }}
+            onClick={() => {
+              setShowPayModal(false);
+              setPaymentQr(null);
+            }}
+          />
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              maxWidth: 400,
+              background: bgOverlay,
+              border: `1px solid ${borderDefault}`,
+              borderRadius: 24,
+              boxShadow: "0 24px 80px rgba(20,20,19,0.25)",
+              animation: "modalUp .25s cubic-bezier(.16,1,.3,1)",
+              zIndex: 1,
+              overflow: "hidden",
+            }}
+          >
+            {/* Close */}
             <button
               onClick={() => {
                 setShowPayModal(false);
                 setPaymentQr(null);
               }}
-              className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 transition-all duration-200"
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                width: 32,
+                height: 32,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                background: bgRaised,
+                color: textMuted,
+                zIndex: 2,
+                transition: "all .15s ease",
+              }}
             >
-              <i className="fas fa-times"></i>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M3 3l10 10M13 3L3 13"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
+
+            {/* Header */}
+            <div style={{ padding: "28px 24px 0", textAlign: "center" }}>
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 14,
+                  margin: "0 auto 16px",
+                  background: colorSuccess,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#fff"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                </svg>
+              </div>
+              <h4
+                style={{
+                  fontFamily: fontDisplay,
+                  fontSize: 20,
+                  fontWeight: 400,
+                  color: textPrimary,
+                  marginBottom: 4,
+                }}
+              >
+                长按图片扫描二维码
+              </h4>
+              <p style={{ fontSize: 13, color: textMuted }}>
+                使用微信扫码完成支付
+              </p>
+            </div>
+
+            {/* QR */}
+            <div style={{ padding: "20px 24px" }}>
+              {paymentQr ? (
+                paymentQr.owner_type === "default" ? (
+                  <div
+                    style={{
+                      width: "100%",
+                      aspectRatio: "1",
+                      maxWidth: 280,
+                      margin: "0 auto",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: bgBase,
+                      borderRadius: 16,
+                      border: `2px dashed ${borderDefault}`,
+                    }}
+                  >
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+                      <p
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 500,
+                          color: textSecondary,
+                        }}
+                      >
+                        暂不可付款
+                      </p>
+                      <p
+                        style={{ fontSize: 12, color: textMuted, marginTop: 4 }}
+                      >
+                        请联系管理员
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <img
+                    src={paymentQr.image_path}
+                    alt={paymentQr.name || "收款码"}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      maxWidth: 280,
+                      margin: "0 auto",
+                      borderRadius: 12,
+                      objectFit: "contain",
+                    }}
+                  />
+                )
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    aspectRatio: "1",
+                    maxWidth: 280,
+                    margin: "0 auto",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: bgBase,
+                    borderRadius: 16,
+                  }}
+                >
+                  <div style={{ textAlign: "center" }}>
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        margin: "0 auto 8px",
+                        border: `2px solid ${accent}`,
+                        borderTopColor: "transparent",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite",
+                      }}
+                    />
+                    <p style={{ fontSize: 13, color: textMuted }}>
+                      加载收款码...
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ padding: "0 24px 24px", display: "flex", gap: 10 }}>
+              <button
+                onClick={handleMarkPaid}
+                disabled={
+                  cycleLocked ||
+                  (paymentQr && paymentQr.owner_type === "default") ||
+                  addressInvalid
+                }
+                style={{
+                  flex: 1,
+                  padding: "13px 12px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  fontFamily: fontUI,
+                  border: "none",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  background: colorSuccess,
+                  color: "#FAF9F5",
+                  boxShadow: "0 4px 12px rgba(107,143,71,0.3)",
+                  opacity:
+                    cycleLocked ||
+                    (paymentQr && paymentQr.owner_type === "default") ||
+                    addressInvalid
+                      ? 0.5
+                      : 1,
+                  transition: "all .2s ease",
+                }}
+              >
+                已完成付款
+              </button>
+              <button
+                onClick={handlePayLater}
+                disabled={cycleLocked || addressInvalid || !locationReady}
+                style={{
+                  flex: 1,
+                  padding: "13px 12px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  fontFamily: fontUI,
+                  border: `1.5px solid ${borderDefault}`,
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  background: "transparent",
+                  color: textPrimary,
+                  opacity:
+                    cycleLocked || addressInvalid || !locationReady ? 0.5 : 1,
+                  transition: "all .2s ease",
+                }}
+              >
+                稍后支付
+              </button>
+            </div>
+
+            {/* Footer link */}
+            <div style={{ textAlign: "center", paddingBottom: 20 }}>
+              <Link
+                href="/orders"
+                style={{
+                  fontSize: 13,
+                  color: accentWarm,
+                  textDecoration: "underline",
+                  textDecorationColor: "rgba(201,100,66,0.3)",
+                }}
+              >
+                查看我的订单
+              </Link>
+            </div>
           </div>
         </div>
       )}
 
-      {/* 抽奖弹窗 */}
+      {/* ═══ 抽奖弹窗 ═══ */}
       {lotteryOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
-          <div className="absolute inset-0" onClick={() => { 
-            setLotteryOpen(false); 
-            setLotteryPrize(null); 
-            // 关闭抽奖弹窗后显示成功动画
-            setShowSuccessAnimation(true);
-            setTimeout(() => {
-              router.push('/orders');
-            }, 1700);
-          }}></div>
-          <div className="relative max-w-sm w-full mx-4 p-6 rounded-2xl bg-white shadow-2xl animate-fade-in-up z-10">
-            <div className="text-center mb-4">
-              <h3 className="text-lg font-semibold">抽奖中</h3>
-              <p className="text-gray-500 text-sm">订单满{formattedLotteryThreshold}元即可参与抽奖</p>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(20,20,19,0.5)",
+            backdropFilter: "blur(4px)",
+            padding: 24,
+            animation: "fadeIn .2s ease",
+          }}
+        >
+          <div
+            style={{ position: "absolute", inset: 0 }}
+            onClick={() => {
+              setLotteryOpen(false);
+              setLotteryPrize(null);
+              setShowSuccessAnimation(true);
+            }}
+          />
+          <div
+            style={{
+              position: "relative",
+              maxWidth: 360,
+              width: "100%",
+              background: bgOverlay,
+              borderRadius: 24,
+              border: `1px solid ${borderDefault}`,
+              boxShadow: "0 24px 80px rgba(20,20,19,0.25)",
+              padding: 28,
+              zIndex: 1,
+              animation: "modalUp .25s cubic-bezier(.16,1,.3,1)",
+            }}
+          >
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <h3
+                style={{
+                  fontFamily: fontDisplay,
+                  fontSize: 20,
+                  fontWeight: 400,
+                  color: textPrimary,
+                }}
+              >
+                抽奖
+              </h3>
+              <p style={{ fontSize: 12, color: textMuted, marginTop: 4 }}>
+                订单满{formattedLotteryThreshold}元即可参与
+              </p>
             </div>
-            <div className="h-20 flex items-center justify-center mb-4">
-              <span className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`}>{lotteryDisplay}</span>
+            <div
+              style={{
+                height: 72,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 16,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 24,
+                  fontWeight: 600,
+                  fontFamily: fontUI,
+                  color: spinning ? accent : textPrimary,
+                  transition: "color .3s ease",
+                }}
+              >
+                {lotteryDisplay}
+              </span>
             </div>
             {!spinning && (
               <>
-                <div className="text-center mb-4 space-y-2">
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                    lotteryResult === '谢谢参与' 
-                      ? 'bg-gray-100 text-gray-700' 
-                      : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {lotteryResult === '谢谢参与' ? '谢谢参与' : `恭喜获得：${lotteryResult || '谢谢参与'}`}
+                <div style={{ textAlign: "center", marginBottom: 20 }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "6px 16px",
+                      borderRadius: 50,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      background:
+                        lotteryResult === "谢谢参与"
+                          ? bgBase
+                          : "rgba(217,119,87,0.08)",
+                      color:
+                        lotteryResult === "谢谢参与" ? textSecondary : accent,
+                      border: `1px solid ${lotteryResult === "谢谢参与" ? borderSubtle : "rgba(217,119,87,0.2)"}`,
+                    }}
+                  >
+                    {lotteryResult === "谢谢参与"
+                      ? "谢谢参与"
+                      : `恭喜获得：${lotteryResult || "谢谢参与"}`}
                   </span>
                   {lotteryPrize ? (
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div>具体奖品：{lotteryPrize.product_name || '未命名奖品'}{lotteryPrize.variant_name ? `（${lotteryPrize.variant_name}）` : ''}</div>
-                      <div className="text-gray-500">将在下次满额订单随单配送</div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: textSecondary,
+                        marginTop: 8,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      <div>
+                        奖品：{lotteryPrize.product_name || "未命名奖品"}
+                        {lotteryPrize.variant_name
+                          ? `（${lotteryPrize.variant_name}）`
+                          : ""}
+                      </div>
+                      <div style={{ color: textMuted }}>
+                        将在下次满额订单随单配送
+                      </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-gray-500">本次未中奖，继续加油！</div>
+                    <div
+                      style={{ fontSize: 12, color: textMuted, marginTop: 8 }}
+                    >
+                      本次未中奖，继续加油！
+                    </div>
                   )}
                 </div>
-                <div className="flex">
-                  <button onClick={() => { 
-                    setLotteryOpen(false); 
-                    setLotteryPrize(null); 
-                    // 关闭抽奖弹窗后显示成功动画
+                <button
+                  onClick={() => {
+                    setLotteryOpen(false);
+                    setLotteryPrize(null);
                     setShowSuccessAnimation(true);
-                    setTimeout(() => {
-                      router.push('/orders');
-                    }, 1700);
-                  }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl">我知道了</button>
-                </div>
+                    setTimeout(() => router.push("/orders"), 1700);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "13px 24px",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    fontFamily: fontUI,
+                    border: "none",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    background: accent,
+                    color: "#FAF9F5",
+                    boxShadow: "0 4px 16px rgba(217,119,87,0.3)",
+                  }}
+                >
+                  我知道了
+                </button>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* 成功动画弹窗 */}
+      {/* ═══ 下单成功页 ═══ */}
       {showSuccessAnimation && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
-          <div className="relative bg-white rounded-3xl p-8 shadow-2xl animate-fade-in-up">
-            <dotlottie-wc 
-              src="https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie" 
-              style={{width: '300px', height: '300px'}}
-              autoplay
-            ></dotlottie-wc>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: `radial-gradient(ellipse 70% 50% at 50% 30%, rgba(217,119,87,0.06) 0%, transparent 60%), ${bgBase}`,
+            padding: 32,
+            textAlign: "center",
+            fontFamily: fontUI,
+          }}
+        >
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: "50%",
+              marginBottom: 24,
+              background: accent,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 8px 32px rgba(217,119,87,0.3)",
+              animation: "pop .5s cubic-bezier(.175,.885,.32,1.275) both",
+            }}
+          >
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#fff"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
+              <path d="M5 13l4 4L19 7" />
+            </svg>
           </div>
+          <h2
+            style={{
+              fontFamily: fontDisplay,
+              fontSize: 22,
+              fontWeight: 400,
+              color: textPrimary,
+              marginBottom: 8,
+            }}
+          >
+            下单成功
+          </h2>
+          {orderId && (
+            <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.8 }}>
+              订单号{" "}
+              <span
+                style={{
+                  fontWeight: 600,
+                  color: accent,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {orderId}
+              </span>
+            </p>
+          )}
+          <p style={{ fontSize: 13, color: textMuted, marginTop: 4 }}>
+            正在准备中，确认订单后我们将立即为您配送
+          </p>
+
+          {lotteryPrize && (
+            <div
+              style={{
+                marginTop: 20,
+                padding: "10px 20px",
+                borderRadius: 14,
+                background: "rgba(107,143,71,0.06)",
+                border: "1px solid rgba(107,143,71,0.15)",
+                fontSize: 13,
+                color: colorSuccess,
+              }}
+            >
+              🎁 恭喜获得：{lotteryPrize.product_name || "奖品"}
+              {lotteryPrize.variant_name
+                ? `（${lotteryPrize.variant_name}）`
+                : ""}
+            </div>
+          )}
+
+          <button
+            onClick={() => router.push("/orders")}
+            style={{
+              marginTop: 32,
+              padding: "14px 52px",
+              fontSize: 15,
+              fontWeight: 600,
+              fontFamily: fontUI,
+              border: "none",
+              borderRadius: 14,
+              cursor: "pointer",
+              background: accent,
+              color: "#FAF9F5",
+              boxShadow: "0 4px 20px rgba(217,119,87,0.3)",
+              transition: "all .2s ease",
+            }}
+          >
+            查看订单
+          </button>
+
+          <button
+            onClick={() => router.push("/")}
+            style={{
+              marginTop: 12,
+              padding: "10px 32px",
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: fontUI,
+              border: "none",
+              borderRadius: 14,
+              cursor: "pointer",
+              background: "transparent",
+              color: textSecondary,
+              transition: "all .2s ease",
+            }}
+          >
+            返回首页
+          </button>
         </div>
       )}
+
+      <style>{`
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html { background: #F5F3EE; }
+        input::placeholder, textarea::placeholder { color: #B0AEA5; }
+        body { overflow-x: hidden; background: #F5F3EE; overscroll-behavior: none; }
+        button { font-family: inherit; }
+        @keyframes shimmer { 0% { background-position: -600px 0; } 100% { background-position: 600px 0; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: none; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        /* Desktop two-column layout */
+        .checkout-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+        /* Mobile: left(1) → right(2) → payment(3) via order */
+        .checkout-col-left   { order: 1; }
+        .checkout-col-right  { order: 2; }
+        .checkout-payment-method { order: 3; margin-top: 14px; }
+
+        @media (min-width: 720px) {
+          .checkout-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            column-gap: 20px;
+            row-gap: 14px;
+            align-items: start;
+          }
+          .checkout-col-left {
+            grid-column: 1; grid-row: 1; order: unset;
+          }
+          .checkout-col-right {
+            grid-column: 2; grid-row: 1 / 3;
+            position: sticky; top: 68px;
+            align-self: start; order: unset;
+          }
+          .checkout-payment-method {
+            grid-column: 1; grid-row: 2;
+            margin-top: 0; order: unset;
+          }
+        }
+        @media (min-width: 960px) {
+          .checkout-grid {
+            grid-template-columns: 1.15fr 1fr;
+            column-gap: 32px;
+          }
+        }
+
+        /* Desktop: enlarge cards & spacing */
+        @media (min-width: 720px) {
+          .checkout-main {
+            padding-top: 28px !important;
+            padding-left: 24px !important;
+            padding-right: 24px !important;
+          }
+          .warm-card {
+            padding: 24px 22px !important;
+            border-radius: 22px !important;
+          }
+          .checkout-col-left > .warm-card:last-child {
+            margin-bottom: 0 !important;
+          }
+          .checkout-payment-method > .warm-card {
+            margin-bottom: 0 !important;
+          }
+          .checkout-grid input,
+          .checkout-grid textarea {
+            padding: 13px 16px !important;
+            font-size: 15px !important;
+          }
+        }
+
+        /* Bottom bar mobile full-width on very small screens */
+        @media (max-width: 480px) {
+          .checkout-bottom-bar {
+            bottom: 0 !important;
+            width: 100% !important;
+            border-radius: 20px 20px 0 0 !important;
+            border-bottom: none !important;
+          }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #D8D5CC; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #B0AEA5; }
+      `}</style>
     </>
   );
 }
