@@ -54,11 +54,12 @@ const Card = ({ children, style }) => (
   <div
     className="warm-card"
     style={{
-      background: "#FAF9F5",
-      border: "1px solid #EAE8E3",
+      background: "#ffffff",
+      border: "1px solid rgba(0,0,0,0.06)",
       borderRadius: 20,
       padding: "20px 18px",
       marginBottom: 14,
+      boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
       ...style,
     }}
   >
@@ -140,11 +141,11 @@ const WarmInput = ({
             padding: "11px 14px",
             fontSize: 14,
             fontFamily: "'Poppins', 'Noto Sans SC', sans-serif",
-            border: `1.5px solid ${error ? "#C0453A" : focused ? "#D97757" : "#EAE8E3"}`,
+            border: `1.5px solid ${error ? "#C0453A" : focused ? "#D97757" : "#e5e5e5"}`,
             borderRadius: 12,
             outline: "none",
             color: "#141413",
-            background: readOnly ? "#F0EFE9" : focused ? "#FEFEFE" : "#FAF9F5",
+            background: readOnly ? "#f5f5f5" : focused ? "#fff" : "#fafafa",
             transition: "all .2s cubic-bezier(.16,1,.3,1)",
             boxSizing: "border-box",
           }}
@@ -174,7 +175,7 @@ const ProgressBar = ({ current, target }) => {
         width: "100%",
         height: 4,
         borderRadius: 2,
-        background: "#EDECEA",
+        background: "#f0f0f0",
         overflow: "hidden",
       }}
     >
@@ -985,14 +986,14 @@ export default function Checkout() {
   const fontDisplay = "'Lora', 'LXGW WenKai', 'Songti SC', serif";
   const accent = "#D97757";
   const accentWarm = "#C96442";
-  const bgBase = "#F5F3EE";
-  const bgRaised = "#FAF9F5";
-  const bgOverlay = "#FEFEFE";
-  const textPrimary = "#141413";
+  const bgBase = "#fafafa";
+  const bgRaised = "#ffffff";
+  const bgOverlay = "#ffffff";
+  const textPrimary = "#1a1a1a";
   const textSecondary = "#6B6860";
   const textMuted = "#B0AEA5";
-  const borderDefault = "#DDD9D0";
-  const borderSubtle = "#EDECEA";
+  const borderDefault = "#e5e5e5";
+  const borderSubtle = "#f0f0f0";
   const colorError = "#C0453A";
   const colorSuccess = "#6B8F47";
 
@@ -1032,7 +1033,7 @@ export default function Checkout() {
             position: "sticky",
             top: 0,
             zIndex: 10,
-            background: "rgba(245,243,238,.85)",
+            background: "rgba(250,250,250,.88)",
             backdropFilter: "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
             borderBottom: `1px solid ${borderSubtle}`,
@@ -1429,6 +1430,41 @@ export default function Checkout() {
                       )}
                     </form>
                   </Card>
+
+                  {/* ═══ 预约 / 锁定提示 — 桌面端在左栏 ═══ */}
+                  <div className="checkout-notices-desktop">
+                    {shouldReserve && (
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(106,155,204,0.06)', border: '1px solid rgba(106,155,204,0.18)', fontSize: 12, color: '#5A89B8' }}>
+                        <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                          {reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交' : '本单包含预约商品，将以预约订单处理'}
+                        </div>
+                        {hasReservationItems && (
+                          <div style={{ color: 'rgba(90,137,184,0.8)', lineHeight: 1.5 }}>请确认预约说明，配送时间将根据预约安排。</div>
+                        )}
+                      </div>
+                    )}
+                    {cycleLocked && (
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(201,148,58,0.06)', border: '1px solid rgba(201,148,58,0.18)', fontSize: 12, color: '#C9943A', fontWeight: 500 }}>
+                        暂时无法结算，请联系管理员
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ═══ 支付方式 — 桌面端显示在左栏内 ═══ */}
+                  <div className="checkout-payment-desktop">
+                    <Card style={{ marginBottom: 0 }}>
+                      <SectionLabel icon="💳" title="支付方式" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(107,143,71,0.06)', border: '1px solid rgba(107,143,71,0.15)' }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0, background: '#2DC100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <svg width="18" height="18" viewBox="0 0 1024 1024" fill="#fff"><path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z"/></svg>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: textPrimary }}>微信扫码支付</div>
+                          <div style={{ fontSize: 11, color: textSecondary, marginTop: 1 }}>获取收款码后扫码付款</div>
+                        </div>
+                      </div>
+                    </Card>
+                  </div>
                 </div>
 
                 {/* ── Right Column ── */}
@@ -1999,109 +2035,37 @@ export default function Checkout() {
                       </Card>
                     )}
 
-                  {/* ═══ 预约 / 锁定提示 ═══ */}
-                  {shouldReserve && (
-                    <div
-                      style={{
-                        margin: "0 0 14px",
-                        padding: "12px 14px",
-                        borderRadius: 16,
-                        background: "rgba(106,155,204,0.06)",
-                        border: "1px solid rgba(106,155,204,0.18)",
-                        fontSize: 12,
-                        color: "#5A89B8",
-                      }}
-                    >
-                      <div style={{ fontWeight: 500, marginBottom: 4 }}>
-                        {reservationFromClosure
-                          ? "店铺当前打烊，本单将以预约方式提交"
-                          : "本单包含预约商品，将以预约订单处理"}
-                      </div>
-                      {hasReservationItems && (
-                        <div
-                          style={{
-                            color: "rgba(90,137,184,0.8)",
-                            lineHeight: 1.5,
-                          }}
-                        >
-                          请确认预约说明，配送时间将根据预约安排。
+                  {/* ═══ 预约 / 锁定提示 — 移动端在右栏底部 ═══ */}
+                  <div className="checkout-notices-mobile">
+                    {shouldReserve && (
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(106,155,204,0.06)', border: '1px solid rgba(106,155,204,0.18)', fontSize: 12, color: '#5A89B8' }}>
+                        <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                          {reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交' : '本单包含预约商品，将以预约订单处理'}
                         </div>
-                      )}
-                    </div>
-                  )}
-                  {cycleLocked && (
-                    <div
-                      style={{
-                        margin: "0 0 14px",
-                        padding: "12px 14px",
-                        borderRadius: 16,
-                        background: "rgba(201,148,58,0.06)",
-                        border: "1px solid rgba(201,148,58,0.18)",
-                        fontSize: 12,
-                        color: "#C9943A",
-                        fontWeight: 500,
-                      }}
-                    >
-                      暂时无法结算，请联系管理员
-                    </div>
-                  )}
+                        {hasReservationItems && (
+                          <div style={{ color: 'rgba(90,137,184,0.8)', lineHeight: 1.5 }}>请确认预约说明，配送时间将根据预约安排。</div>
+                        )}
+                      </div>
+                    )}
+                    {cycleLocked && (
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(201,148,58,0.06)', border: '1px solid rgba(201,148,58,0.18)', fontSize: 12, color: '#C9943A', fontWeight: 500 }}>
+                        暂时无法结算，请联系管理员
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* ═══ 支付方式 — grid第三子元素，移动端排最后，桌面端归左栏下方 ═══ */}
-                <div className="checkout-payment-method">
+                {/* ═══ 支付方式 — 移动端显示在最后 ═══ */}
+                <div className="checkout-payment-mobile">
                   <Card style={{ marginBottom: 0 }}>
                     <SectionLabel icon="💳" title="支付方式" />
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "12px 14px",
-                        borderRadius: 14,
-                        background: "rgba(107,143,71,0.06)",
-                        border: "1px solid rgba(107,143,71,0.15)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 10,
-                          flexShrink: 0,
-                          background: "#2DC100",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 1024 1024"
-                          fill="#fff"
-                        >
-                          <path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z" />
-                        </svg>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(107,143,71,0.06)', border: '1px solid rgba(107,143,71,0.15)' }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0, background: '#2DC100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg width="18" height="18" viewBox="0 0 1024 1024" fill="#fff"><path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z"/></svg>
                       </div>
                       <div>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 500,
-                            color: textPrimary,
-                          }}
-                        >
-                          微信扫码支付
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: textSecondary,
-                            marginTop: 1,
-                          }}
-                        >
-                          获取收款码后扫码付款
-                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: textPrimary }}>微信扫码支付</div>
+                        <div style={{ fontSize: 11, color: textSecondary, marginTop: 1 }}>获取收款码后扫码付款</div>
                       </div>
                     </div>
                   </Card>
@@ -2125,7 +2089,7 @@ export default function Checkout() {
               zIndex: 20,
               padding:
                 "14px 20px calc(14px + env(safe-area-inset-bottom, 4px)) 20px",
-              background: "rgba(250,249,245,.92)",
+              background: "rgba(255,255,255,.92)",
               backdropFilter: "blur(20px)",
               WebkitBackdropFilter: "blur(20px)",
               border: `1px solid ${borderSubtle}`,
@@ -2467,7 +2431,7 @@ export default function Checkout() {
                   borderRadius: 12,
                   cursor: "pointer",
                   background: colorSuccess,
-                  color: "#FAF9F5",
+                  color: "#fff",
                   boxShadow: "0 4px 12px rgba(107,143,71,0.3)",
                   opacity:
                     cycleLocked ||
@@ -2663,7 +2627,7 @@ export default function Checkout() {
                     borderRadius: 12,
                     cursor: "pointer",
                     background: accent,
-                    color: "#FAF9F5",
+                    color: "#fff",
                     boxShadow: "0 4px 16px rgba(217,119,87,0.3)",
                   }}
                 >
@@ -2778,7 +2742,7 @@ export default function Checkout() {
               borderRadius: 14,
               cursor: "pointer",
               background: accent,
-              color: "#FAF9F5",
+              color: "#fff",
               boxShadow: "0 4px 20px rgba(217,119,87,0.3)",
               transition: "all .2s ease",
             }}
@@ -2809,9 +2773,9 @@ export default function Checkout() {
 
       <style>{`
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        html { background: #F5F3EE; }
-        input::placeholder, textarea::placeholder { color: #B0AEA5; }
-        body { overflow-x: hidden; background: #F5F3EE; overscroll-behavior: none; }
+        html { background: #fafafa; }
+        input::placeholder, textarea::placeholder { color: #bbb; }
+        body { overflow-x: hidden; background: #fafafa; overscroll-behavior: none; }
         button { font-family: inherit; }
         @keyframes shimmer { 0% { background-position: -600px 0; } 100% { background-position: 600px 0; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -2825,32 +2789,29 @@ export default function Checkout() {
           flex-direction: column;
           gap: 0;
         }
-        /* Mobile: left(1) → right(2) → payment(3) via order */
+        /* Mobile: left(1) → right(2) → payment-mobile(3) via order */
         .checkout-col-left   { order: 1; }
         .checkout-col-right  { order: 2; }
-        .checkout-payment-method { order: 3; margin-top: 14px; }
+        .checkout-payment-mobile { order: 3; margin-top: 14px; }
+        /* Desktop copies hidden on mobile, mobile copies hidden on desktop */
+        .checkout-payment-desktop { display: none; }
+        .checkout-notices-desktop { display: none; }
 
         @media (min-width: 720px) {
           .checkout-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto;
             column-gap: 20px;
-            row-gap: 14px;
             align-items: start;
           }
-          .checkout-col-left {
-            grid-column: 1; grid-row: 1; order: unset;
-          }
           .checkout-col-right {
-            grid-column: 2; grid-row: 1 / 3;
             position: sticky; top: 68px;
-            align-self: start; order: unset;
+            align-self: start;
           }
-          .checkout-payment-method {
-            grid-column: 1; grid-row: 2;
-            margin-top: 0; order: unset;
-          }
+          .checkout-notices-desktop { display: block; margin-top: 14px; }
+          .checkout-payment-desktop { display: block; }
+          .checkout-payment-mobile { display: none; }
+          .checkout-notices-mobile { display: none; }
         }
         @media (min-width: 960px) {
           .checkout-grid {
@@ -2870,10 +2831,7 @@ export default function Checkout() {
             padding: 24px 22px !important;
             border-radius: 22px !important;
           }
-          .checkout-col-left > .warm-card:last-child {
-            margin-bottom: 0 !important;
-          }
-          .checkout-payment-method > .warm-card {
+          .checkout-payment-desktop > .warm-card {
             margin-bottom: 0 !important;
           }
           .checkout-grid input,
@@ -2896,8 +2854,8 @@ export default function Checkout() {
         /* Scrollbar */
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #D8D5CC; border-radius: 2px; }
-        ::-webkit-scrollbar-thumb:hover { background: #B0AEA5; }
+        ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #bbb; }
       `}</style>
     </>
   );
