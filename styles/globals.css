@@ -1355,8 +1355,16 @@ body {
 
 .code-block-content:has(.mermaid-preview:not([style*="display: none"])) {
   overflow: hidden;
+  max-height: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+.code-block-content:has(.html-preview:not([style*="display: none"])),
+.code-block-content:has(.svg-preview:not([style*="display: none"])),
+.code-block-content:has(.python-preview:not([style*="display: none"])) {
+  max-height: none;
+  overflow: hidden;
 }
 
 .code-block-content:has(.mermaid-preview:not([style*="display: none"]))::-webkit-scrollbar {
@@ -1391,6 +1399,8 @@ body {
   align-items: flex-start;
   gap: 8px;
   max-width: min(80%, calc(100% - 32px));
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
   z-index: 20;
   pointer-events: auto;
 }
@@ -1404,6 +1414,12 @@ body {
   line-height: 1.5;
   font-family: system-ui, -apple-system, sans-serif;
   max-width: 100%;
+  max-height: 120px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  flex-shrink: 0;
   pointer-events: auto;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   white-space: pre-wrap;
@@ -1945,9 +1961,17 @@ body {
 
   /* 移动端内容区域高度限制 */
   .code-block-content {
-    max-height: 300px;
+    max-height: 360px;
     max-width: calc(100vw - 2rem);
     border-radius: 0 0 10px 10px;
+  }
+
+  /* 预览模式下取消高度限制，避免裁剪预览容器和错误提示 */
+  .code-block-content:has(.mermaid-preview:not([style*="display: none"])),
+  .code-block-content:has(.html-preview:not([style*="display: none"])),
+  .code-block-content:has(.svg-preview:not([style*="display: none"])),
+  .code-block-content:has(.python-preview:not([style*="display: none"])) {
+    max-height: none;
   }
 
   /* 移动端行号样式调整 */

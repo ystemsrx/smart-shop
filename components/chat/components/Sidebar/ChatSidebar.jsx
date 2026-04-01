@@ -108,10 +108,18 @@ const ChatSidebar = ({
                       const isActive = chat.id === activeChatId;
                       const displayName = getDisplayTitle(chat);
                       return (
-                        <button
+                        <div
                           key={chat.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => handleChatSelect(chat.id)}
-                          className={cx("flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition", isActive ? "bg-white shadow-sm" : "hover:bg-white/70")}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleChatSelect(chat.id);
+                            }
+                          }}
+                          className={cx("flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition cursor-pointer", isActive ? "bg-white shadow-sm" : "hover:bg-white/70")}
                         >
                           <div className="flex-1 min-w-0">
                             {renamingChatId === chat.id ? (
@@ -149,7 +157,7 @@ const ChatSidebar = ({
                               <Pencil className="h-4 w-4" />
                             </button>
                           )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

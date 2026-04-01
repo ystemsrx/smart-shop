@@ -419,9 +419,12 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
           align-items: flex-start;
           gap: 8px;
           max-width: 80%;
+          max-height: calc(100vh - 20px);
           z-index: 2147483647;
           pointer-events: auto;
           overflow-y: auto;
+          touch-action: pan-y;
+          -webkit-overflow-scrolling: touch;
           --fade-size: 16px;
           padding: var(--fade-size) 0;
           scrollbar-width: none;
@@ -445,6 +448,12 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
           font-size: 12px;
           font-family: system-ui, -apple-system, sans-serif;
           max-width: 100%;
+          max-height: 120px;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 6;
+          -webkit-box-orient: vertical;
+          flex-shrink: 0;
           pointer-events: auto;
           opacity: 0;
           transform: translateY(16px);
@@ -575,7 +584,8 @@ const CUSTOM_ERROR_OVERLAY_HTML = `
         if (i > 0) height += TOAST_GAP;
       }
       const paddedHeight = height + (FADE_SIZE * 2);
-      container.style.maxHeight = \`\${Math.ceil(paddedHeight)}px\`;
+      const viewportLimit = window.innerHeight - 20;
+      container.style.maxHeight = \`\${Math.min(Math.ceil(paddedHeight), viewportLimit)}px\`;
     }
 
     function captureToastPositions(container) {
@@ -694,12 +704,16 @@ const buildHtmlPreviewDoc = (codeContent = "") => {
 
   if (/^\s*<!DOCTYPE|^\s*<html/i.test(codeContent)) {
     htmlDoc = codeContent;
+    // 若用户 HTML 缺少 viewport meta，注入以确保移动端正确缩放和触摸交互
+    const viewportMeta = '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
+    const hasViewport = /<meta[^>]*viewport/i.test(htmlDoc);
+    const extraHead = (hasViewport ? '' : viewportMeta + '\n') + CUSTOM_ERROR_OVERLAY_HTML;
     if (/<head[^>]*>/i.test(htmlDoc)) {
-      htmlDoc = htmlDoc.replace(/<head[^>]*>/i, (match) => `${match}\n${CUSTOM_ERROR_OVERLAY_HTML}`);
+      htmlDoc = htmlDoc.replace(/<head[^>]*>/i, (match) => `${match}\n${extraHead}`);
     } else if (/<html[^>]*>/i.test(htmlDoc)) {
-      htmlDoc = htmlDoc.replace(/<html[^>]*>/i, (match) => `${match}\n<head>${CUSTOM_ERROR_OVERLAY_HTML}</head>`);
+      htmlDoc = htmlDoc.replace(/<html[^>]*>/i, (match) => `${match}\n<head>${extraHead}</head>`);
     } else {
-      htmlDoc = `${CUSTOM_ERROR_OVERLAY_HTML}\n${htmlDoc}`;
+      htmlDoc = `${extraHead}\n${htmlDoc}`;
     }
     if (shim) {
       if (/<body[^>]*>/i.test(htmlDoc)) {

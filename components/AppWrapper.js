@@ -12,7 +12,7 @@ import OrdersPageSkeleton from './OrdersPageSkeleton';
 import CheckoutPageSkeleton from './CheckoutPageSkeleton';
 import ShopPageSkeleton from './ShopPageSkeleton';
 import ChatPageSkeleton from './ChatPageSkeleton';
-import AdminChatPageSkeleton from './AdminChatPageSkeleton';
+
 
 // 不显示导航条的页面路径
 const NO_NAV_PAGES = ['/login', '/register', '/order-success', '/_error'];
@@ -46,8 +46,8 @@ function getTransitionSkeleton(path) {
   if (path === '/checkout') return <CheckoutPageSkeleton overlay />;
   if (path === '/c') return <ChatPageSkeleton overlay variant="hero" />;
   if (path.startsWith('/c/')) return <ChatPageSkeleton overlay variant="conversation" />;
-  if (path === '/admin/ai-chat' || path.startsWith('/admin/ai-chat/')) return <AdminChatPageSkeleton overlay />;
-  if (path === '/agent/ai-chat' || path.startsWith('/agent/ai-chat/')) return <AdminChatPageSkeleton overlay />;
+  if (path === '/admin/ai-chat' || path === '/agent/ai-chat') return <ChatPageSkeleton overlay variant="hero" />;
+  if (path.startsWith('/admin/ai-chat/') || path.startsWith('/agent/ai-chat/')) return <ChatPageSkeleton overlay variant="conversation" />;
   return <PageTransitionSkeleton />;
 }
 

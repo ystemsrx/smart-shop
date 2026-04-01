@@ -5,11 +5,11 @@ import dynamic from 'next/dynamic';
 import { useAuth } from '../../../hooks/useAuth';
 import { getShopName } from '../../../utils/runtimeConfig';
 import ChatVendorScripts from '../../../components/ChatVendorScripts';
-import AdminChatPageSkeleton from '../../../components/AdminChatPageSkeleton';
+import ChatPageSkeleton from '../../../components/ChatPageSkeleton';
 
 const ChatModern = dynamic(() => import('../../../components/ChatUI'), {
   ssr: false,
-  loading: () => <AdminChatPageSkeleton />
+  loading: () => <ChatPageSkeleton variant="conversation" />
 });
 
 const shopName = getShopName();
@@ -30,7 +30,7 @@ export default function AgentAiChatDetailPage() {
     }
   }, [user, isInitialized, router]);
 
-  if (!isInitialized) return <AdminChatPageSkeleton />;
+  if (!isInitialized) return <ChatPageSkeleton variant="conversation" />;
   if (!user || user.type !== 'agent') return null;
 
   return (

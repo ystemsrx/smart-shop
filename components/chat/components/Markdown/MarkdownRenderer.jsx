@@ -1183,7 +1183,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       let pythonContainer = null;
       if (isMermaid) {
         // 固定预览高度为400px
-        const previewHeight = 400;
+        const previewHeight = window.innerWidth <= 640 ? 360 : 400;
         
         // 创建Mermaid预览容器，直接作为内容显示
         mermaidContainer = document.createElement('div');
@@ -1449,11 +1449,24 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
 
             const container = document.createElement('div');
             container.className = 'preview-error-container';
-            container.style.cssText = 'position:absolute;bottom:16px;left:16px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(80%, calc(100% - 32px));z-index:20;pointer-events:auto;';
+            container.style.cssText = 'position:absolute;bottom:16px;left:16px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(80%, calc(100% - 32px));max-height:calc(100% - 64px);overflow-y:auto;z-index:20;pointer-events:auto;';
+
+            // 手动处理触摸滚动，因为父级 mermaid-preview 的 touch-action: none 阻止了原生滚动
+            let _touchStartY = 0;
+            container.addEventListener('touchstart', (e) => {
+              _touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+            container.addEventListener('touchmove', (e) => {
+              const deltaY = _touchStartY - e.touches[0].clientY;
+              container.scrollTop += deltaY;
+              _touchStartY = e.touches[0].clientY;
+              e.preventDefault();
+              e.stopPropagation();
+            }, { passive: false });
 
             const toast = document.createElement('div');
             toast.className = 'preview-error-toast';
-            toast.style.cssText = 'background:rgba(220,38,38,0.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;line-height:1.5;font-family:system-ui,sans-serif;max-width:100%;white-space:pre-wrap;word-break:break-word;cursor:pointer;text-align:left;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+            toast.style.cssText = 'background:rgba(220,38,38,0.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;line-height:1.5;font-family:system-ui,sans-serif;max-width:100%;white-space:pre-wrap;word-break:break-word;cursor:pointer;text-align:left;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-height:120px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;flex-shrink:0;';
             toast.textContent = msg;
             toast.dataset.message = msg;
             toast.addEventListener('click', () => {
@@ -1595,7 +1608,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       let svgContainer = null;
       if (isSvg && blockKey) {
         // 固定预览高度为400px
-        const previewHeight = 400;
+        const previewHeight = window.innerWidth <= 640 ? 360 : 400;
 
         svgContainer = document.createElement('div');
         svgContainer.className = 'svg-preview';
@@ -1716,7 +1729,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       let htmlContainer = null;
       if (isHtml && blockKey) {
         // 固定预览高度为400px
-        const previewHeight = 400;
+        const previewHeight = window.innerWidth <= 640 ? 360 : 400;
 
         htmlContainer = document.createElement('div');
         htmlContainer.className = 'html-preview';
@@ -1744,10 +1757,13 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
           border-radius: 0 0 12px 12px;
           background: white;
           display: block;
+          touch-action: manipulation;
+          pointer-events: auto;
         `;
         // sandbox属性允许脚本执行，但在隔离的环境中
+        // allow-same-origin: 移动端(iOS Safari)必须，否则触摸事件无法分发到iframe内容
         // 注意：不包含allow-modals，阻止alert/confirm/prompt弹窗影响父页面
-        iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
         iframe.setAttribute('title', 'HTML Preview');
 
         const renderHtmlPreview = () => {
@@ -1775,7 +1791,7 @@ const MarkdownRenderer = ({ content, isStreaming = false }) => {
       }
 
       if (isPython && blockKey) {
-        const previewHeight = 400;
+        const previewHeight = window.innerWidth <= 640 ? 360 : 400;
         pythonContainer = document.createElement('div');
         pythonContainer.className = 'python-preview';
         pythonContainer.setAttribute('data-block-key', blockKey);
