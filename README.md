@@ -432,7 +432,7 @@ payload = {
 | `manage_products` | 商品增删改查与变体管理 | 管理员/代理商 |
 | `manage_orders` | 订单查询与状态更新 | 管理员/代理商 |
 | `manage_lottery` | 抽奖配置与奖品管理 | 管理员/代理商 |
-| `manage_gift_thresholds` | 满赠阈值配置 | 管理员/代理商 |
+| `manage_thresholds` | 满赠阈值配置 | 管理员/代理商 |
 | `manage_coupons` | 优惠券发放与撤回 | 管理员/代理商 |
 | `search_users` | 用户搜索与信息查看 | 管理员/代理商 |
 
@@ -453,7 +453,7 @@ payload = {
 | `manage_products` | 商品管理 | 分类查看、商品搜索/列表、新增、批量编辑、批量删除、变体/规格管理 |
 | `manage_orders` | 订单管理 | 按状态/用户/订单号筛选查询、批量更新订单状态 |
 | `manage_lottery` | 抽奖配置 | 查看/修改抽奖设置、新增/编辑/删除奖品 |
-| `manage_gift_thresholds` | 满赠配置 | 查看/新增/编辑/删除满额赠品和优惠券阈值 |
+| `manage_thresholds` | 满赠配置 | 查看/新增/编辑/删除满额赠品和优惠券阈值 |
 | `manage_coupons` | 优惠券管理 | 查看优惠券、批量发放/撤回优惠券 |
 | `search_users` | 用户查询 | 按 ID/姓名/手机号搜索用户、查看用户订单/优惠券 |
 
