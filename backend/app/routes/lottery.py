@@ -30,6 +30,12 @@ from ..services.products import resolve_single_owner_for_staff
 router = APIRouter()
 
 
+def _get_payload_fields(payload) -> Dict[str, object]:
+    if hasattr(payload, "model_dump"):
+        return payload.model_dump(exclude_unset=True)
+    return payload.dict(exclude_unset=True)
+
+
 @router.get("/admin/lottery-config")
 async def admin_get_lottery_config(request: Request, owner_id: Optional[str] = None):
     admin = get_current_admin_required_from_cookie(request)
@@ -37,7 +43,7 @@ async def admin_get_lottery_config(request: Request, owner_id: Optional[str] = N
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
         config = LotteryConfigDB.get_config(owner_id)
-        return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"]})
+        return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"], "config": config})
     except Exception as exc:
         logger.error("Failed to read lottery config: %s", exc)
         return error_response("读取抽奖配置失败", 500)
@@ -50,7 +56,7 @@ async def agent_get_lottery_config(request: Request):
     try:
         prizes = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
         config = LotteryConfigDB.get_config(owner_id)
-        return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"]})
+        return success_response("获取抽奖配置成功", {"prizes": prizes, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"], "config": config})
     except Exception as exc:
         logger.error("Agent failed to read lottery config: %s", exc)
         return error_response("读取抽奖配置失败", 500)
@@ -70,8 +76,10 @@ async def admin_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
         refreshed = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
         if payload.threshold_amount is not None:
             LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
-        threshold_value = LotteryConfigDB.get_threshold(owner_id)
-        return success_response("抽奖配置已更新", {"prizes": refreshed, "threshold_amount": threshold_value})
+        if payload.is_enabled is not None:
+            LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        config = LotteryConfigDB.get_config(owner_id)
+        return success_response("抽奖配置已更新", {"prizes": refreshed, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"], "config": config})
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
@@ -93,8 +101,10 @@ async def agent_update_lottery_config(payload: LotteryConfigUpdateRequest, reque
         refreshed = LotteryDB.list_prizes(owner_id=owner_id, include_inactive=True)
         if payload.threshold_amount is not None:
             LotteryConfigDB.set_threshold(owner_id, payload.threshold_amount)
-        threshold_value = LotteryConfigDB.get_threshold(owner_id)
-        return success_response("抽奖配置已更新", {"prizes": refreshed, "threshold_amount": threshold_value})
+        if payload.is_enabled is not None:
+            LotteryConfigDB.set_enabled(owner_id, payload.is_enabled)
+        config = LotteryConfigDB.get_config(owner_id)
+        return success_response("抽奖配置已更新", {"prizes": refreshed, "threshold_amount": config["threshold_amount"], "is_enabled": config["is_enabled"], "config": config})
     except ValueError as ve:
         return error_response(str(ve), 400)
     except Exception as exc:
@@ -375,10 +385,15 @@ async def admin_create_or_update_delivery_settings(payload: DeliverySettingsCrea
         if payload.delivery_fee < 0:
             return error_response("配送费不能为负数", 400)
 
-        if payload.free_delivery_threshold < 0:
+        if payload.always_charge_delivery_fee is not True and (payload.free_delivery_threshold is None or payload.free_delivery_threshold < 0):
             return error_response("免配送费门槛不能为负数", 400)
 
-        DeliverySettingsDB.create_or_update_settings(owner_id=owner_id, delivery_fee=payload.delivery_fee, free_delivery_threshold=payload.free_delivery_threshold)
+        DeliverySettingsDB.create_or_update_settings(
+            owner_id=owner_id,
+            delivery_fee=payload.delivery_fee,
+            free_delivery_threshold=payload.free_delivery_threshold if payload.free_delivery_threshold is not None else 10.0,
+            always_charge_delivery_fee=payload.always_charge_delivery_fee,
+        )
 
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("配送费设置保存成功", {"settings": settings})
@@ -407,10 +422,15 @@ async def agent_create_or_update_delivery_settings(payload: DeliverySettingsCrea
         if payload.delivery_fee < 0:
             return error_response("配送费不能为负数", 400)
 
-        if payload.free_delivery_threshold < 0:
+        if payload.always_charge_delivery_fee is not True and (payload.free_delivery_threshold is None or payload.free_delivery_threshold < 0):
             return error_response("免配送费门槛不能为负数", 400)
 
-        DeliverySettingsDB.create_or_update_settings(owner_id=owner_id, delivery_fee=payload.delivery_fee, free_delivery_threshold=payload.free_delivery_threshold)
+        DeliverySettingsDB.create_or_update_settings(
+            owner_id=owner_id,
+            delivery_fee=payload.delivery_fee,
+            free_delivery_threshold=payload.free_delivery_threshold if payload.free_delivery_threshold is not None else 10.0,
+            always_charge_delivery_fee=payload.always_charge_delivery_fee,
+        )
 
         settings = DeliverySettingsDB.get_settings(owner_id)
         return success_response("配送费设置保存成功", {"settings": settings})
@@ -540,7 +560,8 @@ async def admin_get_gift_thresholds(request: Request, include_inactive: bool = F
     owner_id, _ = resolve_single_owner_for_staff(admin, owner_id)
     try:
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=include_inactive)
-        return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
+        delivery_settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("获取满额门槛配置成功", {"thresholds": thresholds, "delivery_settings": delivery_settings})
     except Exception as exc:
         logger.error("Failed to fetch threshold config: %s", exc)
         return error_response("获取满额门槛配置失败", 500)
@@ -552,7 +573,8 @@ async def agent_get_gift_thresholds(request: Request, include_inactive: bool = F
     owner_id = get_owner_id_for_staff(agent)
     try:
         thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=include_inactive)
-        return success_response("获取满额门槛配置成功", {"thresholds": thresholds})
+        delivery_settings = DeliverySettingsDB.get_settings(owner_id)
+        return success_response("获取满额门槛配置成功", {"thresholds": thresholds, "delivery_settings": delivery_settings})
     except Exception as exc:
         logger.error("Agent failed to fetch threshold config: %s", exc)
         return error_response("获取满额门槛配置失败", 500)
@@ -649,7 +671,11 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         if not existing:
             return error_response("门槛不存在", 404)
 
+        payload_fields = _get_payload_fields(payload)
+        per_order_limit_provided = "per_order_limit" in payload_fields
         normalized_limit = existing.get("per_order_limit")
+        if per_order_limit_provided:
+            normalized_limit = None
         if payload.per_order_limit is not None:
             raw_limit = int(payload.per_order_limit)
             if raw_limit < 0:
@@ -665,6 +691,7 @@ async def admin_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             coupon_amount=payload.coupon_amount,
             per_order_limit=normalized_limit,
             is_active=payload.is_active,
+            update_per_order_limit=per_order_limit_provided,
         )
         if not ok:
             return error_response("更新失败或无变化", 400)
@@ -691,7 +718,11 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
         if not existing:
             return error_response("门槛不存在", 404)
 
+        payload_fields = _get_payload_fields(payload)
+        per_order_limit_provided = "per_order_limit" in payload_fields
         normalized_limit = existing.get("per_order_limit")
+        if per_order_limit_provided:
+            normalized_limit = None
         if payload.per_order_limit is not None:
             raw_limit = int(payload.per_order_limit)
             if raw_limit < 0:
@@ -707,6 +738,7 @@ async def agent_update_gift_threshold(threshold_id: str, payload: GiftThresholdU
             coupon_amount=payload.coupon_amount,
             per_order_limit=normalized_limit,
             is_active=payload.is_active,
+            update_per_order_limit=per_order_limit_provided,
         )
         if not ok:
             return error_response("更新失败或无变化", 400)

@@ -35,6 +35,7 @@ from database import (
     LotteryConfigDB,
     LotteryDB,
     GiftThresholdDB,
+    DeliverySettingsDB,
     CouponDB,
     StaffChatLogDB,
     AgentAssignmentDB,
@@ -42,6 +43,7 @@ from database import (
     UserDB,
     get_db_connection,
 )
+from app.services.products import normalize_reservation_cutoff
 from app.utils import convert_sqlite_timestamp_to_unix, format_device_time_ms
 
 logger = logging.getLogger(__name__)
@@ -186,7 +188,7 @@ Current operator: {staff_name} (role: {staff_role})
 1. Product management (manage_products) - Categories / list / search / add / edit / delete products
 2. Order management (manage_orders) - View orders / update order status
 3. Lottery configuration (manage_lottery) - Get / modify lottery settings and prizes
-4. Gift thresholds (manage_gift_thresholds) - Get / add / modify / delete spending thresholds
+4. Threshold management (manage_thresholds) - Get / add / modify / delete spending thresholds and delivery config
 5. Coupon management (manage_coupons) - Issue / revoke coupons
 6. User query (search_users) - Search users / view user orders / view user coupons
 
@@ -269,13 +271,16 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
                                     "name": {"type": "string", "description": "Product name"},
                                     "category": {"type": "string", "description": "Category name"},
                                     "price": {"type": "number", "description": "Price in CNY"},
-                                    "stock": {"type": "integer", "description": "Stock quantity (only for products WITHOUT variants; for products with variants, set stock in each variant)"},
-                                    "description": {"type": "string", "description": "Short product description"},
-                                    "discount": {"type": "number", "description": "Discount factor (0.5–10, where 10 = full price)"},
-                                    "image_path": {"type": "string", "description": "Image path (obtained from image upload)"},
+                                    "stock": {"type": "integer", "description": "Optional. Stock quantity for products WITHOUT variants only; defaults to 0 if omitted."},
+                                    "description": {"type": "string", "description": "Optional. Short product description."},
+                                    "discount": {"type": "number", "description": "Optional. Discount factor (0.5–10, where 10 = full price). Defaults to 10 if omitted."},
+                                    "image_path": {"type": "string", "description": "Optional. Image path obtained from image upload."},
                                     "is_hot": {"type": "boolean", "description": "Whether the product is marked as hot/featured"},
                                     "is_not_for_sale": {"type": "boolean", "description": "Whether the product is not for sale (display only)"},
-                                    "cost": {"type": "number", "description": "Cost price"},
+                                    "cost": {"type": "number", "description": "Optional. Cost price. Defaults to 0 if omitted."},
+                                    "reservation_required": {"type": "boolean", "description": "Whether reservation is required for this product"},
+                                    "reservation_cutoff": {"type": "string", "description": "Optional reservation cutoff time in HH:MM format"},
+                                    "reservation_note": {"type": "string", "description": "Optional reservation note shown to users"},
                                     "variants": {
                                         "type": "array",
                                         "description": "Product variants / specifications. For add: provide name and stock. For edit: provide variant_id to update existing, or omit variant_id to create new. Set delete=true with variant_id to remove a variant.",
@@ -414,15 +419,24 @@ def get_admin_tools(staff: Dict[str, Any]) -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "manage_gift_thresholds",
+                "name": "manage_thresholds",
                 "description": "Manage spending-based gift thresholds. Supports batch add/edit/delete.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["list", "add", "edit", "delete"],
-                            "description": "list = view all thresholds, add = batch add, edit = batch edit, delete = batch delete"
+                            "enum": ["list", "add", "edit", "delete", "update_delivery_config"],
+                            "description": "list = view all thresholds and delivery config, add = batch add, edit = batch edit, delete = batch delete, update_delivery_config = update delivery fee config"
+                        },
+                        "delivery_config": {
+                            "type": "object",
+                            "description": "Delivery fee configuration. Used with action='update_delivery_config'.",
+                            "properties": {
+                                "delivery_fee": {"type": "number", "description": "Delivery fee in CNY"},
+                                "free_delivery_threshold": {"type": "number", "description": "Free delivery threshold in CNY"},
+                                "always_charge_delivery_fee": {"type": "boolean", "description": "Whether delivery fee should always be charged regardless of order amount"}
+                            }
                         },
                         "thresholds": {
                             "type": "array",
@@ -630,8 +644,13 @@ def _format_product_summary(product: Dict[str, Any], variants: Optional[List[Dic
         "name": product.get("name"),
         "category": product.get("category"),
         "price": price,
+        "cost": float(product.get("cost", 0) or 0),
         "discount": discount,
         "is_hot": bool(product.get("is_hot")),
+        "is_not_for_sale": bool(product.get("is_not_for_sale")),
+        "reservation_required": bool(product.get("reservation_required")),
+        "reservation_cutoff": product.get("reservation_cutoff") or None,
+        "reservation_note": product.get("reservation_note") or "",
         "is_active": product.get("is_active", 1) == 1,
     }
     if discount < 10:
@@ -650,6 +669,10 @@ def _format_product_summary(product: Dict[str, Any], variants: Optional[List[Dic
         summary["stock"] = product.get("stock", 0)
         summary["has_variants"] = False
     return summary
+
+
+def _is_blank_value(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
@@ -724,33 +747,57 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
         name = p.get("name", "").strip()
         if not name:
             return {"ok": False, "error": "商品名称不能为空"}
+        try:
+            price_value = float(0 if _is_blank_value(p.get("price")) else p.get("price", 0))
+        except (ValueError, TypeError):
+            return {"ok": False, "error": "商品价格必须为数字"}
+        if price_value < 0:
+            return {"ok": False, "error": "商品价格不能为负数"}
+        try:
+            stock_value = int(0 if _is_blank_value(p.get("stock")) else p.get("stock", 0))
+        except (ValueError, TypeError):
+            return {"ok": False, "error": "库存必须为整数"}
+        if stock_value < 0:
+            return {"ok": False, "error": "库存不能为负数"}
 
         discount_value = 10.0
-        if p.get("discount") is not None:
+        if not _is_blank_value(p.get("discount")):
             try:
                 discount_value = float(p["discount"])
                 if discount_value < 0.5 or discount_value > 10:
                     return {"ok": False, "error": "折扣范围应为0.5~10折"}
             except (ValueError, TypeError):
                 return {"ok": False, "error": "无效的折扣值"}
+        try:
+            cost_value = float(0 if _is_blank_value(p.get("cost")) else p.get("cost", 0))
+        except (ValueError, TypeError):
+            return {"ok": False, "error": "成本必须为数字"}
+        if cost_value < 0:
+            return {"ok": False, "error": "成本不能为负数"}
+        reservation_required = bool(p.get("reservation_required"))
+        try:
+            reservation_cutoff = normalize_reservation_cutoff(p.get("reservation_cutoff"))
+        except Exception:
+            return {"ok": False, "error": "预约截止时间格式应为HH:MM"}
+        reservation_note = (p.get("reservation_note") or "").strip()[:120]
 
         # 有变体时商品级库存置为0，库存由各变体单独管理
         has_variants = bool(p.get("variants"))
         product_data = {
             "name": name,
-            "category": p.get("category", "默认分类"),
-            "price": float(p.get("price", 0)),
-            "stock": 0 if has_variants else int(p.get("stock", 0)),
+            "category": (p.get("category") or "").strip() or "默认分类",
+            "price": price_value,
+            "stock": 0 if has_variants else stock_value,
             "discount": discount_value,
-            "description": p.get("description", ""),
+            "description": (p.get("description") or "").strip(),
             "img_path": "",
-            "cost": float(p.get("cost", 0)),
+            "cost": cost_value,
             "owner_id": owner_id,
             "is_hot": 1 if p.get("is_hot") else 0,
             "is_not_for_sale": 1 if p.get("is_not_for_sale") else 0,
-            "reservation_required": 0,
-            "reservation_cutoff": None,
-            "reservation_note": "",
+            "reservation_required": 1 if reservation_required else 0,
+            "reservation_cutoff": reservation_cutoff if reservation_required else None,
+            "reservation_note": reservation_note if reservation_required else "",
         }
 
         try:
@@ -781,7 +828,13 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                 "id": product_id,
                 "name": product.get("name") if product else name,
                 "price": product.get("price") if product else product_data["price"],
+                "cost": product.get("cost") if product else product_data["cost"],
                 "category": product.get("category") if product else product_data["category"],
+                "is_hot": bool(product.get("is_hot")) if product else bool(product_data["is_hot"]),
+                "is_not_for_sale": bool(product.get("is_not_for_sale")) if product else bool(product_data["is_not_for_sale"]),
+                "reservation_required": bool(product.get("reservation_required")) if product else bool(product_data["reservation_required"]),
+                "reservation_cutoff": product.get("reservation_cutoff") if product else product_data["reservation_cutoff"],
+                "reservation_note": product.get("reservation_note") if product else product_data["reservation_note"],
             }
         }
 
@@ -805,13 +858,19 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                 if field in p and p[field] is not None:
                     update_data[field] = str(p[field]).strip()
             for field in ["price", "cost"]:
-                if field in p and p[field] is not None:
+                if field in p and not _is_blank_value(p[field]):
                     try:
                         update_data[field] = float(p[field])
                     except (ValueError, TypeError):
                         pass
+            if "price" in update_data and update_data["price"] < 0:
+                results.append({"product_id": pid, "ok": False, "error": "商品价格不能为负数"})
+                continue
+            if "cost" in update_data and update_data["cost"] < 0:
+                results.append({"product_id": pid, "ok": False, "error": "成本不能为负数"})
+                continue
             existing_variants = VariantDB.get_by_product(pid)
-            if "stock" in p and p["stock"] is not None:
+            if "stock" in p and not _is_blank_value(p["stock"]):
                 if existing_variants:
                     results.append({"product_id": pid, "ok": False, "error": f"该商品含有{len(existing_variants)}个规格，请通过variants参数分别修改各规格的库存，不能直接修改商品级库存"})
                     continue
@@ -819,7 +878,10 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                     update_data["stock"] = int(p["stock"])
                 except (ValueError, TypeError):
                     pass
-            if "discount" in p and p["discount"] is not None:
+                if "stock" in update_data and update_data["stock"] < 0:
+                    results.append({"product_id": pid, "ok": False, "error": "库存不能为负数"})
+                    continue
+            if "discount" in p and not _is_blank_value(p["discount"]):
                 try:
                     dv = float(p["discount"])
                     if 0.5 <= dv <= 10:
@@ -830,6 +892,20 @@ def _manage_products_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
                 update_data["is_hot"] = 1 if p["is_hot"] else 0
             if "is_not_for_sale" in p:
                 update_data["is_not_for_sale"] = 1 if p["is_not_for_sale"] else 0
+            if "reservation_required" in p:
+                reservation_required = bool(p["reservation_required"])
+                update_data["reservation_required"] = 1 if reservation_required else 0
+                if not reservation_required:
+                    update_data["reservation_cutoff"] = None
+                    update_data["reservation_note"] = ""
+            if "reservation_cutoff" in p:
+                try:
+                    update_data["reservation_cutoff"] = normalize_reservation_cutoff(p.get("reservation_cutoff"))
+                except Exception:
+                    results.append({"product_id": pid, "ok": False, "error": "预约截止时间格式应为HH:MM"})
+                    continue
+            if "reservation_note" in p:
+                update_data["reservation_note"] = (p.get("reservation_note") or "").strip()[:120]
 
             try:
                 if update_data:
@@ -1178,7 +1254,7 @@ def _manage_lottery_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[st
     return {"ok": False, "error": f"未知的action: {action}"}
 
 
-def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+def _manage_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     """满额门槛工具实现。"""
     action = args.get("action", "")
     owner_id = _get_owner_id(staff)
@@ -1186,9 +1262,15 @@ def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) ->
     if action == "list":
         try:
             thresholds = GiftThresholdDB.list_all(owner_id=owner_id, include_inactive=True)
+            delivery_config = DeliverySettingsDB.get_settings(owner_id)
             return {
                 "ok": True,
                 "action": "list",
+                "delivery_config": {
+                    "delivery_fee": delivery_config.get("delivery_fee"),
+                    "free_delivery_threshold": delivery_config.get("free_delivery_threshold"),
+                    "always_charge_delivery_fee": bool(delivery_config.get("always_charge_delivery_fee")),
+                },
                 "thresholds": [{
                     "id": t.get("id"),
                     "threshold_amount": t.get("threshold_amount"),
@@ -1202,6 +1284,48 @@ def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) ->
             }
         except Exception as e:
             return {"ok": False, "error": f"获取满额门槛失败: {e}"}
+
+    elif action == "update_delivery_config":
+        delivery_config = args.get("delivery_config") or {}
+        if not delivery_config:
+            return {"ok": False, "error": "缺少 delivery_config"}
+        try:
+            current = DeliverySettingsDB.get_settings(owner_id)
+            delivery_fee = float(delivery_config.get("delivery_fee", current.get("delivery_fee", 1.0)))
+            free_delivery_threshold = delivery_config.get("free_delivery_threshold", current.get("free_delivery_threshold", 10.0))
+            always_charge_delivery_fee = delivery_config.get(
+                "always_charge_delivery_fee",
+                current.get("always_charge_delivery_fee", False),
+            )
+
+            if delivery_fee < 0:
+                return {"ok": False, "error": "配送费不能为负数"}
+            if always_charge_delivery_fee is not True:
+                try:
+                    free_delivery_threshold = float(free_delivery_threshold)
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "免配送费门槛必须为数字"}
+                if free_delivery_threshold < 0:
+                    return {"ok": False, "error": "免配送费门槛不能为负数"}
+
+            DeliverySettingsDB.create_or_update_settings(
+                owner_id=owner_id,
+                delivery_fee=delivery_fee,
+                free_delivery_threshold=float(free_delivery_threshold or 0),
+                always_charge_delivery_fee=bool(always_charge_delivery_fee),
+            )
+            refreshed = DeliverySettingsDB.get_settings(owner_id)
+            return {
+                "ok": True,
+                "action": "update_delivery_config",
+                "delivery_config": {
+                    "delivery_fee": refreshed.get("delivery_fee"),
+                    "free_delivery_threshold": refreshed.get("free_delivery_threshold"),
+                    "always_charge_delivery_fee": bool(refreshed.get("always_charge_delivery_fee")),
+                },
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"更新配送费配置失败: {e}"}
 
     elif action == "add":
         thresholds = args.get("thresholds", [])
@@ -1246,6 +1370,7 @@ def _manage_gift_thresholds_impl(staff: Dict[str, Any], args: Dict[str, Any]) ->
                     update_data["coupon_amount"] = float(t["coupon_amount"])
                 if "per_order_limit" in t:
                     update_data["per_order_limit"] = int(t["per_order_limit"]) if t["per_order_limit"] is not None else None
+                    update_data["update_per_order_limit"] = True
                 if "is_active" in t:
                     update_data["is_active"] = bool(t["is_active"])
                 GiftThresholdDB.update_threshold(tid, owner_id=owner_id, **update_data)
@@ -1557,8 +1682,8 @@ def execute_admin_tool(name: str, args: Dict[str, Any], staff: Dict[str, Any], r
             return _manage_orders_impl(staff, args)
         elif name == "manage_lottery":
             return _manage_lottery_impl(staff, args)
-        elif name == "manage_gift_thresholds":
-            return _manage_gift_thresholds_impl(staff, args)
+        elif name == "manage_thresholds":
+            return _manage_thresholds_impl(staff, args)
         elif name == "manage_coupons":
             return _manage_coupons_impl(staff, args)
         elif name == "search_users":

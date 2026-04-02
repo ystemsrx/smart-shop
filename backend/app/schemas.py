@@ -257,6 +257,7 @@ class LotteryPrizeInput(BaseModel):
 class LotteryConfigUpdateRequest(BaseModel):
     prizes: List[LotteryPrizeInput] = []
     threshold_amount: Optional[float] = None
+    is_enabled: Optional[bool] = None
 
 
 class LotteryThresholdUpdateRequest(BaseModel):
@@ -297,7 +298,8 @@ class GiftThresholdUpdate(BaseModel):
 
 class DeliverySettingsCreate(BaseModel):
     delivery_fee: float = 1.0
-    free_delivery_threshold: float = 10.0
+    free_delivery_threshold: Optional[float] = 10.0
+    always_charge_delivery_fee: Optional[bool] = None
 
 
 class OrderDeleteRequest(BaseModel):

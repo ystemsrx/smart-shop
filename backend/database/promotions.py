@@ -7,6 +7,16 @@ from .config import logger
 from .connection import get_db_connection
 from .users import UserDB
 
+ALWAYS_CHARGE_DELIVERY_THRESHOLD = 999999999.0
+
+
+def _format_display_name(product_name: Optional[str], variant_name: Optional[str]) -> Optional[str]:
+    base_name = (product_name or '').strip()
+    variant_label = (variant_name or '').strip()
+    if not base_name:
+        return None
+    return f'{base_name}（{variant_label}）' if variant_label else base_name
+
 
 class LotteryConfigDB:
     """管理抽奖全局配置（如抽奖门槛）。"""
@@ -214,6 +224,7 @@ class LotteryDB:
 
                 product_name = product.get('name') if product else None
                 variant_name = variant.get('name') if variant else None
+                display_name = _format_display_name(product_name, variant_name)
 
                 raw_is_active = (product or {}).get('is_active', 1)
                 if isinstance(raw_is_active, bool):
@@ -250,6 +261,10 @@ class LotteryDB:
                 except Exception:
                     base_price = 0.0
                 try:
+                    cost_price = float((product or {}).get('cost') or 0)
+                except Exception:
+                    cost_price = 0.0
+                try:
                     discount = float((product or {}).get('discount', 10.0) or 10.0)
                 except Exception:
                     discount = 10.0
@@ -264,9 +279,13 @@ class LotteryDB:
                     'variant_id': variant_id,
                     'product_name': product_name,
                     'variant_name': variant_name,
+                    'display_name': display_name,
+                    'full_product_name': display_name,
                     'is_active': bool(is_active),
                     'stock': max(0, stock),
                     'retail_price': retail_price,
+                    'sale_price': retail_price,
+                    'cost': round(cost_price, 2),
                     'available': available,
                     'img_path': (product or {}).get('img_path'),
                     'category': (product or {}).get('category'),
@@ -1122,6 +1141,27 @@ class CouponDB:
 
 
 class DeliverySettingsDB:
+    ALWAYS_CHARGE_THRESHOLD = ALWAYS_CHARGE_DELIVERY_THRESHOLD
+
+    @staticmethod
+    def is_always_charge_threshold(free_delivery_threshold: Optional[float]) -> bool:
+        try:
+            return float(free_delivery_threshold or 0) >= DeliverySettingsDB.ALWAYS_CHARGE_THRESHOLD
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def normalize_free_delivery_threshold(
+        free_delivery_threshold: Optional[float],
+        always_charge_delivery_fee: Optional[bool] = None
+    ) -> float:
+        if always_charge_delivery_fee is True:
+            return DeliverySettingsDB.ALWAYS_CHARGE_THRESHOLD
+        try:
+            return float(free_delivery_threshold if free_delivery_threshold is not None else 10.0)
+        except (TypeError, ValueError):
+            return 10.0
+
     @staticmethod
     def get_settings(owner_id: Optional[str]) -> Dict[str, Any]:
         with get_db_connection() as conn:
@@ -1140,11 +1180,24 @@ class DeliverySettingsDB:
             row = cursor.fetchone()
 
             if row:
-                return dict(row)
+                settings = dict(row)
+                try:
+                    settings['delivery_fee'] = float(settings.get('delivery_fee', 1.0) or 0)
+                except (TypeError, ValueError):
+                    settings['delivery_fee'] = 1.0
+                try:
+                    settings['free_delivery_threshold'] = float(settings.get('free_delivery_threshold', 10.0) or 0)
+                except (TypeError, ValueError):
+                    settings['free_delivery_threshold'] = 10.0
+                settings['always_charge_delivery_fee'] = DeliverySettingsDB.is_always_charge_threshold(
+                    settings.get('free_delivery_threshold')
+                )
+                return settings
             return {
                 'id': None,
                 'delivery_fee': 1.0,
                 'free_delivery_threshold': 10.0,
+                'always_charge_delivery_fee': False,
                 'is_active': True,
                 'owner_id': owner_id
             }
@@ -1153,8 +1206,13 @@ class DeliverySettingsDB:
     def create_or_update_settings(
         owner_id: Optional[str],
         delivery_fee: float,
-        free_delivery_threshold: float
+        free_delivery_threshold: float,
+        always_charge_delivery_fee: Optional[bool] = None
     ) -> str:
+        normalized_threshold = DeliverySettingsDB.normalize_free_delivery_threshold(
+            free_delivery_threshold,
+            always_charge_delivery_fee=always_charge_delivery_fee,
+        )
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
@@ -1176,14 +1234,14 @@ class DeliverySettingsDB:
                     UPDATE delivery_settings
                     SET delivery_fee = ?, free_delivery_threshold = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (delivery_fee, free_delivery_threshold, setting_id))
+                ''', (delivery_fee, normalized_threshold, setting_id))
             else:
                 setting_id = f"delivery_{uuid.uuid4().hex}"
                 cursor.execute('''
                     INSERT INTO delivery_settings
                     (id, delivery_fee, free_delivery_threshold, is_active, owner_id)
                     VALUES (?, ?, ?, 1, ?)
-                ''', (setting_id, delivery_fee, free_delivery_threshold, owner_id))
+                ''', (setting_id, delivery_fee, normalized_threshold, owner_id))
 
             conn.commit()
             return setting_id
@@ -1193,7 +1251,8 @@ class DeliverySettingsDB:
         settings = DeliverySettingsDB.get_settings(owner_id)
         return {
             'delivery_fee': float(settings.get('delivery_fee', 1.0)),
-            'free_delivery_threshold': float(settings.get('free_delivery_threshold', 10.0))
+            'free_delivery_threshold': float(settings.get('free_delivery_threshold', 10.0)),
+            'always_charge_delivery_fee': bool(settings.get('always_charge_delivery_fee')),
         }
 
 
@@ -1225,7 +1284,7 @@ class GiftThresholdDB:
                 threshold_dict = dict(row)
                 threshold_id = threshold_dict['id']
                 cursor.execute('''
-                    SELECT gti.*, p.name as product_name, p.img_path, p.category, p.stock, p.is_active, p.price as product_price, p.discount,
+                    SELECT gti.*, p.name as product_name, p.img_path, p.category, p.stock, p.is_active, p.price as product_price, p.discount, p.cost as product_cost,
                            pv.name as variant_name, pv.stock as variant_stock
                     FROM gift_threshold_items gti
                     LEFT JOIN products p ON gti.product_id = p.id
@@ -1250,6 +1309,10 @@ class GiftThresholdDB:
                         retail_price = round(base_price * (discount / 10.0), 2)
                     except (TypeError, ValueError):
                         retail_price = 0.0
+                    try:
+                        cost_price = float(item_dict.get('product_cost') or 0)
+                    except (TypeError, ValueError):
+                        cost_price = 0.0
 
                     raw_is_active = item_dict.get('is_active')
                     if raw_is_active is None:
@@ -1261,6 +1324,14 @@ class GiftThresholdDB:
                     item_dict['available'] = is_active and stock > 0
                     item_dict['stock'] = stock
                     item_dict['price'] = retail_price
+                    item_dict['retail_price'] = retail_price
+                    item_dict['sale_price'] = retail_price
+                    item_dict['cost'] = round(cost_price, 2)
+                    item_dict['display_name'] = _format_display_name(
+                        item_dict.get('product_name'),
+                        item_dict.get('variant_name'),
+                    )
+                    item_dict['full_product_name'] = item_dict.get('display_name')
                     items.append(item_dict)
 
                 threshold_dict['items'] = items
@@ -1313,7 +1384,8 @@ class GiftThresholdDB:
         gift_coupon: Optional[bool] = None,
         coupon_amount: Optional[float] = None,
         per_order_limit: Optional[int] = None,
-        is_active: Optional[bool] = None
+        is_active: Optional[bool] = None,
+        update_per_order_limit: bool = False,
     ) -> bool:
         updates = []
         params = []
@@ -1330,9 +1402,9 @@ class GiftThresholdDB:
         if coupon_amount is not None:
             updates.append("coupon_amount = ?")
             params.append(coupon_amount)
-        if per_order_limit is not None:
+        if update_per_order_limit:
             updates.append("per_order_limit = ?")
-            params.append(per_order_limit if per_order_limit > 0 else None)
+            params.append(per_order_limit if per_order_limit is not None and per_order_limit > 0 else None)
         if is_active is not None:
             updates.append("is_active = ?")
             params.append(1 if is_active else 0)

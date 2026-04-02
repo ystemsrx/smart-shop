@@ -77,6 +77,10 @@ def search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str,
         except Exception:
             base_price = 0.0
         try:
+            cost_price = float(product.get("cost") or 0)
+        except Exception:
+            cost_price = 0.0
+        try:
             discount = float(product.get("discount", 10.0) or 10.0)
         except Exception:
             discount = 10.0
@@ -96,8 +100,12 @@ def search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str,
                         "product_name": product.get("name"),
                         "variant_id": variant.get("id"),
                         "variant_name": variant.get("name"),
+                        "display_name": f"{product.get('name') or ''}（{variant.get('name') or ''}）",
+                        "full_product_name": f"{product.get('name') or ''}（{variant.get('name') or ''}）",
                         "stock": stock,
                         "retail_price": retail_price,
+                        "sale_price": retail_price,
+                        "cost": round(cost_price, 2),
                         "img_path": product.get("img_path"),
                         "category": product.get("category"),
                         "is_active": is_active,
@@ -116,8 +124,12 @@ def search_inventory_for_selector(term: Optional[str], staff: Optional[Dict[str,
                     "product_name": product.get("name"),
                     "variant_id": None,
                     "variant_name": None,
+                    "display_name": product.get("name"),
+                    "full_product_name": product.get("name"),
                     "stock": stock,
                     "retail_price": retail_price,
+                    "sale_price": retail_price,
+                    "cost": round(cost_price, 2),
                     "img_path": product.get("img_path"),
                     "category": product.get("category"),
                     "is_active": is_active,
