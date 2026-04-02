@@ -440,19 +440,27 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
     collapsedInitialized.current = true;
 
     const staffSet = new Set(staffAddressIds || []);
+    // Check if any of the staff's managed regions actually appear in the groups
+    const staffHasMatchingGroup = staffSet.size > 0 && addressGroups.some(
+      (g) => g.address_id && staffSet.has(g.address_id)
+    );
     const initial = {};
     for (const g of addressGroups) {
       const key = g.address_id || '__unknown__';
       if (isAdmin) {
-        // Admin: expand own regions if known, otherwise expand first group only
-        if (staffSet.size > 0) {
+        // Admin: expand own regions if they exist in groups; otherwise expand first group only
+        if (staffHasMatchingGroup) {
           initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
         } else {
           initial[key] = addressGroups.indexOf(g) !== 0;
         }
       } else {
-        // Agent: expand own regions, collapse rest
-        initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
+        // Agent: expand own regions if they exist, otherwise expand first group
+        if (staffHasMatchingGroup) {
+          initial[key] = g.address_id ? !staffSet.has(g.address_id) : true;
+        } else {
+          initial[key] = addressGroups.indexOf(g) !== 0;
+        }
       }
     }
     setCollapsedRegions(initial);
@@ -598,7 +606,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
           {users.map((u) => (
             <UserRow key={u.student_id} user={u} isSelected={selectedUser?.student_id === u.student_id} onClick={() => handleSelectUser(u)} />
           ))}
-          {hasMore && (
+          {hasMore && usersLoading && (
             <div className="flex items-center justify-center py-3 text-gray-400">
               <Loader2 size={16} className="animate-spin" />
             </div>
@@ -636,7 +644,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
             </div>
           );
         })}
-        {hasMore && (
+        {hasMore && usersLoading && (
           <div className="flex items-center justify-center py-3 text-gray-400">
             <Loader2 size={16} className="animate-spin" />
           </div>

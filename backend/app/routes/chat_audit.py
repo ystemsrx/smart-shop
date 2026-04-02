@@ -122,11 +122,15 @@ async def list_chat_audit_users(request: Request, q: str = "", offset: int = 0, 
         if staff.get("type") == "agent":
             staff_address_ids = scope.get("address_ids") or []
         else:
-            # Admin: look up their own address assignments via agent_id
-            admin_agent_id = staff.get("agent_id")
-            if admin_agent_id:
-                assignments = AgentAssignmentDB.get_buildings_for_agent(admin_agent_id)
-                staff_address_ids = list({a["address_id"] for a in assignments if a.get("address_id")})
+            # Admin manages addresses NOT assigned to any agent.
+            # Collect all address_ids from returned users, then subtract agent-managed ones.
+            user_address_ids = {u["address_id"] for u in users if u.get("address_id")}
+            if user_address_ids:
+                with get_db_connection() as conn2:
+                    c2 = conn2.cursor()
+                    c2.execute("SELECT DISTINCT address_id FROM agent_buildings WHERE address_id IS NOT NULL")
+                    agent_managed = {row["address_id"] for row in c2.fetchall() or []}
+                staff_address_ids = [aid for aid in user_address_ids if aid not in agent_managed]
             else:
                 staff_address_ids = []
 
