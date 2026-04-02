@@ -1579,7 +1579,7 @@ export const ProductForm = ({ product = null, onSubmit, isLoading, onCancel, api
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">库存</label>
               {formData.is_not_for_sale ? (
-                <div className="w-full px-3 py-2.5 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center text-purple-600 font-medium">
+                <div className="w-full px-3 py-2.5 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center text-purple-600 font-medium text-sm">
                   无限库存
                 </div>
               ) : (
