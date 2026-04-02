@@ -875,7 +875,8 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
             </div>
           </div>
           
-          <div className="flex items-center gap-4 bg-gray-50 px-5 py-2.5 rounded-full border border-gray-100">
+          {/* Desktop: pill layout */}
+          <div className="hidden md:flex items-center gap-4 bg-gray-50 px-5 py-2.5 rounded-full border border-gray-100">
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">中奖率</span>
               <span className="text-sm font-bold text-gray-900">
@@ -889,6 +890,17 @@ export const LotteryConfigPanel = ({ apiPrefix, onWarningChange, apiRequest: inj
                 ¥{expectedCostPerDraw.toFixed(2)}
               </span>
             </div>
+          </div>
+          {/* Mobile: 2x2 compact grid */}
+          <div className="md:hidden grid grid-cols-2 gap-x-4 gap-y-0.5 px-1">
+            <span className="text-xs text-gray-500 font-semibold">中奖率</span>
+            <span className="text-sm font-bold text-gray-900 text-right">
+              {Number.isFinite(totalPercent) ? totalPercent.toFixed(2) : '0.00'}%
+            </span>
+            <span className="text-xs text-gray-500 font-semibold">平均成本</span>
+            <span className="text-sm font-bold text-amber-600 text-right">
+              ¥{expectedCostPerDraw.toFixed(2)}
+            </span>
           </div>
           
           <button
