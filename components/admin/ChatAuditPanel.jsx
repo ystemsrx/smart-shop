@@ -683,9 +683,9 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
       return (
         <>
           <ChatVendorScripts />
-          <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden -m-6 lg:-m-10">
             {/* Header */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200/60">
               <button onClick={handleBackToThreads} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
                 <ChevronLeft size={18} />
                 返回
@@ -695,7 +695,9 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
                 {selectedThreadInfo?.title || selectedThreadInfo?.preview || '聊天内容'}
               </span>
             </div>
-            <MessageView messages={messages} messagesLoading={messagesLoading} />
+            <div className="flex-1 min-h-0 bg-white">
+              <MessageView messages={messages} messagesLoading={messagesLoading} />
+            </div>
           </div>
         </>
       );
@@ -706,8 +708,8 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
       return (
         <>
           <ChatVendorScripts />
-          <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+          <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden -m-6 lg:-m-10">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200/60">
               <button onClick={handleBackToUsers} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
                 <ChevronLeft size={18} />
                 返回
@@ -717,7 +719,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
               <span className="text-sm font-medium text-gray-700 truncate">{selectedUser.display_name}</span>
               <span className="text-xs text-gray-400 ml-auto">{threads.length} 个聊天</span>
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
               {renderThreadList()}
             </div>
           </div>
@@ -729,9 +731,9 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
     return (
       <>
         <ChatVendorScripts />
-        <div className="flex flex-col h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden -m-6 lg:-m-10">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/60">
             <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
               <MessageSquare size={20} />
               聊天审计
@@ -750,7 +752,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
           <AnimatePresence>
             {isAdmin && showRetention && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                <div className="border-b border-gray-100 px-4 py-3">
+                <div className="border-b border-gray-200/60 px-4 py-3">
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-gray-600">保留时间：</span>
                     <RetentionSelectPopover value={retentionDays} onChange={handleRetentionChange} disabled={retentionLoading} />
@@ -762,7 +764,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
           </AnimatePresence>
 
           {/* Search */}
-          <div className="px-4 py-3 border-b border-gray-50">
+          <div className="px-4 py-3 border-b border-gray-200/60">
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -779,7 +781,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
           </div>
 
           {/* User list */}
-          <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar">
+          <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar bg-white">
             {renderUserList()}
           </div>
         </div>
@@ -793,9 +795,9 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
   return (
     <>
       <ChatVendorScripts />
-      <div className="space-y-4">
+      <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden -m-6 lg:-m-10">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-6 lg:px-10 py-4 border-b border-gray-200/60">
           <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
             <MessageSquare size={20} />
             聊天审计
@@ -820,7 +822,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+              <div className="px-6 lg:px-10 py-3 border-b border-gray-200/60">
                 <div className="flex items-center gap-4">
                   <span className="text-sm text-gray-600 whitespace-nowrap">聊天记录保留时间：</span>
                   <RetentionSelectPopover
@@ -839,14 +841,14 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
         </AnimatePresence>
 
         {/* Main content area */}
-        <div className="flex gap-4 h-[calc(100vh-14rem)]">
+        <div className="flex flex-1 min-h-0">
           {/* Left panel: User list OR Thread list */}
-          <div className="w-72 flex-shrink-0 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden">
+          <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden border-r border-gray-200/60">
             {!selectedUser ? (
               /* ---- User list view ---- */
               <>
                 {/* Search */}
-                <div className="p-3 border-b border-gray-50">
+                <div className="p-3 border-b border-gray-200/60">
                   <div className="relative">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
@@ -863,7 +865,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
                 </div>
 
                 {/* User list */}
-                <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar">
+                <div ref={userListRef} onScroll={handleUserListScroll} className="flex-1 overflow-y-auto custom-scrollbar bg-white">
                   {renderUserList()}
                 </div>
               </>
@@ -871,7 +873,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
               /* ---- Thread list view (after selecting user) ---- */
               <>
                 {/* Back + user info header */}
-                <div className="px-3 py-3 border-b border-gray-50">
+                <div className="px-3 py-3 border-b border-gray-200/60">
                   <button
                     onClick={handleBackToUsers}
                     className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-2"
@@ -892,7 +894,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
                 </div>
 
                 {/* Thread list */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
                   {renderThreadList()}
                 </div>
               </>
@@ -900,7 +902,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
           </div>
 
           {/* Right panel: Message view */}
-          <div className="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden bg-white">
             {!selectedThread ? (
               /* Empty state */
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
@@ -913,7 +915,7 @@ export function ChatAuditPanel({ apiRequest, isAdmin }) {
               /* Message view */
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Message view header */}
-                <div className="px-5 py-3 border-b border-gray-50 flex items-center gap-3">
+                <div className="px-5 py-3 border-b border-gray-200/60 flex items-center gap-3">
                   <MessageSquare size={16} className="text-gray-400" />
                   <span className="text-sm font-medium text-gray-700 truncate">
                     {selectedThreadInfo?.title || selectedThreadInfo?.preview || '聊天内容'}
