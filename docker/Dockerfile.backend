@@ -1,10 +1,18 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install locale and font packages to fully support Chinese content
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends locales tzdata fonts-noto-cjk curl \
+    -o Acquire::Retries=5 \
+    -o Acquire::http::Timeout=30 \
+    -o Acquire::https::Timeout=30 \
+    && apt-get install -y --no-install-recommends \
+        -o Acquire::Retries=5 \
+        locales \
+        tzdata \
+        fonts-noto-cjk \
+        curl \
     && sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen zh_CN.UTF-8 \
     && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \

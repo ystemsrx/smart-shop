@@ -6,8 +6,13 @@ out
 # Python environment artifacts
 __pycache__
 *.pyc
+.venv
+venv
 backend/venv
 backend/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
 
 # Logs and coverage
 *.log
