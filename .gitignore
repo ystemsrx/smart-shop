@@ -18,6 +18,7 @@ public/*
 public/captcha/generated/
 items/
 logs/
+backend/data/
 .pytest_cache/
 exports/
 backend/app/services/registration_validation.py

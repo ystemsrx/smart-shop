@@ -57,6 +57,9 @@ class AuthManager:
     @staticmethod
     async def verify_login(student_id: str, password: str) -> Optional[Dict[str, Any]]:
         """验证登录API"""
+        if not LOGIN_API:
+            logger.info("LOGIN_API is not configured; skipping third-party login verification")
+            return None
         try:
             # 构建完整的headers以模拟微信小程序环境（可修改）
             headers = {

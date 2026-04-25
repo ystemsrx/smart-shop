@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from dotenv import load_dotenv
 
@@ -167,7 +167,7 @@ class Settings:
     jwt_algorithm: str
     access_token_expire_days: int
     redis_url: str
-    login_api: str
+    login_api: Optional[str]
     admin_accounts: List[AdminAccount]
     allowed_origins: List[str]
     static_cache_max_age: int
@@ -209,9 +209,7 @@ def get_settings() -> Settings:
     jwt_algorithm = (_strip_quotes(os.getenv("JWT_ALGORITHM")) or "HS256").strip() or "HS256"
     access_days = _as_int(_strip_quotes(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS")), 30)
 
-    login_api = _strip_quotes(os.getenv("LOGIN_API"))
-    if not login_api:
-        raise RuntimeError("LOGIN_API environment variable is required")
+    login_api = _strip_quotes(os.getenv("LOGIN_API")) or None
     redis_url = (_strip_quotes(os.getenv("REDIS_URL")) or "redis://127.0.0.1:6379/0").strip()
 
     usernames = _split_csv(os.getenv("ADMIN_USERNAME"))

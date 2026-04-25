@@ -9,10 +9,11 @@ services:
       BACKEND_HOST: 0.0.0.0
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - ./backend/dorm_shop.db:/app/backend/dorm_shop.db
+      - ./backend/data:/app/backend/data
       - ./backend/items:/app/backend/items
       - ./public:/app/public
       - ./backend/logs:/app/backend/logs
+      - ./backend/exports:/app/backend/exports
     ports:
       - "${BACKEND_PORT:-9099}:9099"
     restart: unless-stopped
