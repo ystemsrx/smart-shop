@@ -28,3 +28,9 @@ Thumbs.db
 
 # Misc
 frontend.log
+
+# Runtime data — mounted via docker-compose volumes, must not be baked into the image
+backend/data
+backend/logs
+backend/exports
+backend/items
