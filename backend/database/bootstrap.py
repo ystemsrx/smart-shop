@@ -424,15 +424,6 @@ def init_database():
         except sqlite3.OperationalError:
             pass
         try:
-            cursor.execute('ALTER TABLE coupons ADD COLUMN locked_order_id TEXT')
-        except sqlite3.OperationalError:
-            pass
-        try:
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_locked ON coupons(locked_order_id)')
-        except Exception:
-            pass
-
-        try:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS product_variants (
                     id TEXT PRIMARY KEY,
@@ -469,6 +460,7 @@ def init_database():
                     owner_id TEXT,
                     revoked_at TIMESTAMP NULL,
                     used_at TIMESTAMP NULL,
+                    locked_order_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (student_id) REFERENCES users(id)
@@ -486,6 +478,14 @@ def init_database():
             pass
         try:
             cursor.execute('ALTER TABLE coupons ADD COLUMN used_at TIMESTAMP NULL')
+        except Exception:
+            pass
+        try:
+            cursor.execute('ALTER TABLE coupons ADD COLUMN locked_order_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_coupons_locked ON coupons(locked_order_id)')
         except Exception:
             pass
 
