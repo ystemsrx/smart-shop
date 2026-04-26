@@ -1497,9 +1497,14 @@ class OrderDB:
         cycle_start: Optional[str] = None,
         cycle_end: Optional[str] = None,
         reference_end: Optional[str] = None,
-        timezone_offset_minutes: Optional[int] = None
+        timezone_offset_minutes: Optional[int] = None,
+        count_all_users: bool = False
     ) -> Dict[str, Any]:
-        """获取仪表盘详细统计信息"""
+        """获取仪表盘详细统计信息
+
+        ``count_all_users`` 为 True 时，注册用户相关指标不受订单/区域筛选影响，
+        统计 ``users`` 表中所有用户（管理员后台使用）。
+        """
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
@@ -2073,43 +2078,100 @@ class OrderDB:
             
             top_products = sorted(top_products, key=lambda x: x['sold'], reverse=True)[:10]
             
-            # 用户增长统计
-            customers_where, customers_params = build_where(alias='o')
-            if customers_where:
-                cursor.execute(f'''
-                    SELECT COUNT(DISTINCT o.student_id)
-                    FROM orders o
-                    {customers_where}
-                ''', customers_params)
-            else:
-                cursor.execute('SELECT COUNT(DISTINCT student_id) FROM orders')
+            # 注册用户统计：管理员视角统计全部已注册用户（不含代理与管理员），
+            # 代理视角仅统计资料归属其辖区（按 agent_id / 楼栋 / 地址匹配）的用户。
+            normalized_user_addresses = [aid for aid in (address_ids or []) if aid]
+            normalized_user_buildings = [bid for bid in (building_ids or []) if bid]
+            user_scope_active = (
+                not count_all_users
+                and (
+                    bool(agent_id)
+                    or bool(normalized_user_addresses)
+                    or bool(normalized_user_buildings)
+                    or filter_admin_orders
+                )
+            )
+
+            def build_user_query(extra_clause: Optional[str] = None, extra_params: Optional[List[Any]] = None) -> Tuple[str, List[Any]]:
+                clauses: List[str] = []
+                params: List[Any] = []
+                if user_scope_active:
+                    from_sql = 'FROM users u JOIN user_profiles up ON up.student_id = u.id'
+                    if filter_admin_orders:
+                        clauses.append("(up.agent_id IS NULL OR TRIM(up.agent_id) = '')")
+                    else:
+                        scope_clauses: List[str] = []
+                        if agent_id:
+                            scope_clauses.append("up.agent_id = ?")
+                            params.append(agent_id)
+                            if normalized_user_buildings:
+                                placeholders = ','.join('?' * len(normalized_user_buildings))
+                                scope_clauses.append(
+                                    f"((up.agent_id IS NULL OR TRIM(up.agent_id) = '') AND up.building_id IN ({placeholders}))"
+                                )
+                                params.extend(normalized_user_buildings)
+                            if normalized_user_addresses:
+                                placeholders = ','.join('?' * len(normalized_user_addresses))
+                                scope_clauses.append(
+                                    f"((up.agent_id IS NULL OR TRIM(up.agent_id) = '') AND up.address_id IN ({placeholders}))"
+                                )
+                                params.extend(normalized_user_addresses)
+                        else:
+                            if normalized_user_buildings:
+                                placeholders = ','.join('?' * len(normalized_user_buildings))
+                                scope_clauses.append(f"up.building_id IN ({placeholders})")
+                                params.extend(normalized_user_buildings)
+                            if normalized_user_addresses:
+                                placeholders = ','.join('?' * len(normalized_user_addresses))
+                                scope_clauses.append(f"up.address_id IN ({placeholders})")
+                                params.extend(normalized_user_addresses)
+                        if scope_clauses:
+                            clauses.append('(' + ' OR '.join(scope_clauses) + ')')
+                else:
+                    from_sql = 'FROM users u'
+                if extra_clause:
+                    clauses.append(extra_clause)
+                    if extra_params:
+                        params.extend(extra_params)
+                where_sql = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+                return f"SELECT COUNT(*) {from_sql}{where_sql}", params
+
+            total_query, total_params = build_user_query()
+            cursor.execute(total_query, total_params)
             total_users = cursor.fetchone()[0] or 0
 
             recent_start_local = (reference_end_local - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
-            recent_clause, recent_params = build_local_time_filter('o', recent_start_local, reference_end_local)
-            recent_where, recent_params = build_where(recent_clause, recent_params, alias='o')
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT o.student_id)
-                FROM orders o
-                {recent_where}
-            ''', recent_params)
+            recent_clause = (
+                f"datetime(u.created_at, '{shift_modifier}') >= datetime(?) "
+                f"AND datetime(u.created_at, '{shift_modifier}') <= datetime(?)"
+            )
+            recent_params_dt = [
+                recent_start_local.strftime("%Y-%m-%d %H:%M:%S"),
+                reference_end_local.strftime("%Y-%m-%d %H:%M:%S"),
+            ]
+            recent_query, recent_query_params = build_user_query(recent_clause, recent_params_dt)
+            cursor.execute(recent_query, recent_query_params)
             new_users_week = cursor.fetchone()[0] or 0
 
-            # 计算当前统计周期与对比周期的消费用户变化
-            current_users_where, current_users_params = build_where(f'({time_filter_o})', time_filter_o_params, alias='o')
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT o.student_id)
-                FROM orders o
-                {current_users_where}
-            ''', current_users_params)
+            # 当前周期 / 对比周期内新增注册用户
+            period_user_clause = (
+                f"datetime(u.created_at, '{shift_modifier}') >= datetime(?) "
+                f"AND datetime(u.created_at, '{shift_modifier}') <= datetime(?)"
+            )
+            current_period_params_dt = [
+                current_start_local.strftime("%Y-%m-%d %H:%M:%S"),
+                current_end_local.strftime("%Y-%m-%d %H:%M:%S"),
+            ]
+            current_query, current_query_params = build_user_query(period_user_clause, current_period_params_dt)
+            cursor.execute(current_query, current_query_params)
             current_period_users = cursor.fetchone()[0] or 0
 
-            prev_users_where, prev_users_params = build_where(f'({prev_time_filter_o})', prev_time_filter_o_params, alias='o')
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT o.student_id)
-                FROM orders o
-                {prev_users_where}
-            ''', prev_users_params)
+            prev_period_params_dt = [
+                prev_start_local.strftime("%Y-%m-%d %H:%M:%S"),
+                prev_end_local.strftime("%Y-%m-%d %H:%M:%S"),
+            ]
+            prev_query, prev_query_params = build_user_query(period_user_clause, prev_period_params_dt)
+            cursor.execute(prev_query, prev_query_params)
             prev_period_users = cursor.fetchone()[0] or 0
 
             users_growth = 0.0

@@ -1268,6 +1268,7 @@ async def get_dashboard_statistics(
             cycle_end=cycle_end,
             reference_end=reference_end,
             timezone_offset_minutes=timezone_offset_minutes,
+            count_all_users=True,
         )
         stats["scope"] = scope
         stats["selected_agent_id"] = selected_agent_id
