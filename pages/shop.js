@@ -486,63 +486,165 @@ const CategoryFilter = ({
   const toggleAriaLabel = isSphere ? '切换为网格视图' : '切换为球形视图';
   const toggleButtonIcon = isSphere ? 'fa-border-all' : 'fa-globe';
 
-  return (
-    <div>
-      <div className="flex overflow-x-auto hide-scrollbar space-x-2.5 md:justify-center px-1.5 py-1">
-        {hasHotProducts && (
-          <button
-            onClick={() => onCategoryChange('hot')}
-            className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
-              isActive('hot')
-                ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
-            }`}
-          >
-            🔥 热销
-          </button>
-        )}
+  const chips = useMemo(() => {
+    const list = [];
+    if (hasHotProducts) {
+      list.push({ kind: 'category', key: 'hot', value: 'hot', label: '🔥 热销' });
+    }
+    list.push({ kind: 'category', key: 'all', value: 'all', label: '全部' });
+    categories.forEach((category) => {
+      list.push({
+        kind: 'category',
+        key: `cat-${category.id}`,
+        value: `category:${category.name}`,
+        label: category.name,
+      });
+    });
+    if (onToggleView) {
+      list.push({ kind: 'toggle', key: 'toggle' });
+    }
+    return list;
+  }, [categories, hasHotProducts, onToggleView]);
+
+  const containerRef = useRef(null);
+  const measureRef = useRef(null);
+  const [desktopRows, setDesktopRows] = useState(null);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mql = window.matchMedia('(min-width: 768px)');
+    const update = () => setIsDesktop(mql.matches);
+    update();
+    if (mql.addEventListener) {
+      mql.addEventListener('change', update);
+      return () => mql.removeEventListener('change', update);
+    }
+    mql.addListener(update);
+    return () => mql.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (!isDesktop) {
+      setDesktopRows(null);
+      return undefined;
+    }
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return undefined;
+
+    const GAP = 10; // 对应 space-x-2.5
+
+    const compute = () => {
+      const containerWidth = container.clientWidth;
+      const items = Array.from(measure.children);
+      if (items.length === 0 || containerWidth <= 0) {
+        setDesktopRows([chips]);
+        return;
+      }
+      const widths = items.map((el) => el.getBoundingClientRect().width);
+      const rowWidth = (slice) =>
+        slice.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, slice.length - 1);
+
+      if (rowWidth(widths) <= containerWidth) {
+        setDesktopRows([chips]);
+        return;
+      }
+
+      const fitsInRows = (rowsCount) => {
+        const perRow = Math.ceil(chips.length / rowsCount);
+        for (let i = 0; i < chips.length; i += perRow) {
+          const slice = widths.slice(i, Math.min(i + perRow, chips.length));
+          if (rowWidth(slice) > containerWidth) return false;
+        }
+        return true;
+      };
+
+      let rowsCount = 2;
+      while (rowsCount < chips.length && !fitsInRows(rowsCount)) {
+        rowsCount += 1;
+      }
+
+      const perRow = Math.ceil(chips.length / rowsCount);
+      const result = [];
+      for (let i = 0; i < chips.length; i += perRow) {
+        result.push(chips.slice(i, i + perRow));
+      }
+      setDesktopRows(result);
+    };
+
+    compute();
+
+    const ro = new ResizeObserver(compute);
+    ro.observe(container);
+    if (document?.fonts?.ready) {
+      document.fonts.ready.then(compute).catch(() => {});
+    }
+    return () => ro.disconnect();
+  }, [chips, isDesktop]);
+
+  const renderChip = (chip) => {
+    if (chip.kind === 'toggle') {
+      return (
         <button
-          onClick={() => onCategoryChange('all')}
-          className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
-            isActive('all')
+          key={chip.key}
+          type="button"
+          onClick={onToggleView}
+          disabled={disableSphereToggle}
+          aria-pressed={isSphere}
+          aria-label={toggleAriaLabel}
+          className={`flex-shrink-0 px-3.5 py-2 rounded-full border whitespace-nowrap text-xs md:text-sm transition-all duration-300 ${
+            isSphere
               ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
-              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
-          }`}
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:scale-[1.03]'
+          } ${disableSphereToggle ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          全部
+          <i className={`fas ${toggleButtonIcon}`}></i>
         </button>
-        {categories.map((category) => {
-          const value = `category:${category.name}`;
-          return (
-            <button
-              key={category.id}
-              onClick={() => onCategoryChange(value)}
-              className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
-                isActive(value)
-                  ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
-              }`}
-            >
-              {category.name}
-            </button>
-          );
-        })}
-        {onToggleView && (
-          <button
-            type="button"
-            onClick={onToggleView}
-            disabled={disableSphereToggle}
-            aria-pressed={isSphere}
-            aria-label={toggleAriaLabel}
-            className={`flex-shrink-0 px-3.5 py-2 rounded-full border whitespace-nowrap text-xs md:text-sm transition-all duration-300 ${
-              isSphere
-                ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:scale-[1.03]'
-            } ${disableSphereToggle ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <i className={`fas ${toggleButtonIcon}`}></i>
-          </button>
-        )}
+      );
+    }
+    const value = chip.value;
+    return (
+      <button
+        key={chip.key}
+        onClick={() => onCategoryChange(value)}
+        className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
+          isActive(value)
+            ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
+        }`}
+      >
+        {chip.label}
+      </button>
+    );
+  };
+
+  const rowsToRender = desktopRows || [chips];
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* 隐藏测量层（仅桌面端用于测算分行） */}
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        className="hidden md:flex absolute left-0 top-0 invisible pointer-events-none space-x-2.5"
+      >
+        {chips.map(renderChip)}
+      </div>
+
+      {/* 移动端：保持单行横向滚动 */}
+      <div className="md:hidden flex overflow-x-auto hide-scrollbar space-x-2.5 px-1.5 py-1">
+        {chips.map(renderChip)}
+      </div>
+
+      {/* 桌面端：未超出时单行；超出时按平均分行（上行 ≥ 下行） */}
+      <div className="hidden md:flex md:flex-col md:items-center gap-y-2 px-1.5 py-1">
+        {rowsToRender.map((row, idx) => (
+          <div key={idx} className="flex justify-center space-x-2.5">
+            {row.map(renderChip)}
+          </div>
+        ))}
       </div>
     </div>
   );
