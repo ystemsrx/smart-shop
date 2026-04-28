@@ -229,6 +229,19 @@ class OrderDB:
         return '待配送'
 
     @staticmethod
+    def _revenue_filter_clause(alias: Optional[str] = None) -> str:
+        """订单计入销售额的条件：仅统一状态为 待配送 / 配送中 / 已完成 的订单。
+
+        即：已支付成功且未被取消。该过滤应当用于所有面向运营的销售额/利润聚合，
+        以避免把 待确认 / 已取消 / 未付款 的订单算入销售额。
+        """
+        prefix = f"{alias}." if alias else ""
+        return (
+            f"{prefix}payment_status = 'succeeded' "
+            f"AND ({prefix}status IS NULL OR {prefix}status != 'cancelled')"
+        )
+
+    @staticmethod
     def _collect_inventory_adjustments(
         cursor: sqlite3.Cursor,
         order_id: str,
@@ -953,7 +966,7 @@ class OrderDB:
     ) -> Dict[str, Any]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            filters: List[str] = ["payment_status = 'succeeded'"]
+            filters: List[str] = [OrderDB._revenue_filter_clause()]
             params: List[Any] = []
 
             scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
@@ -971,8 +984,8 @@ class OrderDB:
             where_clause = 'WHERE ' + ' AND '.join(filters) if filters else ''
 
             cursor.execute(f'''
-                SELECT 
-                    COUNT(*) as order_count, 
+                SELECT
+                    COUNT(*) as order_count,
                     SUM(total_amount) as total_amount
                 FROM orders
                 {where_clause}
@@ -1144,8 +1157,8 @@ class OrderDB:
             cursor.execute(f'''SELECT COUNT(*) FROM orders{where_clause}''', params)
             today_orders = cursor.fetchone()[0]
 
-            # 总销售额
-            where_clause, params = build_where()
+            # 总销售额：仅统计 待配送 / 配送中 / 已完成（即已支付且未取消）的订单
+            where_clause, params = build_where(OrderDB._revenue_filter_clause('orders'))
             cursor.execute(f'SELECT COALESCE(SUM(total_amount), 0) FROM orders{where_clause}', params)
             total_revenue = cursor.fetchone()[0]
 
@@ -1191,7 +1204,7 @@ class OrderDB:
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            filters = ["o.payment_status = 'succeeded'"]
+            filters = [OrderDB._revenue_filter_clause('o')]
             params: List[Any] = []
 
             scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, filter_admin_orders=filter_admin_orders)
@@ -1305,7 +1318,7 @@ class OrderDB:
                     LEFT JOIN products prod ON op.product_id = prod.id
                     GROUP BY op.order_id
                 ) p ON o.id = p.order_id
-                WHERE o.payment_status = 'succeeded'
+                WHERE {OrderDB._revenue_filter_clause('o')}
                   AND datetime(o.created_at) BETWEEN datetime(?) AND datetime(?)
                   {'AND ' + scope_clause if scope_clause else ''}
             ''', [prev_start_str, prev_end_str, *scope_params])
@@ -1629,13 +1642,16 @@ class OrderDB:
                 chart_time_filter_o, chart_time_params_o = build_local_time_filter('o', chart_start_local, chart_end_local)
                 chart_window_config = {'window_size': 7, 'step': 7} if period == 'week' else {'window_size': 30, 'step': 30}
 
-            # 当前时间段销售额
-            where_clause, params = build_where(time_filter, time_filter_params)
+            # 当前时间段销售额（仅统计 待配送 / 配送中 / 已完成 的订单）
+            revenue_clause = OrderDB._revenue_filter_clause('orders')
+            where_clause, params = build_where(
+                f"({time_filter}) AND {revenue_clause}", time_filter_params
+            )
             cursor.execute(f'''
-                SELECT {group_by} as period, 
+                SELECT {group_by} as period,
                        COALESCE(SUM(total_amount), 0) as revenue,
                        COUNT(*) as orders
-                FROM orders 
+                FROM orders
                 {where_clause}
                 GROUP BY {group_by}
                 ORDER BY period
@@ -1670,7 +1686,9 @@ class OrderDB:
                 period_key = data_point.get('period')
                 data_point['user_ids'] = current_users_by_period.get(period_key, [])
 
-            chart_where, chart_params = build_where(chart_time_filter, chart_time_params)
+            chart_where, chart_params = build_where(
+                f"({chart_time_filter}) AND {revenue_clause}", chart_time_params
+            )
             cursor.execute(f'''
                 SELECT {group_by} as period,
                        COALESCE(SUM(total_amount), 0) as revenue,
@@ -1694,7 +1712,7 @@ class OrderDB:
                 where_clause_profit, params_profit = build_where(
                     f"({time_filter_clause})", time_filter_params, alias='o'
                 )
-                extra_clause = "o.payment_status = 'succeeded'"
+                extra_clause = OrderDB._revenue_filter_clause('o')
                 if where_clause_profit:
                     where_clause_profit = where_clause_profit + ' AND ' + extra_clause
                 else:
@@ -1913,25 +1931,29 @@ class OrderDB:
 
                 chart_data = filled_chart
             
-            # 对比时间段销售额和净利润
-            prev_where, prev_params = build_where(prev_time_filter, prev_time_filter_params)
+            # 对比时间段销售额和净利润（仅统计 待配送 / 配送中 / 已完成 的订单）
+            prev_where, prev_params = build_where(
+                f"({prev_time_filter}) AND {revenue_clause}", prev_time_filter_params
+            )
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
-                FROM orders 
+                FROM orders
                 {prev_where}
             ''', prev_params)
             prev_data = cursor.fetchone()
             prev_revenue = round(prev_data[0], 2) if prev_data else 0
             prev_orders = prev_data[1] if prev_data else 0
-            
+
             # 计算对比时间段净利润
             prev_profit, _ = calculate_profit_for_period(prev_time_filter_o, prev_time_filter_o_params)
-            
-            # 当前时间段总计
-            current_where, current_params = build_where(time_filter, time_filter_params)
+
+            # 当前时间段总计（仅统计 待配送 / 配送中 / 已完成 的订单）
+            current_where, current_params = build_where(
+                f"({time_filter}) AND {revenue_clause}", time_filter_params
+            )
             cursor.execute(f'''
                 SELECT COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders
-                FROM orders 
+                FROM orders
                 {current_where}
             ''', current_params)
             current_data = cursor.fetchone()
@@ -1990,12 +2012,13 @@ class OrderDB:
                     prev_end.strftime('%Y-%m-%d %H:%M:%S')
                 ]
 
-            # 当前期商品销量统计
+            # 当前期商品销量统计（仅统计 待配送 / 配送中 / 已完成 的订单）
+            top_revenue_clause = OrderDB._revenue_filter_clause('o')
             where_clause_orders, params_orders = build_where(top_time_clause, top_time_params, alias='o')
             if where_clause_orders:
-                where_clause_orders = where_clause_orders + " AND o.payment_status = 'succeeded'"
+                where_clause_orders = where_clause_orders + " AND " + top_revenue_clause
             else:
-                where_clause_orders = " WHERE o.payment_status = 'succeeded'"
+                where_clause_orders = " WHERE " + top_revenue_clause
             cursor.execute(f'''
                 SELECT o.items, o.created_at
                 FROM orders o 
@@ -2029,12 +2052,12 @@ class OrderDB:
                 except (json.JSONDecodeError, KeyError, ValueError):
                     continue
             
-            # 上一期商品销量统计
+            # 上一期商品销量统计（仅统计 待配送 / 配送中 / 已完成 的订单）
             prev_where_clause_orders, prev_params_orders = build_where(prev_top_time_clause, prev_top_time_params, alias='o')
             if prev_where_clause_orders:
-                prev_where_clause_orders = prev_where_clause_orders + " AND o.payment_status = 'succeeded'"
+                prev_where_clause_orders = prev_where_clause_orders + " AND " + top_revenue_clause
             else:
-                prev_where_clause_orders = " WHERE o.payment_status = 'succeeded'"
+                prev_where_clause_orders = " WHERE " + top_revenue_clause
             cursor.execute(f'''
                 SELECT o.items, o.created_at
                 FROM orders o 
@@ -2234,7 +2257,7 @@ class OrderDB:
             cursor = conn.cursor()
 
             scope_clause, scope_params = OrderDB._build_scope_filter(agent_id, address_ids, building_ids, table_alias='o', filter_admin_orders=filter_admin_orders)
-            where_parts = ["o.payment_status = 'succeeded'"]
+            where_parts = [OrderDB._revenue_filter_clause('o')]
             params: List[Any] = list(scope_params)
             if scope_clause:
                 where_parts.append(scope_clause)
