@@ -43,12 +43,14 @@ const ProductDetailSlide = ({
   // 2. 初始化选中规格：同步计算，避免按钮和规格选中状态闪烁
   const [selectedVariant, setSelectedVariant] = useState(() => getDefaultVariant(product));
 
-  const [imageError, setImageError] = useState(false);
   const [ready, setReady] = useState(false);
 
   // 颜色提取逻辑
   useEffect(() => {
-    if (!imageSrc) return;
+    if (!imageSrc) {
+      setReady(true);
+      return;
+    }
 
     // 再次检查缓存（防止初始化后缓存刚更新）
     const cached = getEdgeColor(imageSrc);
@@ -90,7 +92,6 @@ const ProductDetailSlide = ({
     if (selectedVariant !== newDefault) {
        setSelectedVariant(newDefault);
     }
-    setImageError(false);
   }, [product?.id]);
 
   if (!product) return null;
@@ -192,7 +193,6 @@ const ProductDetailSlide = ({
               (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
             }`}
             maxRetries={3}
-            onFinalError={() => setImageError(true)}
           />
 
           {(isOutOfStock || isDown) && (
@@ -207,7 +207,7 @@ const ProductDetailSlide = ({
         </div>
 
         <div className="w-full aspect-square min-w-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto no-scrollbar p-8 md:p-6 pb-0">
+          <div className="flex-1 overflow-y-auto no-scrollbar p-6 pb-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               {product.category && (
                 <span className="px-3 py-1 bg-orange-100 text-primary text-xs font-bold rounded-full">
@@ -256,7 +256,7 @@ const ProductDetailSlide = ({
               <div className="mb-3">
                 <p className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-2">选择规格</p>
                 <div className="flex flex-wrap gap-2">
-                  {product.variants
+                  {[...product.variants]
                     .sort((a, b) => (b.stock || 0) - (a.stock || 0))
                     .map((variant) => {
                       const isVariantOutOfStock = isNonSellable ? false : (variant.stock === 0);
@@ -266,11 +266,11 @@ const ProductDetailSlide = ({
                           key={variant.id}
                           onClick={() => !isVariantOutOfStock && setSelectedVariant(variant.id)}
                           disabled={isVariantOutOfStock}
-                          className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-200 border ${
+                          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 border ${
                             isVariantOutOfStock
                               ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed line-through'
                               : isSelected
-                                ? 'bg-primary text-white border-primary ring-1 ring-inset ring-primary/90'
+                                ? 'bg-primary text-white border-primary'
                                 : 'bg-white text-stone-600 border-stone-200 hover:border-stone-300'
                           }`}
                         >
@@ -303,7 +303,7 @@ const ProductDetailSlide = ({
             )}
           </div>
 
-          <div className="shrink-0 px-6 md:px-6 pb-3 md:pb-3 pt-0">
+          <div className="shrink-0 px-6 pb-3 pt-0">
             <div className="flex items-center gap-4 min-h-[48px]">
             {!user ? (
               <button
@@ -329,7 +329,7 @@ const ProductDetailSlide = ({
                   <button
                     onClick={(e) => handleQuantityChange(currentQuantity - 1, e)}
                     disabled={isLoading}
-                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-800 hover:bg-black/5 active:scale-95 transition-[transform,background-color,color] duration-150 disabled:opacity-40"
                     aria-label="减少"
                   >
                     <i className="fas fa-minus text-sm"></i>
@@ -338,7 +338,7 @@ const ProductDetailSlide = ({
                   <button
                     onClick={(e) => handleQuantityChange(currentQuantity + 1, e)}
                     disabled={isLoading || !canIncreaseCurrentSelection}
-                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-800 hover:bg-black/5 active:scale-95 transition-[transform,background-color,color] duration-150 disabled:opacity-40"
                     aria-label="增加"
                   >
                     <i className="fas fa-plus text-sm"></i>
@@ -347,7 +347,7 @@ const ProductDetailSlide = ({
                 <button
                   onClick={handleAddToCart}
                   disabled={isLoading || !canIncreaseCurrentSelection}
-                  className="flex-1 h-12 bg-[#1c1917] text-white rounded-full font-bold hover:bg-primary transition-colors flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/30 disabled:opacity-50"
+                  className="flex-1 h-12 bg-ink text-white rounded-full font-bold hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
                   aria-label="加入购物车"
                 >
                   <i className="fas fa-shopping-bag text-base"></i>
@@ -360,7 +360,7 @@ const ProductDetailSlide = ({
                   <button
                     onClick={(e) => handleQuantityChange(currentQuantity - 1, e)}
                     disabled={isLoading}
-                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-800 hover:bg-black/5 active:scale-95 transition-[transform,background-color,color] duration-150 disabled:opacity-40"
                     aria-label="减少"
                   >
                     <i className="fas fa-minus text-sm"></i>
@@ -369,7 +369,7 @@ const ProductDetailSlide = ({
                   <button
                     onClick={(e) => handleQuantityChange(currentQuantity + 1, e)}
                     disabled={isLoading || (!isNonSellable && currentQuantity >= currentStock)}
-                    className="text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-40"
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-800 hover:bg-black/5 active:scale-95 transition-[transform,background-color,color] duration-150 disabled:opacity-40"
                     aria-label="增加"
                   >
                     <i className="fas fa-plus text-sm"></i>
@@ -380,7 +380,7 @@ const ProductDetailSlide = ({
               <button
                 onClick={handleAddToCart}
                 disabled={isLoading}
-                className="flex-1 h-12 bg-[#1c1917] text-white rounded-full font-bold hover:bg-primary transition-colors flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/30 disabled:opacity-50"
+                className="flex-1 h-12 bg-ink text-white rounded-full font-bold hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
                 aria-label="加入购物车"
               >
                 <i className="fas fa-shopping-bag text-base"></i>
@@ -395,10 +395,10 @@ const ProductDetailSlide = ({
   }
 
   return (
-    <div 
+    <div
       className="w-full h-full relative"
-      // 使用 key 确保背景色变化时也是平滑的或者直接切换
-      style={{ backgroundColor: bgColor }}
+      // 背景色平滑过渡，避免提取完成时的生硬跳变
+      style={{ backgroundColor: bgColor, transition: 'background-color 0.4s ease' }}
     >
       {/* ============ 全屏沉浸式背景 ============ */}
       <div className="absolute inset-0 z-0">
@@ -411,14 +411,13 @@ const ProductDetailSlide = ({
             (isOutOfStock || isDown) ? 'filter grayscale opacity-75' : ''
           }`}
           maxRetries={3}
-          onFinalError={() => setImageError(true)}
         />
         {/* 底部渐变遮罩 */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/25 to-transparent"></div>
       </div>
 
       {/* ============ 顶部操作栏 ============ */}
-      <div className="absolute top-0 left-0 right-0 z-20 px-5 pt-12 pb-6 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
+      <div className="absolute top-0 left-0 right-0 z-20 px-5 pt-12 pb-6 flex justify-between items-center">
         <button 
           onPointerDown={(e) => {
             e.preventDefault();
@@ -457,7 +456,7 @@ const ProductDetailSlide = ({
       )}
 
       {/* ============ 底部内容叠加层 ============ */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 px-6 pb-10 text-white">
+      <div className={`absolute bottom-0 left-0 right-0 z-20 px-6 pb-10 text-white transition-opacity duration-300 ${ready ? 'opacity-100' : 'opacity-0'}`}>
         
         {/* 标签行 */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -511,9 +510,9 @@ const ProductDetailSlide = ({
         {/* 规格选择（如果有多规格） */}
         {isVariant && product.variants && product.variants.length > 0 && (
           <div className="mb-5">
-            <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">选择规格</p>
+            <p className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-2">选择规格</p>
             <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto no-scrollbar py-1 pr-1">
-              {product.variants
+              {[...product.variants]
                 .sort((a, b) => (b.stock || 0) - (a.stock || 0))
                 .map((variant) => {
                   const isVariantOutOfStock = isNonSellable ? false : (variant.stock === 0);
@@ -523,11 +522,11 @@ const ProductDetailSlide = ({
                       key={variant.id}
                       onClick={() => !isVariantOutOfStock && setSelectedVariant(variant.id)}
                       disabled={isVariantOutOfStock}
-                      className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-200 border ${
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border ${
                         isVariantOutOfStock
                           ? 'bg-white/5 text-gray-500 border-white/10 cursor-not-allowed line-through'
                           : isSelected
-                            ? 'bg-primary text-white border-primary ring-1 ring-inset ring-primary/90'
+                            ? 'bg-primary text-white border-primary'
                             : 'bg-black/40 text-white border-white/20 hover:border-white/40 backdrop-blur'
                       }`}
                     >
@@ -550,7 +549,7 @@ const ProductDetailSlide = ({
         <div className="flex items-center justify-between">
           {/* 价格 */}
           <div className="flex flex-col">
-            <span className="text-xs text-gray-400 uppercase tracking-widest">价格</span>
+            <span className="text-xs text-stone-400 uppercase tracking-wider font-semibold">价格</span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold">¥{formatPriceDisplay(finalPrice)}</span>
               {hasDiscount && (
@@ -614,10 +613,10 @@ const ProductDetailSlide = ({
                 onClick={handleAddToCart}
                 disabled={isLoading || !canIncreaseCurrentSelection}
                 className={`${
-                  requiresReservation 
-                    ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' 
-                    : 'bg-primary hover:bg-orange-600 shadow-primary/30'
-                } h-12 text-white pl-6 pr-2 rounded-full flex items-center gap-3 transition-all shadow-lg active:scale-95 duration-200 disabled:opacity-50`}
+                  requiresReservation
+                    ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30'
+                    : 'bg-primary hover:bg-primary-deep shadow-primary/30'
+                } h-12 text-white pl-6 pr-2 rounded-full flex items-center gap-3 transition-[transform,background-color] shadow-lg active:scale-95 duration-200 disabled:opacity-50`}
                 aria-label="加入购物车"
               >
                 <span className="font-bold text-sm">加入购物车</span>
@@ -655,10 +654,10 @@ const ProductDetailSlide = ({
               onClick={handleAddToCart}
               disabled={isLoading}
               className={`${
-                requiresReservation 
-                  ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' 
-                  : 'bg-primary hover:bg-orange-600 shadow-primary/30'
-              } h-12 text-white pl-6 pr-2 rounded-full flex items-center gap-3 transition-all shadow-lg active:scale-95 duration-200 disabled:opacity-50`}
+                requiresReservation
+                  ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30'
+                  : 'bg-primary hover:bg-primary-deep shadow-primary/30'
+              } h-12 text-white pl-6 pr-2 rounded-full flex items-center gap-3 transition-[transform,background-color] shadow-lg active:scale-95 duration-200 disabled:opacity-50`}
               aria-label="加入购物车"
             >
               <span className="font-bold text-sm">加入购物车</span>

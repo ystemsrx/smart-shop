@@ -14,15 +14,23 @@ const SpecSelectionModal = ({
   user
 }) => {
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const [isDesktop, setIsDesktop] = useState(() => (
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : false
+  ));
 
-  if (!product) return null;
-
-  const isModalNonSellable = Boolean(product.is_not_for_sale);
-  const { discountZhe: mDiscZ, hasDiscount: mHasDis, finalPrice: mFinalPrice } = getPricingMeta(product);
-  
-  const modalRequiresReservation = Boolean(product.reservation_required);
-  const modalReservationCutoff = product.reservation_cutoff;
-  const modalReservationNote = (product.reservation_note || '').trim();
+  // Track desktop breakpoint reactively
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const media = window.matchMedia('(min-width: 768px)');
+    const syncMode = () => setIsDesktop(media.matches);
+    syncMode();
+    if (media.addEventListener) {
+      media.addEventListener('change', syncMode);
+      return () => media.removeEventListener('change', syncMode);
+    }
+    media.addListener(syncMode);
+    return () => media.removeListener(syncMode);
+  }, []);
 
   // Prevent background scroll
   useEffect(() => {
@@ -32,10 +40,19 @@ const SpecSelectionModal = ({
     };
   }, []);
 
+  if (!product) return null;
+
+  const isModalNonSellable = Boolean(product.is_not_for_sale);
+  const { discountZhe: mDiscZ, hasDiscount: mHasDis, finalPrice: mFinalPrice } = getPricingMeta(product);
+
+  const modalRequiresReservation = Boolean(product.reservation_required);
+  const modalReservationCutoff = product.reservation_cutoff;
+  const modalReservationNote = (product.reservation_note || '').trim();
+
   // Drag handler for mobile pull-to-dismiss
   const handleDragEnd = (event, info) => {
-    // If dragged down more than 100px, close
-    if (info.offset.y > 100) {
+    // If dragged down more than 100px or flicked down fast, close
+    if (info.offset.y > 100 || info.velocity.y > 500) {
       onClose();
     }
   };
@@ -63,30 +80,31 @@ const SpecSelectionModal = ({
       transition={{ duration: 0.2 }}
     >
       {/* Backdrop */}
-      <motion.div 
-        className="absolute inset-0 bg-black/30 md:bg-gray-900/30 backdrop-blur-[2px]"
+      <motion.div
+        className="absolute inset-0 bg-black/30 md:bg-gray-900/30"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
         onClick={onClose}
       />
 
       {/* Modal Card */}
       <motion.div
-        className="relative bg-white w-full max-w-lg rounded-t-3xl md:rounded-[2rem] shadow-2xl md:ring-1 md:ring-black/5 md:border md:border-gray-100 z-10"
-        initial={typeof window !== 'undefined' && window.innerWidth >= 768 
-          ? { opacity: 0, scale: 0.92, y: 10 } 
+        className="relative bg-white w-full max-w-lg rounded-t-3xl md:rounded-3xl shadow-2xl md:ring-1 md:ring-black/5 md:border md:border-gray-100 z-10"
+        initial={isDesktop
+          ? { opacity: 0, scale: 0.92, y: 10 }
           : { y: "100%" }}
-        animate={typeof window !== 'undefined' && window.innerWidth >= 768 
-          ? { opacity: 1, scale: 1, y: 0 } 
+        animate={isDesktop
+          ? { opacity: 1, scale: 1, y: 0 }
           : { y: 0 }}
-        exit={typeof window !== 'undefined' && window.innerWidth >= 768 
-          ? { opacity: 0, scale: 0.95, y: 10 } 
+        exit={isDesktop
+          ? { opacity: 0, scale: 0.95, y: 10 }
           : { y: "100%" }}
-        transition={typeof window !== 'undefined' && window.innerWidth >= 768 
-          ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] } 
+        transition={isDesktop
+          ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
           : { type: "spring", damping: 30, stiffness: 300 }}
-        drag={typeof window !== 'undefined' && window.innerWidth < 768 ? "y" : false}
+        drag={!isDesktop ? "y" : false}
         dragConstraints={{ top: 0, bottom: 0 }}
         dragElastic={{ top: 0.05, bottom: 0.5 }}
         onDragEnd={handleDragEnd}
@@ -160,11 +178,11 @@ const SpecSelectionModal = ({
                           ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed line-through'
                           : isSelected
                             ? modalRequiresReservation
-                              ? 'bg-blue-500 text-white border-blue-500 ring-1 ring-inset ring-blue-500'
-                              : 'bg-primary text-white border-primary ring-1 ring-inset ring-primary'
+                              ? 'bg-blue-500 text-white border-blue-500'
+                              : 'bg-primary text-white border-primary'
                             : modalRequiresReservation
-                              ? 'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-500/30 hover:bg-white hover:text-blue-500'
-                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-primary/30 hover:bg-white hover:text-primary'
+                              ? 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-white hover:text-blue-500'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-white hover:text-primary'
                       }`}
                     >
                       {variant.name}
@@ -200,16 +218,17 @@ const SpecSelectionModal = ({
                         <motion.div
                           key="variant-qty-control"
                           layout
-                          initial={{ width: 0, opacity: 0 }}
-                          animate={{ width: 'auto', opacity: 1 }}
-                          exit={{ width: 0, opacity: 0 }}
+                          initial={{ opacity: 0, scaleX: 0.6 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          exit={{ opacity: 0, scaleX: 0.6 }}
                           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                          className="overflow-hidden shrink-0"
+                          style={{ transformOrigin: 'left center' }}
+                          className="shrink-0"
                         >
                           <div className="h-14 rounded-full border border-gray-200 bg-gray-50/80 px-2 flex items-center gap-1.5 shadow-sm">
                             <button
                               onClick={(e) => handleVariantQuantityChange(selectedVariant, currentQuantity - 1, e.currentTarget)}
-                              className="w-10 h-10 rounded-full text-gray-600 hover:bg-white hover:text-gray-900 transition-colors"
+                              className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 hover:bg-white hover:text-gray-900 active:scale-95 transition-[background-color,color,transform] duration-150"
                               aria-label="减少"
                             >
                               <i className="fas fa-minus text-sm"></i>
@@ -220,7 +239,7 @@ const SpecSelectionModal = ({
                             <button
                               onClick={(e) => handleVariantQuantityChange(selectedVariant, currentQuantity + 1, e.currentTarget)}
                               disabled={!canIncrease}
-                              className="w-10 h-10 rounded-full text-gray-600 hover:bg-white hover:text-gray-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="w-10 h-10 rounded-full flex items-center justify-center text-gray-600 hover:bg-white hover:text-gray-900 active:scale-95 transition-[background-color,color,transform] duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
                               aria-label="增加"
                             >
                               <i className="fas fa-plus text-sm"></i>
@@ -238,8 +257,8 @@ const SpecSelectionModal = ({
                         !hasStock || (!isModalNonSellable && currentQuantity >= stock)
                           ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                           : modalRequiresReservation
-                            ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
-                            : 'bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/25 active:scale-[0.98]'
+                            ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-md active:scale-[0.98]'
+                            : 'bg-primary hover:bg-primary-deep text-white shadow-md active:scale-[0.98]'
                       }`}
                     >
                       <i className="fas fa-shopping-cart"></i>

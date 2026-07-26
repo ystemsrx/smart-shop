@@ -271,13 +271,13 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 6 }}
-      whileHover={{ y: -8 }}
+      whileHover={{ y: -4 }}
       transition={{
-        duration: 0.2,
-        ease: 'easeOut',
-        delay: Math.min(enterIndex * 0.015, 0.12),
+        duration: 0.25,
+        ease: [0.22, 1, 0.36, 1],
+        delay: Math.min(enterIndex * 0.02, 0.15),
       }}
-      className={`shop-product-card group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col ${
+      className={`shop-product-card group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow duration-300 flex flex-col ${
         (isOutOfStock || isDown)
           ? 'opacity-60 grayscale cursor-not-allowed'
           : 'cursor-pointer'
@@ -316,10 +316,10 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
     >
       {/* 图片区域 — aspect-square, hover scale */}
       <div className="relative aspect-square overflow-hidden">
-        <motion.div 
+        <motion.div
             className="w-full h-full"
-            whileHover={{ scale: 1.1 }}
-            transition={{ duration: 0.6 }}
+            whileHover={{ scale: 1.04 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
         >
         {imageSrc ? (
           <RetryImage
@@ -331,7 +331,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
             maxRetries={3}
           />
         ) : (
-          <div className={`h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center ${
+          <div className={`h-full w-full bg-stone-100 flex items-center justify-center ${
             (isOutOfStock || isDown) ? 'opacity-50' : ''
           }`}>
             <span className="text-gray-400 text-sm">暂无图片</span>
@@ -350,8 +350,8 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
         )}
         {Boolean(product.is_hot) && (
           <div className="absolute top-3 right-3 z-10">
-            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-full uppercase tracking-wider">
-              🔥 热销
+            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-white bg-primary rounded-full uppercase tracking-wider">
+              热销
             </span>
           </div>
         )}
@@ -390,13 +390,13 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
         {/* 底部 — 价格 + 按钮 */}
         <div className="flex items-center justify-between mt-auto">
           <div className="flex flex-col">
-            <span className={`text-primary font-bold font-display ${
+            <span className={`text-primary text-xl font-bold font-display ${
               (isOutOfStock || isDown) ? 'text-gray-500' : ''
             }`}>
               ¥{formatPriceDisplay(finalPrice)}
             </span>
             {hasDiscount && (
-              <span className="text-[10px] text-gray-400 line-through">¥{product.price}</span>
+              <span className="text-[10px] text-gray-400 line-through">¥{formatPriceDisplay(product.price)}</span>
             )}
           </div>
 
@@ -418,7 +418,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               disabled={isLoading}
               aria-label="选规格"
               className={`w-8 h-8 text-white rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform disabled:opacity-50 ${
-                requiresReservation ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' : 'bg-primary hover:bg-orange-600 shadow-primary/30'
+                requiresReservation ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' : 'bg-primary hover:bg-primary-deep shadow-primary/30'
               }`}
             >
               <i className="fas fa-list-ul text-sm"></i>
@@ -437,7 +437,7 @@ const ProductCard = ({ product, onAddToCart, onUpdateQuantity, onStartFly, onOpe
               <button
                 onClick={(e) => handleQuantityChange(cartQuantity + 1, e)}
                 disabled={isLoading || limitReached}
-                className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary hover:bg-orange-600'} text-white rounded-full shadow-md disabled:opacity-50 transition-all`}
+                className={`w-8 h-8 flex items-center justify-center ${requiresReservation ? 'bg-blue-500 hover:bg-blue-600' : 'bg-primary hover:bg-primary-deep'} text-white rounded-full shadow-md disabled:opacity-50 transition-all`}
                 aria-label="增加"
               >
                 <i className="fas fa-plus text-sm"></i>
@@ -594,9 +594,9 @@ const CategoryFilter = ({
           disabled={disableSphereToggle}
           aria-pressed={isSphere}
           aria-label={toggleAriaLabel}
-          className={`flex-shrink-0 px-3.5 py-2 rounded-full border whitespace-nowrap text-xs md:text-sm transition-all duration-300 ${
+          className={`flex-shrink-0 px-3.5 py-2 rounded-full border whitespace-nowrap text-xs md:text-sm font-medium transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-out-expo ${
             isSphere
-              ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+              ? 'bg-[#2D3436] text-white border-[#2D3436] shadow-md scale-[1.03]'
               : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:scale-[1.03]'
           } ${disableSphereToggle ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
@@ -609,9 +609,9 @@ const CategoryFilter = ({
       <button
         key={chip.key}
         onClick={() => onCategoryChange(value)}
-        className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base transition-all duration-300 ${
+        className={`flex-shrink-0 px-5 py-2 rounded-full border whitespace-nowrap text-sm md:text-base font-medium transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-out-expo ${
           isActive(value)
-            ? 'bg-[#2D3436] text-white font-medium border-[#2D3436] shadow-md transform scale-[1.03]'
+            ? 'bg-[#2D3436] text-white border-[#2D3436] shadow-md scale-[1.03]'
             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-stone-100 hover:scale-[1.03]'
         }`}
       >
@@ -1013,6 +1013,7 @@ export default function Shop({ initialShopData }) {
     );
     ball.style.width = `${size}px`;
     ball.style.height = `${size}px`;
+    ball.style.willChange = 'transform, opacity';
     ball.style.background = isReservationProduct ? '#3b82f6' : '#d97757';
     ball.style.boxShadow = isReservationProduct
       ? '0 6px 14px rgba(59, 130, 246, 0.35)'
@@ -1726,26 +1727,26 @@ export default function Shop({ initialShopData }) {
           >
             <h1
               className="text-4xl md:text-6xl font-bold mb-6 tracking-tight leading-tight text-gray-900 animate-snack-fade-in-up"
-              style={{ animationDelay: '0.2s' }}
+              style={{ animationDelay: '0.05s' }}
             >
               不止
               <span className="text-[#FF6B6B] relative inline-block">
                 美味
-                <svg className="absolute w-full h-3 bottom-1 left-0 text-[#FF6B6B] opacity-30 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none">
-                  <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" />
+                <svg className="absolute w-full h-2.5 bottom-1 left-0 text-[#FF6B6B] opacity-30 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none">
+                  <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="4" strokeLinecap="round" fill="none" />
                 </svg>
               </span>
             </h1>
             <p
               className="text-lg md:text-xl text-gray-500 mb-8 max-w-2xl mx-auto animate-snack-fade-in-up"
-              style={{ animationDelay: '0.4s' }}
+              style={{ animationDelay: '0.12s' }}
             >
               精选优质零食，为您提供贴心配送服务
               <br />
               让美味触手可及
             </p>
 
-            <div className="mb-6 min-h-[52px] flex justify-center animate-snack-fade-in-up" style={{ animationDelay: '0.5s' }}>
+            <div className="mb-6 min-h-[52px] flex justify-center animate-snack-fade-in-up" style={{ animationDelay: '0.18s' }}>
               {user?.type === 'user' ? (
                 <motion.button
                   whileHover={{ scale: 1.03 }}
@@ -1763,12 +1764,12 @@ export default function Shop({ initialShopData }) {
               )}
             </div>
 
-            <div className="animate-snack-fade-in-up" style={{ animationDelay: '0.6s' }}>
+            <div className="animate-snack-fade-in-up" style={{ animationDelay: '0.24s' }}>
               <button
                 onClick={scrollToCategories}
-                className="hero-explore-btn bg-[#2D3436] text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-[#FF6B6B] hover:shadow-lg hover:shadow-[#FF6B6B]/40 transition-all duration-300 transform hover:-translate-y-1"
+                className="hero-explore-btn bg-[#2D3436] text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-[#FF6B6B] hover:shadow-lg hover:shadow-[#FF6B6B]/30 transition-[background-color,box-shadow,transform] duration-200 ease-out-expo hover:-translate-y-0.5 active:scale-[0.98]"
               >
-                开始探索 <i className="fas fa-arrow-down ml-2 animate-bounce"></i>
+                开始探索 <i className="fas fa-arrow-down ml-2"></i>
               </button>
             </div>
 
@@ -1808,7 +1809,7 @@ export default function Shop({ initialShopData }) {
 
           {/* 错误提示 */}
           {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
               {error}
             </div>
           )}
@@ -1842,7 +1843,7 @@ export default function Shop({ initialShopData }) {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15, ease: "easeInOut" }}
                     >
-                      <div className="shop-product-grid grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                      <div className="shop-product-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
                         {products.map((product, index) => (
                           <ProductCard
                             key={product.id}
@@ -1916,7 +1917,7 @@ export default function Shop({ initialShopData }) {
           <>
             {/* 背景遮罩 - 无模糊效果 */}
             <div 
-              className={`fixed inset-0 bg-black/20 z-50 ${isClosingDrawer ? 'animate-fade-out' : 'animate-apple-fade-in'}`}
+              className={`fixed inset-0 bg-black/20 z-50 ${isClosingDrawer ? 'animate-fade-out' : 'animate-fadeIn'}`}
               onClick={() => closeCartDrawer()}
             />
             
@@ -1977,8 +1978,7 @@ export default function Shop({ initialShopData }) {
                           style={{
                             overflow: 'hidden',
                             ...(cartDrawerJustOpened ? {
-                              animation: `cartItemSlideIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) ${0.12 + index * 0.08}s both`,
-                              willChange: 'transform, opacity',
+                              animation: `cartItemSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + Math.min(index * 0.04, 0.2)}s both`,
                             } : {}),
                           }}
                           onExitStart={() => setCartItemExiting(true)}

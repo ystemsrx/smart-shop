@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { motion, AnimatePresence, useMotionValue, animate } from 'framer-motion';
+import { motion, AnimatePresence, useMotionValue, animate, useReducedMotion } from 'framer-motion';
 import ProductDetailSlide from './ProductDetailSlide';
 
 const ProductDetailModal = ({
@@ -26,6 +26,7 @@ const ProductDetailModal = ({
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : false
   ));
   const isMountedRef = useRef(true);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -158,6 +159,9 @@ const ProductDetailModal = ({
   // we WANT it to reset. 
   // However, the CONTAINER should not unmount.
 
+  // Velocity-aware spring for snap/revert so gesture momentum carries into the animation
+  const snapSpring = { type: 'spring', stiffness: 400, damping: 40 };
+
   const handleDragEnd = async (e, { offset, velocity }) => {
     const viewportWidth = width || (typeof window !== 'undefined' ? window.innerWidth : 0);
     const viewportHeight = height || (typeof window !== 'undefined' ? window.innerHeight : 0);
@@ -174,8 +178,8 @@ const ProductDetailModal = ({
       if (offset.x > closeThreshold || velocity.x > closeVelocityThreshold) {
         triggerGestureClose();
       } else {
-        animate(x, 0, { duration: 0.18, ease: [0.22, 1, 0.36, 1] });
-        animate(y, 0, { duration: 0.18, ease: [0.22, 1, 0.36, 1] });
+        animate(x, 0, snapSpring);
+        animate(y, 0, snapSpring);
       }
       return;
     }
@@ -191,7 +195,7 @@ const ProductDetailModal = ({
     ) {
       setIsSwipeTransitioning(true);
       try {
-        await animate(y, -viewportHeight, { duration: 0.2, ease: [0.22, 1, 0.36, 1] });
+        await animate(y, -viewportHeight, snapSpring);
         onSwitchProduct && onSwitchProduct('next');
       } finally {
         x.stop();
@@ -209,7 +213,7 @@ const ProductDetailModal = ({
     ) {
       setIsSwipeTransitioning(true);
       try {
-        await animate(y, viewportHeight, { duration: 0.2, ease: [0.22, 1, 0.36, 1] });
+        await animate(y, viewportHeight, snapSpring);
         onSwitchProduct && onSwitchProduct('prev');
       } finally {
         x.stop();
@@ -221,8 +225,8 @@ const ProductDetailModal = ({
     }
     // Revert
     else {
-      animate(x, 0, { duration: 0.16, ease: [0.22, 1, 0.36, 1] });
-      animate(y, 0, { duration: 0.16, ease: [0.22, 1, 0.36, 1] });
+      animate(x, 0, snapSpring);
+      animate(y, 0, snapSpring);
     }
   };
 
@@ -272,9 +276,11 @@ const ProductDetailModal = ({
             onClick={requestClose}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.95, opacity: 0, y: 20 }}
+              animate={shouldReduceMotion ? { opacity: 1 } : { scale: 1, opacity: 1, y: 0 }}
+              exit={shouldReduceMotion
+                ? { opacity: 0, transition: { duration: 0.15 } }
+                : { scale: 0.95, opacity: 0, y: 20, transition: { duration: 0.15 } }}
               transition={{ duration: 0.2 }}
               onClick={(e) => e.stopPropagation()}
               className="relative bg-white rounded-3xl shadow-2xl overflow-hidden w-[min(92vw,860px)]"
@@ -304,17 +310,17 @@ const ProductDetailModal = ({
           <motion.div
             key="modal-container-mobile"
             className={`fixed inset-0 z-50 bg-transparent ${isGestureClosing ? 'pointer-events-none' : 'pointer-events-auto'}`}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%', pointerEvents: 'none' }}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            initial={shouldReduceMotion ? { opacity: 0 } : { x: '100%' }}
+            animate={shouldReduceMotion ? { opacity: 1 } : { x: 0 }}
+            exit={shouldReduceMotion ? { opacity: 0, pointerEvents: 'none' } : { x: '100%', pointerEvents: 'none' }}
+            transition={shouldReduceMotion ? { duration: 0.2 } : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
           >
             {/* Draggable Container */}
             <motion.div
               ref={containerRef}
               className={`absolute inset-0 w-full h-full ${isGestureClosing ? 'pointer-events-none' : 'pointer-events-auto'}`}
-              style={{ x, y, touchAction: 'none' }}
-              drag={isSwipeTransitioning || isGestureClosing ? false : true}
+              style={{ x, y, touchAction: 'pan-y' }}
+              drag={shouldReduceMotion || isSwipeTransitioning || isGestureClosing ? false : true}
               dragConstraints={{
                 left: 0,
                 right: dragDistanceLimitX,
