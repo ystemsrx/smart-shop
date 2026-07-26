@@ -61,6 +61,8 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
   });
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // 最近一次已完成加载的会话 id：作为消息列表 key，保证换会话时列表整体重挂载
+  const [loadedChatId, setLoadedChatId] = useState(null);
   const [chatError, setChatError] = useState("");
   const [renamingChatId, setRenamingChatId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
@@ -491,6 +493,8 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
         if (activeChatIdRef.current !== chatId) return;
         const historyMessages = Array.isArray(data?.messages) ? data.messages : [];
         setMsgs(mapHistoryToMessages(historyMessages));
+        // 与消息同帧更新：作为消息列表的 key，触发列表以"逐条渐显"方式整体换装
+        setLoadedChatId(chatId);
       } catch (err) {
         if (activeChatIdRef.current !== chatId) return;
         setChatError(err.message || "加载对话失败");
@@ -635,7 +639,8 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
       
       switchTargetRef.current = chatId;
       setActiveChatId(chatId);
-      setMsgs([]);
+      // 切换时保留上一个会话的内容（调暗显示），等新数据就绪后一次性替换，
+      // 避免中间出现一帧空白背景闪烁
       setChatError("");
 
       // 移动端关闭侧边栏
@@ -1568,6 +1573,16 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
   const inputPlaceholder = "继续提问…";
   // 正在切换对话、等待历史加载（侧栏/头部/输入框保持不变，只替换中间内容区）
   const isLoadingChatContent = isLoadingHistory && conversationReady && Boolean(activeChatId);
+
+  // 骨架屏延迟 180ms 显示：本地/快速加载直接跳过骨架，避免"闪一下流光再出内容"的观感
+  const [showHistorySkeleton, setShowHistorySkeleton] = useState(false);
+  useEffect(() => {
+    if (isLoadingChatContent) {
+      const timer = setTimeout(() => setShowHistorySkeleton(true), 180);
+      return () => clearTimeout(timer);
+    }
+    setShowHistorySkeleton(false);
+  }, [isLoadingChatContent]);
   const shouldShowPlaceholder = !conversationReady;
   const shouldShowHero = conversationReady && first && !isLoadingChatContent;
   const shouldShowChat = conversationReady && !first;
@@ -1627,7 +1642,7 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
                 {chatError}
               </div>
             )}
-            {isLoadingChatContent && (
+            {isLoadingChatContent && showHistorySkeleton && msgs.length === 0 && (
               <div className="mx-auto flex max-w-3xl flex-col gap-5 pt-2 animate-fade-in-fast">
                 <div className="space-y-2.5">
                   <div className="skeleton-shimmer h-4 w-[72%] rounded-md" />
@@ -1682,14 +1697,22 @@ export default function ChatModern({ user, initialConversationId = null, apiPath
               />
             )}
             {shouldShowChat && (
-              <ChatMessageList
-                msgs={msgs}
-                isLoading={isLoading}
-                showThinking={showThinking}
-                endRef={endRef}
-                apiBase={apiBase}
-                MarkdownRendererWrapper={MarkdownRendererWrapper}
-              />
+              <div
+                className={cx(
+                  "transition-opacity duration-200",
+                  isLoadingChatContent ? "opacity-50" : "opacity-100"
+                )}
+              >
+                <ChatMessageList
+                  key={loadedChatId || "live"}
+                  msgs={msgs}
+                  isLoading={isLoading}
+                  showThinking={showThinking}
+                  endRef={endRef}
+                  apiBase={apiBase}
+                  MarkdownRendererWrapper={MarkdownRendererWrapper}
+                />
+              </div>
             )}
           </div>
         </main>

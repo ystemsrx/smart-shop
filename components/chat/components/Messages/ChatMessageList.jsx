@@ -15,6 +15,15 @@ const ChatMessageList = ({
   apiBase,
   MarkdownRendererWrapper,
 }) => {
+  // 挂载时已存在的消息（历史记录）不走 framer 逐条 spring：
+  // 几十条消息同时跑 spring + layout 测量会明显掉帧。
+  // 历史消息改用纯 CSS 的自上而下渐显（合成器线程执行，延迟有上限），
+  // framer spring 只留给对话中新追加的消息。
+  const initialIdsRef = React.useRef(null);
+  if (initialIdsRef.current === null) {
+    initialIdsRef.current = new Set(msgs.map((m) => m.id));
+  }
+
   return (
     <LayoutGroup key="chat-message-list">
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -85,29 +94,32 @@ const ChatMessageList = ({
 
             if (!content) return null;
 
-            const staggerDelay = Math.log(index + 1) * 0.05;
+            const isInitial = initialIdsRef.current.has(message.id);
+            // 历史消息自上而下逐条渐显：50ms/条，上限 350ms，快而有节奏
+            const revealDelay = Math.min(index * 0.05, 0.35);
 
             return (
               <motion.div
                 key={message.id}
-                layout="position"
-                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                layout={isInitial ? false : "position"}
+                initial={isInitial ? false : { opacity: 0, y: 10, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0 } }}
                 transition={{
-                  opacity: { duration: 0.3, delay: staggerDelay, ease: "easeOut" },
-                  y: { type: "spring", stiffness: 600, damping: 30, mass: 0.8, delay: staggerDelay },
-                  scale: { type: "spring", stiffness: 600, damping: 30, mass: 0.8, delay: staggerDelay },
+                  opacity: { duration: 0.3, ease: "easeOut" },
+                  y: { type: "spring", stiffness: 600, damping: 30, mass: 0.8 },
+                  scale: { type: "spring", stiffness: 600, damping: 30, mass: 0.8 },
                   layout: {
                     duration: 0.35,
                     ease: [0.25, 0.1, 0.25, 1],
                     delay: 0.05,
                   },
                 }}
+                className={isInitial ? "chat-msg-reveal" : undefined}
                 style={{
                   minHeight: "fit-content",
-                  willChange: "transform, opacity",
                   contain: "layout",
+                  ...(isInitial ? { animationDelay: `${revealDelay}s` } : {}),
                 }}
               >
                 {content}
