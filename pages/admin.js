@@ -383,8 +383,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen bg-[#F5F7FA] flex flex-col">
-        <div className="flex flex-1 max-w-[1600px] mx-auto w-full pt-16">
+      <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
+        <div className="flex flex-1 min-h-0 max-w-[1600px] mx-auto w-full pt-16">
           {/* Sidebar */}
           <AdminSidebar 
             activeTab={activeTab}
@@ -408,14 +408,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
           />
 
           {/* Main Content Area */}
-          <main className="flex-1 p-6 lg:p-10 overflow-x-hidden">
-            <AnimatePresence mode="wait">
+          <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-6 lg:p-8">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                 className="h-full"
               >
                 {activeTab === 'overview' && (
@@ -587,7 +585,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 )}
 
                 {activeTab === 'autoGifts' && (
-                  <div className="space-y-10">
+                  <div className="space-y-8">
                     <div className="space-y-6">
                       <DeliverySettingsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />
                     </div>
@@ -603,7 +601,6 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                 )}
 
               </motion.div>
-            </AnimatePresence>
           </main>
         </div>
 

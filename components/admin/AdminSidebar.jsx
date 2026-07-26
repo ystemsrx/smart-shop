@@ -1,47 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useSpring, AnimatePresence } from 'framer-motion';
-import { 
-  ChevronLeft, ChevronRight, LogOut, User, ChevronUp, ChevronDown 
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ChevronLeft, ChevronRight, LogOut, User, ChevronUp, ChevronDown
 } from 'lucide-react';
 
-const formatHeaderName = (name) => {
-  const text = String(name || '').trim();
-  if (text.length <= 3) return text || '---';
-  return `${text.slice(0, 3)}...`;
-};
-
-const formatMenuName = (name) => {
-  const text = String(name || '').trim();
-  if (text.length <= 3) return text || '---';
-  return `${text.slice(0, 2)}...`;
-};
-
-const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItemClick, isMobile }) => {
-  const ref = useRef(null);
+const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, onItemClick }) => {
   const isActive = activeTab === tab.id;
-  
-  const distance = useTransform(mouseY, (val) => {
-    const bounds = ref.current?.getBoundingClientRect() ?? { y: 0, height: 0 };
-    return val - bounds.y - bounds.height / 2;
-  });
-
-  // 折叠状态：大幅缩放 Dock 效果
-  const collapsedScaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
-  const collapsedScale = useSpring(collapsedScaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
-  
-  // 展开状态：轻微缩放效果（悬停时放大到 1.15，选中项基础 1.05）
-  const baseScale = isActive ? 1.05 : 1;
-  const expandedScaleSync = useTransform(distance, [-80, 0, 80], [baseScale, isActive ? 1.2 : 1.15, baseScale]);
-  const expandedScale = useSpring(expandedScaleSync, { mass: 0.1, stiffness: 300, damping: 20 });
-  
-  // X offset to push the icon out slightly when scaled - only for collapsed mode
-  const xSync = useTransform(distance, [-120, 0, 120], [0, 10, 0]);
-  const x = useSpring(xSync, { mass: 0.1, stiffness: 200, damping: 15 });
-
-  // Label opacity based on distance - only visible when very close (hovered) - for collapsed mode
-  const labelOpacity = useTransform(distance, [-30, 0, 30], [0, 1, 0]);
-  const labelX = useTransform(distance, [-30, 0, 30], [10, 20, 10]);
-  const labelScale = useTransform(distance, [-30, 0, 30], [0.8, 1, 0.8]);
 
   const handleClick = () => {
     setActiveTab(tab.id);
@@ -49,45 +13,27 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
     if (onItemClick) onItemClick();
   };
 
-  // 电脑版启用缩放效果
-  const isDesktop = !isMobile;
-  // 折叠状态使用大幅缩放，展开状态使用轻微缩放
-  const shouldUseCollapsedScale = isCollapsed && isDesktop;
-  const shouldUseExpandedScale = !isCollapsed && isDesktop;
-
-  // 计算实际使用的缩放值
-  const activeScale = shouldUseCollapsedScale 
-    ? collapsedScale 
-    : shouldUseExpandedScale 
-      ? expandedScale 
-      : baseScale;
-
   return (
-    <motion.button
-      ref={ref}
+    <button
       onClick={handleClick}
-      // Dynamic z-index to ensure the magnified item is on top
-      style={{ zIndex: useTransform(distance, (d) => Math.abs(d) < 60 ? 50 : 1) }}
-      className={`w-full flex items-center p-2.5 rounded-lg transition-colors duration-200 group relative ${
+      title={tab.label}
+      className={`w-full flex items-center p-2.5 rounded-lg transition-colors duration-150 group relative ${
         isCollapsed ? 'justify-center' : ''
       } ${
-        isActive 
-          ? 'text-blue-600' 
-          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+        isActive
+          ? 'text-blue-600'
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
       }`}
     >
       {isActive && (
         <motion.div
           layoutId="activeTab"
           className="absolute inset-0 bg-blue-50 rounded-lg -z-10"
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         />
       )}
 
-      <motion.div 
-        style={{ scale: activeScale }}
-        className="relative flex-shrink-0 w-5 h-5 flex items-center justify-center origin-center"
-      >
+      <div className="relative flex-shrink-0 w-5 h-5 flex items-center justify-center">
         {tab.icon}
         {tab.badge && (
           <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] flex items-center justify-center px-1 rounded-full text-[10px] font-bold text-white ${tab.badgeColor || 'bg-red-500'} border-2 border-white`}>
@@ -97,51 +43,34 @@ const SidebarItem = ({ tab, activeTab, setActiveTab, isCollapsed, mouseY, onItem
         {tab.warning && (
           <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse" />
         )}
-      </motion.div>
-      
-      {/* Expanded Label - 展开时也有轻微缩放效果 */}
-      <motion.span
-        initial={false}
-        animate={{ 
-          opacity: isCollapsed ? 0 : 1, 
-          display: isCollapsed ? "none" : "block"
-        }}
-        style={{
-          scale: shouldUseExpandedScale ? expandedScale : 1,
-          originX: 0  // 从左侧开始缩放
-        }}
-        transition={{ duration: 0.2 }}
-        className={`ml-3 font-medium whitespace-nowrap overflow-hidden text-sm ${
-          isActive ? 'font-semibold' : ''
-        }`}
-      >
-        {tab.label}
-      </motion.span>
+      </div>
 
-      {/* Collapsed Floating Label */}
-      {shouldUseCollapsedScale && (
-        <motion.div
-          style={{ 
-            opacity: labelOpacity, 
-            x: labelX, 
-            scale: labelScale,
-            left: '100%',
-            pointerEvents: 'none'
-          }}
-          className="absolute ml-2 px-2 py-1 bg-gray-900 text-white text-xs font-medium rounded-md shadow-lg whitespace-nowrap z-50"
-        >
-          {tab.label}
-        </motion.div>
-      )}
-    </motion.button>
+      {/* Expanded Label */}
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className={`ml-3 font-medium whitespace-nowrap overflow-hidden text-sm truncate ${
+              isActive ? 'font-semibold' : ''
+            }`}
+          >
+            {tab.label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+
+    </button>
   );
 };
 
-export function AdminSidebar({ 
-  activeTab, 
-  setActiveTab, 
-  tabs, 
-  isCollapsed, 
+export function AdminSidebar({
+  activeTab,
+  setActiveTab,
+  tabs,
+  isCollapsed,
   setIsCollapsed,
   role,
   onLogout,
@@ -151,7 +80,6 @@ export function AdminSidebar({
   switchDisabled = false,
   userName = ''
 }) {
-  const mouseY = useMotionValue(Infinity);
   const [isMobile, setIsMobile] = useState(false);
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const headerRef = useRef(null);
@@ -182,12 +110,12 @@ export function AdminSidebar({
       const isNarrowScreen = window.innerWidth < 768;
       const isCoarsePointerDevice = window.matchMedia('(pointer: coarse)').matches;
       const isMediumScreen = window.innerWidth < 1024;
-      
+
       // 真正的手机：窄屏幕，或者是触摸设备且不是大屏幕（排除触屏电脑）
       const mobile = isNarrowScreen || (isCoarsePointerDevice && isMediumScreen);
       setIsMobile(mobile);
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -219,7 +147,11 @@ export function AdminSidebar({
     };
     updatePosition();
     window.addEventListener('resize', updatePosition);
-    return () => window.removeEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
   }, [showAgentMenu]);
 
   const sidebarVariants = {
@@ -239,7 +171,6 @@ export function AdminSidebar({
   const resolvedAgent = agentOptions.find((a) => a.id === currentSelection) || agentOptions[0];
   const roleLabel = role === 'admin' && currentSelection !== 'self' ? 'Agent' : (role === 'admin' ? 'Admin' : 'Agent');
   const resolvedAgentName = resolvedAgent?.name || resolvedAgent?.account || userName || (role === 'admin' ? 'Admin' : '');
-  const headerDisplayName = formatHeaderName(resolvedAgentName);
   const isDeletedSelection = !!resolvedAgent?.isDeleted;
 
   const handleAgentClick = (agentId) => {
@@ -263,13 +194,11 @@ export function AdminSidebar({
       initial="expanded"
       animate={isCollapsed ? "collapsed" : "expanded"}
       variants={sidebarVariants}
-      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="h-[calc(100vh-64px)] sticky top-16 bg-white border-r border-gray-100 flex flex-col shadow-sm z-40 overflow-visible flex-shrink-0"
-      onMouseMove={(e) => !isMobile && mouseY.set(e.clientY)}
-      onMouseLeave={() => mouseY.set(Infinity)}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+      className="h-full bg-white border-r border-gray-100 flex flex-col shadow-sm z-40 overflow-visible flex-shrink-0"
     >
       {/* Header with User Avatar and Toggle */}
-      <div 
+      <div
         ref={headerRef}
         className={`p-3 border-b border-gray-100 flex items-center flex-shrink-0 gap-2 ${isCollapsed ? 'justify-center' : 'justify-between'} relative`}
       >
@@ -282,13 +211,13 @@ export function AdminSidebar({
             className={`flex items-center text-left transition-colors rounded-lg ${canSwitchAgent ? 'hover:bg-gray-50' : ''} ${switchDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             style={{ width: '140px' }}
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
               <User size={18} className="text-white" />
             </div>
-            
+
             <div className="ml-2.5 flex-1 min-w-0 overflow-hidden">
               <div className={`text-sm font-semibold truncate ${isDeletedSelection ? 'text-gray-400 line-through' : 'text-gray-900'}`} title={resolvedAgentName || roleLabel}>
-                {headerDisplayName || roleLabel}
+                {resolvedAgentName || roleLabel}
               </div>
               <div className="text-xs text-gray-500 truncate">
                 {roleLabel}
@@ -315,55 +244,42 @@ export function AdminSidebar({
         <AnimatePresence>
           {canSwitchAgent && showAgentMenu && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: -8, filter: "blur(4px)" }}
-              animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, scale: 0.95, y: -8, filter: "blur(4px)" }}
-              transition={{ 
-                type: "spring", 
-                stiffness: 500, 
-                damping: 30, 
-                mass: 1 
-              }}
+              initial={{ opacity: 0, scale: 0.95, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               ref={menuRef}
               style={menuStyle}
-              className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden origin-top-left"
+              className="bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden origin-top-left"
             >
               <div className="max-h-72 overflow-y-auto space-y-1 p-2">
-                {agentOptions.map((agent, idx) => {
+                {agentOptions.map((agent) => {
                   const isActive = agent.id === currentSelection;
                   const disabled = switchDisabled;
                   const badgeClass = agent.isDeleted
                     ? 'bg-red-500'
                     : agent.isActive !== false ? 'bg-emerald-500' : 'bg-yellow-500';
-                  const avatarColors = [
-                    'from-blue-500 to-indigo-500',
-                    'from-emerald-500 to-teal-500',
-                    'from-amber-500 to-orange-500',
-                    'from-purple-500 to-pink-500'
-                  ];
-                  const gradient = avatarColors[idx % avatarColors.length];
                   const baseName = agent.name || agent.account || agent.id || '';
                   const avatarLabel = (baseName || '代').slice(0, 2) || '代';
-                  const menuDisplayName = formatMenuName(baseName);
                   return (
                     <button
                       key={agent.id}
                       type="button"
                       disabled={disabled}
                       onClick={() => handleAgentClick(agent.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border transition-all duration-150 ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-colors ${
                         isActive
                           ? 'bg-blue-50 border-blue-300 text-blue-700'
                           : 'bg-white border-gray-100 text-gray-700 hover:bg-gray-50'
                       } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-xs font-bold text-white shadow-sm`}>
+                        <div className="w-9 h-9 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
                           {avatarLabel}
                         </div>
                         <div className="min-w-0">
-                          <div className={`text-sm font-semibold ${agent.isDeleted ? 'text-gray-400 line-through' : ''}`} title={baseName}>
-                            {menuDisplayName}
+                          <div className={`text-sm font-semibold truncate ${agent.isDeleted ? 'text-gray-400 line-through' : ''}`} title={baseName}>
+                            {baseName}
                           </div>
                         </div>
                       </div>
@@ -378,7 +294,7 @@ export function AdminSidebar({
       </div>
 
       {/* Navigation Items - scrollable on short screens */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide">
         <div className="py-4 px-2 space-y-3">
           {tabs.map((tab) => (
             <SidebarItem
@@ -387,9 +303,7 @@ export function AdminSidebar({
               activeTab={activeTab}
               setActiveTab={setActiveTab}
               isCollapsed={isCollapsed}
-              mouseY={mouseY}
               onItemClick={handleItemClick}
-              isMobile={isMobile}
             />
           ))}
         </div>
@@ -397,83 +311,44 @@ export function AdminSidebar({
 
       {/* Logout Button at Bottom */}
       <div className="p-2 border-t border-gray-100 flex-shrink-0">
-        <LogoutButton 
-          onLogout={onLogout} 
-          isCollapsed={isCollapsed} 
-          mouseY={mouseY}
+        <LogoutButton
+          onLogout={onLogout}
+          isCollapsed={isCollapsed}
           onItemClick={handleItemClick}
-          isMobile={isMobile}
         />
       </div>
     </motion.div>
   );
 }
 
-const LogoutButton = ({ onLogout, isCollapsed, mouseY, onItemClick, isMobile }) => {
-  const ref = useRef(null);
-  
-  const distance = useTransform(mouseY, (val) => {
-    const bounds = ref.current?.getBoundingClientRect() ?? { y: 0, height: 0 };
-    return val - bounds.y - bounds.height / 2;
-  });
-
-  // 折叠状态：大幅缩放 Dock 效果
-  const collapsedScaleSync = useTransform(distance, [-120, 0, 120], [1, 2.5, 1]);
-  const collapsedScale = useSpring(collapsedScaleSync, { mass: 0.1, stiffness: 200, damping: 15 });
-  
-  // 展开状态：轻微缩放效果
-  const expandedScaleSync = useTransform(distance, [-80, 0, 80], [1, 1.15, 1]);
-  const expandedScale = useSpring(expandedScaleSync, { mass: 0.1, stiffness: 300, damping: 20 });
-
-  const xSync = useTransform(distance, [-120, 0, 120], [0, 10, 0]);
-  const x = useSpring(xSync, { mass: 0.1, stiffness: 200, damping: 15 });
-
+const LogoutButton = ({ onLogout, isCollapsed, onItemClick }) => {
   const handleClick = () => {
     if (onItemClick) onItemClick();
     onLogout();
   };
 
-  // 电脑版启用缩放效果
-  const isDesktop = !isMobile;
-  const shouldUseCollapsedScale = isCollapsed && isDesktop;
-  const shouldUseExpandedScale = !isCollapsed && isDesktop;
-
-  // 计算实际使用的缩放值
-  const activeScale = shouldUseCollapsedScale 
-    ? collapsedScale 
-    : shouldUseExpandedScale 
-      ? expandedScale 
-      : 1;
-
   return (
-    <motion.button 
-      ref={ref}
+    <button
       onClick={handleClick}
-      style={{ zIndex: useTransform(distance, (d) => Math.abs(d) < 60 ? 50 : 1) }}
-      className={`w-full flex items-center p-2.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors group relative ${isCollapsed ? 'justify-center' : ''}`}
+      className={`w-full flex items-center p-2.5 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors duration-150 group relative ${isCollapsed ? 'justify-center' : ''}`}
       title="退出登录"
     >
-      <motion.div 
-        style={{ scale: activeScale }}
-        className="w-5 h-5 flex-shrink-0 flex items-center justify-center origin-center"
-      >
+      <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
         <LogOut size={20} />
-      </motion.div>
-      <motion.span
-        initial={false}
-        animate={{ 
-          opacity: isCollapsed ? 0 : 1, 
-          display: isCollapsed ? "none" : "block" 
-        }}
-        style={{
-          scale: shouldUseExpandedScale ? expandedScale : 1,
-          originX: 0
-        }}
-        transition={{ duration: 0.2 }}
-        className="ml-3 font-medium whitespace-nowrap overflow-hidden text-sm"
-      >
-        退出登录
-      </motion.span>
-    </motion.button>
+      </div>
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="ml-3 font-medium whitespace-nowrap overflow-hidden text-sm"
+          >
+            退出登录
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </button>
   );
 };

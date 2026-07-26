@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useId } from 'react';
 import Head from 'next/head';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'next/router';
@@ -155,18 +155,24 @@ const buildCycleRangeLabel = (cycle) => {
 
 // --- Components ---
 
+const STAT_CARD_SOFT_BG = {
+  'bg-blue-500': 'bg-blue-500/10',
+  'bg-indigo-500': 'bg-indigo-500/10',
+  'bg-amber-500': 'bg-amber-500/10',
+  'bg-purple-500': 'bg-purple-500/10',
+  'bg-emerald-500': 'bg-emerald-500/10',
+};
+
 const StatCard = ({ title, value, change, changeType, icon: Icon, subtitle, colorClass }) => {
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
       className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 relative overflow-hidden group"
     >
-      <div className={`absolute top-0 right-0 w-24 h-24 rounded-full opacity-5 -translate-y-8 translate-x-8 group-hover:scale-110 transition-transform duration-500 ${colorClass.bg}`} />
-      
       <div className="flex justify-between items-start mb-4 relative z-10">
-        <div className={`p-3 rounded-xl ${colorClass.bg} ${colorClass.text} bg-opacity-10`}>
+        <div className={`p-3 rounded-xl ${STAT_CARD_SOFT_BG[colorClass.bg] || 'bg-slate-500/10'} ${colorClass.text}`}>
           <Icon size={24} strokeWidth={2} />
         </div>
         {change !== undefined && (
@@ -295,7 +301,7 @@ const SimpleBarChart = ({ data, title, type = 'quantity' }) => {
                 <motion.div 
                   initial={{ width: 0 }}
                   animate={{ width: `${percentage}%` }}
-                  transition={{ duration: 1, delay: index * 0.1, ease: "easeOut" }}
+                  transition={{ duration: 0.4, delay: Math.min(index * 0.03, 0.3), ease: "easeOut" }}
                   className={`h-full rounded-full ${
                     index === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' :
                     index === 1 ? 'bg-gradient-to-r from-slate-400 to-slate-500' :
@@ -428,9 +434,10 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
   const bottomPadding = isMobileView ? 45 : (period === 'day' ? 70 : 85);
   const chartWidth = svgWidth - leftPadding - rightPadding;
   const chartHeight = svgHeight - topPadding - bottomPadding;
-  const revenueClipId = useMemo(() => `revenueClip-${Math.random().toString(36).slice(2)}`, []);
-  const profitClipId = useMemo(() => `profitClip-${Math.random().toString(36).slice(2)}`, []);
-  const ordersClipId = useMemo(() => `ordersClip-${Math.random().toString(36).slice(2)}`, []);
+  const clipUid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const revenueClipId = `revenueClip-${clipUid}`;
+  const profitClipId = `profitClip-${clipUid}`;
+  const ordersClipId = `ordersClip-${clipUid}`;
   
   const getPoints = (values, maxValue) => {
     const safeMaxValue = maxValue > 0 ? maxValue : 1;
@@ -723,7 +730,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   height={svgHeight}
                   animate={{ width: chartWidth }}
                   initial={{ width: isFirstLoad ? 0 : chartWidth }}
-                  transition={{ duration: isFirstLoad ? 1.5 : 0.6, ease: "easeInOut" }}
+                  transition={{ duration: 0.6, ease: "easeInOut" }}
                 />
               </clipPath>
               <clipPath id={profitClipId}>
@@ -733,7 +740,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   height={svgHeight}
                   animate={{ width: chartWidth }}
                   initial={{ width: isFirstLoad ? 0 : chartWidth }}
-                  transition={{ duration: isFirstLoad ? 1.5 : 0.6, ease: "easeInOut" }}
+                  transition={{ duration: 0.6, ease: "easeInOut" }}
                 />
               </clipPath>
               <clipPath id={ordersClipId}>
@@ -743,7 +750,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   height={svgHeight}
                   animate={{ width: chartWidth }}
                   initial={{ width: isFirstLoad ? 0 : chartWidth }}
-                  transition={{ duration: isFirstLoad ? 1.5 : 0.6, ease: "easeInOut" }}
+                  transition={{ duration: 0.6, ease: "easeInOut" }}
                 />
               </clipPath>
             </defs>
@@ -828,7 +835,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                 }}
                 transition={{ 
                   d: { duration: isFirstLoad ? 0 : 0.6, ease: "easeInOut" },
-                  pathLength: { duration: isFirstLoad ? 1.5 : 0, ease: "easeInOut" },
+                  pathLength: { duration: isFirstLoad ? 0.6 : 0, ease: "easeInOut" },
                   opacity: { duration: 0.3 }
                 }}
                     fill="none"
@@ -854,7 +861,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                 }}
                 transition={{ 
                   d: { duration: isFirstLoad ? 0 : 0.6, ease: "easeInOut" },
-                  pathLength: { duration: isFirstLoad ? 1.5 : 0, ease: "easeInOut" },
+                  pathLength: { duration: isFirstLoad ? 0.6 : 0, ease: "easeInOut" },
                   opacity: { duration: 0.3 }
                 }}
                     fill="none"
@@ -1003,7 +1010,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   initial={{ x: point.x, y: labelY, opacity: 0 }}
                   transition={{ 
                     duration: isFirstLoad ? 0.3 : 0.6, 
-                    delay: isFirstLoad ? 1.0 + index * 0.05 : 0,
+                    delay: isFirstLoad ? 0.3 + Math.min(index * 0.03, 0.2) : 0,
                     ease: "easeInOut" 
                   }}
                         textAnchor="middle"
@@ -1029,7 +1036,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   initial={{ x: point.x, y: labelY, opacity: 0 }}
                   transition={{ 
                     duration: isFirstLoad ? 0.3 : 0.6, 
-                    delay: isFirstLoad ? 1.0 + index * 0.05 : 0,
+                    delay: isFirstLoad ? 0.3 + Math.min(index * 0.03, 0.2) : 0,
                     ease: "easeInOut" 
                   }}
                         textAnchor="middle"
@@ -1058,7 +1065,7 @@ const SalesTrendChart = ({ data, title, period, settings, onRangeChange, onWindo
                   initial={{ x: point.x, y: labelY, opacity: 0 }}
                   transition={{ 
                     duration: isFirstLoad ? 0.3 : 0.6, 
-                    delay: isFirstLoad ? 1.0 + index * 0.05 : 0,
+                    delay: isFirstLoad ? 0.3 + Math.min(index * 0.03, 0.2) : 0,
                     ease: "easeInOut" 
                   }}
                         textAnchor="middle"
@@ -1230,8 +1237,8 @@ const CycleSelector = ({ cycles = [], selectedId, onChange, disabled, selectedCy
             initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute top-full left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-40"
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute top-full left-0 mt-2 w-52 bg-white rounded-xl shadow-lg ring-1 ring-black/5 overflow-hidden z-40"
           >
             <div className="max-h-72 overflow-y-auto py-1 custom-scrollbar">
               {/* 全部选项 */}
@@ -1409,7 +1416,7 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
           if (!isOpen) updateDropdownPosition();
           setIsOpen(!isOpen);
         }}
-        className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-colors duration-200 group min-w-[160px]"
+        className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-[box-shadow,border-color,background-color] duration-200 group min-w-[160px]"
       >
         <div className="flex flex-col items-start text-left">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">当前查看</span>
@@ -1437,11 +1444,11 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
         <div className="flex items-center gap-2.5">
           <div className="w-px h-8 bg-slate-100"></div>
           
-          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-50 group-hover:bg-indigo-50 transition-colors">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-50 group-hover:bg-indigo-50 transition-colors duration-200">
             {loading ? (
               <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
             ) : (
-              <ChevronDown size={14} className={`text-slate-400 group-hover:text-indigo-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={14} className={`text-slate-400 group-hover:text-indigo-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
             )}
           </div>
         </div>
@@ -1453,8 +1460,8 @@ const AgentSelector = ({ selectedId, options, onChange, loading }) => {
             initial={{ opacity: 0, y: dropdownStyle.bottom !== 'auto' ? 10 : -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: dropdownStyle.bottom !== 'auto' ? 10 : -10, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25, mass: 0.8 }}
-            className="absolute w-52 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 ring-1 ring-black/5 overflow-hidden z-30"
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute w-52 bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden z-30"
             style={dropdownStyle}
           >
             <div className="p-2 max-h-[320px] overflow-y-auto custom-scrollbar">
@@ -1954,7 +1961,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50/50 pt-20 pb-20">
+      <div className="min-h-screen bg-slate-50/50 pt-20 pb-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Skeleton: Cycle selector bar */}
           <div className="mb-8">
@@ -1987,7 +1994,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
             </div>
           </div>
           {/* Skeleton: Stat cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-10">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -2029,13 +2036,14 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
     <>
       <Head>
         <title>{pageTitle}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="min-h-screen bg-slate-50/50 pt-20 pb-20"
+        className="min-h-screen bg-slate-50/50 pt-20 pb-12"
       >
         <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2198,8 +2206,11 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                       type="button"
                       onClick={handleEndCycle}
                       disabled={cycleActionDisabled}
-                      className="px-2 py-1 rounded-md text-[11px] font-medium text-rose-600 bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
+                      {cycleActionLoading && (
+                        <div className="w-3 h-3 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                      )}
                       结束周期
                     </button>
                   ) : (
@@ -2208,7 +2219,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                         type="button"
                         onClick={handleCancelEnd}
                         disabled={cycleActionDisabled}
-                        className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         撤销
                       </button>
@@ -2216,8 +2227,11 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                         type="button"
                         onClick={handleStartNewCycle}
                         disabled={cycleActionDisabled}
-                        className="px-2 py-1 rounded-md text-[11px] font-medium text-white bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-white bg-slate-800 hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
+                        {cycleActionLoading && (
+                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                        )}
                         新周期
                       </button>
                     </>
@@ -2229,7 +2243,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
              <div>
-               <h1 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">
+               <h1 className="text-2xl font-bold text-slate-900 tracking-tight mb-2">
                  {isAdmin ? '运营概览' : '代理概览'}
             </h1>
                <p className="text-slate-500">
@@ -2250,7 +2264,7 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
           </div>
 
           {/* Stat Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-10">
             <StatCard
               title="总订单数"
               value={dashboardStats.total_orders || 0}
@@ -2347,8 +2361,8 @@ function StaffDashboardPage({ role = 'admin', navActive = 'staff-dashboard' }) {
                       <motion.div 
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        key={customer.id} 
+                        transition={{ delay: Math.min(index * 0.03, 0.2) }}
+                        key={customer.id}
                         className="flex items-center justify-between p-4 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"
                       >
                           <div className="flex items-center gap-4">

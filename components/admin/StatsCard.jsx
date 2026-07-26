@@ -13,8 +13,8 @@ export const StatsCard = ({ title, value, icon, color = "indigo" }) => {
 
   return (
     <motion.div 
-      whileHover={{ y: -2, shadow: "0 10px 30px -10px rgba(0,0,0,0.1)" }}
-      className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 p-6 transition-all duration-300"
+      whileHover={{ y: -2, boxShadow: "0 10px 30px -10px rgba(0,0,0,0.1)" }}
+      className="bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 p-6"
     >
       <div className="flex items-center justify-between">
         <div>
