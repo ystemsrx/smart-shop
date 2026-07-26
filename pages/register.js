@@ -23,8 +23,8 @@ function PasswordStrength({ password }) {
     if (/[^a-zA-Z\d]/.test(password)) s++;
 
     if (s <= 1) return { score: 1, label: "弱", color: "bg-red-400" };
-    if (s <= 2) return { score: 2, label: "一般", color: "bg-orange-400" };
-    if (s <= 3) return { score: 3, label: "中等", color: "bg-yellow-400" };
+    if (s <= 2) return { score: 2, label: "一般", color: "bg-amber-400" };
+    if (s <= 3) return { score: 3, label: "中等", color: "bg-amber-400" };
     if (s <= 4) return { score: 4, label: "强", color: "bg-emerald-400" };
     return { score: 5, label: "很强", color: "bg-emerald-500" };
   }, [password]);
@@ -35,13 +35,13 @@ function PasswordStrength({ password }) {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+            className={`h-1 flex-1 rounded-full transition-colors duration-200 ${
               i <= score ? color : "bg-gray-200"
             }`}
           />
         ))}
       </div>
-      <span className="text-[11px] text-gray-400 min-w-[28px] text-right">
+      <span className="text-[11px] text-gray-400 min-w-[44px] text-right">
         {label}
       </span>
     </div>
@@ -160,9 +160,7 @@ export default function Register() {
         const result = await response.json();
 
         if (result.success) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
           await checkAuth();
-          await new Promise((resolve) => setTimeout(resolve, 200));
           router.push("/c");
           return { ok: true };
         } else {
@@ -228,7 +226,7 @@ export default function Register() {
           />
         </Head>
         <PastelBackground>
-          <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+          <div className="min-h-[100dvh] flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
             {/* Header skeleton */}
             <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mb-8">
               <div className="flex flex-col items-center gap-2.5">
@@ -244,18 +242,18 @@ export default function Register() {
                 <div className="flex gap-3">
                   <div className="flex-1 min-w-0 space-y-2">
                     <div className="auth-static-skeleton rounded-full h-3.5 w-14" />
-                    <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                    <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                   </div>
                   <div className="flex-1 min-w-0 space-y-2">
                     <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
-                    <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                    <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                   </div>
                 </div>
 
                 {/* Password */}
                 <div className="space-y-2">
                   <div className="auth-static-skeleton rounded-full h-3.5 w-16" />
-                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                  <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                   {/* strength bar */}
                   <div className="flex gap-1 mt-1">
                     {[1, 2, 3, 4, 5].map((i) => (
@@ -270,11 +268,11 @@ export default function Register() {
                 {/* Confirm Password */}
                 <div className="space-y-2">
                   <div className="auth-static-skeleton rounded-full h-3.5 w-20" />
-                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                  <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                 </div>
 
                 {/* Submit button */}
-                <div className="auth-static-skeleton rounded-full h-11 w-full mt-2 bg-[#dcc9c0]" />
+                <div className="auth-submit-btn auth-submit-btn-teal opacity-40 pointer-events-none h-[47px] mt-2" />
 
                 {/* Divider */}
                 <div className="flex items-center gap-3 pt-1">
@@ -284,7 +282,7 @@ export default function Register() {
                 </div>
 
                 {/* Back button */}
-                <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
 
                 {/* Legal */}
                 <div className="flex justify-center gap-1 pt-1">
@@ -309,7 +307,7 @@ export default function Register() {
           />
         </Head>
         <PastelBackground>
-          <div className="min-h-screen flex items-center justify-center px-4">
+          <div className="min-h-[100dvh] flex items-center justify-center px-4">
             <div className="auth-card p-8 text-center max-w-sm w-full">
               <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
                 <i className="fas fa-exclamation-triangle text-xl text-amber-400"></i>
@@ -345,10 +343,10 @@ export default function Register() {
       </Head>
 
       <PastelBackground>
-        <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+        <div className="min-h-[100dvh] flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
           {/* Logo & Header */}
           <div className="sm:mx-auto sm:w-full sm:max-w-[400px] opacity-0 animate-apple-fade-in">
-            <div className="text-center opacity-0 animate-apple-slide-up animate-delay-200">
+            <div className="text-center opacity-0 animate-apple-slide-up animate-delay-100">
               <h1 className="text-2xl font-semibold text-gray-800 tracking-tight">
                 创建账户
               </h1>
@@ -359,7 +357,7 @@ export default function Register() {
           </div>
 
           {/* Register Form */}
-          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-400">
+          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-200">
             <div className="auth-card relative p-6 sm:p-8">
               <Toast
                 message={toast.message}
@@ -425,7 +423,7 @@ export default function Register() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="flex gap-3">
+                    <div className="flex flex-col sm:flex-row gap-3">
                       <div className="flex-1 min-w-0">
                         <label htmlFor="password" className="auth-label">
                           密码 <span className="text-red-400">*</span>
@@ -471,7 +469,7 @@ export default function Register() {
                         >
                           <div className="auth-input-icon">
                             <i
-                              className={`fas ${
+                              className={`fas transition-colors duration-200 ${
                                 formData.confirmPassword &&
                                 formData.password === formData.confirmPassword
                                   ? "fa-check-circle text-emerald-400"
@@ -566,25 +564,27 @@ export default function Register() {
               {/* Legal */}
               <p className="mt-6 text-center text-[11px] text-gray-400 leading-relaxed">
                 注册即表示您同意
-                <span
-                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  className="text-gray-500 underline underline-offset-2 hover:text-stone-600 cursor-pointer transition-colors"
                   onClick={() => setLegalModal({ open: true, tab: "terms" })}
                 >
                   服务条款
-                </span>
+                </button>
                 和
-                <span
-                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  className="text-gray-500 underline underline-offset-2 hover:text-stone-600 cursor-pointer transition-colors"
                   onClick={() => setLegalModal({ open: true, tab: "privacy" })}
                 >
                   隐私政策
-                </span>
+                </button>
               </p>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="text-center mt-6 opacity-0 animate-apple-fade-in animate-delay-600">
+          <div className="text-center mt-6 opacity-0 animate-apple-fade-in animate-delay-300">
             <div className="flex justify-center items-center gap-3 text-gray-400 text-[11px]">
               <div className="flex items-center gap-1">
                 <i className="fas fa-shield-alt text-[10px]"></i>

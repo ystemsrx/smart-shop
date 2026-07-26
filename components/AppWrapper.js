@@ -52,32 +52,18 @@ function getTransitionSkeleton(path) {
 }
 
 function AuthRouteTransition({ routeKey, children }) {
-  const [hasMounted, setHasMounted] = useState(false);
-  useEffect(() => { setHasMounted(true); }, []);
-
-  // SSR and initial client render: plain divs to avoid hydration mismatch
-  // (framer-motion's AnimatePresence/motion.div produce different HTML on server vs client)
-  if (!hasMounted) {
-    return (
-      <div className="relative min-h-screen overflow-hidden">
-        <div className="absolute inset-0 min-h-screen w-full">
-          {children}
-        </div>
-      </div>
-    );
-  }
-
+  // AnimatePresence initial={false}：首屏（含 SSR）直接以 animate 终值渲染，服务端与客户端输出一致
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-screen overflow-x-hidden">
       <AnimatePresence initial={false} mode="sync">
         <motion.div
           key={routeKey}
-          initial={{ opacity: 0, y: -22, scale: 0.985, filter: 'blur(8px)' }}
-          animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-          exit={{ opacity: 0, y: 16, scale: 0.992, filter: 'blur(6px)' }}
-          transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8, transition: { duration: 0.15, ease: [0.22, 1, 0.36, 1] } }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           className="absolute inset-0 min-h-screen w-full"
-          style={{ willChange: 'transform, opacity, filter' }}
+          style={{ willChange: 'transform, opacity' }}
         >
           {children}
         </motion.div>
@@ -117,21 +103,35 @@ function AppLayout({ children }) {
   const router = useRouter();
   const showNav = !NO_NAV_PAGES.includes(router.pathname);
   const [transitionTarget, setTransitionTarget] = useState(null);
+  // 骨架屏状态：150ms 延迟后显示（快速切换不闪骨架），完成后 120ms 淡出再卸载
+  const [skeleton, setSkeleton] = useState({ path: null, leaving: false });
   const active = useNavActive(transitionTarget);
 
   useEffect(() => {
+    let showTimer = null;
+    let hideTimer = null;
     const handleStart = (url) => {
       // 仅当路由真正变化时显示骨架屏（同页面锚点跳转等不触发）
       if (url !== router.asPath) {
         setTransitionTarget(url);
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
+        showTimer = setTimeout(() => setSkeleton({ path: url, leaving: false }), 150);
       }
     };
-    const handleDone = () => setTransitionTarget(null);
+    const handleDone = () => {
+      setTransitionTarget(null);
+      clearTimeout(showTimer);
+      setSkeleton((s) => (s.path ? { ...s, leaving: true } : s));
+      hideTimer = setTimeout(() => setSkeleton({ path: null, leaving: false }), 120);
+    };
 
     router.events.on('routeChangeStart', handleStart);
     router.events.on('routeChangeComplete', handleDone);
     router.events.on('routeChangeError', handleDone);
     return () => {
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
       router.events.off('routeChangeStart', handleStart);
       router.events.off('routeChangeComplete', handleDone);
       router.events.off('routeChangeError', handleDone);
@@ -140,9 +140,9 @@ function AppLayout({ children }) {
 
   // 目标页面有自己的骨架屏时不显示全局骨架屏
   const currentPath = router.asPath ? router.asPath.split('?')[0] : null;
-  const targetPath = transitionTarget ? transitionTarget.split('?')[0] : null;
-  const transitionSkeleton = transitionTarget && !shouldSuppressTransitionSkeleton(currentPath, targetPath)
-    ? getTransitionSkeleton(targetPath)
+  const skeletonPath = skeleton.path ? skeleton.path.split('?')[0] : null;
+  const transitionSkeleton = skeleton.path && !shouldSuppressTransitionSkeleton(currentPath, skeletonPath)
+    ? getTransitionSkeleton(skeletonPath)
     : null;
   const isAuthPage = AUTH_TRANSITION_PAGES.includes(router.pathname);
   const routeKey = router.asPath;
@@ -156,7 +156,15 @@ function AppLayout({ children }) {
       ) : (
         children
       )}
-      {transitionSkeleton}
+      {transitionSkeleton && (
+        <div
+          className={`fixed inset-0 z-40 transition-opacity duration-[120ms] ease-out ${
+            skeleton.leaving ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
+          {transitionSkeleton}
+        </div>
+      )}
     </>
   );
 }

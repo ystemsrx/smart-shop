@@ -171,9 +171,9 @@ export default function Login() {
           />
         </Head>
         <PastelBackground>
-          <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+          <div className="min-h-[100dvh] flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
             {/* Header skeleton */}
-            <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mb-8">
+            <div className="sm:mx-auto sm:w-full sm:max-w-[400px]">
               <div className="flex flex-col items-center gap-2.5">
                 <div className="auth-static-skeleton rounded-full h-6 w-28" />
                 <div className="auth-static-skeleton rounded-full h-4 w-44 opacity-80" />
@@ -181,22 +181,22 @@ export default function Login() {
             </div>
 
             {/* Card skeleton */}
-            <div className="sm:mx-auto sm:w-full sm:max-w-[400px]">
+            <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8">
               <div className="auth-card p-6 sm:p-8 space-y-5">
                 {/* Account input */}
                 <div className="space-y-2">
                   <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
-                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                  <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                 </div>
 
                 {/* Password input */}
                 <div className="space-y-2">
                   <div className="auth-static-skeleton rounded-full h-3.5 w-10" />
-                  <div className="auth-static-skeleton rounded-full h-11 w-full opacity-80" />
+                  <div className="auth-static-skeleton rounded-full h-[47px] w-full opacity-80" />
                 </div>
 
                 {/* Login button */}
-                <div className="auth-static-skeleton rounded-full h-11 w-full mt-2 bg-[#dcc9c0]" />
+                <div className="auth-submit-btn auth-submit-btn-login opacity-40 pointer-events-none h-[47px] mt-2" />
 
                 {/* Divider */}
                 <div className="flex items-center gap-3 pt-1">
@@ -231,10 +231,10 @@ export default function Login() {
       </Head>
 
       <PastelBackground>
-        <div className="min-h-screen flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
+        <div className="min-h-[100dvh] flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
           {/* Logo & Header */}
           <div className="sm:mx-auto sm:w-full sm:max-w-[400px] opacity-0 animate-apple-fade-in">
-            <div className="text-center opacity-0 animate-apple-slide-up animate-delay-200">
+            <div className="text-center opacity-0 animate-apple-slide-up animate-delay-100">
               <h1 className="text-2xl font-semibold text-gray-800 tracking-tight">
                 欢迎回来
               </h1>
@@ -245,14 +245,14 @@ export default function Login() {
           </div>
 
           {/* Login Form */}
-          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-400">
+          <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-200">
             <div className="auth-card p-6 sm:p-8">
               <form className="space-y-5" onSubmit={handleSubmit}>
                 {error && (
                   <div className="auth-error animate-apple-fade-in">
                     <div className="flex items-center gap-2.5">
-                      <i className="fas fa-info-circle text-red-300 text-sm"></i>
-                      <span className="text-[13px] text-red-400 font-medium leading-snug">
+                      <i className="fas fa-info-circle text-red-500 text-sm"></i>
+                      <span className="text-[13px] text-red-600 font-medium leading-snug">
                         {error}
                       </span>
                     </div>
@@ -391,25 +391,27 @@ export default function Login() {
               {/* Legal */}
               <p className="mt-6 text-center text-[11px] text-gray-400 leading-relaxed">
                 登录即表示您同意
-                <span
-                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  className="text-gray-500 underline underline-offset-2 hover:text-stone-600 cursor-pointer transition-colors"
                   onClick={() => setLegalModal({ open: true, tab: "terms" })}
                 >
                   服务条款
-                </span>
+                </button>
                 和
-                <span
-                  className="text-gray-500 font-bold underline decoration-2 hover:text-stone-600 cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  className="text-gray-500 underline underline-offset-2 hover:text-stone-600 cursor-pointer transition-colors"
                   onClick={() => setLegalModal({ open: true, tab: "privacy" })}
                 >
                   隐私政策
-                </span>
+                </button>
               </p>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="text-center mt-6 opacity-0 animate-apple-fade-in animate-delay-600">
+          <div className="text-center mt-6 opacity-0 animate-apple-fade-in animate-delay-300">
             <div className="flex justify-center items-center gap-3 text-gray-400 text-[11px]">
               <div className="flex items-center gap-1">
                 <i className="fas fa-shield-alt text-[10px]"></i>

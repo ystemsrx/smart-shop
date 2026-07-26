@@ -16,12 +16,11 @@ function HeroSection({ onLearnMore, shopName }: { onLearnMore?: () => void; shop
   })
   
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0])
-  const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.8])
-  
+
   return (
-    <motion.section 
+    <motion.section
       ref={ref}
-      style={{ opacity, scale }}
+      style={{ opacity }}
       className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-b from-gray-50 to-white"
     >
       <div className="absolute top-20 right-20 w-96 h-96 bg-yellow-400/10 rounded-full blur-3xl" />
@@ -40,7 +39,7 @@ function HeroSection({ onLearnMore, shopName }: { onLearnMore?: () => void; shop
             </span>
           </div>
           
-          <h1 className="text-7xl md:text-9xl font-black leading-none mb-6 tracking-tight">
+          <h1 className="text-5xl md:text-7xl font-bold leading-none mb-6 tracking-tight">
             <span className="block text-gray-900">{shopName}</span>
           </h1>
           
@@ -54,15 +53,15 @@ function HeroSection({ onLearnMore, shopName }: { onLearnMore?: () => void; shop
             transition={{ duration: 1, delay: 0.8 }}
             className="flex items-center justify-center gap-8"
           >
-          <button 
+          <button
             onClick={() => router.push('/shop')}
-            className="px-8 py-4 bg-gray-900 text-white rounded-full text-lg font-medium hover:bg-gray-800 transition-colors"
+            className="px-8 py-4 bg-gray-900 text-white rounded-full text-lg font-medium hover:bg-gray-800 active:scale-[0.98] transition-[transform,background-color] duration-150"
           >
             开始探索
           </button>
-            <button 
+            <button
               onClick={onLearnMore}
-              className="px-8 py-4 border-2 border-gray-900 text-gray-900 rounded-full text-lg font-medium hover:bg-gray-50 transition-colors"
+              className="px-8 py-4 border-2 border-gray-900 text-gray-900 rounded-full text-lg font-medium hover:bg-gray-50 active:scale-[0.98] transition-[transform,background-color] duration-150"
             >
               Learn More
             </button>
@@ -97,7 +96,8 @@ function FeaturesSection() {
       subtitle: "Smart Assistant",
       description: "AI-powered recommendation system",
       icon: "fa-brain",
-      color: "purple-400",
+      iconColorClass: "text-purple-400",
+      glowColorClass: "bg-purple-400/20",
       detailedContent: {
         intro: "通过自然语言对话，为每位用户提供个性化的商品推荐。我们的AI助手不仅能理解您的需求，更能帮助您进行实际操作。"
       }
@@ -107,7 +107,8 @@ function FeaturesSection() {
       subtitle: "Secure Payment",
       description: "Advanced encryption technology",
       icon: "fa-shield-halved",
-      color: "accent-green",
+      iconColorClass: "text-emerald-400",
+      glowColorClass: "bg-emerald-400/20",
       detailedContent: {
         intro: "直接使用微信扫码支付，保障每一笔交易的安全与隐私。"
       }
@@ -117,7 +118,8 @@ function FeaturesSection() {
       subtitle: "Express Delivery",
       description: "Lightning-fast shipping service",
       icon: "fa-truck-fast",
-      color: "accent-purple",
+      iconColorClass: "text-violet-400",
+      glowColorClass: "bg-violet-400/20",
       detailedContent: {
         intro: "从下单到收货，全程可追踪，享受闪电般的配送体验。"
       }
@@ -134,7 +136,7 @@ function FeaturesSection() {
           transition={{ duration: 1 }}
           className="mb-20"
         >
-          <h2 className="text-6xl md:text-8xl font-black text-gray-900 mb-4">
+          <h2 className="text-4xl md:text-6xl font-bold text-gray-900 mb-4">
             核心功能
           </h2>
           <p className="text-xl text-gray-400">Core Features</p>
@@ -186,8 +188,8 @@ function FeatureCard({ feature, index }: { feature: any, index: number }) {
           transition={{ duration: 0.6, ease: "easeInOut" }}
         >
           <div className="relative inline-block mb-8">
-            <div className={`absolute inset-0 bg-${feature.color}/20 rounded-3xl blur-2xl`} />
-            <i className={`fas ${feature.icon} text-[12rem] text-${feature.color} relative`}></i>
+            <div className={`absolute inset-0 ${feature.glowColorClass} rounded-3xl blur-2xl`} />
+            <i className={`fas ${feature.icon} text-[12rem] ${feature.iconColorClass} relative`}></i>
           </div>
         </motion.div>
         
@@ -199,7 +201,7 @@ function FeatureCard({ feature, index }: { feature: any, index: number }) {
           }}
           transition={{ duration: 0.6, ease: "easeInOut" }}
         >
-          <h3 className="text-6xl md:text-7xl font-black text-gray-900 mb-4">
+          <h3 className="text-4xl md:text-6xl font-bold text-gray-900 mb-4">
             {feature.title}
           </h3>
           <p className="text-2xl text-gray-400 mb-6">{feature.subtitle}</p>
@@ -235,38 +237,36 @@ function FeatureCard({ feature, index }: { feature: any, index: number }) {
       
       {/* 移动端：下方展开的详细内容 */}
       <div className="md:hidden">
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ 
-            height: isExpanded ? 'auto' : 0,
-            opacity: isExpanded ? 1 : 0,
-          }}
-          transition={{ duration: 0.6, ease: "easeInOut" }}
-          className="overflow-hidden mt-8"
-        >
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-gray-200">
-            <h4 className="text-2xl font-bold text-gray-900 mb-4">详细介绍</h4>
-            <p className="text-base text-gray-600 leading-relaxed">
-              {feature.detailedContent.intro}
-            </p>
-          </div>
-        </motion.div>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4, ease: "easeInOut" }}
+            className="mt-8"
+          >
+            <div className="bg-white/95 backdrop-blur-sm rounded-3xl p-6 border border-gray-200">
+              <h4 className="text-2xl font-bold text-gray-900 mb-4">详细介绍</h4>
+              <p className="text-base text-gray-600 leading-relaxed">
+                {feature.detailedContent.intro}
+              </p>
+            </div>
+          </motion.div>
+        )}
       </div>
-      
+
       {/* 桌面端：右侧弹出的详细内容 */}
       <div className="hidden md:block">
         <motion.div
-          initial={{ opacity: 0, x: 100, width: 0 }}
-          animate={{ 
+          initial={{ opacity: 0, x: 100 }}
+          animate={{
             opacity: isExpanded ? 1 : 0,
             x: isExpanded ? 0 : 100,
-            width: isExpanded ? 'auto' : 0,
           }}
           transition={{ duration: 0.6, ease: "easeInOut" }}
-          className="absolute right-0 top-0 overflow-hidden rounded-2xl"
+          className="absolute right-0 top-0 rounded-3xl"
           style={{ pointerEvents: isExpanded ? 'auto' : 'none' }}
         >
-          <div className="w-80 bg-white/95 backdrop-blur-sm rounded-2xl p-8 shadow-xl">
+          <div className="w-80 bg-white/95 backdrop-blur-sm rounded-3xl p-8 shadow-xl">
             <h4 className="text-2xl font-bold text-gray-900 mb-4">详细介绍</h4>
             <p className="text-base text-gray-600 leading-relaxed">
               {feature.detailedContent.intro}
@@ -297,7 +297,7 @@ function DataVisualization() {
           transition={{ duration: 0.8 }}
           className="text-center mb-20"
         >
-          <h2 className="text-6xl md:text-8xl font-black text-gray-900 mb-4">
+          <h2 className="text-4xl md:text-6xl font-bold text-gray-900 mb-4">
             增长
           </h2>
           <p className="text-xl text-gray-400">Growth Trajectory</p>
@@ -337,7 +337,6 @@ function DataVisualization() {
                   initial={{ pathLength: 0, opacity: 0 }}
                   animate={isInView ? { pathLength: 1, opacity: 1 } : {}}
                   transition={{ duration: 2, ease: "easeInOut" }}
-                  style={{ pathLength: 1 }}
                 />
                 {/* 线条 */}
                 <motion.path
@@ -381,7 +380,7 @@ function CTASection() {
   return (
     <section ref={ref} className="py-32 bg-gray-900 text-white relative overflow-hidden">
       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px]">
-        <div className="absolute top-0 left-0 w-full h-full bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute top-0 left-0 w-full h-full bg-purple-500/20 rounded-full blur-3xl" />
       </div>
       
       <div className="container mx-auto px-6 relative z-10">
@@ -391,7 +390,7 @@ function CTASection() {
           transition={{ duration: 1 }}
           className="text-center"
         >
-          <h2 className="text-6xl md:text-8xl font-black mb-8">
+          <h2 className="text-4xl md:text-6xl font-bold mb-8">
             开始旅程
           </h2>
           <p className="text-2xl md:text-3xl text-gray-400 mb-12 font-light">
@@ -468,55 +467,17 @@ function Footer({ shopName }: { shopName: string }) {
 export default function Home() {
   const shopName = getShopName()
   
-  const smoothScrollTo = (targetPosition: number, duration = 1200) => {
-    if (typeof window === 'undefined') return
-    const root = document.documentElement
-    // Temporarily disable global smooth scroll so custom easing renders correctly
-    const previousBehavior = root.style.scrollBehavior
-    root.style.scrollBehavior = 'auto'
-    const startPosition = window.scrollY || window.pageYOffset
-    const distance = targetPosition - startPosition
-    let startTime: number | null = null
-    let animationFrameId: number | null = null
-
-    const easeInOutCubic = (t: number) =>
-      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-
-    const animation = (currentTime: number) => {
-      if (startTime === null) startTime = currentTime
-      const elapsed = currentTime - startTime
-      const progress = Math.min(elapsed / duration, 1)
-      const ease = easeInOutCubic(progress)
-
-      window.scrollTo(0, startPosition + distance * ease)
-
-      if (elapsed < duration) {
-        animationFrameId = requestAnimationFrame(animation)
-      } else {
-        window.scrollTo(0, targetPosition)
-        root.style.scrollBehavior = previousBehavior
-      }
-    }
-
-    animationFrameId = requestAnimationFrame(animation)
-
-    return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId)
-      root.style.scrollBehavior = previousBehavior
-    }
-  }
-
   const handleLearnMoreClick = () => {
     if (typeof window === 'undefined') return
     const target = document.getElementById('features')
     if (!target) return
 
-    const targetPosition = target.getBoundingClientRect().top + window.pageYOffset
-    smoothScrollTo(targetPosition, 1400)
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' })
   }
 
   return (
-    <main className="overflow-x-hidden">
+    <main className="overflow-x-hidden pt-16">
       <HeroSection onLearnMore={handleLearnMoreClick} shopName={shopName} />
       <FeaturesSection />
       <DataVisualization />
