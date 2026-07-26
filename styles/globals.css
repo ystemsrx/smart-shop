@@ -52,9 +52,24 @@
   --text-secondary: #6c6c70;
   --text-tertiary: #8e8e93;
   --border-light: rgba(0, 0, 0, 0.08);
-  --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-medium: 0 4px 20px rgba(0, 0, 0, 0.1);
-  --shadow-large: 0 10px 40px rgba(0, 0, 0, 0.15);
+
+  /* 品牌主色（陶土色系，与导航/登录页一致） */
+  --brand: #d97757;
+  --brand-deep: #c85c34;
+
+  /* 分层阴影：低调、多层、更接近真实光照 */
+  --shadow-light: 0 1px 2px rgba(23, 15, 8, 0.04), 0 2px 8px rgba(23, 15, 8, 0.04);
+  --shadow-medium: 0 2px 4px rgba(23, 15, 8, 0.04), 0 8px 24px rgba(23, 15, 8, 0.07);
+  --shadow-large: 0 4px 12px rgba(23, 15, 8, 0.06), 0 16px 48px rgba(23, 15, 8, 0.12);
+
+  /* 动效令牌：统一 easing 与时长 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 300ms;
 }
 
 html {
@@ -107,28 +122,29 @@ body {
 
 /* 现代化按钮样式 */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-orange), var(--accent-pink));
+  background: var(--brand);
   color: white;
   border: none;
   padding: 12px 24px;
   border-radius: 12px;
   font-weight: 600;
   font-size: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.3);
+  transition: background-color var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+  box-shadow: 0 2px 8px rgba(217, 119, 87, 0.25);
   position: relative;
   overflow: hidden;
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(249, 115, 22, 0.4);
-  background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  background: var(--brand-deep);
+  box-shadow: 0 4px 16px rgba(217, 119, 87, 0.3);
 }
 
 .btn-primary:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 10px rgba(249, 115, 22, 0.3);
+  transform: scale(0.97);
+  box-shadow: 0 1px 4px rgba(217, 119, 87, 0.25);
 }
 
 .btn-secondary {
@@ -139,15 +155,20 @@ body {
   border-radius: 12px;
   font-weight: 500;
   font-size: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
 .btn-secondary:hover {
   background: var(--glass-bg);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-medium);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
 }
 
 .btn-glass {
@@ -159,12 +180,16 @@ body {
   padding: 12px 24px;
   border-radius: 12px;
   font-weight: 500;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .btn-glass:hover {
   background: rgba(255, 255, 255, 0.9);
-  transform: translateY(-1px);
+}
+
+.btn-glass:active {
+  transform: scale(0.97);
 }
 
 /* 现代化卡片样式 */
@@ -173,13 +198,9 @@ body {
   border-radius: 20px;
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-light);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
   overflow: hidden;
-}
-
-.card-modern:hover {
-  box-shadow: var(--shadow-medium);
-  transform: translateY(-4px);
 }
 
 .card-glass {
@@ -188,12 +209,20 @@ body {
   backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
 }
 
-.card-glass:hover {
-  background: rgba(255, 255, 255, 0.8);
-  transform: translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+  .card-modern:hover {
+    box-shadow: var(--shadow-medium);
+    transform: translateY(-2px);
+  }
+
+  .card-glass:hover {
+    background: rgba(255, 255, 255, 0.8);
+    transform: translateY(-2px);
+  }
 }
 
 /* 输入框样式 */
@@ -203,15 +232,17 @@ body {
   border-radius: 12px;
   padding: 14px 16px;
   font-size: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    background-color var(--dur-base) var(--ease-out);
   outline: none;
   color: var(--text-primary);
 }
 
 .input-modern:focus {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
+  background: #ffffff;
 }
 
 .input-glass {
@@ -222,23 +253,27 @@ body {
   border-radius: 12px;
   padding: 14px 16px;
   font-size: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    background-color var(--dur-base) var(--ease-out);
   outline: none;
   color: var(--text-primary);
 }
 
 .input-glass:focus {
   background: rgba(255, 255, 255, 0.9);
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
 }
 
 /* ========== Auth Pages — flat / capsule / pastel ========== */
 .auth-card {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 24px;
-  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(88, 60, 40, 0.04), 0 16px 48px rgba(88, 60, 40, 0.08);
 }
 
 .auth-label {
@@ -257,7 +292,7 @@ body {
   border: 1.5px solid transparent;
   border-radius: 9999px;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .auth-input-wrapper:hover {
@@ -282,7 +317,7 @@ body {
   margin-left: 7px;
   color: #a89e99;
   font-size: 11px;
-  transition: all 0.2s;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .auth-input-focused .auth-input-icon {
@@ -353,7 +388,7 @@ body {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
   letter-spacing: -0.01em;
 }
 
@@ -423,7 +458,7 @@ body {
   font-weight: 500;
   color: #6b7280;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .auth-alt-btn:hover {
@@ -473,7 +508,7 @@ body {
 @keyframes apple-slide-up {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(16px);
   }
 
   to {
@@ -508,18 +543,18 @@ body {
 
 .animate-apple-fade-in {
   opacity: 0;
-  animation: apple-fade-in 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: apple-fade-in 0.55s var(--ease-out) forwards;
 }
 
 .animate-apple-scale-in {
   opacity: 0;
   transform: scale(0.95);
-  animation: apple-scale-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: apple-scale-in 0.4s var(--ease-out) forwards;
 }
 
 .animate-apple-slide-up {
   opacity: 0;
-  animation: apple-slide-up 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: apple-slide-up 0.5s var(--ease-out) forwards;
 }
 
 .animate-fadeIn {
@@ -527,7 +562,7 @@ body {
 }
 
 .animate-scaleIn {
-  animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: scaleIn 0.25s var(--ease-out) forwards;
 }
 
 /* 延迟动画类 */
@@ -561,7 +596,8 @@ body {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border-bottom: none;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color var(--dur-slow) var(--ease-out),
+    box-shadow var(--dur-slow) var(--ease-out);
 }
 
 /* 现代化标签样式 */
@@ -575,7 +611,8 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color var(--dur-base) var(--ease-out),
+    color var(--dur-base) var(--ease-out);
 }
 
 .tag-modern:hover {
@@ -2434,12 +2471,15 @@ body {
 
 /* 平滑的悬停提升效果 */
 .hover-lift {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--dur-slow) var(--ease-out),
+    box-shadow var(--dur-slow) var(--ease-out);
 }
 
-.hover-lift:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-medium);
+  }
 }
 
 /* 边框闪烁效果 */
@@ -2486,37 +2526,37 @@ body {
   transform: translate(-50%, 0) scale(1.04);
 }
 
-/* 购物车浮窗缩放动画 - 从右下角缩放 */
+/* 购物车浮窗缩放动画 - 从右下角轻微缩放（从 0.3 起跳太夸张，改为 0.96 更沉稳） */
 @keyframes scale-in-bottom-right {
   from {
     opacity: 0;
-    transform: scale(0.3);
+    transform: scale(0.96) translateY(8px);
   }
 
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
   }
 }
 
 @keyframes scale-out-bottom-right {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
   }
 
   to {
     opacity: 0;
-    transform: scale(0.3);
+    transform: scale(0.97) translateY(6px);
   }
 }
 
 .animate-scale-in {
-  animation: scale-in-bottom-right 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: scale-in-bottom-right 0.25s var(--ease-out) forwards;
 }
 
 .animate-scale-out {
-  animation: scale-out-bottom-right 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: scale-out-bottom-right 0.18s ease-in forwards;
 }
 
 /* 背景淡出动画 */
@@ -2569,7 +2609,7 @@ body {
 
 .animate-snack-fade-in-up {
   opacity: 0;
-  animation: snack-fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: snack-fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Mobile: prevent sticky hover after tap; keep desktop hover behavior */
@@ -2765,11 +2805,11 @@ body {
   contain: layout paint style;
 }
 
+/* 入场动画交由 framer-motion 统一控制，这里只保留合成层提示，
+   避免 CSS animation forwards 覆盖 inline transform 导致 hover/exit 失效 */
 .shop-product-card {
   transform: translateZ(0);
   backface-visibility: hidden;
-  opacity: 0;
-  animation: shop-card-enter 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes shop-category-enter {
@@ -2795,5 +2835,107 @@ body {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* 聊天历史逐条渐显：纯 CSS（合成器线程），代替大量并发的 JS spring。
+   fill 模式用 backwards：延迟期间保持隐藏，动画结束后不残留样式覆盖
+  （避免 forwards 永久压制 framer 的 inline transform）。 */
+@keyframes chat-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.chat-msg-reveal {
+  animation: chat-msg-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* ========== 登录/注册页抽象艺术背景动效 ========== */
+
+@keyframes anthropic-drift-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-4%, 5%, 0) scale(1.06);
+  }
+}
+
+@keyframes anthropic-drift-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(5%, -4%, 0) scale(1.05);
+  }
+}
+
+@keyframes anthropic-drift-c {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(4%, 6%, 0);
+  }
+}
+
+@keyframes anthropic-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bg-anthropic-blob-a {
+  animation: anthropic-drift-a 26s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.bg-anthropic-blob-b {
+  animation: anthropic-drift-b 32s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.bg-anthropic-blob-c {
+  animation: anthropic-drift-c 38s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.bg-anthropic-ring {
+  animation: anthropic-ring-spin 120s linear infinite;
+  transform-origin: center;
+}
+
+/* ========== 全局收尾规则 ========== */
+
+/* 统一键盘焦点环（鼠标点击不显示）。
+   输入类控件不套用：文本框在鼠标点击时也会匹配 :focus-visible，
+   它们已有各自的 focus 样式（如 .auth-input-focused、.input-modern:focus） */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable]) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+[contenteditable]:focus {
+  outline: none;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* 减弱动效偏好：保留透明度过渡，去除位移类动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
