@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, useApi, useCart } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import OrdersPageSkeleton from '../components/OrdersPageSkeleton';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import { getShopName, getLogo } from '../utils/runtimeConfig';
 import { getProductImage } from '../utils/urls';
 
@@ -91,18 +93,18 @@ const MOBILE_FILTER_MAP = {
 
 // Status config
 const STATUS_CONFIG = {
-  '未付款': { bg: 'bg-slate-100',   text: 'text-slate-600',   icon: 'fa-credit-card',  ring: 'ring-slate-200' },
-  '待确认': { bg: 'bg-amber-50',    text: 'text-amber-600',   icon: 'fa-clock',         ring: 'ring-amber-200' },
-  '待配送': { bg: 'bg-sky-50',      text: 'text-sky-600',     icon: 'fa-box',           ring: 'ring-sky-200' },
-  '配送中': { bg: 'bg-violet-50',   text: 'text-violet-600',  icon: 'fa-truck',         ring: 'ring-violet-200' },
-  '已完成': { bg: 'bg-emerald-50',  text: 'text-emerald-600', icon: 'fa-check-circle',  ring: 'ring-emerald-200' },
-  '已取消': { bg: 'bg-gray-100',    text: 'text-gray-600',    icon: 'fa-ban',           ring: 'ring-gray-200' },
+  '未付款': { bg: 'bg-stone-100',      text: 'text-stone-500',    icon: 'fa-credit-card',  ring: 'ring-stone-200' },
+  '待确认': { bg: 'bg-[#C9943A]/10',   text: 'text-[#A87A2E]',    icon: 'fa-clock',         ring: 'ring-[#C9943A]/20' },
+  '待配送': { bg: 'bg-[#5A89B8]/10',   text: 'text-[#4A79A8]',    icon: 'fa-box',           ring: 'ring-[#5A89B8]/20' },
+  '配送中': { bg: 'bg-[#5A89B8]/10',   text: 'text-[#4A79A8]',    icon: 'fa-truck',         ring: 'ring-[#5A89B8]/20' },
+  '已完成': { bg: 'bg-[#6B8F47]/10',   text: 'text-[#5A7A3A]',    icon: 'fa-check-circle',  ring: 'ring-[#6B8F47]/20' },
+  '已取消': { bg: 'bg-stone-100',      text: 'text-stone-500',    icon: 'fa-ban',           ring: 'ring-stone-200' },
 };
 
 function StatusBadge({ status }) {
   const config = STATUS_CONFIG[status] || { bg: 'bg-gray-50', text: 'text-gray-600', icon: 'fa-circle', ring: 'ring-gray-200' };
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium opacity-80 ${config.bg} ${config.text} ring-1 ring-inset ${config.ring} transition-all duration-300`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text} ring-1 ring-inset ${config.ring}`}>
       <i className={`fas ${config.icon} text-[10px]`}></i>
       <span>{status}</span>
     </span>
@@ -111,11 +113,11 @@ function StatusBadge({ status }) {
 
 // Progress steps - original colors
 const PROGRESS_STEPS = [
-  { key: '未付款', color: '#64748b' },   // slate-500
-  { key: '待确认', color: '#f59e0b' },   // amber-500
-  { key: '待配送', color: '#06b6d4' },   // cyan-500
-  { key: '配送中', color: '#3b82f6' },   // blue-500
-  { key: '已完成', color: '#10b981' },   // emerald-500
+  { key: '未付款', color: '#B0AEA5' },
+  { key: '待确认', color: '#C9943A' },
+  { key: '待配送', color: '#5A89B8' },
+  { key: '配送中', color: '#5A89B8' },
+  { key: '已完成', color: '#6B8F47' },
 ];
 
 function OrderProgress({ status }) {
@@ -220,7 +222,7 @@ function OrderDetailContent({ order, onClose, copiedOrderId, onCopy }) {
               const imageSrc = getProductImage(it) || getLogo();
               return (
                 <div key={idx} className="flex items-start gap-4 py-3" style={{ borderBottom: idx < (order.items || []).length - 1 ? '1px solid #F5F2ED' : 'none' }}>
-                  <img src={imageSrc} alt={it.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
+                  <img src={imageSrc} alt={it.name} loading="lazy" decoding="async" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start">
                       <h5 className="text-sm font-medium truncate pr-2" style={{ color: '#141413' }}>{it.name}</h5>
@@ -310,6 +312,7 @@ export default function Orders() {
   const [lotteryThreshold, setLotteryThreshold] = useState(10);
   const [paymentQr, setPaymentQr] = useState(null);
   const [copiedOrderId, setCopiedOrderId] = useState(null);
+  const { toast, showToast, hideToast } = useToast();
   const formattedLotteryThreshold = useMemo(() => (
     Number.isInteger(lotteryThreshold)
       ? lotteryThreshold.toString()
@@ -345,8 +348,9 @@ export default function Orders() {
   // Lock body scroll when drawer/sheet is open
   useEffect(() => {
     if (viewingOrder) {
+      const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = 'unset'; };
+      return () => { document.body.style.overflow = prevOverflow; };
     }
   }, [viewingOrder]);
 
@@ -430,10 +434,10 @@ export default function Orders() {
         setPaymentQr(null);
         await loadOrders();
       } else {
-        alert(res.message || '操作失败');
+        showToast(res.message || '操作失败');
       }
     } catch (err) {
-      alert(err.message || '操作失败');
+      showToast(err.message || '操作失败');
     } finally {
       startLottery(orderId);
     }
@@ -502,13 +506,13 @@ export default function Orders() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen pt-20 pb-12 selection:bg-orange-100 selection:text-orange-900" style={{ background: '#FDFBF7' }}>
+      <div className="min-h-screen pt-16 pb-12 selection:bg-orange-100 selection:text-orange-900" style={{ background: '#FDFBF7' }}>
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
 
           {/* 页面标题 */}
           <div className="mb-10 mt-4 animate-fade-in-up">
-            <h1 className="text-4xl font-bold tracking-tight" style={{ color: '#141413', fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>我的订单</h1>
-            <p className="mt-2 text-lg" style={{ color: '#B0AEA5' }}>查看及管理您的历史订单</p>
+            <h1 className="text-4xl font-normal tracking-tight" style={{ color: '#141413', fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>我的订单</h1>
+            <p className="mt-2 text-lg" style={{ color: '#6B6860' }}>查看及管理您的历史订单</p>
           </div>
 
           {error && (
@@ -524,10 +528,10 @@ export default function Orders() {
                 <i className="fas fa-shopping-bag text-3xl" style={{ color: '#DDD8D0' }}></i>
               </div>
               <h3 className="text-xl font-semibold mb-2" style={{ color: '#141413' }}>暂无订单</h3>
-              <p className="mb-8 max-w-xs text-center" style={{ color: '#B0AEA5' }}>您还没有购买过任何商品，去商城逛逛吧</p>
+              <p className="mb-8 max-w-xs text-center" style={{ color: '#6B6860' }}>您还没有购买过任何商品，去商城逛逛吧</p>
               <Link
                 href="/shop"
-                className="px-8 py-3 text-white rounded-full font-medium transition-all transform hover:scale-105 shadow-lg"
+                className="px-8 py-3 text-white rounded-full font-medium transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 shadow-[0_6px_20px_rgba(20,20,19,0.08)]"
                 style={{ background: '#141413' }}
               >
                 前往商城
@@ -539,12 +543,14 @@ export default function Orders() {
               <div className="sticky top-16 z-30 -mx-4 sm:hidden mb-8 px-4 animate-fade-in-up" style={{ animationDelay: '0.05s', animationFillMode: 'both' }}>
                 <div className="backdrop-blur-xl shadow-sm rounded-2xl p-1.5 flex overflow-x-auto hide-scrollbar snap-x relative" style={{ background: 'rgba(253,251,247,0.85)', border: '1px solid #E8E2D8' }}>
                   <div
-                    className="absolute top-1.5 bottom-1.5 rounded-xl transition-all duration-300 ease-out z-0"
+                    className="absolute top-1.5 bottom-1.5 rounded-xl z-0"
                     style={{
                       background: '#FFFFFF',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                      left: `calc(6px + ${MOBILE_FILTER_ORDER.indexOf(filter)} * ((100% - 12px) / ${MOBILE_FILTER_ORDER.length}))`,
-                      width: `calc((100% - 12px) / ${MOBILE_FILTER_ORDER.length})`
+                      left: '6px',
+                      width: `calc((100% - 12px) / ${MOBILE_FILTER_ORDER.length})`,
+                      transform: `translateX(${MOBILE_FILTER_ORDER.indexOf(filter) * 100}%)`,
+                      transition: 'transform 0.3s cubic-bezier(0.22,1,0.36,1)'
                     }}
                   ></div>
 
@@ -552,7 +558,7 @@ export default function Orders() {
                     <button
                       key={label}
                       onClick={() => setFilter(label)}
-                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10"
+                      className="flex-1 basis-0 text-center px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap relative z-10"
                       style={{ color: filter === label ? '#141413' : '#B0AEA5' }}
                     >
                       {label}
@@ -565,12 +571,14 @@ export default function Orders() {
               <div className="sticky top-16 z-30 hidden sm:block mb-8 animate-fade-in-up" style={{ animationDelay: '0.05s', animationFillMode: 'both' }}>
                 <div className="backdrop-blur-xl shadow-sm rounded-2xl p-1.5 flex overflow-x-auto hide-scrollbar snap-x relative" style={{ background: 'rgba(253,251,247,0.85)', border: '1px solid #E8E2D8' }}>
                   <div
-                    className="absolute top-1.5 bottom-1.5 rounded-xl transition-all duration-300 ease-out z-0"
+                    className="absolute top-1.5 bottom-1.5 rounded-xl z-0"
                     style={{
                       background: '#FFFFFF',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                      left: `calc(6px + ${UNIFIED_STATUS_ORDER.indexOf(filter)} * ((100% - 12px) / ${UNIFIED_STATUS_ORDER.length}))`,
-                      width: `calc((100% - 12px) / ${UNIFIED_STATUS_ORDER.length})`
+                      left: '6px',
+                      width: `calc((100% - 12px) / ${UNIFIED_STATUS_ORDER.length})`,
+                      transform: `translateX(${UNIFIED_STATUS_ORDER.indexOf(filter) * 100}%)`,
+                      transition: 'transform 0.3s cubic-bezier(0.22,1,0.36,1)'
                     }}
                   ></div>
 
@@ -578,7 +586,7 @@ export default function Orders() {
                     <button
                       key={label}
                       onClick={() => setFilter(label)}
-                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap justify-center relative z-10"
+                      className="flex-1 basis-0 text-center px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-300 snap-start whitespace-nowrap relative z-10"
                       style={{ color: filter === label ? '#141413' : '#B0AEA5' }}
                     >
                       {label}
@@ -588,10 +596,10 @@ export default function Orders() {
               </div>
 
               {/* 订单列表 */}
-              <div className="space-y-4" key={filter}>
+              <div className="space-y-4">
                 {filteredOrders.length === 0 ? (
                   <div className="text-center py-20 rounded-3xl animate-fade-in-up" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8' }}>
-                    <p style={{ color: '#B0AEA5' }}>暂无「{filter}」状态的订单</p>
+                    <p style={{ color: '#6B6860' }}>暂无「{filter}」状态的订单</p>
                     <button
                       onClick={() => setFilter('全部')}
                       className="mt-4 font-medium text-sm"
@@ -608,11 +616,10 @@ export default function Orders() {
                   return (
                     <div
                       key={o.id}
-                      className="group rounded-2xl p-5 sm:p-6 transition-all duration-300 animate-fade-in-up"
+                      className="group rounded-2xl p-5 sm:p-6 border border-[#E8E2D8] transition-[border-color,box-shadow] duration-200 hover:border-[#D97757]/30 hover:shadow-[0_4px_20px_rgba(20,20,19,0.06)] animate-fade-in-up"
                       style={{
                         background: '#FFFFFF',
-                        border: '1px solid #E8E2D8',
-                        animationDelay: `${index * 0.03}s`,
+                        animationDelay: `${Math.min(index, 6) * 0.04}s`,
                         animationFillMode: 'both'
                       }}
                     >
@@ -639,7 +646,7 @@ export default function Orders() {
                         <div className="flex items-center gap-3 text-xs" style={{ color: '#B0AEA5' }}>
                           <span>{formatDate(o.created_at_timestamp ?? o.created_at)}</span>
                           {showCountdown && (
-                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg animate-pulse" style={{ color: '#D97757', background: 'rgba(217,119,87,0.08)' }}>
+                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg" style={{ color: '#D97757', background: 'rgba(217,119,87,0.08)' }}>
                               <i className="fas fa-clock text-[10px]"></i>
                               <span className="font-mono font-bold">{formatRemain(remainSec)}</span>
                             </span>
@@ -682,7 +689,7 @@ export default function Orders() {
                                   // 第3张(index=2)仅桌面端显示
                                   const hideOnMobile = i === 2 ? 'hidden sm:block' : '';
                                   return (
-                                    <img key={i} src={src} alt={it.name} className={`w-10 h-10 rounded-xl object-cover flex-shrink-0 ${hideOnMobile}`} style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
+                                    <img key={i} src={src} alt={it.name} loading="lazy" decoding="async" className={`w-10 h-10 rounded-xl object-cover flex-shrink-0 ${hideOnMobile}`} style={{ border: '1px solid #E8E2D8', background: '#F5F2ED' }} onError={(e) => { e.target.onerror = null; e.target.src = getLogo(); e.target.style.objectFit = 'cover'; }} />
                                   );
                                 })}
                                 {/* 移动端：超过2个时显示 +n */}
@@ -714,15 +721,15 @@ export default function Orders() {
                         <div className="flex items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
                           <button
                             onClick={() => setViewingOrder(o)}
-                            className="flex-1 sm:flex-none px-5 py-2 rounded-xl text-sm font-medium transition-all"
-                            style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', color: '#6B6860' }}
+                            className="flex-1 sm:flex-none px-5 py-2 rounded-xl text-sm font-medium border border-[#E8E2D8] hover:border-[#D97757]/40 active:scale-[0.98] transition-[border-color,transform] duration-200"
+                            style={{ background: '#FFFFFF', color: '#6B6860' }}
                           >
                             详情
                           </button>
                           {us === '未付款' && (
                             <button
                               onClick={() => handleShowPayModal(o.id)}
-                              className="flex-1 sm:flex-none px-6 py-2 rounded-xl text-white text-sm font-medium transition-all shadow-lg transform active:scale-95 flex items-center justify-center gap-2"
+                              className="flex-1 sm:flex-none px-6 py-2 rounded-xl text-white text-sm font-medium transition-[transform,filter] duration-200 shadow-lg hover:brightness-110 active:scale-[0.98] flex items-center justify-center gap-2"
                               style={{ background: '#141413' }}
                             >
                               <span>去支付</span>
@@ -743,14 +750,14 @@ export default function Orders() {
       {/* 支付弹窗 */}
       {payOrderId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 backdrop-blur-sm transition-opacity" style={{ background: 'rgba(20,20,19,0.3)' }} onClick={() => { setPayOrderId(null); setPaymentQr(null); }}></div>
+          <div className="absolute inset-0 bg-[rgba(20,20,19,0.35)] backdrop-blur-sm transition-opacity" onClick={() => { setPayOrderId(null); setPaymentQr(null); }}></div>
           <div className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden transform transition-all animate-fade-in-up" style={{ background: '#FFFFFF' }}>
             <div className="p-6 text-center">
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: 'rgba(107,143,71,0.08)' }}>
                 <i className="fab fa-weixin text-3xl" style={{ color: '#6B8F47' }}></i>
               </div>
               <h3 className="text-xl font-bold mb-1" style={{ color: '#141413', fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>微信支付</h3>
-              <p className="text-sm mb-6" style={{ color: '#B0AEA5' }}>请使用微信扫一扫完成支付</p>
+              <p className="text-sm mb-6" style={{ color: '#6B6860' }}>请使用微信扫一扫完成支付</p>
 
               <div className="p-4 rounded-2xl mb-6" style={{ background: '#F5F2ED', border: '1px solid #E8E2D8' }}>
                 {paymentQr ? (
@@ -804,7 +811,7 @@ export default function Orders() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <div className="absolute inset-0 backdrop-blur-[2px]" style={{ background: 'rgba(20,20,19,0.2)' }} onClick={() => setViewingOrder(null)}></div>
+                <div className="absolute inset-0 bg-[rgba(20,20,19,0.35)] backdrop-blur-sm" onClick={() => setViewingOrder(null)}></div>
                 <motion.div
                   className="absolute right-0 top-0 h-full w-full max-w-[560px] lg:max-w-[600px] shadow-2xl flex flex-col"
                   style={{ background: '#FDFBF7' }}
@@ -876,18 +883,18 @@ export default function Orders() {
       {/* 抽奖弹窗 */}
       {lotteryOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 backdrop-blur-sm transition-opacity" style={{ background: 'rgba(20,20,19,0.3)' }} onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }}></div>
+          <div className="absolute inset-0 bg-[rgba(20,20,19,0.35)] backdrop-blur-sm transition-opacity" onClick={() => { setLotteryOpen(false); setLotteryPrize(null); }}></div>
           <div className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden transform transition-all animate-fade-in-up" style={{ background: '#FFFFFF' }}>
             <div className="p-8 text-center">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce-slow" style={{ background: 'linear-gradient(135deg, rgba(201,148,58,0.12), rgba(217,119,87,0.12))' }}>
+              <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: 'linear-gradient(135deg, rgba(201,148,58,0.12), rgba(217,119,87,0.12))' }}>
                 <i className="fas fa-gift text-4xl" style={{ color: '#D97757' }}></i>
               </div>
 
               <h3 className="text-2xl font-bold mb-2" style={{ color: '#141413', fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>幸运抽奖</h3>
-              <p className="text-sm mb-8" style={{ color: '#B0AEA5' }}>订单满 {formattedLotteryThreshold} 元即可参与</p>
+              <p className="text-sm mb-8" style={{ color: '#6B6860' }}>订单满 {formattedLotteryThreshold} 元即可参与</p>
 
               <div className="rounded-2xl p-6 mb-8" style={{ background: '#F5F2ED', border: '1px solid #E8E2D8' }}>
-                <div className={`text-2xl font-bold ${spinning ? 'animate-pulse' : ''}`} style={{ color: spinning ? '#D97757' : '#141413' }}>
+                <div className="text-2xl font-bold h-8 leading-8 min-w-[8em] text-center overflow-hidden" style={{ color: spinning ? '#D97757' : '#141413' }}>
                   {lotteryDisplay}
                 </div>
                 {!spinning && lotteryResult && (
@@ -921,6 +928,8 @@ export default function Orders() {
           </div>
         </div>
       )}
+
+      <Toast message={toast.message} show={toast.visible} onClose={hideToast} />
     </>
   );
 }

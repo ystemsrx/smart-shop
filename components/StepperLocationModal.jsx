@@ -91,17 +91,28 @@ export default function StepperLocationModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col">
-        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/20 via-violet-500/20 to-pink-500/20 blur-2xl"></div>
-        <div className="relative bg-white/95 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+    <AnimatePresence>
+      {isOpen && (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <motion.div
+        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col"
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <div className="relative bg-white border border-[#E8E2D8] rounded-2xl shadow-[0_24px_64px_rgba(20,20,19,0.16)] overflow-hidden flex flex-col max-h-full">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-600">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-[#D97757]/10 text-[#D97757]">
                   <i className="fas fa-location-dot text-sm"></i>
                 </span>
                 配送地址设置
@@ -121,32 +132,30 @@ export default function StepperLocationModal({
             )}
           </div>
 
-          <div className="px-6 py-5">
+          <div className="px-6 py-5 flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Custom Step Progress Indicator */}
-            <div className="flex items-center justify-center mb-6">
+            <div className="flex items-center justify-center mb-6 flex-shrink-0">
               {[1, 2, 3].map((step, index) => (
                 <React.Fragment key={step}>
-                  <motion.div 
-                    className="flex items-center justify-center w-8 h-8 rounded-full font-semibold text-xs text-white"
-                    animate={{
-                      backgroundColor: currentStep === step ? '#6366f1' : currentStep > step ? '#10b981' : '#e5e7eb',
-                      color: currentStep >= step ? '#ffffff' : '#6b7280'
+                  <div
+                    className="flex items-center justify-center w-8 h-8 rounded-full font-semibold text-xs transition-colors duration-300"
+                    style={{
+                      backgroundColor: currentStep === step ? '#D97757' : currentStep > step ? '#6B8F47' : '#E8E2D8',
+                      color: currentStep >= step ? '#ffffff' : '#6B6860'
                     }}
-                    transition={{ duration: 0.3 }}
                   >
                     {currentStep > step ? (
                       <i className="fas fa-check text-xs"></i>
                     ) : (
                       step
                     )}
-                  </motion.div>
+                  </div>
                   {index < 2 && (
-                    <motion.div 
-                      className="w-16 h-0.5 mx-3 rounded-full"
-                      animate={{
-                        backgroundColor: currentStep > step ? '#10b981' : '#e5e7eb'
+                    <div
+                      className="flex-1 max-w-16 h-0.5 mx-3 rounded-full transition-colors duration-300"
+                      style={{
+                        backgroundColor: currentStep > step ? '#6B8F47' : '#E8E2D8'
                       }}
-                      transition={{ duration: 0.3 }}
                     />
                   )}
                 </React.Fragment>
@@ -154,7 +163,7 @@ export default function StepperLocationModal({
             </div>
 
             {/* Step Content with Animation */}
-            <div className="relative h-[320px]">
+            <div className="relative flex-1 min-h-[280px] overflow-y-auto">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={currentStep}
@@ -162,14 +171,14 @@ export default function StepperLocationModal({
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ duration: 0.3, ease: "easeInOut" }}
-                  className="h-full flex items-center"
+                  className="min-h-full flex items-center"
                 >
                   {currentStep === 1 && (
                     <div className="w-full text-center space-y-4">
-                      <div className="mx-auto w-16 h-16 bg-gradient-to-br from-indigo-500 to-emerald-500 rounded-full flex items-center justify-center mb-4">
+                      <div className="mx-auto w-16 h-16 bg-[#D97757] rounded-full flex items-center justify-center mb-4">
                         <i className="fas fa-store text-xl text-white"></i>
                       </div>
-                      <h2 className="text-xl font-bold text-gray-900">欢迎来到 {shopName} ！</h2>
+                      <h3 className="text-lg font-semibold text-gray-900">欢迎来到 {shopName} ！</h3>
                       <p className="text-gray-600 text-sm">
                         {forceSelection 
                           ? '首次使用需要设置配送地址，让我们开始吧！' 
@@ -191,10 +200,10 @@ export default function StepperLocationModal({
                   {currentStep === 2 && (
                     <div className="w-full space-y-6">
                       <div className="text-center">
-                        <div className="mx-auto w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-full flex items-center justify-center mb-3">
+                        <div className="mx-auto w-12 h-12 bg-[#D97757] rounded-full flex items-center justify-center mb-3">
                           <i className="fas fa-location-dot text-lg text-white"></i>
                         </div>
-                        <h2 className="text-lg font-bold text-gray-900">选择配送地址</h2>
+                        <h3 className="text-lg font-semibold text-gray-900">选择配送地址</h3>
                         <p className="text-gray-600 mt-1 text-sm">请选择您所在的园区和具体楼栋</p>
                       </div>
 
@@ -207,7 +216,7 @@ export default function StepperLocationModal({
 
                       {isLoading ? (
                         <div className="flex items-center justify-center py-8 text-gray-500">
-                          <div className="animate-spin h-5 w-5 border-2 border-indigo-400 border-t-transparent rounded-full mr-2"></div>
+                          <div className="animate-spin h-5 w-5 border-2 border-[#D97757] border-t-transparent rounded-full mr-2"></div>
                           <span className="text-sm">正在加载可选地址...</span>
                         </div>
                       ) : (
@@ -223,7 +232,7 @@ export default function StepperLocationModal({
                               {/* 园区选择 */}
                               <div className="space-y-3">
                                 <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                                  <i className="fas fa-tree-city text-emerald-500 text-xs"></i>
+                                  <i className="fas fa-tree-city text-[#6B8F47] text-xs"></i>
                                   园区选择
                                 </label>
                                 <div className={`grid gap-2 max-h-56 overflow-y-auto pr-1 ${addresses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
@@ -233,14 +242,14 @@ export default function StepperLocationModal({
                                       onClick={() => onSelectAddress(addr.id)}
                                       className={`w-full p-2.5 rounded-xl border-2 text-left transition-all duration-200 ${
                                         selectedAddressId === addr.id
-                                          ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-                                          : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-25'
+                                          ? 'border-[#6B8F47] bg-[#6B8F47]/5 shadow-sm'
+                                          : 'border-gray-200 bg-white hover:border-[#6B8F47]/40 hover:bg-[#6B8F47]/5'
                                       }`}
                                     >
                                       <div className="flex items-center gap-1.5">
                                         <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
                                           selectedAddressId === addr.id
-                                            ? 'border-emerald-500 bg-emerald-500'
+                                            ? 'border-[#6B8F47] bg-[#6B8F47]'
                                             : 'border-gray-300'
                                         }`}>
                                           {selectedAddressId === addr.id && (
@@ -282,7 +291,7 @@ export default function StepperLocationModal({
                                         className={`w-full p-2.5 rounded-xl border-2 text-left transition-all duration-200 ${
                                           selectedBuildingId === building.id
                                             ? 'border-blue-500 bg-blue-50 shadow-sm'
-                                            : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-25'
+                                            : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
                                         }`}
                                       >
                                         <div className="flex items-center gap-1.5">
@@ -313,35 +322,35 @@ export default function StepperLocationModal({
 
                   {currentStep === 3 && (
                     <div className="w-full text-center space-y-4">
-                      <motion.div 
-                        className="mx-auto w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center"
+                      <motion.div
+                        className="mx-auto w-16 h-16 bg-[#6B8F47] rounded-full flex items-center justify-center"
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                        transition={{ delay: 0.2, type: "spring", stiffness: 200, damping: 20 }}
                       >
                         <i className="fas fa-check text-xl text-white"></i>
                       </motion.div>
                       
                       <div>
-                        <h2 className="text-xl font-bold text-gray-900 mb-1">地址设置完成！</h2>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-1">地址设置完成！</h3>
                         <p className="text-gray-600 text-sm">您的配送地址已成功设置</p>
                       </div>
 
                       {/* 显示选择的地址摘要 */}
                       {selectedAddressId && selectedBuildingId && (
-                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 max-w-md mx-auto">
+                        <div className="bg-[#6B8F47]/5 border border-[#6B8F47]/20 rounded-xl p-4 max-w-md mx-auto">
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 text-sm">
-                              <i className="fas fa-map-marker-alt text-green-600 text-xs"></i>
-                              <span className="text-green-700 font-medium">园区:</span>
-                              <span className="text-green-900 font-semibold">
+                              <i className="fas fa-map-marker-alt text-[#6B8F47] text-xs"></i>
+                              <span className="text-[#5A7A3A] font-medium">园区:</span>
+                              <span className="text-[#141413] font-semibold">
                                 {addresses?.find(a => a.id === selectedAddressId)?.name || '已选择'}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 text-sm">
-                              <i className="fas fa-building text-green-600 text-xs"></i>
-                              <span className="text-green-700 font-medium">楼栋:</span>
-                              <span className="text-green-900 font-semibold">
+                              <i className="fas fa-building text-[#6B8F47] text-xs"></i>
+                              <span className="text-[#5A7A3A] font-medium">楼栋:</span>
+                              <span className="text-[#141413] font-semibold">
                                 {buildingOptions?.find(b => b.id === selectedBuildingId)?.name || '已选择'}
                               </span>
                             </div>
@@ -360,8 +369,8 @@ export default function StepperLocationModal({
                       </div>
 
                       {isSaving && (
-                        <div className="flex items-center justify-center gap-2 text-green-600">
-                          <div className="animate-spin h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full"></div>
+                        <div className="flex items-center justify-center gap-2 text-[#6B8F47]">
+                          <div className="animate-spin h-4 w-4 border-2 border-[#6B8F47] border-t-transparent rounded-full"></div>
                           <span className="text-sm">正在保存设置...</span>
                         </div>
                       )}
@@ -372,7 +381,7 @@ export default function StepperLocationModal({
             </div>
 
             {/* Custom Navigation Controls */}
-            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100 flex-shrink-0">
               <div className="text-xs text-gray-400">
                 步骤 {currentStep} / 3
               </div>
@@ -380,7 +389,7 @@ export default function StepperLocationModal({
                 {currentStep > 1 && (
                   <motion.button
                     onClick={handleBack}
-                    className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                    className="px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                     disabled={isSaving}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -391,9 +400,9 @@ export default function StepperLocationModal({
                 <motion.button
                   onClick={handleNext}
                   disabled={!canGoNext()}
-                  className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  className={`px-5 py-2 rounded-xl text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                     canGoNext() && !isSaving
-                      ? 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md hover:shadow-lg focus:ring-indigo-500'
+                      ? 'bg-[#D97757] hover:bg-[#C85C34] text-white shadow-md hover:shadow-lg focus:ring-[#D97757]'
                       : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   }`}
                   whileHover={canGoNext() && !isSaving ? { scale: 1.02 } : {}}
@@ -406,13 +415,15 @@ export default function StepperLocationModal({
           </div>
 
           {/* 提示信息 */}
-          <div className="px-6 pb-3 text-center">
-            <div className="text-xs text-gray-400 bg-gray-50/60 rounded-lg px-3 py-1">
+          <div className="px-6 pb-3 text-center flex-shrink-0">
+            <div className="text-xs text-gray-400 bg-gray-50/60 rounded-xl px-3 py-1">
               {forceSelection ? '完成设置后即可开始购物' : '修改地址后购物车将被清空'}
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

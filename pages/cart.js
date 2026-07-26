@@ -62,11 +62,11 @@ const cartItemVariants = {
     opacity: 1, y: 0,
     transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1], delay: custom * 0.04 }
   }),
-  exit: { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] } }
+  exit: { opacity: 0, x: -24, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }
 };
 
 // 购物车商品项组件
-const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) => {
+const CartItem = React.forwardRef(({ item, index = 0, onUpdateQuantity, onRemove }, ref) => {
   const isDown = item.is_active === 0 || item.is_active === false;
   const isNonSellable = Boolean(item.is_not_for_sale);
   const rawStock = item.stock;
@@ -94,12 +94,13 @@ const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) =>
   return (
     <motion.div
       ref={ref}
+      layout
       initial="hidden"
       animate="visible"
       exit="exit"
       variants={cartItemVariants}
-      custom={0}
-      className={`group relative flex gap-4 py-4 px-5 items-center cart-item-pad ${isDown ? 'opacity-50 grayscale' : ''}`}
+      custom={index}
+      className={`group relative flex gap-4 py-4 px-5 items-center cart-item-pad hover:bg-[#FBF8F2] transition-colors duration-200 ${isDown ? 'opacity-50 grayscale' : ''}`}
       style={{ borderBottom: '1px solid #E8E2D8', overflow: 'hidden' }}
     >
       {/* 商品图片 */}
@@ -165,7 +166,7 @@ const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) =>
           <button
             onClick={() => handleQuantityChange(item.quantity - 1)}
             disabled={isDown}
-            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
+            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] active:bg-[#EDE8E0] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
           >
             −
           </button>
@@ -173,7 +174,7 @@ const CartItem = React.forwardRef(({ item, onUpdateQuantity, onRemove }, ref) =>
           <button
             onClick={() => handleQuantityChange(item.quantity + 1)}
             disabled={isDown || isStockLimitReached}
-            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
+            className="w-[30px] h-[30px] flex items-center justify-center text-[#6B6860] hover:bg-[#F5F2ED] hover:text-[#D97757] active:bg-[#EDE8E0] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-base"
             title={isStockLimitReached ? '已达库存上限' : ''}
           >
             +
@@ -245,7 +246,7 @@ const OrderSummary = ({
     return '去结算';
   })();
   return (
-    <div className="cart-summary sticky top-24 rounded-2xl" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', overflow: 'visible' }}>
+    <div className="cart-summary rounded-2xl" style={{ background: '#FFFFFF', border: '1px solid #E8E2D8', overflow: 'visible' }}>
       {/* 标题 */}
       <h2 className="text-[20px] font-normal text-[#141413] px-6 pt-6 pb-0" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif", letterSpacing: '-0.01em' }}>
         订单摘要
@@ -321,7 +322,7 @@ const OrderSummary = ({
                 transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
                 style={{ overflow: 'hidden', borderBottom: '1px solid #E8E2D8' }}
               >
-                <div className="px-6 py-4 flex items-center gap-3 text-[13px] text-[#6B6860]" style={{ background: 'repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(217,119,87,0.02) 8px, rgba(217,119,87,0.02) 16px)' }}>
+                <div className="px-6 py-4 flex items-center gap-3 text-[13px] text-[#6B6860]" style={{ background: 'rgba(217,119,87,0.04)' }}>
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-base" style={{ background: lotteryMet && !needsShipping ? 'rgba(107,143,71,0.18)' : 'rgba(107,143,71,0.1)' }}>🎁</div>
                   <div className="flex-1 leading-snug">
                     {(needsShipping || needsLottery) ? (
@@ -344,7 +345,7 @@ const OrderSummary = ({
                     )}
                     {/* 进度条 - 始终渲染，用 CSS transition 平滑变化 */}
                     <div className="w-full h-1 rounded-full mt-1.5 overflow-hidden" style={{ background: '#E8E2D8' }}>
-                      <div className="h-full rounded-full" style={{ background: barPct >= 100 ? '#6B8F47' : '#788C5D', width: `${barPct}%`, transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease' }} />
+                      <div className="h-full w-full rounded-full" style={{ background: barPct >= 100 ? '#6B8F47' : '#788C5D', transform: `scaleX(${barPct / 100})`, transformOrigin: 'left', transition: 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.3s ease' }} />
                     </div>
                   </div>
                 </div>
@@ -393,7 +394,7 @@ const OrderSummary = ({
             background: checkoutDisabled ? '#DDD8D0' : '#141413',
             letterSpacing: '0.02em',
           }}
-          onMouseEnter={e => { if (!checkoutDisabled) e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(20,20,19,0.10)'; }}
+          onMouseEnter={e => { if (!checkoutDisabled) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(20,20,19,0.10)'; } }}
           onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
         >
           {isProcessingCheckout ? '正在检查库存...' : `${buttonLabel}${!checkoutDisabled && total > 0 ? ` · ¥${total.toFixed(2)}` : ''}`}
@@ -752,7 +753,7 @@ export default function Cart() {
     } catch (err) {
       // 失败时回滚
       setCart(previousCart);
-      alert(err.message || '更新失败，请重试');
+      showToast(err.message || '更新失败，请重试');
     }
   };
 
@@ -814,7 +815,7 @@ export default function Cart() {
     } catch (err) {
       // 失败时回滚
       setCart(previousCart);
-      alert(err.message || '删除失败，请重试');
+      showToast(err.message || '删除失败，请重试');
     }
   };
 
@@ -842,7 +843,7 @@ export default function Cart() {
       await clearCart();
     } catch (err) {
       setCart(previousCart);
-      alert(err.message || '清空失败，请重试');
+      showToast(err.message || '清空失败，请重试');
     }
   };
 
@@ -1044,7 +1045,7 @@ export default function Cart() {
       />
 
 
-      <div className={`min-h-screen pt-16 ${!isLoading && (!cart.items || cart.items.length === 0) ? 'overflow-hidden h-screen' : ''}`} style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'clip' }}>
+      <div className="min-h-screen pt-16" style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'clip' }}>
         <motion.main
           variants={containerVariants}
           initial="hidden"
@@ -1054,7 +1055,7 @@ export default function Cart() {
         >
           {/* 页头 */}
           <div className="mb-1 cart-reveal cart-d0">
-            <Link href="/shop" className="cart-back-link hidden items-center gap-1.5 text-[14px] text-[#6B6860] hover:text-[#D97757] transition-colors mb-4">
+            <Link href="/shop" className="cart-back-link hidden items-center gap-1.5 text-[14px] text-[#6B6860] hover:text-[#D97757] active:scale-[0.98] transition-[color,transform] mb-4">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               继续购物
             </Link>
@@ -1107,7 +1108,7 @@ export default function Cart() {
                 {infoMessage && (
                   <div className="flex items-center gap-2 rounded-lg px-4 py-3 text-[13px] text-[#788C5D]" style={{ background: 'rgba(120,140,93,0.06)', border: '1px solid rgba(120,140,93,0.15)' }}>
                     <span className="flex-1">{infoMessage}</span>
-                    <button onClick={() => setInfoMessage('')} className="text-[#B0AEA5] hover:text-[#141413] transition-colors">
+                    <button onClick={() => setInfoMessage('')} className="text-[#B0AEA5] hover:text-[#141413] active:scale-[0.98] transition-[color,transform]">
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                     </button>
                   </div>
@@ -1126,12 +1127,12 @@ export default function Cart() {
                       商品清单
                     </span>
                     {cart.items.length > 0 && (
-                      <button onClick={() => setShowClearConfirm(true)} className="text-[13px] text-[#B0AEA5] hover:text-[#C0453A] transition-colors">清空</button>
+                      <button onClick={() => setShowClearConfirm(true)} className="text-[13px] text-[#B0AEA5] hover:text-[#C0453A] active:scale-[0.98] transition-[color,transform]">清空</button>
                     )}
                   </div>
                   <div>
                     <AnimatePresence>
-                      {cart.items
+                      {[...cart.items]
                         .sort((a, b) => {
                           const aIsNonSellable = Boolean(a.is_not_for_sale);
                           const bIsNonSellable = Boolean(b.is_not_for_sale);
@@ -1142,7 +1143,8 @@ export default function Cart() {
                         .map((item, index) => (
                           <CartItem
                             key={`${item.product_id}-${item.variant_id || 'default'}`}
-                            item={{...item, _animIndex: index}}
+                            item={item}
+                            index={index}
                             onUpdateQuantity={handleUpdateQuantity}
                             onRemove={handleRemoveItem}
                           />
@@ -1301,10 +1303,14 @@ export default function Cart() {
             /* 空状态 */
             <div className="flex flex-col items-center justify-center cart-reveal cart-d1" style={{ height: 'calc(100dvh - 240px)' }}>
               <div className="w-20 h-20 mb-5 rounded-full flex items-center justify-center" style={{ background: '#F5F2ED' }}>
-                <i className="fas fa-shopping-cart text-[28px] text-[#D97757] opacity-60"></i>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[#D97757] opacity-60">
+                  <path d="M3 3h2l2.4 12.2a1.5 1.5 0 001.47 1.2h8.56a1.5 1.5 0 001.46-1.14L21 8H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="9.5" cy="20" r="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                  <circle cx="16.5" cy="20" r="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                </svg>
               </div>
               <p className="text-[18px] text-[#B0AEA5]" style={{ fontFamily: "'LXGW WenKai', 'Songti SC', serif" }}>购物车是空的</p>
-              <Link href="/shop" className="inline-block mt-6 px-8 py-3 text-[15px] font-medium text-[#FAF9F5] rounded-full transition-all hover:-translate-y-px hover:shadow-lg" style={{ background: '#141413', letterSpacing: '0.02em' }}>
+              <Link href="/shop" className="inline-block mt-6 px-8 py-3 text-[15px] font-medium text-[#FAF9F5] rounded-full transition-all hover:-translate-y-px hover:shadow-lg active:scale-[0.98]" style={{ background: '#141413', letterSpacing: '0.02em' }}>
                 去逛逛
               </Link>
             </div>
@@ -1359,7 +1365,7 @@ export default function Cart() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.92, y: 10 }}
               transition={{ type: "spring", stiffness: 350, damping: 25, mass: 0.8 }}
-              className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl overflow-hidden"
+              className="relative w-full max-w-xs bg-white rounded-3xl shadow-[0_8px_32px_rgba(20,20,19,0.10)] overflow-hidden"
             >
               <div className="flex flex-col items-center text-center px-6 pt-7 pb-6">
                 <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(192,69,58,0.08)' }}>

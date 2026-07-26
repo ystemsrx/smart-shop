@@ -79,7 +79,16 @@ const SectionLabel = ({ icon, title, extra }) => (
     }}
   >
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 15 }}>{icon}</span>
+      <span
+        style={{
+          fontSize: 15,
+          display: "inline-flex",
+          alignItems: "center",
+          color: "#D97757",
+        }}
+      >
+        {icon}
+      </span>
       <span
         style={{
           fontFamily: "'Poppins', 'Noto Sans SC', 'PingFang SC', sans-serif",
@@ -143,11 +152,11 @@ const WarmInput = ({
             padding: "11px 14px",
             fontSize: 14,
             fontFamily: "'Poppins', 'Noto Sans SC', sans-serif",
-            border: `1.5px solid ${error ? "#C0453A" : focused ? "#D97757" : "#e5e5e5"}`,
+            border: `1.5px solid ${error ? "#C0453A" : focused ? "#D97757" : "#E8E2D8"}`,
             borderRadius: 12,
             outline: "none",
             color: "#141413",
-            background: readOnly ? "#f5f5f5" : focused ? "#fff" : "#fafafa",
+            background: readOnly ? "#F0EBE2" : focused ? "#fff" : "#FDFBF7",
             transition: "all .2s cubic-bezier(.16,1,.3,1)",
             boxSizing: "border-box",
           }}
@@ -177,17 +186,19 @@ const ProgressBar = ({ current, target }) => {
         width: "100%",
         height: 4,
         borderRadius: 2,
-        background: "#f0f0f0",
+        background: "#F0EBE2",
         overflow: "hidden",
       }}
     >
       <div
         style={{
-          width: `${pct}%`,
+          width: "100%",
           height: "100%",
           borderRadius: 2,
           background: pct >= 100 ? "#6B8F47" : "#D97757",
-          transition: "width .6s cubic-bezier(.16,1,.3,1)",
+          transform: `scaleX(${pct / 100})`,
+          transformOrigin: "left",
+          transition: "transform .6s cubic-bezier(.16,1,.3,1)",
         }}
       />
     </div>
@@ -1015,7 +1026,7 @@ export default function Checkout() {
           <title>{pageTitle}</title>
           <meta
             name="viewport"
-            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+            content="width=device-width, initial-scale=1.0"
           />
         </Head>
         <CheckoutPageSkeleton />
@@ -1034,7 +1045,7 @@ export default function Checkout() {
           <title>{pageTitle}</title>
           <meta
             name="viewport"
-            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+            content="width=device-width, initial-scale=1.0"
           />
         </Head>
         <CheckoutPageSkeleton />
@@ -1050,14 +1061,14 @@ export default function Checkout() {
   const fontDisplay = "'Lora', 'LXGW WenKai', 'Songti SC', serif";
   const accent = "#D97757";
   const accentWarm = "#C96442";
-  const bgBase = "#fafafa";
+  const bgBase = "#FDFBF7";
   const bgRaised = "#ffffff";
   const bgOverlay = "#ffffff";
-  const textPrimary = "#1a1a1a";
+  const textPrimary = "#141413";
   const textSecondary = "#6B6860";
   const textMuted = "#B0AEA5";
-  const borderDefault = "#e5e5e5";
-  const borderSubtle = "#f0f0f0";
+  const borderDefault = "#E8E2D8";
+  const borderSubtle = "#F0EBE2";
   const colorError = "#C0453A";
   const colorSuccess = "#6B8F47";
 
@@ -1071,7 +1082,7 @@ export default function Checkout() {
         <title>{pageTitle}</title>
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+          content="width=device-width, initial-scale=1.0"
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -1081,7 +1092,7 @@ export default function Checkout() {
       <div
         style={{
           minHeight: "100vh",
-          background: `radial-gradient(ellipse 80% 50% at 30% 0%, rgba(217,119,87,0.04) 0%, transparent 55%), ${bgBase}`,
+          background: bgBase,
           fontFamily: fontUI,
           WebkitFontSmoothing: "antialiased",
         }}
@@ -1194,7 +1205,15 @@ export default function Checkout() {
                 <div className="checkout-col-left">
                   {/* ═══ 收货信息 ═══ */}
                   <Card>
-                    <SectionLabel icon="📍" title="收货信息" />
+                    <SectionLabel
+                      icon={
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+                          <circle cx="12" cy="10" r="3" />
+                        </svg>
+                      }
+                      title="收货信息"
+                    />
                     <form onSubmit={handleSubmit}>
                       <div
                         style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
@@ -1453,7 +1472,7 @@ export default function Checkout() {
                   {/* ═══ 预约 / 锁定提示 — 桌面端在左栏 ═══ */}
                   <div className="checkout-notices-desktop">
                     {shouldReserve && (
-                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(106,155,204,0.06)', border: '1px solid rgba(106,155,204,0.18)', fontSize: 12, color: '#5A89B8' }}>
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(90,137,184,0.06)', border: '1px solid rgba(90,137,184,0.18)', fontSize: 12, color: '#5A89B8' }}>
                         <div style={{ fontWeight: 500, marginBottom: 4 }}>
                           {reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交' : '本单包含预约商品，将以预约订单处理'}
                         </div>
@@ -1472,7 +1491,15 @@ export default function Checkout() {
                   {/* ═══ 支付方式 — 桌面端显示在左栏内 ═══ */}
                   <div className="checkout-payment-desktop">
                     <Card style={{ marginBottom: 0 }}>
-                      <SectionLabel icon="💳" title="支付方式" />
+                      <SectionLabel
+                        icon={
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="5" width="20" height="14" rx="3" />
+                            <path d="M2 10h20" />
+                          </svg>
+                        }
+                        title="支付方式"
+                      />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(107,143,71,0.06)', border: '1px solid rgba(107,143,71,0.15)' }}>
                         <div style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0, background: '#2DC100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <svg width="18" height="18" viewBox="0 0 1024 1024" fill="#fff"><path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z"/></svg>
@@ -1503,7 +1530,19 @@ export default function Checkout() {
                         </span>
                       }
                     />
-                    <div style={{ maxHeight: 240, overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none" }} className="hide-scrollbar">
+                    <div
+                      style={{
+                        maxHeight: 240,
+                        overflowY: "auto",
+                        scrollbarWidth: "none",
+                        msOverflowStyle: "none",
+                        WebkitMaskImage:
+                          "linear-gradient(to bottom, black 82%, transparent)",
+                        maskImage:
+                          "linear-gradient(to bottom, black 82%, transparent)",
+                      }}
+                      className="hide-scrollbar"
+                    >
                       {cart.items &&
                         cart.items
                           .sort((a, b) => {
@@ -1586,7 +1625,7 @@ export default function Checkout() {
                                             fontSize: 11,
                                             padding: "1px 6px",
                                             borderRadius: 4,
-                                            background: "rgba(106,155,204,0.1)",
+                                            background: "rgba(90,137,184,0.1)",
                                             color: "#5A89B8",
                                           }}
                                         >
@@ -1744,7 +1783,7 @@ export default function Checkout() {
                   {/* ═══ 优惠券 — 开关样式 ═══ */}
                   {usableCoupons.length > 0 && (
                     <label
-                      className="warm-card"
+                      className="warm-card co-press"
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1755,7 +1794,6 @@ export default function Checkout() {
                         border: `1px solid ${borderSubtle}`,
                         cursor: "pointer",
                         marginBottom: 14,
-                        transition: "all .2s ease",
                         ...(applyCoupon
                           ? {
                               border: "1px solid rgba(217,119,87,0.25)",
@@ -1846,13 +1884,15 @@ export default function Checkout() {
                             style={{
                               position: "absolute",
                               top: 3,
-                              left: applyCoupon ? 23 : 3,
+                              left: 3,
                               width: 18,
                               height: 18,
                               borderRadius: 9,
                               background: "#fff",
                               boxShadow: "0 1px 4px rgba(20,20,19,0.2)",
-                              transition: "left .2s cubic-bezier(.4,0,.2,1)",
+                              transform: `translateX(${applyCoupon ? 20 : 0}px)`,
+                              transition:
+                                "transform .2s cubic-bezier(.22,1,.36,1)",
                             }}
                           />
                         </div>
@@ -1865,7 +1905,17 @@ export default function Checkout() {
                     cart.items.length > 0 &&
                     autoGifts.length > 0 && (
                       <Card>
-                        <SectionLabel icon="🎁" title="满赠活动" />
+                        <SectionLabel
+                          icon={
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="8" width="18" height="4" rx="1" />
+                              <path d="M12 8v13" />
+                              <path d="M19 12v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7" />
+                              <path d="M7.5 8a2.5 2.5 0 010-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 010 5" />
+                            </svg>
+                          }
+                          title="满赠活动"
+                        />
                         <div
                           style={{
                             display: "flex",
@@ -2038,7 +2088,7 @@ export default function Checkout() {
                   {/* ═══ 预约 / 锁定提示 — 移动端在右栏底部 ═══ */}
                   <div className="checkout-notices-mobile">
                     {shouldReserve && (
-                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(106,155,204,0.06)', border: '1px solid rgba(106,155,204,0.18)', fontSize: 12, color: '#5A89B8' }}>
+                      <div style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 16, background: 'rgba(90,137,184,0.06)', border: '1px solid rgba(90,137,184,0.18)', fontSize: 12, color: '#5A89B8' }}>
                         <div style={{ fontWeight: 500, marginBottom: 4 }}>
                           {reservationFromClosure ? '店铺当前打烊，本单将以预约方式提交' : '本单包含预约商品，将以预约订单处理'}
                         </div>
@@ -2058,7 +2108,15 @@ export default function Checkout() {
                 {/* ═══ 支付方式 — 移动端显示在最后 ═══ */}
                 <div className="checkout-payment-mobile">
                   <Card style={{ marginBottom: 0 }}>
-                    <SectionLabel icon="💳" title="支付方式" />
+                    <SectionLabel
+                      icon={
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="2" y="5" width="20" height="14" rx="3" />
+                          <path d="M2 10h20" />
+                        </svg>
+                      }
+                      title="支付方式"
+                    />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(107,143,71,0.06)', border: '1px solid rgba(107,143,71,0.15)' }}>
                       <div style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0, background: '#2DC100', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <svg width="18" height="18" viewBox="0 0 1024 1024" fill="#fff"><path d="M690.1 377.4c5.9 0 11.8.2 17.6.5-24.4-128.7-158.3-227.3-313.4-227.3C209 150.6 56.7 281.3 56.7 443.8c0 93.3 51.4 169.9 137 227.3l-34.2 102.6 119.6-59.8c42.8 8.6 77 17.1 119.6 17.1 5.6 0 11.1-.2 16.6-.5a245 245 0 0 1-10.6-72.2c0-150.2 130-280.9 285.4-280.9zM487.7 319.8c25.7 0 42.8 17.1 42.8 42.8s-17.1 42.8-42.8 42.8-51.4-17.1-51.4-42.8 25.7-42.8 51.4-42.8zm-213.8 85.6c-25.7 0-51.4-17.1-51.4-42.8s25.7-42.8 51.4-42.8 42.8 17.1 42.8 42.8-17.1 42.8-42.8 42.8zm678.4 252.3c0-136.8-128.4-247.5-273.6-247.5-153.9 0-274.2 110.7-274.2 247.5s120.3 247.5 274.2 247.5c42.8 0 85.6-8.6 119.6-25.7l94.2 51.4-25.7-85.6c68.5-51.4 85.5-119.5 85.5-187.6zm-362.2-34.2c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2 42.8 17.1 42.8 34.2-25.7 34.2-42.8 34.2zm179.3 0c-17.1 0-34.2-17.1-34.2-34.2s17.1-34.2 34.2-34.2c25.7 0 42.8 17.1 42.8 34.2s-17.1 34.2-42.8 34.2z"/></svg>
@@ -2150,6 +2208,7 @@ export default function Checkout() {
               </div>
             </div>
             <button
+              className="co-press"
               onClick={handleCreatePayment}
               disabled={
                 isCreatingPayment ||
@@ -2197,7 +2256,6 @@ export default function Checkout() {
                   addressInvalid
                     ? "none"
                     : "0 4px 16px rgba(217,119,87,0.35)",
-                transition: "all .25s cubic-bezier(.16,1,.3,1)",
                 letterSpacing: ".03em",
                 whiteSpace: "nowrap",
                 flexShrink: 0,
@@ -2220,8 +2278,13 @@ export default function Checkout() {
       />
 
       {/* ═══ 微信收款码弹窗 ═══ */}
+      <AnimatePresence>
       {showPayModal && (
-        <div
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
           style={{
             position: "fixed",
             inset: 0,
@@ -2232,7 +2295,6 @@ export default function Checkout() {
             background: "rgba(20,20,19,0.5)",
             backdropFilter: "blur(4px)",
             padding: 24,
-            animation: "fadeIn .2s ease",
           }}
         >
           <div
@@ -2258,6 +2320,7 @@ export default function Checkout() {
           >
             {/* Close */}
             <button
+              className="co-press"
               onClick={() => {
                 setShowPayModal(false);
                 setPaymentQr(null);
@@ -2277,7 +2340,6 @@ export default function Checkout() {
                 background: bgRaised,
                 color: textMuted,
                 zIndex: 2,
-                transition: "all .15s ease",
               }}
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -2419,6 +2481,7 @@ export default function Checkout() {
             {/* Actions */}
             <div style={{ padding: "0 24px 24px", display: "flex", gap: 10 }}>
               <button
+                className="co-press"
                 onClick={handleMarkPaid}
                 disabled={
                   cycleLocked ||
@@ -2443,12 +2506,12 @@ export default function Checkout() {
                     addressInvalid
                       ? 0.5
                       : 1,
-                  transition: "all .2s ease",
                 }}
               >
                 已完成付款
               </button>
               <button
+                className="co-press"
                 onClick={handlePayLater}
                 disabled={cycleLocked || addressInvalid || !locationReady}
                 style={{
@@ -2464,7 +2527,6 @@ export default function Checkout() {
                   color: textPrimary,
                   opacity:
                     cycleLocked || addressInvalid || !locationReady ? 0.5 : 1,
-                  transition: "all .2s ease",
                 }}
               >
                 稍后支付
@@ -2486,12 +2548,18 @@ export default function Checkout() {
               </Link>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* ═══ 抽奖弹窗 ═══ */}
+      <AnimatePresence>
       {lotteryOpen && (
-        <div
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
           style={{
             position: "fixed",
             inset: 0,
@@ -2502,7 +2570,6 @@ export default function Checkout() {
             background: "rgba(20,20,19,0.5)",
             backdropFilter: "blur(4px)",
             padding: 24,
-            animation: "fadeIn .2s ease",
           }}
         >
           <div
@@ -2557,7 +2624,6 @@ export default function Checkout() {
                   fontWeight: 600,
                   fontFamily: fontUI,
                   color: spinning ? accent : textPrimary,
-                  transition: "color .3s ease",
                 }}
               >
                 {lotteryDisplay}
@@ -2610,6 +2676,7 @@ export default function Checkout() {
                   )}
                 </div>
                 <button
+                  className="co-press"
                   onClick={() => {
                     setLotteryOpen(false);
                     setShowSuccessAnimation(true);
@@ -2633,8 +2700,9 @@ export default function Checkout() {
               </>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* ═══ 下单成功页 ═══ */}
       {showSuccessAnimation && (
@@ -2649,7 +2717,7 @@ export default function Checkout() {
             justifyContent: "center",
             overflow: "hidden",
             touchAction: "none",
-            background: `radial-gradient(ellipse 70% 50% at 50% 30%, rgba(217,119,87,0.06) 0%, transparent 60%), ${bgBase}`,
+            background: bgBase,
             padding: 32,
             textAlign: "center",
             fontFamily: fontUI,
@@ -2666,7 +2734,7 @@ export default function Checkout() {
               alignItems: "center",
               justifyContent: "center",
               boxShadow: "0 8px 32px rgba(217,119,87,0.3)",
-              animation: "pop .5s cubic-bezier(.175,.885,.32,1.275) both",
+              animation: "pop .38s cubic-bezier(.16,1,.3,1) both",
             }}
           >
             <svg
@@ -2730,6 +2798,7 @@ export default function Checkout() {
           )}
 
           <button
+            className="co-press"
             onClick={() => router.push("/orders")}
             style={{
               marginTop: 32,
@@ -2743,13 +2812,13 @@ export default function Checkout() {
               background: accent,
               color: "#fff",
               boxShadow: "0 4px 20px rgba(217,119,87,0.3)",
-              transition: "all .2s ease",
             }}
           >
             查看订单
           </button>
 
           <button
+            className="co-press"
             onClick={() => router.push("/shop")}
             style={{
               marginTop: 12,
@@ -2762,7 +2831,6 @@ export default function Checkout() {
               cursor: "pointer",
               background: "transparent",
               color: textSecondary,
-              transition: "all .2s ease",
             }}
           >
             返回首页
@@ -2771,16 +2839,21 @@ export default function Checkout() {
       )}
 
       <style>{`
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        html { background: #fafafa; }
+        * { -webkit-tap-highlight-color: transparent; }
         input::placeholder, textarea::placeholder { color: #bbb; }
-        body { overflow-x: hidden; background: #fafafa; overscroll-behavior: none; }
+        body { overscroll-behavior: none; }
         button { font-family: inherit; }
         @keyframes shimmer { 0% { background-position: -600px 0; } 100% { background-position: 600px 0; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes modalUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: none; } }
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        /* Pressable elements: hover / active / focus feedback */
+        .co-press { transition: transform .15s cubic-bezier(.22,1,.36,1), box-shadow .2s ease, opacity .2s ease; }
+        .co-press:hover:not(:disabled) { filter: brightness(1.04); }
+        .co-press:active:not(:disabled) { transform: scale(.97); }
+        .co-press:focus-visible { outline: 2px solid #D97757; outline-offset: 2px; }
 
         /* Desktop two-column layout */
         .checkout-grid {
@@ -2849,12 +2922,6 @@ export default function Checkout() {
             border-bottom: none !important;
           }
         }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
-        ::-webkit-scrollbar-thumb:hover { background: #bbb; }
       `}</style>
     </>
   );

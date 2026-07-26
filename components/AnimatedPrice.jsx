@@ -15,7 +15,7 @@ const Digit = ({ d }) => {
       }}
     >
       <span
-        className="block transition-transform duration-500 ease-out will-change-transform absolute top-0 left-0 right-0"
+        className="block transition-transform duration-300 ease-out absolute top-0 left-0 right-0"
         style={{
           transform: `translateY(-${n * SLOT_HEIGHT}em)`,
           lineHeight: `${SLOT_HEIGHT}em`,
@@ -35,15 +35,16 @@ const Digit = ({ d }) => {
   );
 };
 
-export default function AnimatedPrice({ value, prefix = '¥', className = '', precision = 2 }) {
+export default function AnimatedPrice({ value, prefix = '¥', className = '', precision = 2, style }) {
   const str = (Number.isFinite(value) ? Number(value) : 0).toFixed(precision);
   const txt = `${prefix || ''}${str}`;
+  const chars = txt.split('');
   return (
-    <span className={`${className} inline-flex`} style={{ fontVariantNumeric: 'tabular-nums', alignItems: 'stretch' }}>
-      {txt.split('').map((ch, idx) => (
+    <span className={`${className} inline-flex`} style={{ fontVariantNumeric: 'tabular-nums', alignItems: 'stretch', ...style }}>
+      {chars.map((ch, idx) => (
         ch >= '0' && ch <= '9'
-          ? <Digit key={idx} d={ch} />
-          : <span key={idx} className="inline-flex items-center" style={{ height: `${SLOT_HEIGHT}em`, lineHeight: `${SLOT_HEIGHT}em` }}>{ch}</span>
+          ? <Digit key={chars.length - idx} d={ch} />
+          : <span key={chars.length - idx} className="inline-flex items-center" style={{ height: `${SLOT_HEIGHT}em`, lineHeight: `${SLOT_HEIGHT}em` }}>{ch}</span>
       ))}
     </span>
   );
