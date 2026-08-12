@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useAuth } from '../hooks/useAuth';
@@ -6,11 +6,21 @@ import { useLocation } from '../hooks/useLocation';
 import { getShopName, getHeaderLogo } from '../utils/runtimeConfig';
 import CircularMenuButton from './CircularMenuButton';
 
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
 // 通用导航（含移动端菜单），active 可为 'home' | 'shop' | 'cart' | 'orders' | 'staff-shop' | 'staff-dashboard' | 'staff-backend'
 export default function Nav({ active = 'home' }) {
   const { user, logout } = useAuth();
   const { location, openLocationModal } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const desktopNavRef = useRef(null);
+  const previousActiveRef = useRef(null);
+  const [indicator, setIndicator] = useState({
+    left: 0,
+    width: 0,
+    visible: false,
+    animate: false,
+  });
   const shopName = getShopName();
   const headerLogo = getHeaderLogo();
   const closeMenu = () => setMobileOpen(false);
@@ -46,17 +56,46 @@ export default function Nav({ active = 'home' }) {
     return `${base} text-gray-500 hover:text-gray-900`;
   };
 
-  // 共享 layoutId 的滑动指示器：渲染在激活链接内部，由 framer-motion 以 transform 动画过渡
-  const navIndicator = (name) => (
-    name === active ? (
-      <motion.div
-        layoutId="nav-active-pill"
-        className="absolute inset-0 -z-10 rounded-full bg-white/90 shadow-lg border border-white/20 backdrop-blur-sm"
-        style={{ borderRadius: 9999 }}
-        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      />
-    ) : null
-  );
+  // 使用单个常驻指示器，避免共享 layoutId 在路由滚动复位时继承错误的纵向坐标。
+  // 从无选中项进入页面时直接出现；只有已有选中项之间的切换才执行平移动画。
+  useIsomorphicLayoutEffect(() => {
+    const nav = desktopNavRef.current;
+    if (!nav) return undefined;
+
+    const updateIndicator = (animate = false) => {
+      const target = active ? nav.querySelector(`[data-nav-key="${active}"]`) : null;
+      if (!target) {
+        previousActiveRef.current = null;
+        setIndicator((current) => current.visible
+          ? { ...current, visible: false, animate: false }
+          : current);
+        return false;
+      }
+
+      const navRect = nav.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      setIndicator({
+        left: targetRect.left - navRect.left,
+        width: targetRect.width,
+        visible: true,
+        animate,
+      });
+      return true;
+    };
+
+    const shouldAnimate = Boolean(
+      previousActiveRef.current && previousActiveRef.current !== active
+    );
+    const hasActiveTarget = updateIndicator(shouldAnimate);
+    previousActiveRef.current = hasActiveTarget ? active : null;
+
+    const handleResize = () => updateIndicator(false);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [active, isStaff, user]);
 
   const mobileNavOpen = mobileOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0';
   const userIconShell = 'rounded-full bg-[linear-gradient(135deg,#F6E7D6,#EDCDA7)] text-[#C96442] border border-[#F2D7BA]';
@@ -96,27 +135,35 @@ export default function Nav({ active = 'home' }) {
               </div>
 
               {/* 桌面导航菜单 */}
-              <div className="hidden md:flex items-center space-x-1 relative">
+              <div ref={desktopNavRef} className="hidden md:flex items-center gap-1 relative">
+                {indicator.visible && (
+                  <motion.div
+                    data-nav-indicator
+                    initial={false}
+                    animate={{ x: indicator.left, width: indicator.width }}
+                    className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-full bg-white/90 shadow-lg border border-white/20 backdrop-blur-sm"
+                    style={{ borderRadius: 9999 }}
+                    transition={indicator.animate
+                      ? { duration: 0.24, ease: [0.22, 1, 0.36, 1] }
+                      : { duration: 0 }}
+                  />
+                )}
                 {/* 管理员专用导航 */}
                 {isStaff ? (
                   <>
-                    <Link href={staffAiChatLink} className={linkCls('staff-ai-chat')}>
-                      {navIndicator('staff-ai-chat')}
+                    <Link href={staffAiChatLink} data-nav-key="staff-ai-chat" className={linkCls('staff-ai-chat')}>
                       <i className="fas fa-robot"></i>
                       <span>管理助手</span>
                     </Link>
-                    <Link href={staffShopLink} className={linkCls('staff-shop')}>
-                      {navIndicator('staff-shop')}
+                    <Link href={staffShopLink} data-nav-key="staff-shop" className={linkCls('staff-shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
                     </Link>
-                    <Link href={staffDashboardLink} className={linkCls('staff-dashboard')}>
-                      {navIndicator('staff-dashboard')}
+                    <Link href={staffDashboardLink} data-nav-key="staff-dashboard" className={linkCls('staff-dashboard')}>
                       <i className="fas fa-chart-line"></i>
                       <span>仪表盘</span>
                     </Link>
-                    <Link href={staffPortalLink} className={linkCls('staff-backend')}>
-                      {navIndicator('staff-backend')}
+                    <Link href={staffPortalLink} data-nav-key="staff-backend" className={linkCls('staff-backend')}>
                       <i className="fas fa-cog"></i>
                       <span>管理后台</span>
                     </Link>
@@ -124,26 +171,22 @@ export default function Nav({ active = 'home' }) {
                 ) : (
                   /* 普通用户导航 */
                   <>
-                    <Link href="/c" className={linkCls('home')}>
-                      {navIndicator('home')}
+                    <Link href="/c" data-nav-key="home" className={linkCls('home')}>
                       <i className="fas fa-comments"></i>
                       <span>商城助手</span>
                     </Link>
-                    <Link href="/shop" className={linkCls('shop')}>
-                      {navIndicator('shop')}
+                    <Link href="/shop" data-nav-key="shop" className={linkCls('shop')}>
                       <i className="fas fa-store"></i>
                       <span>商品商城</span>
                     </Link>
                     {user && (
-                      <Link href="/cart" className={linkCls('cart')}>
-                        {navIndicator('cart')}
+                      <Link href="/cart" data-nav-key="cart" className={linkCls('cart')}>
                         <i className="fas fa-shopping-cart"></i>
                         <span>购物车</span>
                       </Link>
                     )}
                     {user && (
-                      <Link href="/orders" className={linkCls('orders')}>
-                        {navIndicator('orders')}
+                      <Link href="/orders" data-nav-key="orders" className={linkCls('orders')}>
                         <i className="fas fa-receipt"></i>
                         <span>我的订单</span>
                       </Link>
