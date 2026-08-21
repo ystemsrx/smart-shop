@@ -58,7 +58,6 @@ export function AIModelSettingsPanel({ apiRequest }) {
     failedAutoSavePayloadRef.current = '';
     setModels(reorderedModels);
     setSaveStatus({ type: '', message: '' });
-    setTestResults({});
   }, []);
 
   const {
@@ -180,7 +179,6 @@ export function AIModelSettingsPanel({ apiRequest }) {
   const updateModel = (index, field, value) => {
     failedAutoSavePayloadRef.current = '';
     setSaveStatus({ type: '', message: '' });
-    setTestResults({});
     setModels((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [field]: value } : item
     )));
@@ -189,19 +187,29 @@ export function AIModelSettingsPanel({ apiRequest }) {
   const addModel = () => {
     failedAutoSavePayloadRef.current = '';
     setSaveStatus({ type: '', message: '' });
-    setTestResults({});
     setModels((current) => [...current, createEmptyModel()]);
   };
 
   const removeModel = (index) => {
+    const removedClientId = models[index]?._clientId;
     failedAutoSavePayloadRef.current = '';
     setSaveStatus({ type: '', message: '' });
-    setTestResults({});
+    if (removedClientId) {
+      setTestResults((current) => {
+        const nextResults = { ...current };
+        delete nextResults[removedClientId];
+        return nextResults;
+      });
+    }
     setModels((current) => editableModels(current.filter((_, itemIndex) => itemIndex !== index)));
   };
 
   const testAllModels = async () => {
     if (!isValid || testing || saving) return;
+    const testedModels = models.map((item) => ({
+      clientId: item._clientId,
+      model: String(item.model || '').trim(),
+    }));
     setTesting(true);
     setTestResults({});
     try {
@@ -211,8 +219,8 @@ export function AIModelSettingsPanel({ apiRequest }) {
       });
       const results = Array.isArray(response?.data?.results) ? response.data.results : [];
       const resultMap = Object.fromEntries(results.map((result) => [result.model, result]));
-      setTestResults(Object.fromEntries(currentNormalized.map((item) => [
-        item.model,
+      setTestResults(Object.fromEntries(testedModels.map((item) => [
+        item.clientId,
         resultMap[item.model] || {
           model: item.model,
           available: false,
@@ -222,8 +230,8 @@ export function AIModelSettingsPanel({ apiRequest }) {
       ])));
     } catch (error) {
       const message = error.message || '模型可用性检测失败';
-      setTestResults(Object.fromEntries(currentNormalized.map((item) => [
-        item.model,
+      setTestResults(Object.fromEntries(testedModels.map((item) => [
+        item.clientId,
         {
           model: item.model,
           available: false,
@@ -326,7 +334,7 @@ export function AIModelSettingsPanel({ apiRequest }) {
                 {models.map((item, index) => {
                   const nameError = validationErrors[`${index}:model_name`];
                   const modelError = validationErrors[`${index}:model`];
-                  const testResult = testResults[item.model.trim()];
+                  const testResult = testResults[item._clientId];
                   const isDefaultModel = index === defaultModelIndex;
 
                   return (
