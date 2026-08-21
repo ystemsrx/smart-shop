@@ -15,6 +15,9 @@ tencent*.txt
 public/*
 !public/icons/
 !public/captcha/
+!public/logo.jpg
+!public/logo-header.png
+!public/*.txt
 public/captcha/generated/
 items/
 logs/

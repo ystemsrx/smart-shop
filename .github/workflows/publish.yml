@@ -1,0 +1,128 @@
+name: Verify and publish images
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ccr.ccs.tencentyun.com
+
+jobs:
+  verify-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          ENV: production
+          NEXT_PUBLIC_API_URL: https://shop-api.lazycampus.com
+          NEXT_PUBLIC_IMAGE_BASE_URL: https://shop-api.lazycampus.com
+          NEXT_PUBLIC_FILE_BASE_URL: https://shop-api.lazycampus.com
+          SHOP_NAME: Smart Shop
+
+  verify-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ADMIN_USERNAME: test-admin
+      ADMIN_PASSWORD: test-password
+      API_KEY: test-api-key
+      API_URL: https://example.invalid/v1
+      DB_PATH: /tmp/smart-shop-test.db
+      JWT_SECRET_KEY: test-jwt-secret
+      SHOP_NAME: Smart Shop Test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: uv venv && uv pip install -r backend/requirements.txt pytest
+
+      - name: Run backend tests
+        run: uv run pytest backend/tests -q
+
+      - name: Build backend image
+        run: docker build --file docker/Dockerfile.backend --tag smart-shop-backend:verify .
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs:
+      - verify-frontend
+      - verify-backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Tencent Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/lazycampus/smart-shop-backend:1.0.${{ github.run_number }}
+            ${{ env.REGISTRY }}/lazycampus/smart-shop-backend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.frontend
+          push: true
+          build-args: |
+            ENV=production
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_IMAGE_BASE_URL=${{ vars.NEXT_PUBLIC_IMAGE_BASE_URL }}
+            NEXT_PUBLIC_FILE_BASE_URL=${{ vars.NEXT_PUBLIC_FILE_BASE_URL }}
+            SHOP_NAME=${{ vars.SHOP_NAME }}
+            HEADER_LOGO=${{ vars.HEADER_LOGO }}
+            LOGO=${{ vars.LOGO }}
+          tags: |
+            ${{ env.REGISTRY }}/lazycampus/smart-shop-frontend:1.0.${{ github.run_number }}
+            ${{ env.REGISTRY }}/lazycampus/smart-shop-frontend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
