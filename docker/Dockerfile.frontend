@@ -30,6 +30,8 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_IMAGE_BASE_URL
 ARG NEXT_PUBLIC_FILE_BASE_URL
 ARG SHOP_NAME
+ARG HEADER_LOGO
+ARG LOGO
 
 # 设置环境变量供构建使用
 ENV ENV=${ENV}
@@ -38,6 +40,8 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_IMAGE_BASE_URL=${NEXT_PUBLIC_IMAGE_BASE_URL}
 ENV NEXT_PUBLIC_FILE_BASE_URL=${NEXT_PUBLIC_FILE_BASE_URL}
 ENV SHOP_NAME=${SHOP_NAME}
+ENV HEADER_LOGO=${HEADER_LOGO}
+ENV LOGO=${LOGO}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
@@ -54,6 +58,8 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_IMAGE_BASE_URL
 ARG NEXT_PUBLIC_FILE_BASE_URL
 ARG SHOP_NAME
+ARG HEADER_LOGO
+ARG LOGO
 
 ENV ENV=${ENV}
 ENV NEXT_PUBLIC_ENV=${ENV}
@@ -61,13 +67,17 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_IMAGE_BASE_URL=${NEXT_PUBLIC_IMAGE_BASE_URL}
 ENV NEXT_PUBLIC_FILE_BASE_URL=${NEXT_PUBLIC_FILE_BASE_URL}
 ENV SHOP_NAME=${SHOP_NAME}
+ENV HEADER_LOGO=${HEADER_LOGO}
+ENV LOGO=${LOGO}
 
 WORKDIR /app
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY package.json ./package.json
-COPY next.config.js ./next.config.js
+COPY --chown=node:node --from=builder /app/public ./public
+COPY --chown=node:node --from=builder /app/.next ./.next
+COPY --chown=node:node --from=builder /app/node_modules ./node_modules
+COPY --chown=node:node package.json ./package.json
+COPY --chown=node:node next.config.js ./next.config.js
+
+USER node
 
 EXPOSE 3000
 

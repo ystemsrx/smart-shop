@@ -28,6 +28,8 @@ Thumbs.db
 
 # Misc
 frontend.log
+.env
+.env.*
 
 # Runtime data — mounted via docker-compose volumes, must not be baked into the image
 backend/data

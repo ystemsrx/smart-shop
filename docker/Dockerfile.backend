@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.11.2 AS uv
+
 FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -22,25 +24,33 @@ RUN apt-get update \
 ENV LANG=zh_CN.UTF-8 \
     LANGUAGE=zh_CN:zh \
     LC_ALL=zh_CN.UTF-8 \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app/backend
 
-# Install Python dependencies first to leverage Docker layer caching
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app
 
-# Copy backend source code and runtime configuration
-COPY backend/ /app/backend/
-COPY .env /app/backend/.env
+# Install Python dependencies first to leverage Docker layer caching
+COPY --from=uv /uv /uvx /bin/
+COPY backend/requirements.txt ./
+RUN uv venv "${VIRTUAL_ENV}" \
+    && uv pip install --no-cache -r requirements.txt
+
+# Runtime configuration is injected by Kubernetes and is never baked into the image.
+COPY --chown=10001:10001 backend/ /app/backend/
 
 # Ensure directories that require persistence always exist
 RUN mkdir -p /app/backend/items \
     && mkdir -p /app/public \
     && mkdir -p /app/backend/logs \
     && mkdir -p /app/backend/data \
-    && mkdir -p /app/backend/exports
+    && mkdir -p /app/backend/exports \
+    && chown -R 10001:10001 /app/backend /app/public
+
+USER 10001:10001
 
 EXPOSE 9099
 
