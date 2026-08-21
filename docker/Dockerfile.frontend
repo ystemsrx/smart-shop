@@ -1,20 +1,6 @@
-FROM node:20-bullseye AS base
+FROM node:20-bookworm-slim AS base
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install locale support and common Chinese fonts
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends locales tzdata fonts-noto-cjk \
-    && sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen \
-    && locale-gen zh_CN.UTF-8 \
-    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV LANG=zh_CN.UTF-8 \
-    LANGUAGE=zh_CN:zh \
-    LC_ALL=zh_CN.UTF-8 \
-    TZ=Asia/Shanghai
+ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
@@ -49,8 +35,11 @@ COPY . ./
 # 构建前端
 RUN npm run build
 
-FROM base AS runner
-ENV NODE_ENV=production
+FROM node:20-bookworm-slim AS runner
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000 \
+    TZ=Asia/Shanghai
 
 # 声明运行时参数（虽然已经内联，但保留用于其他可能的用途）
 ARG ENV=production
@@ -72,13 +61,11 @@ ENV LOGO=${LOGO}
 
 WORKDIR /app
 COPY --chown=node:node --from=builder /app/public ./public
-COPY --chown=node:node --from=builder /app/.next ./.next
-COPY --chown=node:node --from=builder /app/node_modules ./node_modules
-COPY --chown=node:node package.json ./package.json
-COPY --chown=node:node next.config.js ./next.config.js
+COPY --chown=node:node --from=builder /app/.next/standalone ./
+COPY --chown=node:node --from=builder /app/.next/static ./.next/static
 
 USER node
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]
