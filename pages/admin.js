@@ -17,6 +17,7 @@ import { CouponsPanel } from '../components/admin/CouponsPanel';
 import { PaymentQrPanel } from '../components/admin/PaymentQrPanel';
 import { DeliverySettingsPanel } from '../components/admin/DeliverySettingsPanel';
 import { ChatAuditPanel } from '../components/admin/ChatAuditPanel';
+import { AIModelSettingsPanel } from '../components/admin/AIModelSettingsPanel';
 import { useAdminWarnings } from '../components/admin/hooks/useAdminWarnings';
 import { useOrderManagement } from '../components/admin/hooks/useOrderManagement';
 import { useAddressManagement } from '../components/admin/hooks/useAddressManagement';
@@ -24,12 +25,12 @@ import { useAgentManagement } from '../components/admin/hooks/useAgentManagement
 import { useProductManagement } from '../components/admin/hooks/useProductManagement';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Package, ClipboardList, Gift, Ticket, QrCode, MapPin, UserCog, Settings, LayoutDashboard, MessageSquareText
+  Package, ClipboardList, Gift, Ticket, QrCode, MapPin, UserCog, Settings, LayoutDashboard, MessageSquareText, BrainCircuit
 } from 'lucide-react';
 import { AdminSidebar } from '../components/admin/AdminSidebar';
 import { OverviewPanel } from '../components/admin/OverviewPanel';
 
-const ADMIN_TABS = ['overview', 'products', 'orders', 'addresses', 'agents', 'chatAudit', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
+const ADMIN_TABS = ['overview', 'products', 'orders', 'addresses', 'agents', 'chatAudit', 'aiModels', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
 const AGENT_TABS = ['overview', 'products', 'orders', 'chatAudit', 'lottery', 'autoGifts', 'coupons', 'paymentQrs'];
 
 function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialTab = 'overview' }) {
@@ -158,12 +159,8 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
     setBuildingsByAddress,
     newBldNameMap,
     setNewBldNameMap,
-    bldDragState,
-    setBldDragState,
     loadAddresses,
-    onAddressDragStart,
-    onAddressDragOver,
-    onAddressDragEnd,
+    handleAddressReorder,
     handleAddAddress,
     handleUpdateAddress,
     handleDeleteAddress,
@@ -360,6 +357,7 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
       { id: 'agents', label: '代理管理', icon: <UserCog size={18} /> }
     ] : []),
     ...(allowedTabs.includes('chatAudit') ? [{ id: 'chatAudit', label: '聊天审计', icon: <MessageSquareText size={18} /> }] : []),
+    ...(allowedTabs.includes('aiModels') ? [{ id: 'aiModels', label: 'AI 模型', icon: <BrainCircuit size={18} /> }] : []),
     ...(allowedTabs.includes('lottery') ? [{ 
       id: 'lottery', 
       label: '抽奖配置', 
@@ -542,6 +540,10 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                   <ChatAuditPanel apiRequest={apiRequest} isAdmin={isAdminView} />
                 )}
 
+                {activeTab === 'aiModels' && (
+                  <AIModelSettingsPanel apiRequest={apiRequest} />
+                )}
+
                 {activeTab === 'coupons' && <CouponsPanel apiPrefix={staffPrefix} apiRequest={apiRequest} />}
 
                 {activeTab === 'paymentQrs' && <PaymentQrPanel staffPrefix={staffPrefix} apiRequest={apiRequest} />}
@@ -557,16 +559,12 @@ function StaffPortalPage({ role = 'admin', navActive = 'staff-backend', initialT
                     setNewAddrName={setNewAddrName}
                     newBldNameMap={newBldNameMap}
                     setNewBldNameMap={setNewBldNameMap}
-                    bldDragState={bldDragState}
-                    setBldDragState={setBldDragState}
                     loadAddresses={loadAddresses}
                     handleAddAddress={handleAddAddress}
                     handleUpdateAddress={handleUpdateAddress}
                     handleDeleteAddress={handleDeleteAddress}
                     handleAddBuilding={handleAddBuilding}
-                    onAddressDragStart={onAddressDragStart}
-                    onAddressDragOver={onAddressDragOver}
-                    onAddressDragEnd={onAddressDragEnd}
+                    handleAddressReorder={handleAddressReorder}
                     setBuildingsByAddress={setBuildingsByAddress}
                     apiRequest={apiRequest}
                     setAddresses={setAddresses}

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 // iOS风格开关组件
-export const IOSToggle = ({ enabled, onChange, disabled = false, size = 'md' }) => {
+export const IOSToggle = ({ enabled, onChange, disabled = false, size = 'md', label = '切换开关' }) => {
   const sizeClasses = {
     sm: 'w-9 h-5',
     md: 'w-11 h-6',
@@ -27,9 +27,9 @@ export const IOSToggle = ({ enabled, onChange, disabled = false, size = 'md' }) 
   };
   
   const translate = {
-    sm: enabled ? 'translate-x-4' : 'translate-x-0.5',
-    md: enabled ? 'translate-x-5' : 'translate-x-0.5', 
-    lg: enabled ? 'translate-x-8' : 'translate-x-1'
+    sm: enabled ? 'translate-x-5' : 'translate-x-0.5',
+    md: enabled ? 'translate-x-[22px]' : 'translate-x-0.5',
+    lg: enabled ? 'translate-x-7' : 'translate-x-1'
   };
 
   return (
@@ -47,7 +47,7 @@ export const IOSToggle = ({ enabled, onChange, disabled = false, size = 'md' }) 
           : 'bg-gray-200 hover:bg-gray-300'
       }`}
     >
-      <span className="sr-only">切换开关</span>
+      <span className="sr-only">{label}</span>
       <span
         className={`${thumbSizes[size]} ${translate[size]} inline-block rounded-full bg-white shadow-sm transform transition-transform duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)]`}
       />

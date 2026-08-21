@@ -1,4 +1,180 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { useSmoothPointerReorder } from './hooks/useSmoothPointerReorder';
+
+const getEntityId = (item) => item.id;
+
+const SortableBuildingList = ({
+  addressId,
+  buildings,
+  agents,
+  apiRequest,
+  setBuildingsByAddress,
+}) => {
+  const [savingOrder, setSavingOrder] = useState(false);
+
+  const applyBuildingOrder = useCallback((reorderedBuildings) => {
+    setBuildingsByAddress((current) => ({
+      ...current,
+      [addressId]: reorderedBuildings,
+    }));
+  }, [addressId, setBuildingsByAddress]);
+
+  const saveBuildingOrder = useCallback(async (reorderedBuildings) => {
+    setSavingOrder(true);
+    try {
+      await apiRequest('/admin/buildings/reorder', {
+        method: 'POST',
+        body: JSON.stringify({
+          address_id: addressId,
+          order: reorderedBuildings.map((building) => building.id),
+        }),
+      });
+    } catch (error) {
+      alert(error.message || '保存楼栋排序失败');
+      try {
+        const response = await apiRequest(`/admin/buildings?address_id=${encodeURIComponent(addressId)}`);
+        setBuildingsByAddress((current) => ({
+          ...current,
+          [addressId]: response.data.buildings || [],
+        }));
+      } catch {}
+    } finally {
+      setSavingOrder(false);
+    }
+  }, [addressId, apiRequest, setBuildingsByAddress]);
+
+  const {
+    containerProps,
+    getHandleProps,
+    getItemProps,
+    draggingId,
+  } = useSmoothPointerReorder({
+    items: buildings,
+    setItems: applyBuildingOrder,
+    getId: getEntityId,
+    axis: 'y',
+    disabled: savingOrder,
+    onCommit: saveBuildingOrder,
+  });
+
+  return (
+    <div {...containerProps} className="space-y-2 mb-4 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+      {buildings.map((building) => {
+        const assignedAgent = agents.find((agent) =>
+          (agent.buildings || []).some((agentBuilding) => agentBuilding.building_id === building.id)
+        );
+
+        return (
+          <div
+            key={building.id}
+            {...getItemProps(building)}
+            className={`bg-white border rounded-xl p-3 hover:border-blue-200 hover:shadow-sm transition-all duration-200 group/building ${
+              draggingId === building.id
+                ? 'border-blue-300 shadow-md ring-2 ring-blue-100'
+                : 'border-gray-100'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <button
+                type="button"
+                {...getHandleProps(building)}
+                className="cursor-grab touch-none select-none text-gray-300 hover:text-gray-500 opacity-0 group-hover/building:opacity-100 transition-opacity active:cursor-grabbing"
+                title="拖拽调整楼栋顺序"
+                aria-label={`拖拽${building.name}调整顺序`}
+              >
+                <i className="fas fa-grip-vertical text-xs pointer-events-none"></i>
+              </button>
+              <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center text-gray-500 text-xs font-bold">
+                <i className="fas fa-building"></i>
+              </div>
+              <input
+                type="text"
+                defaultValue={building.name}
+                onBlur={async (event) => {
+                  const value = event.target.value.trim();
+                  if (!value || value === building.name) return;
+                  try {
+                    await apiRequest(`/admin/buildings/${building.id}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ name: value }),
+                    });
+                    setBuildingsByAddress((current) => ({
+                      ...current,
+                      [addressId]: (current[addressId] || []).map((item) =>
+                        item.id === building.id ? { ...item, name: value } : item
+                      ),
+                    }));
+                  } catch (error) {
+                    alert(error.message || '更新失败');
+                  }
+                }}
+                className="flex-1 font-medium text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 p-0 text-sm"
+              />
+              <button
+                onClick={async () => {
+                  if (!confirm(`确定删除楼栋\"${building.name}\"吗？`)) return;
+                  try {
+                    await apiRequest(`/admin/buildings/${building.id}`, { method: 'DELETE' });
+                    setBuildingsByAddress((current) => ({
+                      ...current,
+                      [addressId]: (current[addressId] || []).filter((item) => item.id !== building.id),
+                    }));
+                  } catch (error) {
+                    alert(error.message || '删除失败');
+                  }
+                }}
+                className="opacity-0 group-hover/building:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-colors"
+                title="删除楼栋"
+              >
+                <i className="fas fa-trash text-xs"></i>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between pl-9">
+              {assignedAgent ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-[10px] border border-emerald-100">
+                  <div className="w-1 h-1 bg-emerald-500 rounded-full"></div>
+                  <span className="truncate max-w-[80px]">{assignedAgent.name || assignedAgent.id}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 text-gray-500 rounded text-[10px] border border-gray-100">
+                  <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                  <span>未分配</span>
+                </div>
+              )}
+
+              <label className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={!!building.enabled}
+                  onChange={async (event) => {
+                    const enabled = event.target.checked;
+                    try {
+                      await apiRequest(`/admin/buildings/${building.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ enabled }),
+                      });
+                      setBuildingsByAddress((current) => ({
+                        ...current,
+                        [addressId]: (current[addressId] || []).map((item) =>
+                          item.id === building.id ? { ...item, enabled: enabled ? 1 : 0 } : item
+                        ),
+                      }));
+                    } catch (error) {
+                      alert(error.message || '更新失败');
+                    }
+                  }}
+                  className="h-3 w-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                启用
+              </label>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const AddressManagement = ({
   addresses,
@@ -11,18 +187,44 @@ export const AddressManagement = ({
   setNewAddrName,
   newBldNameMap,
   setNewBldNameMap,
-  bldDragState,
-  setBldDragState,
   loadAddresses,
   handleAddAddress,
   handleUpdateAddress,
   handleDeleteAddress,
   handleAddBuilding,
-  onAddressDragStart,
-  onAddressDragOver,
-  onAddressDragEnd,
+  handleAddressReorder,
   setBuildingsByAddress,
+  setAddresses,
 }) => {
+  const [savingAddressOrder, setSavingAddressOrder] = useState(false);
+
+  const applyAddressOrder = useCallback((reorderedAddresses) => {
+    setAddresses(reorderedAddresses);
+  }, [setAddresses]);
+
+  const saveAddressOrder = useCallback(async (reorderedAddresses) => {
+    setSavingAddressOrder(true);
+    try {
+      await handleAddressReorder(reorderedAddresses);
+    } finally {
+      setSavingAddressOrder(false);
+    }
+  }, [handleAddressReorder]);
+
+  const {
+    containerProps: addressContainerProps,
+    getHandleProps: getAddressHandleProps,
+    getItemProps: getAddressItemProps,
+    draggingId: draggingAddressId,
+  } = useSmoothPointerReorder({
+    items: addresses,
+    setItems: applyAddressOrder,
+    getId: getEntityId,
+    axis: 'both',
+    disabled: addrLoading || addrSubmitting || savingAddressOrder,
+    onCommit: saveAddressOrder,
+  });
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -179,8 +381,8 @@ export const AddressManagement = ({
           <p className="text-gray-500 text-sm mb-6">请在上方添加第一个配送地址开始管理</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {addresses.map((addr, index) => {
+        <div {...addressContainerProps} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {addresses.map((addr) => {
             const buildings = buildingsByAddress[addr.id] || [];
             const totalBuildings = buildings.length;
             const assignedBuildings = buildings.filter(b => 
@@ -191,19 +393,26 @@ export const AddressManagement = ({
             
             return (
               <div 
-                key={addr.id} 
-                className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-300 group h-fit flex flex-col"
-                draggable
-                onDragStart={() => onAddressDragStart(addr.id)}
-                onDragOver={(e) => onAddressDragOver(e, addr.id)}
-                onDragEnd={onAddressDragEnd}
+                key={addr.id}
+                {...getAddressItemProps(addr)}
+                className={`bg-white rounded-2xl shadow-sm border overflow-hidden hover:shadow-md transition-all duration-300 group h-fit flex flex-col ${
+                  draggingAddressId === addr.id
+                    ? 'border-blue-300 shadow-lg ring-2 ring-blue-100'
+                    : 'border-gray-200'
+                }`}
               >
                 {/* Card Header */}
                 <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between group-hover:bg-gray-50 transition-colors">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="cursor-move text-gray-300 hover:text-gray-500 transition-colors">
-                      <i className="fas fa-grip-vertical"></i>
-                    </div>
+                    <button
+                      type="button"
+                      {...getAddressHandleProps(addr)}
+                      className="cursor-grab touch-none select-none text-gray-300 hover:text-gray-500 transition-colors active:cursor-grabbing"
+                      title="拖拽调整地址顺序"
+                      aria-label={`拖拽${addr.name}调整顺序`}
+                    >
+                      <i className="fas fa-grip-vertical pointer-events-none"></i>
+                    </button>
                     <div className="flex-1 min-w-0">
                       <input
                         type="text"
@@ -253,140 +462,13 @@ export const AddressManagement = ({
                       <p className="text-gray-400 text-xs">暂无楼栋，请添加</p>
                     </div>
                   ) : (
-                    <div className="space-y-2 mb-4 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                      {buildings.map((bld) => {
-                        const assignedAgent = agents.find(agent => 
-                          (agent.buildings || []).some(ab => ab.building_id === bld.id)
-                        );
-                        
-                        return (
-                          <div
-                            key={bld.id}
-                            className="bg-white border border-gray-100 rounded-xl p-3 hover:border-blue-200 hover:shadow-sm transition-all duration-200 group/building"
-                            draggable
-                            onDragStart={() => setBldDragState({ id: bld.id, addressId: addr.id })}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              const dragging = bldDragState.id;
-                              if (!dragging || bldDragState.addressId !== addr.id || dragging === bld.id) return;
-                              setBuildingsByAddress(prev => {
-                                const list = prev[addr.id] || [];
-                                const from = list.findIndex(x => x.id === dragging);
-                                const to = list.findIndex(x => x.id === bld.id);
-                                if (from === -1 || to === -1) return prev;
-                                const next = [...list];
-                                const [moved] = next.splice(from, 1);
-                                next.splice(to, 0, moved);
-                                return { ...prev, [addr.id]: next };
-                              });
-                            }}
-                            onDragEnd={async () => {
-                              const dragging = bldDragState.id;
-                              if (!dragging || bldDragState.addressId !== addr.id) return;
-                              setBldDragState({ id: null, addressId: null });
-                              try {
-                                const order = (buildingsByAddress[addr.id] || []).map(x => x.id);
-                                await apiRequest('/admin/buildings/reorder', {
-                                  method: 'POST',
-                                  body: JSON.stringify({ address_id: addr.id, order })
-                                });
-                              } catch (e) {
-                                alert(e.message || '保存楼栋排序失败');
-                                try {
-                                  const r = await apiRequest(`/admin/buildings?address_id=${encodeURIComponent(addr.id)}`);
-                                  setBuildingsByAddress(prev => ({ ...prev, [addr.id]: r.data.buildings || [] }));
-                                } catch {}
-                              }
-                            }}
-                          >
-                            <div className="flex items-center gap-3 mb-2">
-                              <div className="cursor-move text-gray-300 hover:text-gray-500 opacity-0 group-hover/building:opacity-100 transition-opacity">
-                                <i className="fas fa-grip-vertical text-xs"></i>
-                              </div>
-                              <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center text-gray-500 text-xs font-bold">
-                                <i className="fas fa-building"></i>
-                              </div>
-                              <input
-                                type="text"
-                                defaultValue={bld.name}
-                                onBlur={async (e) => {
-                                  const val = e.target.value.trim();
-                                  if (val && val !== bld.name) {
-                                    try {
-                                      await apiRequest(`/admin/buildings/${bld.id}`, { 
-                                        method: 'PUT', 
-                                        body: JSON.stringify({ name: val }) 
-                                      });
-                                      setBuildingsByAddress(prev => ({
-                                        ...prev,
-                                        [addr.id]: (prev[addr.id] || []).map(x => x.id === bld.id ? { ...x, name: val } : x)
-                                      }));
-                                    } catch (e) {
-                                      alert(e.message || '更新失败');
-                                    }
-                                  }
-                                }}
-                                className="flex-1 font-medium text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0 p-0 text-sm"
-                              />
-                              <button
-                                onClick={async () => {
-                                  if (!confirm(`确定删除楼栋\"${bld.name}\"吗？`)) return;
-                                  try {
-                                    await apiRequest(`/admin/buildings/${bld.id}`, { method: 'DELETE' });
-                                    setBuildingsByAddress(prev => ({
-                                      ...prev,
-                                      [addr.id]: (prev[addr.id] || []).filter(x => x.id !== bld.id)
-                                    }));
-                                  } catch (er) {
-                                    alert(er.message || '删除失败');
-                                  }
-                                }}
-                                className="opacity-0 group-hover/building:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-colors"
-                              >
-                                <i className="fas fa-trash text-xs"></i>
-                              </button>
-                            </div>
-                            
-                            <div className="flex items-center justify-between pl-9">
-                              {assignedAgent ? (
-                                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-[10px] border border-emerald-100">
-                                  <div className="w-1 h-1 bg-emerald-500 rounded-full"></div>
-                                  <span className="truncate max-w-[80px]">{assignedAgent.name || assignedAgent.id}</span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 text-gray-500 rounded text-[10px] border border-gray-100">
-                                  <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                  <span>未分配</span>
-                                </div>
-                              )}
-                              
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">
-                                <input
-                                  type="checkbox"
-                                  defaultChecked={!!bld.enabled}
-                                  onChange={async (e) => {
-                                    try {
-                                      await apiRequest(`/admin/buildings/${bld.id}`, { 
-                                        method: 'PUT', 
-                                        body: JSON.stringify({ enabled: e.target.checked }) 
-                                      });
-                                      setBuildingsByAddress(prev => ({
-                                        ...prev,
-                                        [addr.id]: (prev[addr.id] || []).map(x => x.id === bld.id ? { ...x, enabled: e.target.checked ? 1 : 0 } : x)
-                                      }));
-                                    } catch (er) {
-                                      alert(er.message || '更新失败');
-                                    }
-                                  }}
-                                  className="h-3 w-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                />
-                                启用
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <SortableBuildingList
+                      addressId={addr.id}
+                      buildings={buildings}
+                      agents={agents}
+                      apiRequest={apiRequest}
+                      setBuildingsByAddress={setBuildingsByAddress}
+                    />
                   )}
 
                   {/* Add Building Input */}

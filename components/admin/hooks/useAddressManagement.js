@@ -7,9 +7,6 @@ export function useAddressManagement({ apiRequest, isAdmin }) {
   const [newAddrName, setNewAddrName] = useState('');
   const [buildingsByAddress, setBuildingsByAddress] = useState({});
   const [newBldNameMap, setNewBldNameMap] = useState({});
-  const [bldDragState, setBldDragState] = useState({ id: null, addressId: null });
-  const [addrDragId, setAddrDragId] = useState(null);
-  const [addrDragging, setAddrDragging] = useState(false);
 
   const loadAddresses = async () => {
     if (!isAdmin) {
@@ -39,41 +36,6 @@ export function useAddressManagement({ apiRequest, isAdmin }) {
       alert(e.message || '获取地址失败');
     } finally {
       setAddrLoading(false);
-    }
-  };
-
-  const onAddressDragStart = (id) => {
-    setAddrDragId(id);
-    setAddrDragging(true);
-  };
-
-  const onAddressDragOver = (e, overId) => {
-    e.preventDefault();
-    if (!addrDragging || addrDragId === overId) return;
-    setAddresses((prev) => {
-      const from = prev.findIndex(a => a.id === addrDragId);
-      const to = prev.findIndex(a => a.id === overId);
-      if (from === -1 || to === -1) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  };
-
-  const onAddressDragEnd = async () => {
-    if (!addrDragging) return;
-    setAddrDragging(false);
-    setAddrDragId(null);
-    try {
-      const order = addresses.map(a => a.id);
-      await apiRequest('/admin/addresses/reorder', {
-        method: 'POST',
-        body: JSON.stringify({ order })
-      });
-    } catch (e) {
-      alert(e.message || '保存地址排序失败');
-      await loadAddresses();
     }
   };
 
@@ -180,12 +142,8 @@ export function useAddressManagement({ apiRequest, isAdmin }) {
     setBuildingsByAddress,
     newBldNameMap,
     setNewBldNameMap,
-    bldDragState,
-    setBldDragState,
     loadAddresses,
-    onAddressDragStart,
-    onAddressDragOver,
-    onAddressDragEnd,
+    handleAddressReorder,
     handleAddAddress,
     handleUpdateAddress,
     handleDeleteAddress,
