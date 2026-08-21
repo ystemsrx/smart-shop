@@ -64,6 +64,7 @@ if (!isDevEnv) {
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  output: 'standalone',
   
   // 压缩优化
   compress: true,
