@@ -245,10 +245,7 @@ ADMIN_PASSWORD=your_admin_password1,your_admin_password2
 # AI 配置
 API_KEY=your_api_key
 API_URL=https://openrouter.ai/api/v1
-MODEL=openai/gpt-oss-20b:free,z-ai/glm-4.5-air:free
-MODEL_NAME=GPT-OSS,GLM 4.5
-# 支持思维链的模型（可选，需在 MODEL 中已配置）
-SUPPORTS_THINKING=openai/gpt-oss-20b:free,z-ai/glm-4.5-air:free
+# 模型列表、显示名称、启用状态与思考能力请在“管理后台 → AI 模型”中配置
 
 # 第三方登录 API (可选)
 LOGIN_API=https://your-login-api.com
@@ -293,6 +290,8 @@ DEV_LOG_LEVEL=DEBUG
 # 密码加密配置（默认启用，使用 bcrypt 加密存储密码）
 ENABLE_PASSWORD_HASH=1
 ```
+
+启动服务并登录管理后台后，在“AI 模型”页面逐项添加模型。排序最靠前的已启用模型是默认模型；模型可独立停用而不必删除。调整顺序、启用状态或思考能力后会自动保存并立即生效，无需重启后端。旧版本 `.env` 中的 `MODEL`、`MODEL_NAME` 与 `SUPPORTS_THINKING` 会在升级后首次启动时自动导入数据库。
 
 其中“第三方登录”部分需要填写你自己的登录服务 API 地址，该系统会向目标 API 地址发送如下格式的请求以验证用户身份，请自行调整以符合你的登录服务要求。
 

@@ -4,11 +4,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from admin_ai_chat import stream_admin_chat, handle_admin_image_upload
+from ai_model_config import get_ai_model_configs
 from auth import (
     get_current_admin_required_from_cookie,
     get_current_staff_required_from_cookie,
 )
-from config import get_settings
 from database import StaffChatLogDB
 from ..context import logger
 from ..dependencies import require_agent_with_scope
@@ -82,7 +82,7 @@ def _serialize_staff_message(record: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/admin/ai/models")
 async def admin_list_ai_models(request: Request):
     get_current_staff_required_from_cookie(request)
-    configs = get_settings().model_order
+    configs = get_ai_model_configs()
     return {
         "models": [
             {"model": cfg.name, "name": cfg.label, "supports_thinking": cfg.supports_thinking}
@@ -94,7 +94,7 @@ async def admin_list_ai_models(request: Request):
 @router.get("/agent/ai/models")
 async def agent_list_ai_models(request: Request):
     require_agent_with_scope(request)
-    configs = get_settings().model_order
+    configs = get_ai_model_configs()
     return {
         "models": [
             {"model": cfg.name, "name": cfg.label, "supports_thinking": cfg.supports_thinking}

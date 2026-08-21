@@ -13,13 +13,11 @@ import httpx
 from database import ProductDB, CartDB, ChatLogDB, CategoryDB, DeliverySettingsDB, GiftThresholdDB, UserProfileDB, AgentAssignmentDB, get_db_connection, LotteryConfigDB
 from auth import get_current_staff_from_cookie, get_current_user_from_cookie
 from config import get_settings, ModelConfig
+from ai_model_config import get_ai_model_configs
 
 # 配置日志
 logger = logging.getLogger(__name__)
 settings = get_settings()
-MODEL_CANDIDATES = settings.model_order
-MODEL_INDEX = {cfg.name: cfg for cfg in MODEL_CANDIDATES}
-DEFAULT_MODEL = MODEL_CANDIDATES[0] if MODEL_CANDIDATES else None
 
 if not settings.api_key:
     logger.warning("AI API key is not configured; upstream requests may be rejected.")
@@ -62,15 +60,17 @@ class StreamResponseError(RuntimeError):
 
 
 def resolve_model_config(model_name: Optional[str]) -> ModelConfig:
-    """根据名称获取模型配置，默认返回首个模型。"""
+    """根据最新的后台配置获取模型，默认返回列表第一项。"""
+    model_candidates = get_ai_model_configs()
+    model_index = {cfg.name: cfg for cfg in model_candidates}
     if model_name:
-        cfg = MODEL_INDEX.get(model_name)
+        cfg = model_index.get(model_name)
         if cfg:
             return cfg
         logger.warning("Requested model %s is not configured; falling back to default model.", model_name)
-    if not DEFAULT_MODEL:
+    if not model_candidates:
         raise RuntimeError("No AI models configured.")
-    return DEFAULT_MODEL
+    return model_candidates[0]
 
 
 def _coerce_to_dict(value: Any) -> Dict[str, Any]:

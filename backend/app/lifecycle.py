@@ -1,12 +1,9 @@
 import asyncio
-import os
 from contextlib import asynccontextmanager
-from collections import Counter
 from typing import List
 
 from fastapi import FastAPI
 
-from config import get_settings
 from database import (
     CategoryDB,
     OrderDB,
@@ -21,9 +18,7 @@ from database import (
 from .context import EXPORTS_DIR, ITEMS_DIR, PUBLIC_DIR, logger
 from .services.captcha import CaptchaService
 from admin_ai_chat import cleanup_temp_uploads
-
-
-settings = get_settings()
+from ai_model_config import get_ai_model_configs, migrate_legacy_ai_model_settings
 
 
 def fix_legacy_product_ownership():
@@ -157,68 +152,27 @@ def fix_legacy_config_ownership():
 
 
 def log_model_configuration_snapshot() -> None:
-    """记录环境变量与最终模型列表之间的差异，便于排查选择器缺少模型的问题。"""
-    env_models_raw = os.getenv("MODEL", "")
-    env_labels_raw = os.getenv("MODEL_NAME", "")
-    supports_raw = os.getenv("SUPPORTS_THINKING", "")
+    """记录后台保存的最终模型列表，便于排查模型选择器。"""
+    all_models = get_ai_model_configs(include_disabled=True)
+    configured_models = [model for model in all_models if model.enabled]
 
-    env_models = [item.strip() for item in env_models_raw.split(",") if item.strip()]
-    env_labels = [item.strip() for item in env_labels_raw.split(",") if item.strip()]
-    supports_flags = {item.strip().lower() for item in supports_raw.split(",") if item.strip()}
-
-    configured_models = settings.model_order
-    configured_names = [cfg.name for cfg in configured_models]
-
+    if not all_models:
+        logger.warning("No models configured; add one in 管理后台 → AI 模型")
+        return
     if not configured_models:
-        logger.error("No models available in selector; check MODEL/MODEL_NAME environment variables")
+        logger.warning("All configured AI models are disabled; AI chat is currently unavailable")
         return
 
-    if env_models:
-        duplicate_models = [name for name, count in Counter(env_models).items() if count > 1]
-        if duplicate_models:
-            logger.warning("Duplicate model names found in MODEL environment variable: %s", duplicate_models)
-
-        if len(env_models) != len(env_labels):
-            logger.warning(
-                "MODEL and MODEL_NAME counts do not match: MODEL=%d, MODEL_NAME=%d. Extra entries will be ignored.",
-                len(env_models),
-                len(env_labels),
-            )
-
-        missing_models = [name for name in env_models if name not in configured_names]
-        if missing_models:
-            logger.warning(
-                "These models are configured in env but not loaded: %s. "
-                "Ensure MODEL and MODEL_NAME are aligned and restart backend after updating .env.",
-                missing_models,
-            )
-
     logger.info(
-        "Current model selector options: %s",
+        "Current enabled database-backed model selector options (%s/%s): %s",
+        len(configured_models),
+        len(all_models),
         [
             {"model": cfg.name, "label": cfg.label, "supports_thinking": cfg.supports_thinking}
             for cfg in configured_models
         ],
     )
 
-    logger.debug(
-        "Model env snapshot: MODEL=%r, MODEL_NAME=%r, SUPPORTS_THINKING=%r (parsed=%s). Loaded models=%s, supports_thinking=%s.",
-        env_models_raw,
-        env_labels_raw,
-        supports_raw,
-        sorted(supports_flags),
-        configured_names,
-        [cfg.supports_thinking for cfg in configured_models],
-    )
-
-    if env_models:
-        stale_models = [name for name in configured_names if name not in env_models]
-        if stale_models:
-            logger.debug(
-                "Loaded models include entries missing from current MODEL env: %s. "
-                "If unexpected, verify config cache and runtime defaults.",
-                stale_models,
-            )
 
 
 async def run_startup_tasks() -> List[asyncio.Task]:
@@ -226,6 +180,11 @@ async def run_startup_tasks() -> List[asyncio.Task]:
     logger.info("Starting dorm shop API")
 
     init_database()
+
+    try:
+        migrate_legacy_ai_model_settings()
+    except Exception as exc:
+        logger.warning("Legacy AI model configuration import failed: %s", exc)
 
     try:
         CategoryDB.cleanup_orphan_categories()

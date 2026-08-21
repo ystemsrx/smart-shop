@@ -69,6 +69,17 @@ class ChatRequest(BaseModel):
     timezone_offset_minutes: Optional[int] = None
 
 
+class AIModelConfigInput(BaseModel):
+    model: str
+    model_name: str
+    supports_thinking: bool = False
+    enabled: bool = True
+
+
+class AIModelSettingsUpdateRequest(BaseModel):
+    models: List[AIModelConfigInput]
+
+
 class ChatThreadCreateRequest(BaseModel):
     title: Optional[str] = None
 

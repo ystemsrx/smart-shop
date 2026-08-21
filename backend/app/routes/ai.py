@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 
 from ai_chat import stream_chat
+from ai_model_config import get_ai_model_configs
 from auth import get_current_user_from_cookie, get_current_user_required_from_cookie
-from config import get_settings
 from database import ChatLogDB
 from ..context import logger
 from ..schemas import ChatRequest, ChatThreadCreateRequest, ChatThreadUpdateRequest
@@ -79,7 +79,7 @@ def _serialize_chat_message(record: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/ai/models")
 async def list_ai_models():
     """返回可用模型列表及其能力，用于前端渲染模型选择器。"""
-    configs = get_settings().model_order
+    configs = get_ai_model_configs()
     result = {
         "models": [
             {

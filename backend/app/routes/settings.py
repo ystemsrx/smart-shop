@@ -1,6 +1,14 @@
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+
+from ai_model_config import (
+    get_ai_model_configs,
+    normalize_ai_model_configs,
+    save_ai_model_configs,
+    serialize_ai_model_configs,
+    test_ai_model_configs,
+)
 
 from auth import (
     error_response,
@@ -11,10 +19,66 @@ from auth import (
 from database import AgentStatusDB, SalesCycleDB, SettingsDB
 from ..context import logger
 from ..dependencies import resolve_shopping_scope
-from ..schemas import AgentStatusUpdateRequest, ShopStatusUpdate
+from ..schemas import AIModelSettingsUpdateRequest, AgentStatusUpdateRequest, ShopStatusUpdate
 
 
 router = APIRouter()
+
+
+@router.get("/admin/ai-settings")
+async def get_ai_settings(request: Request):
+    """获取全部 AI 模型；排序最靠前的已启用模型为默认模型。"""
+    get_current_admin_required_from_cookie(request)
+    try:
+        models = serialize_ai_model_configs(get_ai_model_configs(include_disabled=True))
+        return success_response("获取 AI 模型配置成功", {"models": models})
+    except Exception as exc:
+        logger.error("Failed to fetch AI model settings: %s", exc)
+        raise HTTPException(status_code=500, detail="获取 AI 模型配置失败")
+
+
+@router.put("/admin/ai-settings")
+async def update_ai_settings(payload: AIModelSettingsUpdateRequest, request: Request):
+    """保存完整的 AI 模型列表；保存后所有聊天入口立即使用新配置。"""
+    get_current_admin_required_from_cookie(request)
+    try:
+        models = save_ai_model_configs([item.model_dump() for item in payload.models])
+        return success_response(
+            "已保存",
+            {"models": serialize_ai_model_configs(models)},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update AI model settings: %s", exc)
+        raise HTTPException(status_code=500, detail="保存 AI 模型配置失败")
+
+
+@router.post("/admin/ai-settings/test")
+async def test_ai_settings(payload: AIModelSettingsUpdateRequest, request: Request):
+    """并发检测表单中的全部模型，不保存或改动当前配置。"""
+    get_current_admin_required_from_cookie(request)
+    try:
+        models = normalize_ai_model_configs([item.model_dump() for item in payload.models])
+        results = await test_ai_model_configs(models)
+        available_count = sum(1 for item in results if item["available"])
+        return success_response(
+            f"检测完成：{available_count}/{len(results)} 个模型可用",
+            {
+                "results": results,
+                "available_count": available_count,
+                "total_count": len(results),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to test AI model settings: %s", exc)
+        raise HTTPException(status_code=500, detail="模型可用性检测失败")
 
 
 @router.get("/admin/shop-settings")

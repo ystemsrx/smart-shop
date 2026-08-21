@@ -151,6 +151,7 @@ class ModelConfig:
     name: str
     label: str
     supports_thinking: bool
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -173,7 +174,6 @@ class Settings:
     static_cache_max_age: int
     api_key: str
     api_url: str
-    model_order: List[ModelConfig]
     enable_password_hash: bool
 
 
@@ -252,21 +252,6 @@ def get_settings() -> Settings:
     if not api_url:
         raise RuntimeError("API_URL environment variable is required")
 
-    model_names = _split_csv(os.getenv("MODEL"))
-    model_labels = _split_csv(os.getenv("MODEL_NAME"))
-    if not model_names:
-        raise RuntimeError("MODEL environment variable must provide at least one model")
-    if not model_labels:
-        raise RuntimeError("MODEL_NAME environment variable must provide display names for models")
-    if len(model_names) != len(model_labels):
-        raise RuntimeError("MODEL and MODEL_NAME must contain the same number of entries")
-
-    supports_thinking_raw = {name.strip().lower() for name in _split_csv(os.getenv("SUPPORTS_THINKING"))}
-    model_order = []
-    for model, label in zip(model_names, model_labels):
-        supports_thinking = model.strip().lower() in supports_thinking_raw
-        model_order.append(ModelConfig(name=model, label=label, supports_thinking=supports_thinking))
-
     # 密码加密开关（默认启用）
     enable_password_hash = _as_bool(_strip_quotes(os.getenv("ENABLE_PASSWORD_HASH")), True)
 
@@ -289,7 +274,6 @@ def get_settings() -> Settings:
         static_cache_max_age=cache_max_age,
         api_key=api_key,
         api_url=api_url,
-        model_order=model_order,
         enable_password_hash=enable_password_hash,
     )
 
