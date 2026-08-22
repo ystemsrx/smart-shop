@@ -83,7 +83,7 @@ class OidcAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(auth.AuthError):
                 await auth.AuthManager.create_oidc_authorization("/c")
 
-    async def test_passive_authorization_never_prompts_for_credentials(self):
+    async def test_passive_authorization_uses_silent_broker_probe(self):
         metadata = {"authorization_endpoint": "https://idp.example.test/auth"}
         with (
             patch.object(auth, "settings", oidc_settings()),
@@ -95,9 +95,9 @@ class OidcAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             )
 
         params = parse_qs(urlparse(target).query)
-        self.assertEqual(params["prompt"], ["none"])
+        self.assertNotIn("prompt", params)
         self.assertEqual(params["kc_idp_hint"], ["campus"])
-        self.assertNotIn("login_hint", params)
+        self.assertEqual(params["login_hint"], [auth.OIDC_PASSIVE_LOGIN_HINT])
         payload = auth.AuthManager.decode_oidc_state(params["state"][0], state_cookie)
         self.assertTrue(payload["passive"])
         self.assertFalse(payload["upgrade"])

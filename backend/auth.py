@@ -27,6 +27,7 @@ LOGIN_API = settings.login_api
 LOGIN_API_TOKEN = settings.login_api_token
 OIDC_STATE_COOKIE = "smart_shop_oidc_state"
 OIDC_HANDOFF_COOKIE = "smart_shop_sso_handoff"
+OIDC_PASSIVE_LOGIN_HINT = "lc-passive-v1"
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -503,7 +504,7 @@ class AuthManager:
             if settings.oidc_idp_hint:
                 params["kc_idp_hint"] = settings.oidc_idp_hint
         elif passive:
-            params["prompt"] = "none"
+            params["login_hint"] = OIDC_PASSIVE_LOGIN_HINT
             if settings.oidc_idp_hint:
                 params["kc_idp_hint"] = settings.oidc_idp_hint
         return f"{metadata['authorization_endpoint']}?{urlencode(params)}", state_cookie
