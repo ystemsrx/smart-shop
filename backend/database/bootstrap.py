@@ -25,6 +25,7 @@ def init_database():
         config._DB_WAS_RESET = True
 
     conn = sqlite3.connect(config.DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     try:
@@ -40,14 +41,6 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        cursor.execute(
-            'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unified_identity_id '
-            'ON users(unified_identity_id) WHERE unified_identity_id IS NOT NULL'
-        )
-        cursor.execute(
-            'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_keycloak_sub '
-            'ON users(keycloak_sub) WHERE keycloak_sub IS NOT NULL'
-        )
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (
