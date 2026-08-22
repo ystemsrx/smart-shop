@@ -141,7 +141,13 @@ export function AuthProvider({ children }) {
         throw identityError;
       }
       setUser(account);
-      return account;
+      return {
+        account,
+        ssoUpgradeUrl:
+          typeof data.data?.sso_upgrade_url === 'string'
+            ? data.data.sso_upgrade_url
+            : null,
+      };
     } catch (err) {
       const errorMessage = err.message || '网络错误，请稍后重试';
       const statusCode = Number(err?.status || 0);
@@ -223,10 +229,10 @@ export function AuthProvider({ children }) {
 
 // 使用认证的hook
 export function useAuth() {
-  if (typeof window === 'undefined' || typeof useContext !== 'function') {
+  const context = useContext(AuthContext);
+  if (typeof window === 'undefined') {
     return DEFAULT_AUTH_CONTEXT;
   }
-  const context = useContext(AuthContext);
   return context || DEFAULT_AUTH_CONTEXT;
 }
 

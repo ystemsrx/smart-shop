@@ -5,10 +5,11 @@ import hashlib
 import jwt
 import httpx
 import logging
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, urlunparse
 from fastapi import HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt as jose_jwt
@@ -25,6 +26,7 @@ ACCESS_TOKEN_EXPIRE_DAYS = settings.access_token_expire_days
 LOGIN_API = settings.login_api
 LOGIN_API_TOKEN = settings.login_api_token
 OIDC_STATE_COOKIE = "smart_shop_oidc_state"
+OIDC_HANDOFF_COOKIE = "smart_shop_sso_handoff"
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -98,7 +100,11 @@ class AuthManager:
             return None
     
     @staticmethod
-    async def verify_login(student_id: str, password: str) -> Optional[Dict[str, Any]]:
+    async def verify_login(
+        student_id: str,
+        password: str,
+        create_sso_handoff: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """验证登录API"""
         if not LOGIN_API:
             logger.info("LOGIN_API is not configured; skipping third-party login verification")
@@ -122,6 +128,8 @@ class AuthManager:
                 "account": student_id,
                 "password": password
             }
+            if create_sso_handoff:
+                payload["create_sso_handoff"] = True
             
             # 配置httpx客户端以正确处理压缩响应
             async with httpx.AsyncClient(
@@ -218,7 +226,7 @@ class AuthManager:
                         if data.get("success") and data.get("code") == 200:
                             # 成功登录，提取用户信息
                             user_data = data.get("data", {})
-                            return {
+                            result = {
                                 "student_id": student_id,
                                 "name": user_data.get("name", "未知用户"),
                                 "verified": True,
@@ -226,6 +234,10 @@ class AuthManager:
                                 "avatar_url": user_data.get("avatarUrl", ""),
                                 "id_number": user_data.get("idNumber")
                             }
+                            handoff = AuthManager.normalize_sso_handoff(user_data.get("ssoHandoff"))
+                            if create_sso_handoff and handoff:
+                                result["_sso_handoff"] = handoff
+                            return result
                         else:
                             # 登录失败（账号密码错误等）
                             error_msg = data.get("msg") or data.get("message") or "Login failed"
@@ -284,7 +296,11 @@ class AuthManager:
             nonlocal api_result
             active_payload = payload or api_result
             if active_payload is None:
-                active_payload = await AuthManager.verify_login(student_id, password)
+                active_payload = await AuthManager.verify_login(
+                    student_id,
+                    password,
+                    create_sso_handoff=AuthManager.sso_upgrade_enabled(),
+                )
                 api_result = active_payload
 
             id_number_value = _clean_id_number(active_payload.get('id_number') if active_payload else None) if active_payload else None
@@ -301,7 +317,11 @@ class AuthManager:
         else:
             # 本地密码不匹配或用户不存在，尝试第三方API验证
             logger.info("User %s requires third-party API verification", student_id)
-            api_result = await AuthManager.verify_login(student_id, password)
+            api_result = await AuthManager.verify_login(
+                student_id,
+                password,
+                create_sso_handoff=AuthManager.sso_upgrade_enabled(),
+            )
             if not api_result:
                 logger.warning("Third-party API verification failed for %s", student_id)
                 return None
@@ -344,6 +364,13 @@ class AuthManager:
                 return None
             local_user = UserDB.get_user(student_id)
         
+        if AuthManager.sso_upgrade_enabled() and api_result is None:
+            api_result = await AuthManager.verify_login(
+                student_id,
+                password,
+                create_sso_handoff=True,
+            )
+
         # 4. 生成JWT令牌
         def _format_created_at(value: Any) -> Any:
             """格式化时间为UTC+8字符串"""
@@ -377,11 +404,17 @@ class AuthManager:
             "id_status": UserDB.normalize_id_status(local_user.get('id_status'))
         }
         
-        return {
+        result = {
             "access_token": access_token,
             "token_type": "bearer",
             "user": user_payload
         }
+        sso_handoff = AuthManager.normalize_sso_handoff(
+            api_result.get("_sso_handoff") if api_result else None
+        )
+        if sso_handoff:
+            result["_sso_handoff"] = sso_handoff
+        return result
 
     @staticmethod
     def oidc_enabled() -> bool:
@@ -394,10 +427,44 @@ class AuthManager:
         )
 
     @staticmethod
-    async def create_oidc_authorization(redirect_path: str = "/c") -> tuple[str, str]:
+    def sso_upgrade_enabled() -> bool:
+        return AuthManager.oidc_enabled() and bool(LOGIN_API)
+
+    @staticmethod
+    def normalize_sso_handoff(value: Any) -> Optional[str]:
+        handoff = str(value or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9._~-]{20,255}", handoff):
+            return None
+        return handoff
+
+    @staticmethod
+    def oidc_login_url() -> str:
+        if not AuthManager.oidc_enabled():
+            raise AuthError("统一身份登录未配置", 503)
+        callback = urlparse(settings.oidc_redirect_uri)
+        base_path = callback.path.rsplit("/", 1)[0]
+        return urlunparse(
+            (
+                callback.scheme,
+                callback.netloc,
+                f"{base_path}/login",
+                "",
+                "",
+                "",
+            )
+        )
+
+    @staticmethod
+    async def create_oidc_authorization(
+        redirect_path: str = "/c",
+        login_handoff: Optional[str] = None,
+        passive: bool = False,
+    ) -> tuple[str, str]:
         if not AuthManager.oidc_enabled():
             raise AuthError("统一身份登录未配置", 503)
         safe_redirect = redirect_path if redirect_path.startswith("/") and not redirect_path.startswith("//") else "/c"
+        safe_handoff = AuthManager.normalize_sso_handoff(login_handoff)
+        passive = bool(passive and not safe_handoff)
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(24)
         verifier = secrets.token_urlsafe(64)
@@ -412,6 +479,8 @@ class AuthManager:
                 "nonce": nonce,
                 "verifier": verifier,
                 "redirect": safe_redirect,
+                "upgrade": bool(safe_handoff),
+                "passive": passive,
                 "iat": now,
                 "exp": now + timedelta(minutes=10),
             },
@@ -429,6 +498,14 @@ class AuthManager:
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
+        if safe_handoff:
+            params["login_hint"] = safe_handoff
+            if settings.oidc_idp_hint:
+                params["kc_idp_hint"] = settings.oidc_idp_hint
+        elif passive:
+            params["prompt"] = "none"
+            if settings.oidc_idp_hint:
+                params["kc_idp_hint"] = settings.oidc_idp_hint
         return f"{metadata['authorization_endpoint']}?{urlencode(params)}", state_cookie
 
     @staticmethod

@@ -357,6 +357,16 @@ API_URL=https://openrouter.ai/api/v1
 
 # 第三方登录 API (可选)
 LOGIN_API=https://your-login-api.com
+LOGIN_API_TOKEN=replace-with-a-service-token
+
+# 统一身份会话（可选；前五个 OIDC 字段需成组配置）
+OIDC_ISSUER=https://auth.example.com/realms/example
+OIDC_CLIENT_ID=smart-shop
+OIDC_CLIENT_SECRET=replace-with-client-secret
+OIDC_REDIRECT_URI=https://shop-api.example.com/auth/oidc/callback
+OIDC_FRONTEND_URL=https://shop.example.com
+# 使用 Keycloak 身份代理时可指定上游 IdP；其他 OIDC 服务可省略
+OIDC_IDP_HINT=campus
 
 # Redis 配置 (可选)
 REDIS_URL=redis://localhost:6379/0
@@ -398,6 +408,8 @@ DEV_LOG_LEVEL=DEBUG
 # 密码加密配置（默认启用，使用 bcrypt 加密存储密码）
 ENABLE_PASSWORD_HASH=1
 ```
+
+统一身份配置是可选能力。不配置 OIDC 时，原登录框、管理员登录和本地会话均保持原样；同时配置兼容登录 API 与 OIDC 后，用户仍只使用原登录框，成功后由浏览器自动完成一次会话衔接并返回商城，不需要额外按钮或再次输入。
 
 启动服务并登录管理后台后，在“AI 模型”页面逐项添加模型。排序最靠前的已启用模型是默认模型；模型可独立停用而不必删除。调整顺序、启用状态或思考能力后会自动保存并立即生效，无需重启后端。旧版本 `.env` 中的 `MODEL`、`MODEL_NAME` 与 `SUPPORTS_THINKING` 会在升级后首次启动时自动导入数据库。
 
