@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { getApiBaseUrl } from '../utils/runtimeConfig';
 import { getDeviceId } from '../utils/deviceId';
+import { suppressNextPassiveSso } from '../utils/ssoSuppression.mjs';
 
 const DEFAULT_AUTH_CONTEXT = {
   user: null,
@@ -169,6 +170,7 @@ export function AuthProvider({ children }) {
 
   // 用户登出
   const logout = async () => {
+    suppressNextPassiveSso();
     setIsLoading(true);
     try {
       await fetch(`${API_BASE}/auth/logout`, {
