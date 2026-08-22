@@ -169,6 +169,14 @@ class Settings:
     access_token_expire_days: int
     redis_url: str
     login_api: Optional[str]
+    login_api_token: Optional[str]
+    oidc_issuer: Optional[str]
+    oidc_client_id: Optional[str]
+    oidc_client_secret: Optional[str]
+    oidc_redirect_uri: Optional[str]
+    oidc_frontend_url: Optional[str]
+    oidc_admin_role: str
+    oidc_admin_username: Optional[str]
     admin_accounts: List[AdminAccount]
     allowed_origins: List[str]
     static_cache_max_age: int
@@ -210,6 +218,20 @@ def get_settings() -> Settings:
     access_days = _as_int(_strip_quotes(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS")), 30)
 
     login_api = _strip_quotes(os.getenv("LOGIN_API")) or None
+    login_api_token = _strip_quotes(os.getenv("LOGIN_API_TOKEN")) or None
+    oidc_issuer = _strip_quotes(os.getenv("OIDC_ISSUER")) or None
+    oidc_client_id = _strip_quotes(os.getenv("OIDC_CLIENT_ID")) or None
+    oidc_client_secret = _strip_quotes(os.getenv("OIDC_CLIENT_SECRET")) or None
+    oidc_redirect_uri = _strip_quotes(os.getenv("OIDC_REDIRECT_URI")) or None
+    oidc_frontend_url = _strip_quotes(os.getenv("OIDC_FRONTEND_URL")) or None
+    oidc_admin_role = (_strip_quotes(os.getenv("OIDC_ADMIN_ROLE")) or "smart-shop-admin").strip()
+    oidc_admin_username = _strip_quotes(os.getenv("OIDC_ADMIN_USERNAME")) or None
+    oidc_values = [oidc_issuer, oidc_client_id, oidc_client_secret, oidc_redirect_uri, oidc_frontend_url]
+    if any(oidc_values) and not all(oidc_values):
+        raise RuntimeError(
+            "OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, "
+            "OIDC_REDIRECT_URI and OIDC_FRONTEND_URL must be configured together"
+        )
     redis_url = (_strip_quotes(os.getenv("REDIS_URL")) or "redis://127.0.0.1:6379/0").strip()
 
     usernames = _split_csv(os.getenv("ADMIN_USERNAME"))
@@ -269,6 +291,14 @@ def get_settings() -> Settings:
         access_token_expire_days=access_days,
         redis_url=redis_url,
         login_api=login_api,
+        login_api_token=login_api_token,
+        oidc_issuer=oidc_issuer,
+        oidc_client_id=oidc_client_id,
+        oidc_client_secret=oidc_client_secret,
+        oidc_redirect_uri=oidc_redirect_uri,
+        oidc_frontend_url=oidc_frontend_url,
+        oidc_admin_role=oidc_admin_role,
+        oidc_admin_username=oidc_admin_username,
         admin_accounts=admin_accounts,
         allowed_origins=allowed_origins,
         static_cache_max_age=cache_max_age,

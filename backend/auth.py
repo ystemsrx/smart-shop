@@ -1,12 +1,17 @@
 # /backend/auth.py
 import os
+import base64
+import hashlib
 import jwt
 import httpx
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+from urllib.parse import urlencode
 from fastapi import HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt as jose_jwt
 from database import UserDB, AdminDB, AddressDB, AgentAssignmentDB, BuildingDB
 from config import get_settings
 
@@ -18,9 +23,47 @@ ACCESS_TOKEN_EXPIRE_DAYS = settings.access_token_expire_days
 
 # 第三方登录API配置
 LOGIN_API = settings.login_api
+LOGIN_API_TOKEN = settings.login_api_token
+OIDC_STATE_COOKIE = "smart_shop_oidc_state"
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
+_oidc_metadata_cache: Optional[Dict[str, Any]] = None
+_oidc_jwks_cache: Optional[Dict[str, Any]] = None
+
+
+async def _get_oidc_metadata(force: bool = False) -> Dict[str, Any]:
+    global _oidc_metadata_cache
+    if _oidc_metadata_cache is not None and not force:
+        return _oidc_metadata_cache
+    if not settings.oidc_issuer:
+        raise AuthError("统一身份登录未配置", 503)
+    discovery_url = f"{settings.oidc_issuer.rstrip('/')}/.well-known/openid-configuration"
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        response = await client.get(discovery_url)
+        response.raise_for_status()
+        payload = response.json()
+    if payload.get("issuer") != settings.oidc_issuer:
+        raise AuthError("统一身份服务配置不匹配", 503)
+    _oidc_metadata_cache = payload
+    return payload
+
+
+async def _get_oidc_jwks(metadata: Dict[str, Any], force: bool = False) -> Dict[str, Any]:
+    global _oidc_jwks_cache
+    if _oidc_jwks_cache is not None and not force:
+        return _oidc_jwks_cache
+    jwks_uri = metadata.get("jwks_uri")
+    if not jwks_uri:
+        raise AuthError("统一身份服务缺少签名密钥地址", 503)
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        response = await client.get(jwks_uri)
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload.get("keys"), list) or not payload["keys"]:
+        raise AuthError("统一身份服务签名密钥无效", 503)
+    _oidc_jwks_cache = payload
+    return payload
 
 
 class AuthError(Exception):
@@ -50,7 +93,7 @@ class AuthManager:
         except jwt.ExpiredSignatureError:
             logger.warning("Token expired")
             return None
-        except jwt.JWTError as e:
+        except jwt.PyJWTError as e:
             logger.warning("Token validation failed: %s", e)
             return None
     
@@ -72,6 +115,8 @@ class AuthManager:
                 "Accept-Encoding": "identity",
                 "Accept-Language": "zh-CN,zh;q=0.9"
             }
+            if LOGIN_API_TOKEN:
+                headers["Authorization"] = f"Bearer {LOGIN_API_TOKEN}"
             
             payload = {
                 "account": student_id,
@@ -337,6 +382,214 @@ class AuthManager:
             "token_type": "bearer",
             "user": user_payload
         }
+
+    @staticmethod
+    def oidc_enabled() -> bool:
+        return bool(
+            settings.oidc_issuer
+            and settings.oidc_client_id
+            and settings.oidc_client_secret
+            and settings.oidc_redirect_uri
+            and settings.oidc_frontend_url
+        )
+
+    @staticmethod
+    async def create_oidc_authorization(redirect_path: str = "/c") -> tuple[str, str]:
+        if not AuthManager.oidc_enabled():
+            raise AuthError("统一身份登录未配置", 503)
+        safe_redirect = redirect_path if redirect_path.startswith("/") and not redirect_path.startswith("//") else "/c"
+        state = secrets.token_urlsafe(32)
+        nonce = secrets.token_urlsafe(24)
+        verifier = secrets.token_urlsafe(64)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode("utf-8")).digest()
+        ).decode("ascii").rstrip("=")
+        now = datetime.now(timezone.utc)
+        state_cookie = jwt.encode(
+            {
+                "purpose": "oidc_state",
+                "state": state,
+                "nonce": nonce,
+                "verifier": verifier,
+                "redirect": safe_redirect,
+                "iat": now,
+                "exp": now + timedelta(minutes=10),
+            },
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
+        metadata = await _get_oidc_metadata()
+        params = {
+            "client_id": settings.oidc_client_id,
+            "redirect_uri": settings.oidc_redirect_uri,
+            "response_type": "code",
+            "scope": "openid profile email",
+            "state": state,
+            "nonce": nonce,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        return f"{metadata['authorization_endpoint']}?{urlencode(params)}", state_cookie
+
+    @staticmethod
+    def decode_oidc_state(state: str, state_cookie: str) -> Dict[str, Any]:
+        try:
+            payload = jwt.decode(state_cookie, SECRET_KEY, algorithms=[ALGORITHM])
+        except jwt.PyJWTError as exc:
+            raise AuthError("登录请求已失效，请重新发起", 400) from exc
+        expected_state = str(payload.get("state") or "")
+        if (
+            payload.get("purpose") != "oidc_state"
+            or not expected_state
+            or not secrets.compare_digest(expected_state, str(state or ""))
+        ):
+            raise AuthError("登录请求无效", 400)
+        return payload
+
+    @staticmethod
+    async def exchange_oidc_code(
+        code: str,
+        state: str,
+        state_cookie: str,
+    ) -> tuple[Dict[str, Any], str]:
+        state_payload = AuthManager.decode_oidc_state(state, state_cookie)
+        metadata = await _get_oidc_metadata()
+        token_payload = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.oidc_redirect_uri,
+            "client_id": settings.oidc_client_id,
+            "client_secret": settings.oidc_client_secret,
+            "code_verifier": state_payload["verifier"],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+                response = await client.post(
+                    metadata["token_endpoint"],
+                    data=token_payload,
+                    headers={"Accept": "application/json"},
+                )
+                response.raise_for_status()
+                tokens = response.json()
+            id_token = tokens.get("id_token")
+            if not id_token:
+                raise AuthError("统一身份服务未返回身份令牌", 502)
+            jwks = await _get_oidc_jwks(metadata)
+            try:
+                claims = jose_jwt.decode(
+                    id_token,
+                    jwks,
+                    algorithms=["RS256", "PS256", "ES256"],
+                    audience=settings.oidc_client_id,
+                    issuer=settings.oidc_issuer,
+                    options={"verify_at_hash": False},
+                )
+            except Exception:
+                jwks = await _get_oidc_jwks(metadata, force=True)
+                claims = jose_jwt.decode(
+                    id_token,
+                    jwks,
+                    algorithms=["RS256", "PS256", "ES256"],
+                    audience=settings.oidc_client_id,
+                    issuer=settings.oidc_issuer,
+                    options={"verify_at_hash": False},
+                )
+            if claims.get("nonce") != state_payload.get("nonce"):
+                raise AuthError("统一身份登录校验失败", 401)
+            if not claims.get("sub"):
+                raise AuthError("统一身份信息不完整", 401)
+            return claims, state_payload.get("redirect") or "/c"
+        except AuthError:
+            raise
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            logger.error("OIDC code exchange failed: %s", exc)
+            raise AuthError("统一身份服务暂时不可用", 503) from exc
+
+    @staticmethod
+    async def create_oidc_logout_url() -> str:
+        if not AuthManager.oidc_enabled():
+            raise AuthError("统一身份登录未配置", 503)
+        metadata = await _get_oidc_metadata()
+        endpoint = metadata.get("end_session_endpoint")
+        if not endpoint:
+            raise AuthError("统一身份服务不支持统一注销", 503)
+        params = {
+            "client_id": settings.oidc_client_id,
+            "post_logout_redirect_uri": f"{settings.oidc_frontend_url.rstrip('/')}/login",
+        }
+        return f"{endpoint}?{urlencode(params)}"
+
+    @staticmethod
+    def oidc_roles(claims: Dict[str, Any]) -> set[str]:
+        roles = set(claims.get("realm_access", {}).get("roles") or [])
+        client_roles = (
+            claims.get("resource_access", {})
+            .get(settings.oidc_client_id or "", {})
+            .get("roles")
+            or []
+        )
+        roles.update(client_roles)
+        return {str(role) for role in roles}
+
+    @staticmethod
+    def login_oidc(claims: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        username = str(
+            claims.get("student_number")
+            or claims.get("preferred_username")
+            or ""
+        ).strip()
+        if not username:
+            return None
+
+        if settings.oidc_admin_role in AuthManager.oidc_roles(claims):
+            admin = AdminDB.get_admin(settings.oidc_admin_username or username)
+            return AuthManager._create_admin_session(admin) if admin else None
+
+        keycloak_sub = str(claims.get("sub") or "").strip()
+        identity_id = str(claims.get("identity_id") or "").strip() or None
+        id_number = str(claims.get("id_number") or "").strip() or None
+        name = str(claims.get("name") or username).strip() or username
+        linked_user = UserDB.get_user_by_keycloak_sub(keycloak_sub)
+        account_user = UserDB.get_user(username)
+        if linked_user and account_user and linked_user.get("user_id") != account_user.get("user_id"):
+            return None
+        local_user = linked_user or account_user
+        if local_user is None:
+            if not UserDB.create_user(
+                student_id=username,
+                password=secrets.token_urlsafe(48),
+                name=name,
+                id_number=id_number,
+                id_status=1 if id_number else 2,
+            ):
+                return None
+        local_user = UserDB.link_oidc_identity(
+            username,
+            keycloak_sub,
+            identity_id,
+            id_number,
+            name,
+        )
+        if not local_user:
+            return None
+        token_data = {
+            "sub": username,
+            "type": "user",
+            "name": local_user["name"],
+            "keycloak_sub": keycloak_sub,
+        }
+        access_token = AuthManager.create_access_token(token_data)
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": local_user["id"],
+                "name": local_user["name"],
+                "created_at": local_user.get("created_at"),
+                "id_number": local_user.get("id_number"),
+                "id_status": UserDB.normalize_id_status(local_user.get("id_status")),
+            },
+        }
     
     @staticmethod
     def login_admin(admin_id: str, password: str) -> Optional[Dict[str, Any]]:
@@ -344,6 +597,12 @@ class AuthManager:
         admin = AdminDB.verify_admin(admin_id, password)
         if not admin:
             return None
+
+        return AuthManager._create_admin_session(admin)
+
+    @staticmethod
+    def _create_admin_session(admin: Dict[str, Any]) -> Dict[str, Any]:
+        admin_id = admin["id"]
 
         role = admin.get('role') or 'admin'
         account_type = 'admin' if role in ('admin', 'super_admin') else 'agent'
