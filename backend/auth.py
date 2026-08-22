@@ -314,51 +314,15 @@ class AuthManager:
 
         # 1. 首先检查本地数据库中是否存在用户
         local_user = UserDB.get_user(student_id)
-        id_status = UserDB.normalize_id_status(local_user.get('id_status') if local_user else None)
         api_result: Optional[Dict[str, Any]] = None
-        api_check_attempted = False
         # 使用 verify_user 验证密码（支持加密密码）
         is_local_password_valid = bool(UserDB.verify_user(student_id, password))
-
-        async def _ensure_identity(current_user: Optional[Dict[str, Any]], payload: Optional[Dict[str, Any]]) -> int:
-            """仅在状态为0时尝试获取身份证号"""
-            status_now = UserDB.normalize_id_status(current_user.get('id_status') if current_user else None)
-            if status_now != 0:
-                return status_now
-
-            nonlocal api_result, api_check_attempted
-            active_payload = payload or api_result
-            if active_payload is None:
-                api_check_attempted = True
-                active_payload = await AuthManager.verify_login(
-                    student_id,
-                    password,
-                    create_sso_handoff=AuthManager.sso_upgrade_enabled(),
-                )
-                api_result = active_payload
-
-            id_number_value = _clean_id_number(active_payload.get('id_number') if active_payload else None) if active_payload else None
-            new_status = 1 if id_number_value else 2
-            UserDB.update_user_identity(student_id, id_number_value, new_status)
-            return new_status
         
         if local_user and is_local_password_valid:
             logger.info("User %s logged in with local credentials", student_id)
-            if id_status == 0:
-                # 老数据：本地密码正确，但需要获取身份证号
-                try:
-                    id_status = await _ensure_identity(local_user, None)
-                    local_user = UserDB.get_user(student_id)
-                except AuthError as exc:
-                    logger.warning(
-                        "Optional identity refresh unavailable for %s: %s",
-                        student_id,
-                        exc.message,
-                    )
         else:
             # 本地密码不匹配或用户不存在，尝试第三方API验证
             logger.info("User %s requires third-party API verification", student_id)
-            api_check_attempted = True
             api_result = await AuthManager.verify_login(
                 student_id,
                 password,
@@ -368,15 +332,9 @@ class AuthManager:
                 logger.warning("Third-party API verification failed for %s", student_id)
                 return None
             logger.info("Third-party API verification succeeded for %s", student_id)
-            # 远端成功后，首次登录/凭据失效：无论原状态为何都重新写入身份证状态
-            id_number_value = _clean_id_number(api_result.get('id_number'))
-            new_status = 1 if id_number_value else 2
-            UserDB.update_user_identity(student_id, id_number_value, new_status)
-            id_status = new_status
-        
-        # 3. 第三方验证成功，更新或创建本地用户记录
-        if local_user:
-            if not is_local_password_valid and api_result:
+
+            # 第三方验证成功，更新或创建本地用户记录
+            if local_user:
                 logger.info("Updating local password for %s", student_id)
                 UserDB.update_user_password(student_id, password)
                 if local_user['name'] != api_result['name']:
@@ -386,43 +344,24 @@ class AuthManager:
                 id_number_value = _clean_id_number(api_result.get('id_number')) if api_result else None
                 new_status = 1 if id_number_value else 2
                 UserDB.update_user_identity(student_id, id_number_value, new_status)
-                id_status = new_status
-
-            local_user = UserDB.get_user(student_id)
-        else:
-            # 用户不存在，创建新用户
-            logger.info("Creating new user %s", student_id)
-            id_number_value = _clean_id_number(api_result.get('id_number') if api_result else None)
-            create_status = 1 if id_number_value else 2
-            success = UserDB.create_user(
-                student_id=student_id,
-                password=password,
-                name=api_result['name'] if api_result else student_id,
-                id_number=id_number_value,
-                id_status=create_status
-            )
-            if not success:
-                logger.error("Failed to create user %s", student_id)
-                return None
-            local_user = UserDB.get_user(student_id)
-        
-        if AuthManager.sso_upgrade_enabled() and not api_check_attempted:
-            api_check_attempted = True
-            try:
-                api_result = await AuthManager.verify_login(
-                    student_id,
-                    password,
-                    create_sso_handoff=True,
+                local_user = UserDB.get_user(student_id)
+            else:
+                logger.info("Creating new user %s", student_id)
+                id_number_value = _clean_id_number(api_result.get('id_number'))
+                create_status = 1 if id_number_value else 2
+                success = UserDB.create_user(
+                    student_id=student_id,
+                    password=password,
+                    name=api_result['name'],
+                    id_number=id_number_value,
+                    id_status=create_status
                 )
-            except AuthError as exc:
-                logger.warning(
-                    "Optional SSO upgrade unavailable for %s: %s",
-                    student_id,
-                    exc.message,
-                )
-                api_result = None
+                if not success:
+                    logger.error("Failed to create user %s", student_id)
+                    return None
+                local_user = UserDB.get_user(student_id)
 
-        # 4. 生成JWT令牌
+        # 2. 生成JWT令牌
         def _format_created_at(value: Any) -> Any:
             """格式化时间为UTC+8字符串"""
             try:
