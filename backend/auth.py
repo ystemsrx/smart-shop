@@ -28,6 +28,7 @@ LOGIN_API_TOKEN = settings.login_api_token
 OIDC_STATE_COOKIE = "smart_shop_oidc_state"
 OIDC_HANDOFF_COOKIE = "smart_shop_sso_handoff"
 OIDC_PASSIVE_LOGIN_HINT = "lc-passive-v1"
+IDENTITY_BRIDGE_HTTP_TIMEOUT = httpx.Timeout(10.0, read=30.0)
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -134,7 +135,7 @@ class AuthManager:
             
             # 配置httpx客户端以正确处理压缩响应
             async with httpx.AsyncClient(
-                 timeout=10.0,
+                 timeout=IDENTITY_BRIDGE_HTTP_TIMEOUT,
                  follow_redirects=True  # 跟随重定向
              ) as client:
                 response = await client.post(
