@@ -6,6 +6,7 @@ import { getShopName } from "../utils/runtimeConfig";
 import PastelBackground from "../components/ModalCard";
 import SliderCaptchaModal from "../components/SliderCaptchaModal";
 import LegalModal from "../components/LegalModal";
+import { consumePassiveSsoSuppression } from "../utils/ssoSuppression.mjs";
 
 const isCaptchaRequiredError = (err) => {
   const status = Number(err?.status || 0);
@@ -132,9 +133,11 @@ export default function Login() {
   }, [user, isInitialized, router, getSafeRedirect, ssoRedirecting]);
 
   useEffect(() => {
-    if (!router.isReady || !isInitialized) return;
+    if (!router.isReady || !isInitialized || ssoCheckComplete) return;
+    const passiveSsoSuppressed = consumePassiveSsoSuppression();
     if (
       user ||
+      passiveSsoSuppressed ||
       router.query?.sso_checked === "1" ||
       router.query?.oidc_error === "1"
     ) {
@@ -167,7 +170,13 @@ export default function Login() {
     return () => {
       cancelled = true;
     };
-  }, [router, user, isInitialized, getSafeRedirect]);
+  }, [
+    router,
+    user,
+    isInitialized,
+    getSafeRedirect,
+    ssoCheckComplete,
+  ]);
 
   useEffect(() => {
     const checkRegistrationStatus = async () => {
