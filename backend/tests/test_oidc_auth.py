@@ -208,6 +208,24 @@ class LoginApiFailureTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
+    async def test_identity_bridge_read_timeout_is_thirty_seconds(self):
+        client = self.client_returning(Mock(status_code=401, text=""))
+        with (
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(
+                auth.httpx,
+                "AsyncClient",
+                return_value=client,
+            ) as async_client,
+        ):
+            await auth.AuthManager.verify_login("20260001", "value")
+
+        timeout = async_client.call_args.kwargs["timeout"]
+        self.assertEqual(timeout.read, 30.0)
+        self.assertEqual(timeout.connect, 10.0)
+        self.assertEqual(timeout.write, 10.0)
+        self.assertEqual(timeout.pool, 10.0)
+
 
 class LoginRouteFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_login_service_is_reported_as_unavailable(self):
