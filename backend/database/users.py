@@ -80,6 +80,75 @@ class UserDB:
             return dict(row) if row else None
 
     @staticmethod
+    def get_user_by_keycloak_sub(keycloak_sub: str) -> Optional[Dict]:
+        if not keycloak_sub:
+            return None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM users WHERE keycloak_sub = ? LIMIT 1',
+                (keycloak_sub,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def link_oidc_identity(
+        student_id: str,
+        keycloak_sub: str,
+        unified_identity_id: Optional[str],
+        id_number: Optional[str],
+        name: str,
+    ) -> Optional[Dict]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                ensure_table_columns(conn, 'users', {
+                    'id_number': 'CHAR(18)',
+                    'id_status': 'INTEGER NOT NULL DEFAULT 0',
+                    'unified_identity_id': 'TEXT',
+                    'keycloak_sub': 'TEXT',
+                })
+                cursor.execute('SELECT * FROM users WHERE id = ?', (student_id,))
+                existing = cursor.fetchone()
+                if not existing:
+                    return None
+                existing = dict(existing)
+                linked_sub = str(existing.get('keycloak_sub') or '').strip()
+                if linked_sub and linked_sub != keycloak_sub:
+                    return None
+                status = 1 if id_number else UserDB.normalize_id_status(existing.get('id_status'))
+                cursor.execute(
+                    '''
+                    UPDATE users
+                    SET keycloak_sub = ?,
+                        unified_identity_id = COALESCE(?, unified_identity_id),
+                        id_number = COALESCE(?, id_number),
+                        id_status = ?,
+                        name = CASE WHEN TRIM(?) = '' THEN name ELSE ? END
+                    WHERE id = ?
+                    ''',
+                    (
+                        keycloak_sub,
+                        unified_identity_id,
+                        id_number,
+                        status,
+                        name,
+                        name,
+                        student_id,
+                    )
+                )
+                conn.commit()
+                return UserDB.get_user(student_id)
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                return None
+            except Exception as exc:
+                logger.error("Failed to link OIDC identity for %s: %s", student_id, exc)
+                conn.rollback()
+                return None
+
+    @staticmethod
     def resolve_user_reference(user_identifier: Union[str, int, None]) -> Optional[Dict[str, Any]]:
         """根据学号或 user_id 解析用户，返回 {'user_id': int, 'student_id': str}。"""
         if user_identifier is None:

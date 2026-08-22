@@ -35,9 +35,19 @@ def init_database():
                 name TEXT NOT NULL,
                 id_number CHAR(18),
                 id_status INTEGER NOT NULL DEFAULT 0,
+                unified_identity_id TEXT,
+                keycloak_sub TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unified_identity_id '
+            'ON users(unified_identity_id) WHERE unified_identity_id IS NOT NULL'
+        )
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_keycloak_sub '
+            'ON users(keycloak_sub) WHERE keycloak_sub IS NOT NULL'
+        )
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (

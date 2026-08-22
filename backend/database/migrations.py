@@ -59,7 +59,9 @@ def ensure_user_id_schema(conn) -> None:
     def _ensure_user_table():
         ensure_table_columns(conn, 'users', {
             'id_number': 'CHAR(18)',
-            'id_status': 'INTEGER NOT NULL DEFAULT 0'
+            'id_status': 'INTEGER NOT NULL DEFAULT 0',
+            'unified_identity_id': 'TEXT',
+            'keycloak_sub': 'TEXT'
         })
 
         columns = _table_columns('users')
@@ -82,6 +84,8 @@ def ensure_user_id_schema(conn) -> None:
                         name TEXT NOT NULL,
                         id_number CHAR(18),
                         id_status INTEGER NOT NULL DEFAULT 0,
+                        unified_identity_id TEXT,
+                        keycloak_sub TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
@@ -89,6 +93,8 @@ def ensure_user_id_schema(conn) -> None:
                 has_created_at = any(row[1] == 'created_at' for row in columns)
                 has_id_number = 'id_number' in column_names
                 has_id_status = 'id_status' in column_names
+                has_unified_identity_id = 'unified_identity_id' in column_names
+                has_keycloak_sub = 'keycloak_sub' in column_names
 
                 select_fields = ['rowid as __rowid', 'id', 'password', 'name']
                 if has_created_at:
@@ -97,6 +103,10 @@ def ensure_user_id_schema(conn) -> None:
                     select_fields.append('id_number')
                 if has_id_status:
                     select_fields.append('id_status')
+                if has_unified_identity_id:
+                    select_fields.append('unified_identity_id')
+                if has_keycloak_sub:
+                    select_fields.append('keycloak_sub')
 
                 cursor.execute(f"SELECT {', '.join(select_fields)} FROM users")
                 rows = cursor.fetchall()
@@ -121,6 +131,12 @@ def ensure_user_id_schema(conn) -> None:
                     if has_created_at:
                         insert_cols.append('created_at')
                         params.append(row_dict.get('created_at'))
+                    if has_unified_identity_id:
+                        insert_cols.append('unified_identity_id')
+                        params.append(row_dict.get('unified_identity_id'))
+                    if has_keycloak_sub:
+                        insert_cols.append('keycloak_sub')
+                        params.append(row_dict.get('keycloak_sub'))
 
                     placeholders = ','.join('?' * len(params))
                     cursor.execute(
@@ -142,6 +158,14 @@ def ensure_user_id_schema(conn) -> None:
 
             cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_student_id ON users(id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)')
+            cursor.execute(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unified_identity_id '
+                'ON users(unified_identity_id) WHERE unified_identity_id IS NOT NULL'
+            )
+            cursor.execute(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_keycloak_sub '
+                'ON users(keycloak_sub) WHERE keycloak_sub IS NOT NULL'
+            )
             conn.commit()
         except sqlite3.OperationalError as exc:
             logger.warning("Failed to rebuild users table: %s", exc)

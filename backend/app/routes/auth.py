@@ -1,8 +1,12 @@
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import RedirectResponse
 
 from auth import (
     AuthError,
     AuthManager,
+    OIDC_STATE_COOKIE,
     clear_auth_cookie,
     error_response,
     get_current_admin_from_cookie,
@@ -13,6 +17,7 @@ from auth import (
     success_response,
 )
 from database import AdminDB, SalesCycleDB, SettingsDB, UserDB
+from config import get_settings
 from ..context import logger
 from ..schemas import (
     AdminLoginRequest,
@@ -31,6 +36,7 @@ from ..utils import is_truthy
 
 
 router = APIRouter()
+settings = get_settings()
 
 
 @router.post("/auth/captcha/challenge")
@@ -140,6 +146,96 @@ async def admin_login(http_request: Request, request: AdminLoginRequest, respons
     except Exception as exc:
         logger.error("Admin login failed: %s", exc)
         return error_response("管理员登录失败，请稍后重试", 500)
+
+
+@router.get("/auth/oidc/status")
+async def oidc_status():
+    """返回统一身份登录是否可用。"""
+    return success_response("获取成功", {"enabled": AuthManager.oidc_enabled()})
+
+
+@router.get("/auth/oidc/login")
+async def oidc_login(redirect: str = "/c"):
+    """发起统一身份登录。"""
+    try:
+        authorization_url, state_cookie = await AuthManager.create_oidc_authorization(redirect)
+        response = RedirectResponse(authorization_url, status_code=302)
+        response.set_cookie(
+            key=OIDC_STATE_COOKIE,
+            value=state_cookie,
+            max_age=10 * 60,
+            httponly=True,
+            secure=not settings.is_development,
+            samesite="lax",
+            path="/auth/oidc",
+        )
+        return response
+    except AuthError:
+        return _oidc_error_redirect()
+    except Exception as exc:
+        logger.error("Failed to start OIDC login: %s", exc)
+        return _oidc_error_redirect()
+
+
+@router.get("/auth/oidc/callback")
+async def oidc_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """完成统一身份登录并建立现有业务会话。"""
+    if error or not code or not state:
+        return _oidc_error_redirect(clear_state=True)
+    try:
+        state_cookie = request.cookies.get(OIDC_STATE_COOKIE, "")
+        claims, redirect_path = await AuthManager.exchange_oidc_code(code, state, state_cookie)
+        result = AuthManager.login_oidc(claims)
+        if not result:
+            return _oidc_error_redirect(clear_state=True)
+        account = result.get("agent") or result.get("admin") or result.get("user") or {}
+        if account.get("type") == "admin":
+            redirect_path = "/admin/dashboard"
+        elif account.get("type") == "agent":
+            redirect_path = "/agent/dashboard"
+        target = f"{settings.oidc_frontend_url.rstrip('/')}{redirect_path}"
+        response = RedirectResponse(target, status_code=302)
+        _clear_oidc_state_cookie(response)
+        set_auth_cookie(response, result["access_token"])
+        return response
+    except AuthError as exc:
+        logger.warning("OIDC login rejected: %s", exc.message)
+        return _oidc_error_redirect(clear_state=True)
+    except Exception as exc:
+        logger.error("OIDC callback failed: %s", exc)
+        return _oidc_error_redirect(clear_state=True)
+
+
+@router.get("/auth/oidc/logout")
+async def oidc_logout():
+    """清除应用会话并发起统一注销。"""
+    try:
+        target = await AuthManager.create_oidc_logout_url()
+    except Exception as exc:
+        logger.warning("OIDC logout fallback: %s", exc)
+        target = f"{settings.oidc_frontend_url.rstrip('/')}/login" if settings.oidc_frontend_url else "/"
+    response = RedirectResponse(target, status_code=302)
+    clear_auth_cookie(response)
+    _clear_oidc_state_cookie(response)
+    return response
+
+
+def _oidc_error_redirect(clear_state: bool = False) -> RedirectResponse:
+    if not settings.oidc_frontend_url:
+        response = RedirectResponse("/", status_code=302)
+    else:
+        query = urlencode({"oidc_error": "1"})
+        response = RedirectResponse(
+            f"{settings.oidc_frontend_url.rstrip('/')}/login?{query}",
+            status_code=302,
+        )
+    if clear_state:
+        _clear_oidc_state_cookie(response)
+    return response
+
+
+def _clear_oidc_state_cookie(response: Response) -> None:
+    response.delete_cookie(key=OIDC_STATE_COOKIE, path="/auth/oidc")
 
 
 @router.post("/auth/logout")

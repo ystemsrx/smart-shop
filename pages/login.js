@@ -28,6 +28,7 @@ export default function Login() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
   const [legalModal, setLegalModal] = useState({ open: false, tab: "terms" });
@@ -119,12 +120,19 @@ export default function Login() {
     const checkRegistrationStatus = async () => {
       try {
         const { getApiBaseUrl } = await import("../utils/runtimeConfig");
-        const response = await fetch(
-          `${getApiBaseUrl()}/auth/registration-status`,
-        );
-        const result = await response.json();
-        if (result.success) {
-          setRegistrationEnabled(result.data.enabled);
+        const [registrationResponse, oidcResponse] = await Promise.all([
+          fetch(`${getApiBaseUrl()}/auth/registration-status`),
+          fetch(`${getApiBaseUrl()}/auth/oidc/status`),
+        ]);
+        const [registrationResult, oidcResult] = await Promise.all([
+          registrationResponse.json(),
+          oidcResponse.json(),
+        ]);
+        if (registrationResult.success) {
+          setRegistrationEnabled(registrationResult.data.enabled);
+        }
+        if (oidcResult.success) {
+          setOidcEnabled(Boolean(oidcResult.data.enabled));
         }
       } catch (e) {
         console.error("Failed to fetch registration status:", e);
@@ -158,6 +166,14 @@ export default function Login() {
       ...formData,
       [e.target.name]: e.target.value,
     });
+  };
+
+  const handleOidcLogin = async () => {
+    const { getApiBaseUrl } = await import("../utils/runtimeConfig");
+    const redirectPath = getSafeRedirect() || "/c";
+    window.location.assign(
+      `${getApiBaseUrl()}/auth/oidc/login?redirect=${encodeURIComponent(redirectPath)}`,
+    );
   };
 
   if (!isInitialized) {
@@ -248,12 +264,12 @@ export default function Login() {
           <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-200">
             <div className="auth-card p-6 sm:p-8">
               <form className="space-y-5" onSubmit={handleSubmit}>
-                {error && (
+                {(error || router.query?.oidc_error === "1") && (
                   <div className="auth-error animate-apple-fade-in">
                     <div className="flex items-center gap-2.5">
                       <i className="fas fa-info-circle text-red-500 text-sm"></i>
                       <span className="text-[13px] text-red-600 font-medium leading-snug">
-                        {error}
+                        {error || "统一身份登录失败，请重试"}
                       </span>
                     </div>
                   </div>
@@ -359,6 +375,16 @@ export default function Login() {
 
               {/* Divider & Actions */}
               <div className="mt-6">
+                {oidcEnabled && (
+                  <button
+                    type="button"
+                    onClick={handleOidcLogin}
+                    className="auth-alt-btn auth-alt-btn-accent w-full"
+                  >
+                    <i className="fas fa-id-card text-[13px]"></i>
+                    <span>统一身份登录</span>
+                  </button>
+                )}
                 <div className="auth-divider">
                   <span>或</span>
                 </div>
