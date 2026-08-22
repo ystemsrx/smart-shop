@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useAuth } from "../hooks/useAuth";
@@ -7,6 +7,9 @@ import PastelBackground from "../components/ModalCard";
 import SliderCaptchaModal from "../components/SliderCaptchaModal";
 import LegalModal from "../components/LegalModal";
 import { consumePassiveSsoSuppression } from "../utils/ssoSuppression.mjs";
+import { getPassiveSsoFrameResult } from "../utils/passiveSso.mjs";
+
+const PASSIVE_SSO_TIMEOUT_MS = 30_000;
 
 const isCaptchaRequiredError = (err) => {
   const status = Number(err?.status || 0);
@@ -35,6 +38,8 @@ export default function Login() {
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
   const [legalModal, setLegalModal] = useState({ open: false, tab: "terms" });
   const [focusedField, setFocusedField] = useState(null);
+  const loginSubmittedRef = useRef(false);
+  const cancelPassiveSsoRef = useRef(null);
 
   const getSafeRedirect = useCallback(() => {
     if (!router.isReady) return null;
@@ -145,20 +150,85 @@ export default function Login() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    let frame = null;
+    let timeoutId = null;
+
+    const cancelProbe = () => {
+      controller.abort();
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (frame) {
+        frame.remove();
+        frame = null;
+      }
+    };
+    cancelPassiveSsoRef.current = cancelProbe;
+
+    const completeProbe = () => {
+      cancelProbe();
+      if (!cancelled && !loginSubmittedRef.current) {
+        setSsoCheckComplete(true);
+      }
+    };
+
     const checkExistingSession = async () => {
       try {
         const { getApiBaseUrl } = await import("../utils/runtimeConfig");
-        const response = await fetch(`${getApiBaseUrl()}/auth/oidc/status`);
+        const response = await fetch(`${getApiBaseUrl()}/auth/oidc/status`, {
+          signal: controller.signal,
+        });
         const result = await response.json();
-        if (!cancelled && result.success && result.data?.enabled) {
+        if (
+          !cancelled &&
+          !loginSubmittedRef.current &&
+          result.success &&
+          result.data?.enabled
+        ) {
           const target = new URL(
             `${getApiBaseUrl()}/auth/oidc/login`,
             window.location.origin,
           );
           target.searchParams.set("passive", "true");
           target.searchParams.set("redirect", getSafeRedirect() || "/c");
-          setSsoRedirecting(true);
-          window.location.replace(target.toString());
+
+          frame = document.createElement("iframe");
+          frame.title = "统一身份登录状态检查";
+          frame.tabIndex = -1;
+          frame.setAttribute("aria-hidden", "true");
+          frame.style.display = "none";
+          frame.addEventListener("load", () => {
+            if (cancelled || loginSubmittedRef.current || !frame) return;
+
+            let frameUrl = "";
+            try {
+              frameUrl = frame.contentWindow?.location?.href || "";
+            } catch (_err) {
+              // The probe is still visiting the cross-origin identity provider.
+              return;
+            }
+
+            const result = getPassiveSsoFrameResult(
+              frameUrl,
+              window.location.origin,
+            );
+            if (!result) return;
+            if (result.status === "authenticated") {
+              cancelProbe();
+              setSsoRedirecting(true);
+              window.location.replace(result.redirect);
+              return;
+            }
+            completeProbe();
+          });
+          document.body.appendChild(frame);
+          frame.src = target.toString();
+          timeoutId = window.setTimeout(
+            completeProbe,
+            PASSIVE_SSO_TIMEOUT_MS,
+          );
           return;
         }
       } catch (_err) {
@@ -169,6 +239,10 @@ export default function Login() {
     void checkExistingSession();
     return () => {
       cancelled = true;
+      cancelProbe();
+      if (cancelPassiveSsoRef.current === cancelProbe) {
+        cancelPassiveSsoRef.current = null;
+      }
     };
   }, [
     router,
@@ -204,6 +278,9 @@ export default function Login() {
     };
 
     if (!payload.accountId || !payload.password) return;
+    loginSubmittedRef.current = true;
+    cancelPassiveSsoRef.current?.();
+    setSsoCheckComplete(true);
     setPendingLoginPayload(payload);
     await processLogin(payload);
   };
@@ -223,7 +300,7 @@ export default function Login() {
     });
   };
 
-  if (!isInitialized || !ssoCheckComplete) {
+  if (!isInitialized) {
     return (
       <>
         <Head>
