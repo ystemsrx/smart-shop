@@ -78,7 +78,7 @@ jobs:
       - verify-frontend
       - verify-backend
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@v5
@@ -99,6 +99,8 @@ jobs:
           context: .
           file: docker/Dockerfile.backend
           push: true
+          cache-from: type=gha,scope=smart-shop-backend
+          cache-to: type=gha,mode=max,scope=smart-shop-backend
           tags: |
             ${{ env.REGISTRY }}/lazycampus/smart-shop-backend:1.0.${{ github.run_number }}
             ${{ env.REGISTRY }}/lazycampus/smart-shop-backend:sha-${{ github.sha }}
@@ -112,6 +114,8 @@ jobs:
           context: .
           file: docker/Dockerfile.frontend
           push: true
+          cache-from: type=gha,scope=smart-shop-frontend
+          cache-to: type=gha,mode=max,scope=smart-shop-frontend
           build-args: |
             ENV=production
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
