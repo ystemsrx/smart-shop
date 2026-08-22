@@ -121,6 +121,8 @@ async def login(http_request: Request, request: LoginRequest, response: Response
             result["sso_upgrade_url"] = AuthManager.oidc_login_url()
         return success_response("登录成功", result)
 
+    except AuthError as exc:
+        return error_response(exc.message, exc.status_code)
     except CaptchaError as exc:
         return error_response(exc.message, exc.status_code)
     except Exception as exc:
