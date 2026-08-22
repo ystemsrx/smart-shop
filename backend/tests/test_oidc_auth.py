@@ -21,6 +21,7 @@ def oidc_settings():
         oidc_client_secret="client-secret",
         oidc_redirect_uri="https://api.example.test/auth/oidc/callback",
         oidc_frontend_url="https://shop.example.test",
+        oidc_idp_hint="campus",
         oidc_admin_role="smart-shop-admin",
         oidc_admin_username="local-admin",
     )
@@ -42,10 +43,64 @@ class OidcAuthorizationTests(unittest.IsolatedAsyncioTestCase):
 
         payload = auth.AuthManager.decode_oidc_state(params["state"][0], state_cookie)
         self.assertEqual(payload["redirect"], "/orders")
+        self.assertFalse(payload["upgrade"])
+        self.assertFalse(payload["passive"])
         self.assertTrue(payload["verifier"])
 
         with self.assertRaises(auth.AuthError):
             auth.AuthManager.decode_oidc_state("different-state", state_cookie)
+
+    async def test_handoff_is_forwarded_without_changing_the_callback(self):
+        metadata = {"authorization_endpoint": "https://idp.example.test/auth"}
+        handoff = f"lc1.{'a' * 43}"
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "_get_oidc_metadata", AsyncMock(return_value=metadata)),
+        ):
+            target, state_cookie = await auth.AuthManager.create_oidc_authorization(
+                "/orders",
+                handoff,
+            )
+
+        params = parse_qs(urlparse(target).query)
+        self.assertEqual(params["login_hint"], [handoff])
+        self.assertEqual(params["kc_idp_hint"], ["campus"])
+        payload = auth.AuthManager.decode_oidc_state(params["state"][0], state_cookie)
+        self.assertTrue(payload["upgrade"])
+
+    async def test_oidc_can_be_left_unconfigured(self):
+        disabled = replace(
+            oidc_settings(),
+            oidc_issuer=None,
+            oidc_client_id=None,
+            oidc_client_secret=None,
+            oidc_redirect_uri=None,
+            oidc_frontend_url=None,
+            oidc_idp_hint=None,
+        )
+        with patch.object(auth, "settings", disabled):
+            self.assertFalse(auth.AuthManager.oidc_enabled())
+            with self.assertRaises(auth.AuthError):
+                await auth.AuthManager.create_oidc_authorization("/c")
+
+    async def test_passive_authorization_never_prompts_for_credentials(self):
+        metadata = {"authorization_endpoint": "https://idp.example.test/auth"}
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "_get_oidc_metadata", AsyncMock(return_value=metadata)),
+        ):
+            target, state_cookie = await auth.AuthManager.create_oidc_authorization(
+                "/orders",
+                passive=True,
+            )
+
+        params = parse_qs(urlparse(target).query)
+        self.assertEqual(params["prompt"], ["none"])
+        self.assertEqual(params["kc_idp_hint"], ["campus"])
+        self.assertNotIn("login_hint", params)
+        payload = auth.AuthManager.decode_oidc_state(params["state"][0], state_cookie)
+        self.assertTrue(payload["passive"])
+        self.assertFalse(payload["upgrade"])
 
     async def test_logout_uses_registered_frontend_redirect(self):
         metadata = {"end_session_endpoint": "https://idp.example.test/logout"}
@@ -119,6 +174,61 @@ class OidcAccountLinkTests(unittest.TestCase):
 
         get_admin.assert_called_once_with("local-admin")
         self.assertEqual(result["admin"]["id"], "local-admin")
+
+
+class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
+    def local_user(self):
+        return {
+            "id": "20260001",
+            "name": "测试用户",
+            "created_at": "2026-01-01 00:00:00",
+            "id_number": "500000000000000000",
+            "id_status": 1,
+        }
+
+    async def test_local_login_stays_successful_when_upgrade_is_unavailable(self):
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.UserDB, "get_user", return_value=self.local_user()),
+            patch.object(auth.UserDB, "verify_user", return_value=self.local_user()),
+            patch.object(
+                auth.AuthManager,
+                "verify_login",
+                AsyncMock(return_value=None),
+            ) as verify_login,
+        ):
+            result = await auth.AuthManager.login_user("20260001", "value")
+
+        self.assertEqual(result["user"]["id"], "20260001")
+        self.assertNotIn("_sso_handoff", result)
+        verify_login.assert_awaited_once_with(
+            "20260001",
+            "value",
+            create_sso_handoff=True,
+        )
+
+    async def test_disabled_oidc_does_not_add_an_external_login_dependency(self):
+        disabled = replace(
+            oidc_settings(),
+            oidc_issuer=None,
+            oidc_client_id=None,
+            oidc_client_secret=None,
+            oidc_redirect_uri=None,
+            oidc_frontend_url=None,
+            oidc_idp_hint=None,
+        )
+        with (
+            patch.object(auth, "settings", disabled),
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.UserDB, "get_user", return_value=self.local_user()),
+            patch.object(auth.UserDB, "verify_user", return_value=self.local_user()),
+            patch.object(auth.AuthManager, "verify_login", AsyncMock()) as verify_login,
+        ):
+            result = await auth.AuthManager.login_user("20260001", "value")
+
+        self.assertEqual(result["user"]["id"], "20260001")
+        verify_login.assert_not_awaited()
 
 
 if __name__ == "__main__":

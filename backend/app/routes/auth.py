@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from auth import (
     AuthError,
     AuthManager,
+    OIDC_HANDOFF_COOKIE,
     OIDC_STATE_COOKIE,
     clear_auth_cookie,
     error_response,
@@ -113,7 +114,11 @@ async def login(http_request: Request, request: LoginRequest, response: Response
         if not result:
             return error_response("账号或密码错误", 401)
 
+        handoff = result.pop("_sso_handoff", None)
         set_auth_cookie(response, result["access_token"])
+        if handoff:
+            _set_oidc_handoff_cookie(response, handoff)
+            result["sso_upgrade_url"] = AuthManager.oidc_login_url()
         return success_response("登录成功", result)
 
     except CaptchaError as exc:
@@ -155,11 +160,19 @@ async def oidc_status():
 
 
 @router.get("/auth/oidc/login")
-async def oidc_login(redirect: str = "/c"):
+async def oidc_login(request: Request, redirect: str = "/c", passive: bool = False):
     """发起统一身份登录。"""
     try:
-        authorization_url, state_cookie = await AuthManager.create_oidc_authorization(redirect)
+        handoff = AuthManager.normalize_sso_handoff(
+            request.cookies.get(OIDC_HANDOFF_COOKIE, "")
+        )
+        authorization_url, state_cookie = await AuthManager.create_oidc_authorization(
+            redirect,
+            handoff,
+            passive,
+        )
         response = RedirectResponse(authorization_url, status_code=302)
+        _clear_oidc_handoff_cookie(response)
         response.set_cookie(
             key=OIDC_STATE_COOKIE,
             value=state_cookie,
@@ -171,23 +184,49 @@ async def oidc_login(redirect: str = "/c"):
         )
         return response
     except AuthError:
-        return _oidc_error_redirect()
+        return _oidc_error_redirect(
+            fallback_redirect=(
+                redirect
+                if handoff
+                else _passive_login_redirect(redirect)
+                if passive
+                else None
+            ),
+            clear_handoff=True,
+        )
     except Exception as exc:
         logger.error("Failed to start OIDC login: %s", exc)
-        return _oidc_error_redirect()
+        return _oidc_error_redirect(
+            fallback_redirect=(
+                redirect
+                if handoff
+                else _passive_login_redirect(redirect)
+                if passive
+                else None
+            ),
+            clear_handoff=True,
+        )
 
 
 @router.get("/auth/oidc/callback")
 async def oidc_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """完成统一身份登录并建立现有业务会话。"""
     if error or not code or not state:
-        return _oidc_error_redirect(clear_state=True)
+        return _oidc_error_redirect(
+            request=request,
+            state=state,
+            clear_state=True,
+        )
     try:
         state_cookie = request.cookies.get(OIDC_STATE_COOKIE, "")
         claims, redirect_path = await AuthManager.exchange_oidc_code(code, state, state_cookie)
         result = AuthManager.login_oidc(claims)
         if not result:
-            return _oidc_error_redirect(clear_state=True)
+            return _oidc_error_redirect(
+                request=request,
+                state=state,
+                clear_state=True,
+            )
         account = result.get("agent") or result.get("admin") or result.get("user") or {}
         if account.get("type") == "admin":
             redirect_path = "/admin/dashboard"
@@ -200,10 +239,18 @@ async def oidc_callback(request: Request, code: str = "", state: str = "", error
         return response
     except AuthError as exc:
         logger.warning("OIDC login rejected: %s", exc.message)
-        return _oidc_error_redirect(clear_state=True)
+        return _oidc_error_redirect(
+            request=request,
+            state=state,
+            clear_state=True,
+        )
     except Exception as exc:
         logger.error("OIDC callback failed: %s", exc)
-        return _oidc_error_redirect(clear_state=True)
+        return _oidc_error_redirect(
+            request=request,
+            state=state,
+            clear_state=True,
+        )
 
 
 @router.get("/auth/oidc/logout")
@@ -220,8 +267,39 @@ async def oidc_logout():
     return response
 
 
-def _oidc_error_redirect(clear_state: bool = False) -> RedirectResponse:
-    if not settings.oidc_frontend_url:
+def _oidc_error_redirect(
+    request: Request | None = None,
+    state: str = "",
+    fallback_redirect: str | None = None,
+    clear_state: bool = False,
+    clear_handoff: bool = False,
+) -> RedirectResponse:
+    redirect_path = fallback_redirect
+    if request and state:
+        try:
+            payload = AuthManager.decode_oidc_state(
+                state,
+                request.cookies.get(OIDC_STATE_COOKIE, ""),
+            )
+            if payload.get("passive"):
+                redirect_path = _passive_login_redirect(
+                    payload.get("redirect") or "/c"
+                )
+            elif payload.get("upgrade"):
+                redirect_path = payload.get("redirect") or "/c"
+        except AuthError:
+            pass
+    if redirect_path and settings.oidc_frontend_url:
+        safe_redirect = (
+            redirect_path
+            if redirect_path.startswith("/") and not redirect_path.startswith("//")
+            else "/c"
+        )
+        response = RedirectResponse(
+            f"{settings.oidc_frontend_url.rstrip('/')}{safe_redirect}",
+            status_code=302,
+        )
+    elif not settings.oidc_frontend_url:
         response = RedirectResponse("/", status_code=302)
     else:
         query = urlencode({"oidc_error": "1"})
@@ -231,11 +309,38 @@ def _oidc_error_redirect(clear_state: bool = False) -> RedirectResponse:
         )
     if clear_state:
         _clear_oidc_state_cookie(response)
+    if clear_handoff:
+        _clear_oidc_handoff_cookie(response)
     return response
 
 
 def _clear_oidc_state_cookie(response: Response) -> None:
     response.delete_cookie(key=OIDC_STATE_COOKIE, path="/auth/oidc")
+
+
+def _set_oidc_handoff_cookie(response: Response, handoff: str) -> None:
+    response.set_cookie(
+        key=OIDC_HANDOFF_COOKIE,
+        value=handoff,
+        max_age=90,
+        httponly=True,
+        secure=not settings.is_development,
+        samesite="lax",
+        path="/auth/oidc",
+    )
+
+
+def _clear_oidc_handoff_cookie(response: Response) -> None:
+    response.delete_cookie(key=OIDC_HANDOFF_COOKIE, path="/auth/oidc")
+
+
+def _passive_login_redirect(redirect: str) -> str:
+    safe_redirect = (
+        redirect
+        if redirect.startswith("/") and not redirect.startswith("//")
+        else "/c"
+    )
+    return f"/login?{urlencode({'sso_checked': '1', 'redirect': safe_redirect})}"
 
 
 @router.post("/auth/logout")

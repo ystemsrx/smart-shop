@@ -28,7 +28,8 @@ export default function Login() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
-  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const [ssoRedirecting, setSsoRedirecting] = useState(false);
+  const [ssoCheckComplete, setSsoCheckComplete] = useState(false);
   const [captchaOpen, setCaptchaOpen] = useState(false);
   const [pendingLoginPayload, setPendingLoginPayload] = useState(null);
   const [legalModal, setLegalModal] = useState({ open: false, tab: "terms" });
@@ -70,12 +71,26 @@ export default function Login() {
   const processLogin = useCallback(
     async (payload, captchaToken = "") => {
       try {
-        const account = await login(payload.accountId, payload.password, {
+        const result = await login(payload.accountId, payload.password, {
           captchaToken,
           suppressErrorStatuses: [429],
         });
         setPendingLoginPayload(null);
-        redirectAfterLogin(account);
+        if (result.ssoUpgradeUrl) {
+          try {
+            const target = new URL(
+              result.ssoUpgradeUrl,
+              window.location.origin,
+            );
+            target.searchParams.set("redirect", getSafeRedirect() || "/c");
+            setSsoRedirecting(true);
+            window.location.assign(target.toString());
+          } catch (_err) {
+            redirectAfterLogin(result.account);
+          }
+        } else {
+          redirectAfterLogin(result.account);
+        }
         return { ok: true, needsCaptcha: false };
       } catch (err) {
         if (isCaptchaRequiredError(err)) {
@@ -95,11 +110,11 @@ export default function Login() {
         };
       }
     },
-    [login, redirectAfterLogin],
+    [login, redirectAfterLogin, getSafeRedirect],
   );
 
   useEffect(() => {
-    if (!router.isReady || !isInitialized || !user) return;
+    if (!router.isReady || !isInitialized || !user || ssoRedirecting) return;
     const redirectPath = getSafeRedirect();
     if (user?.type === "admin") {
       router.replace("/admin/dashboard");
@@ -114,25 +129,56 @@ export default function Login() {
       return;
     }
     router.replace("/c");
-  }, [user, isInitialized, router, getSafeRedirect]);
+  }, [user, isInitialized, router, getSafeRedirect, ssoRedirecting]);
+
+  useEffect(() => {
+    if (!router.isReady || !isInitialized) return;
+    if (
+      user ||
+      router.query?.sso_checked === "1" ||
+      router.query?.oidc_error === "1"
+    ) {
+      setSsoCheckComplete(true);
+      return;
+    }
+    let cancelled = false;
+    const checkExistingSession = async () => {
+      try {
+        const { getApiBaseUrl } = await import("../utils/runtimeConfig");
+        const response = await fetch(`${getApiBaseUrl()}/auth/oidc/status`);
+        const result = await response.json();
+        if (!cancelled && result.success && result.data?.enabled) {
+          const target = new URL(
+            `${getApiBaseUrl()}/auth/oidc/login`,
+            window.location.origin,
+          );
+          target.searchParams.set("passive", "true");
+          target.searchParams.set("redirect", getSafeRedirect() || "/c");
+          setSsoRedirecting(true);
+          window.location.replace(target.toString());
+          return;
+        }
+      } catch (_err) {
+        // The original login form remains available when optional SSO is offline.
+      }
+      if (!cancelled) setSsoCheckComplete(true);
+    };
+    void checkExistingSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, user, isInitialized, getSafeRedirect]);
 
   useEffect(() => {
     const checkRegistrationStatus = async () => {
       try {
         const { getApiBaseUrl } = await import("../utils/runtimeConfig");
-        const [registrationResponse, oidcResponse] = await Promise.all([
-          fetch(`${getApiBaseUrl()}/auth/registration-status`),
-          fetch(`${getApiBaseUrl()}/auth/oidc/status`),
-        ]);
-        const [registrationResult, oidcResult] = await Promise.all([
-          registrationResponse.json(),
-          oidcResponse.json(),
-        ]);
+        const registrationResponse = await fetch(
+          `${getApiBaseUrl()}/auth/registration-status`,
+        );
+        const registrationResult = await registrationResponse.json();
         if (registrationResult.success) {
           setRegistrationEnabled(registrationResult.data.enabled);
-        }
-        if (oidcResult.success) {
-          setOidcEnabled(Boolean(oidcResult.data.enabled));
         }
       } catch (e) {
         console.error("Failed to fetch registration status:", e);
@@ -168,15 +214,7 @@ export default function Login() {
     });
   };
 
-  const handleOidcLogin = async () => {
-    const { getApiBaseUrl } = await import("../utils/runtimeConfig");
-    const redirectPath = getSafeRedirect() || "/c";
-    window.location.assign(
-      `${getApiBaseUrl()}/auth/oidc/login?redirect=${encodeURIComponent(redirectPath)}`,
-    );
-  };
-
-  if (!isInitialized) {
+  if (!isInitialized || !ssoCheckComplete) {
     return (
       <>
         <Head>
@@ -264,12 +302,12 @@ export default function Login() {
           <div className="sm:mx-auto sm:w-full sm:max-w-[400px] mt-8 opacity-0 animate-apple-scale-in animate-delay-200">
             <div className="auth-card p-6 sm:p-8">
               <form className="space-y-5" onSubmit={handleSubmit}>
-                {(error || router.query?.oidc_error === "1") && (
+                {error && (
                   <div className="auth-error animate-apple-fade-in">
                     <div className="flex items-center gap-2.5">
                       <i className="fas fa-info-circle text-red-500 text-sm"></i>
                       <span className="text-[13px] text-red-600 font-medium leading-snug">
-                        {error || "统一身份登录失败，请重试"}
+                        {error}
                       </span>
                     </div>
                   </div>
@@ -375,16 +413,6 @@ export default function Login() {
 
               {/* Divider & Actions */}
               <div className="mt-6">
-                {oidcEnabled && (
-                  <button
-                    type="button"
-                    onClick={handleOidcLogin}
-                    className="auth-alt-btn auth-alt-btn-accent w-full"
-                  >
-                    <i className="fas fa-id-card text-[13px]"></i>
-                    <span>统一身份登录</span>
-                  </button>
-                )}
                 <div className="auth-divider">
                   <span>或</span>
                 </div>

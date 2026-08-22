@@ -175,6 +175,7 @@ class Settings:
     oidc_client_secret: Optional[str]
     oidc_redirect_uri: Optional[str]
     oidc_frontend_url: Optional[str]
+    oidc_idp_hint: Optional[str]
     oidc_admin_role: str
     oidc_admin_username: Optional[str]
     admin_accounts: List[AdminAccount]
@@ -224,6 +225,7 @@ def get_settings() -> Settings:
     oidc_client_secret = _strip_quotes(os.getenv("OIDC_CLIENT_SECRET")) or None
     oidc_redirect_uri = _strip_quotes(os.getenv("OIDC_REDIRECT_URI")) or None
     oidc_frontend_url = _strip_quotes(os.getenv("OIDC_FRONTEND_URL")) or None
+    oidc_idp_hint = _strip_quotes(os.getenv("OIDC_IDP_HINT")) or None
     oidc_admin_role = (_strip_quotes(os.getenv("OIDC_ADMIN_ROLE")) or "smart-shop-admin").strip()
     oidc_admin_username = _strip_quotes(os.getenv("OIDC_ADMIN_USERNAME")) or None
     oidc_values = [oidc_issuer, oidc_client_id, oidc_client_secret, oidc_redirect_uri, oidc_frontend_url]
@@ -297,6 +299,7 @@ def get_settings() -> Settings:
         oidc_client_secret=oidc_client_secret,
         oidc_redirect_uri=oidc_redirect_uri,
         oidc_frontend_url=oidc_frontend_url,
+        oidc_idp_hint=oidc_idp_hint,
         oidc_admin_role=oidc_admin_role,
         oidc_admin_username=oidc_admin_username,
         admin_accounts=admin_accounts,
