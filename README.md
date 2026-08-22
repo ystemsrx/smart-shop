@@ -29,7 +29,8 @@
 
   * [环境要求](#环境要求)
   * [本地开发](#本地开发)
-  * [Docker 部署（推荐）](#docker-部署推荐)
+  * [Docker Compose 本地部署](#docker-compose-本地部署)
+  * [GitHub Actions + Kubernetes 部署（推荐）](#github-actions--kubernetes-部署推荐)
 * [🔧 配置](#-配置)
 * [👥 角色与后台](#-角色与后台)
 * [🔄 周期功能](#-周期功能)
@@ -79,14 +80,14 @@
 * 前端：Next.js + React + TypeScript
 * 后端：FastAPI，SQLite
 * 鉴权：JWT + 角色/权限控制（RBAC）
-* 部署：Docker Compose 一键化
+* 部署：GitHub Actions 构建镜像，Kubernetes 管理生产工作负载
 
 **主要技术**
 
 * 前端：Next.js、React、TypeScript、Tailwind
-* 后端：FastAPI、Python 3.12（建议）
-* 数据：SQLite（默认位于 `backend/dorm_shop.db`）
-* 运维：Docker / docker-compose
+* 后端：FastAPI、Python 3.11+
+* 数据：SQLite（默认位于 `backend/data/dorm_shop.db`）
+* 运维：Docker / Docker Compose / Kubernetes
 
 ---
 
@@ -137,9 +138,11 @@
 
 ### 环境要求
 
-![Node.js](https://img.shields.io/badge/Node.js-v18%2B-339933?style=flat-square\&logo=node.js)
-![Python](https://img.shields.io/badge/Python-v3.12%20recommended-3776AB?style=flat-square\&logo=python)
+![Node.js](https://img.shields.io/badge/Node.js-v20%2B-339933?style=flat-square\&logo=node.js)
+![Python](https://img.shields.io/badge/Python-v3.11%2B-3776AB?style=flat-square\&logo=python)
 ![Docker](https://img.shields.io/badge/Docker-v20%2B-2496ED?style=flat-square\&logo=docker)
+
+本地开发推荐使用 Node.js 20 LTS、Python 3.11 或更高版本；本地容器验证需要包含 `docker compose` 命令的 Docker Compose v2。生产部署需要可用的 Kubernetes 集群及相应的集群管理或 GitOps 工具。
 
 ### 本地开发
 
@@ -148,20 +151,27 @@
 ```bash
 git clone https://github.com/ystemsrx/smart-shop.git
 cd smart-shop
-
-# 创建必要文件夹并放置商店logo图片（可选，默认为 logo.png）
-mkdir public
-cp /path/to/your/logo.png public/logo.png
 ```
+
+仓库已内置 `public/logo-header.png`（顶部导航栏）和 `public/logo.jpg`（通用占位图），无需额外创建 `public` 目录。如需使用自定义图片，请将图片放入 `public` 目录，并在 `.env` 中修改 `HEADER_LOGO` 和 `LOGO`。
 
 2. **环境配置**
 
 具体请参考 [配置](#-配置) 部分。
 
+Linux / macOS：
+
 ```bash
 cp .env.example .env
-# 按需修改 .env
 ```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+然后按需修改 `.env`。本地开发默认使用其中的 `DEV_*` 地址连接本机后端。
 
 3. **启动后端**
 
@@ -175,17 +185,21 @@ chmod +x start.sh
 
 * **Windows**
 
-进入 `backend` 目录双击 `start.bat`
+进入 `backend` 目录双击 `start-backend.bat`，或在项目根目录运行：
+
+```powershell
+.\backend\start-backend.bat
+```
 
 4. **启动前端**
 
 ```bash
 # 项目根目录
-npm install
+npm ci
 npm run dev
 ```
 
-生产环境可直接：
+Linux / macOS 如需以前端生产模式运行，可执行（后端仍需按上一步单独启动）：
 
 ```bash
 chmod +x run.sh
@@ -198,22 +212,116 @@ chmod +x run.sh
 * 后端 API：[http://localhost:9099](http://localhost:9099)
 * 管理后台：[http://localhost:3000/admin](http://localhost:3000/admin)
 
-### Docker 部署（推荐）
+### Docker Compose 本地部署
 
-参考 [配置](#-配置) 部分
-
-修改 `.env` 文件并配置好 logo 图片后：
+Docker Compose 用于本机或单机环境验证，不作为推荐的生产发布方式。先按 [配置](#-配置) 部分准备 `.env`。默认 Logo 已包含在仓库中，无需额外复制图片；如需自定义 Logo，请在首次构建前完成配置。
 
 ```bash
 # 构建并启动
-docker-compose up -d
+docker compose up -d --build
 
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
 
-# 停止并清理
-docker-compose down
+# 停止服务
+docker compose down
 ```
+
+当前 Compose 配置默认从本地源码构建镜像；生产环境使用下面的 GitHub Actions + Kubernetes 流程。
+
+### GitHub Actions + Kubernetes 部署（推荐）
+
+仓库通过 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) 验证代码，并将前后端镜像发布到腾讯云容器镜像服务（TCR）。
+
+推荐发布链路为：`master` → GitHub Actions 验证和构建 → TCR 不可变镜像 → Kubernetes 更新 Deployment → 健康检查与滚动发布。当前工作流负责验证及发布镜像，不会直接连接或修改 Kubernetes 集群；镜像上线由集群管理平台或 GitOps 流程完成。本仓库不包含通用 Kubernetes 清单，Deployment、Service、PVC 和 Ingress 应由实际部署环境的运维仓库或集群平台管理。
+
+#### 工作流程
+
+| 触发方式 | 验证 | 发布镜像 |
+| --- | --- | --- |
+| 创建或更新 Pull Request | 前端执行 `npm ci`、`npm run build`；后端通过 `uv` 安装依赖、运行测试并构建后端镜像 | 否 |
+| 推送到 `master` | 完成全部前后端验证 | 是 |
+| 在 Actions 页面手动运行 `workflow_dispatch` | 验证所选分支 | 是 |
+
+发布任务只有在前后端验证全部通过后才会执行。Pull Request 不登录 TCR，因此不需要访问发布用的 Secrets。
+
+#### 发布前准备
+
+工作流当前固定使用以下镜像仓库：
+
+```text
+ccr.ccs.tencentyun.com/lazycampus/smart-shop-backend
+ccr.ccs.tencentyun.com/lazycampus/smart-shop-frontend
+```
+
+请先在 TCR 中确认 `lazycampus` 命名空间及两个镜像仓库可用，并确保发布账号拥有推送权限。如果需要使用其他地域、命名空间或仓库名称，请同步修改工作流中的 `REGISTRY` 和镜像标签。
+
+然后进入 GitHub 仓库的 **Settings → Secrets and variables → Actions** 完成以下配置。
+
+**Repository secrets**
+
+| 名称 | 是否必需 | 说明 |
+| --- | --- | --- |
+| `TCR_USERNAME` | 发布时必需 | TCR 登录用户名 |
+| `TCR_PASSWORD` | 发布时必需 | TCR 登录密码或访问凭证；必须存放在 Secret 中 |
+
+**Repository variables**
+
+| 名称 | 是否必需 | 示例或说明 |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | 必需 | `https://shop-api.example.com` |
+| `NEXT_PUBLIC_IMAGE_BASE_URL` | 必需 | 通常与 API 地址相同 |
+| `NEXT_PUBLIC_FILE_BASE_URL` | 必需 | 通常与 API 地址相同 |
+| `SHOP_NAME` | 必需 | 前端显示的商城名称 |
+| `HEADER_LOGO` | 建议配置 | 使用内置资源时填写 `logo-header.png` |
+| `LOGO` | 建议配置 | 使用内置资源时填写 `logo.jpg` |
+
+前四个变量缺失时，Pull Request 的验证构建仍可能通过，但正式发布阶段的前端生产构建会因配置不完整而失败。Logo 变量不是敏感信息，应配置为 Variables，而不是 Secrets。
+
+#### 镜像标签
+
+每次成功发布都会生成两类不可变标签：
+
+```text
+1.0.<GitHub Actions run number>
+sha-<完整 Git commit SHA>
+```
+
+工作流不会发布 `latest` 标签。部署时建议固定 `sha-*` 标签以保证版本可追溯，或固定明确的 `1.0.*` 版本标签。
+
+#### Kubernetes 部署要求
+
+GitHub Actions 发布成功后，在 Kubernetes 中将前后端 Deployment 更新到同一次构建产生的镜像标签。以下命令仅展示更新方式，请替换命名空间、Deployment 名称和完整 Git SHA：
+
+```bash
+kubectl -n <namespace> set image deployment/<backend-deployment> \
+  backend=ccr.ccs.tencentyun.com/lazycampus/smart-shop-backend:sha-<git-sha>
+
+kubectl -n <namespace> set image deployment/<frontend-deployment> \
+  frontend=ccr.ccs.tencentyun.com/lazycampus/smart-shop-frontend:sha-<git-sha>
+
+kubectl -n <namespace> rollout status deployment/<backend-deployment>
+kubectl -n <namespace> rollout status deployment/<frontend-deployment>
+```
+
+集群侧至少需要准备：
+
+* 前端 Deployment 与 Service，容器端口为 `3000`
+* 后端 Deployment 与 Service，容器端口为 `9099`，存活/就绪探针可使用 `/healthz`
+* 私有 TCR 所需的 `imagePullSecrets`，并绑定到两个 Deployment 或其 ServiceAccount
+* 后端持久卷，至少持久化 `/app/backend/data`、`/app/backend/items`、`/app/backend/exports` 和运行时文件目录 `/app/public`
+* 后端容器以 UID/GID `10001` 的非 root 用户运行，挂载卷必须允许该用户写入；可通过存储权限或 Pod `securityContext` 配置
+* 后端运行时 ConfigMap/Secret，以及面向前后端域名的 Ingress 或网关配置
+
+默认数据库为 SQLite，因此后端 Deployment 应保持单副本，不能让多个 Pod 同时写入同一个 SQLite 文件。需要水平扩容前，应先完成支持多实例访问的数据库架构改造。
+
+若使用 Argo CD、Flux 等 GitOps 工具，应在部署仓库中更新镜像标签并由 GitOps 控制器同步，不需要向本仓库的 GitHub Actions 提供 Kubernetes 凭证。回滚时将 Deployment 或部署仓库恢复到上一个 `sha-*` 标签即可。
+
+#### 运行时敏感配置
+
+`API_KEY`、`JWT_SECRET_KEY`、管理员密码及数据库、Redis 凭证不参与镜像构建，也不需要添加到上述 GitHub Actions 配置中。发布后的后端容器必须通过 Kubernetes Secret 或外部密钥管理系统在运行时注入这些值，避免将真实凭证写入镜像或构建日志。
+
+`NEXT_PUBLIC_*`、`SHOP_NAME` 和 Logo 文件名属于前端构建配置，会在 GitHub Actions 构建镜像时写入前端产物；修改这些值后必须重新构建并发布前端镜像，仅修改 Kubernetes Deployment 的环境变量不会更新已构建的浏览器端配置。
 
 ---
 
@@ -259,7 +367,7 @@ BACKEND_PORT=9099
 LOG_LEVEL=INFO
 
 # 数据库配置
-DB_PATH=dorm_shop.db
+DB_PATH=data/dorm_shop.db
 # 是否重置数据库（1：是，0：否）
 DB_RESET=0
 
@@ -276,9 +384,9 @@ STATIC_CACHE_MAX_AGE=2592000
 
 # Logo 配置（图片文件需放在 public 目录下）
 # 网页顶部导航栏 logo 图片文件名
-HEADER_LOGO=logo.png
+HEADER_LOGO=logo-header.png
 # 通用占位 logo（用于商品图片加载失败等情况）
-LOGO=logo.png
+LOGO=logo.jpg
 
 # 开发环境配置（仅开发时使用，即 ENV=development 时生效）
 DEV_NEXT_PUBLIC_API_URL=http://localhost:9099
@@ -511,7 +619,7 @@ export BACKEND_PORT=9100
 
 ```bash
 # 权限检查
-ls -la backend/dorm_shop.db
+ls -la backend/data/dorm_shop.db
 # 重新初始化
 cd backend && python init_db.py
 ```

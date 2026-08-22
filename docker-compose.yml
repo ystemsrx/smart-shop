@@ -28,6 +28,8 @@ services:
         NEXT_PUBLIC_IMAGE_BASE_URL: ${NEXT_PUBLIC_IMAGE_BASE_URL}
         NEXT_PUBLIC_FILE_BASE_URL: ${NEXT_PUBLIC_FILE_BASE_URL}
         SHOP_NAME: ${SHOP_NAME}
+        HEADER_LOGO: ${HEADER_LOGO:-logo-header.png}
+        LOGO: ${LOGO:-logo.jpg}
     env_file:
       - .env
     environment:
