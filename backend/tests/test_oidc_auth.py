@@ -263,7 +263,7 @@ class LoginRouteFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["message"], "认证服务暂时不可用，请稍后重试")
 
 
-class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
+class IdentityBridgeLoginFlowTests(unittest.IsolatedAsyncioTestCase):
     def local_user(self):
         return {
             "id": "20260001",
@@ -273,32 +273,102 @@ class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
             "id_status": 1,
         }
 
-    async def test_local_login_stays_successful_when_upgrade_is_unavailable(self):
+    async def test_local_login_never_calls_identity_bridge(self):
+        local_user = {**self.local_user(), "id_status": 0, "id_number": None}
         with (
             patch.object(auth, "settings", oidc_settings()),
             patch.object(auth, "LOGIN_API", "https://login.example.test"),
-            patch.object(auth.UserDB, "get_user", return_value=self.local_user()),
-            patch.object(auth.UserDB, "verify_user", return_value=self.local_user()),
-            patch.object(
-                auth.AuthManager,
-                "verify_login",
-                AsyncMock(
-                    side_effect=auth.AuthError(
-                        "认证服务暂时不可用，请稍后重试",
-                        503,
-                    )
-                ),
-            ) as verify_login,
+            patch.object(auth.UserDB, "get_user", return_value=local_user),
+            patch.object(auth.UserDB, "verify_user", return_value=local_user),
+            patch.object(auth.UserDB, "update_user_identity") as update_identity,
+            patch.object(auth.AuthManager, "verify_login", AsyncMock()) as verify_login,
         ):
             result = await auth.AuthManager.login_user("20260001", "value")
 
         self.assertEqual(result["user"]["id"], "20260001")
+        self.assertTrue(result["access_token"])
         self.assertNotIn("_sso_handoff", result)
+        verify_login.assert_not_awaited()
+        update_identity.assert_not_called()
+
+    async def test_new_user_uses_identity_bridge_and_returns_handoff(self):
+        handoff = f"lc1.{'a' * 43}"
+        created_user = self.local_user()
+        bridge_result = {
+            "name": "测试用户",
+            "id_number": "500000000000000000",
+            "_sso_handoff": handoff,
+        }
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.UserDB, "get_user", side_effect=[None, created_user]),
+            patch.object(auth.UserDB, "verify_user", return_value=None),
+            patch.object(auth.UserDB, "create_user", return_value=True) as create_user,
+            patch.object(
+                auth.AuthManager,
+                "verify_login",
+                AsyncMock(return_value=bridge_result),
+            ) as verify_login,
+        ):
+            result = await auth.AuthManager.login_user("20260001", "value")
+
         verify_login.assert_awaited_once_with(
             "20260001",
             "value",
             create_sso_handoff=True,
         )
+        create_user.assert_called_once_with(
+            student_id="20260001",
+            password="value",
+            name="测试用户",
+            id_number="500000000000000000",
+            id_status=1,
+        )
+        self.assertEqual(result["_sso_handoff"], handoff)
+
+    async def test_password_mismatch_refreshes_user_through_identity_bridge(self):
+        handoff = f"lc1.{'b' * 43}"
+        current_user = {**self.local_user(), "name": "旧姓名"}
+        updated_user = self.local_user()
+        bridge_result = {
+            "name": "测试用户",
+            "id_number": "500000000000000000",
+            "_sso_handoff": handoff,
+        }
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(
+                auth.UserDB,
+                "get_user",
+                side_effect=[current_user, updated_user],
+            ),
+            patch.object(auth.UserDB, "verify_user", return_value=None),
+            patch.object(auth.UserDB, "update_user_password") as update_password,
+            patch.object(auth.UserDB, "update_user_name") as update_name,
+            patch.object(auth.UserDB, "update_user_identity") as update_identity,
+            patch.object(
+                auth.AuthManager,
+                "verify_login",
+                AsyncMock(return_value=bridge_result),
+            ) as verify_login,
+        ):
+            result = await auth.AuthManager.login_user("20260001", "value")
+
+        verify_login.assert_awaited_once_with(
+            "20260001",
+            "value",
+            create_sso_handoff=True,
+        )
+        update_password.assert_called_once_with("20260001", "value")
+        update_name.assert_called_once_with("20260001", "测试用户")
+        update_identity.assert_called_once_with(
+            "20260001",
+            "500000000000000000",
+            1,
+        )
+        self.assertEqual(result["_sso_handoff"], handoff)
 
     async def test_required_external_login_propagates_unavailable_service(self):
         unavailable = auth.AuthError("认证服务暂时不可用，请稍后重试", 503)
