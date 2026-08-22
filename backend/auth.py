@@ -213,7 +213,7 @@ class AuthManager:
                         # 检查响应内容是否为空或损坏
                         if not response_text.strip():
                             logger.error("Login API returned an empty response")
-                            return None
+                            raise AuthError("认证服务暂时不可用，请稍后重试", 503)
                         
                         # 尝试解析JSON
                         try:
@@ -221,7 +221,7 @@ class AuthManager:
                             data = json.loads(response_text)
                         except json.JSONDecodeError as e:
                             logger.error("Failed to parse login API JSON: %s", e)
-                            return None
+                            raise AuthError("认证服务暂时不可用，请稍后重试", 503) from e
                         
                         # 检查API返回的success字段
                         if data.get("success") and data.get("code") == 200:
@@ -240,7 +240,28 @@ class AuthManager:
                                 result["_sso_handoff"] = handoff
                             return result
                         else:
-                            # 登录失败（账号密码错误等）
+                            upstream_code = str(data.get("code") or "").upper()
+                            if upstream_code in {
+                                "403",
+                                "ACCOUNT_DISABLED",
+                                "CAMPUS_AUTH_FORBIDDEN",
+                            }:
+                                raise AuthError("账号不可用", 403)
+                            if upstream_code in {
+                                "429",
+                                "RATE_LIMITED",
+                            }:
+                                raise AuthError("请稍后重试", 429)
+                            if upstream_code in {
+                                "500",
+                                "502",
+                                "503",
+                                "504",
+                                "CAMPUS_AUTH_UNAVAILABLE",
+                            }:
+                                raise AuthError("认证服务暂时不可用，请稍后重试", 503)
+
+                            # 兼容使用 HTTP 200 表示账号验证失败的旧登录 API
                             error_msg = data.get("msg") or data.get("message") or "Login failed"
                             logger.warning(
                                 "Login API rejected credentials for %s: %s (status=%s)",
@@ -249,28 +270,37 @@ class AuthManager:
                                 response.status_code,
                             )
                             return None
-                            
+                    except AuthError:
+                        raise
                     except Exception as decode_error:
                         logger.error("Failed to process login API response: %s", decode_error)
-                        return None
+                        raise AuthError("认证服务暂时不可用，请稍后重试", 503) from decode_error
                         
                 elif response.status_code == 401:
                     logger.warning("Login API returned 401 for %s", student_id)
                     return None
+                elif response.status_code == 403:
+                    logger.warning("Login API returned 403 for %s", student_id)
+                    raise AuthError("账号不可用", 403)
+                elif response.status_code == 429:
+                    logger.warning("Login API rate limited %s", student_id)
+                    raise AuthError("请稍后重试", 429)
                 else:
                     logger.error("Unexpected login API status: %s", response.status_code)
                     try:
                         logger.error("Login API error response: %s", response.text[:200])
                     except Exception:
                         logger.error("Failed to decode login API error response")
-                    return None
+                    raise AuthError("认证服务暂时不可用，请稍后重试", 503)
                     
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             logger.error("Login API timeout")
-            return None
+            raise AuthError("认证服务暂时不可用，请稍后重试", 503) from exc
+        except AuthError:
+            raise
         except Exception as e:
             logger.error("Login API request failed: %s", e)
-            return None
+            raise AuthError("认证服务暂时不可用，请稍后重试", 503) from e
     
     @staticmethod
     async def login_user(student_id: str, password: str) -> Optional[Dict[str, Any]]:
@@ -285,6 +315,7 @@ class AuthManager:
         local_user = UserDB.get_user(student_id)
         id_status = UserDB.normalize_id_status(local_user.get('id_status') if local_user else None)
         api_result: Optional[Dict[str, Any]] = None
+        api_check_attempted = False
         # 使用 verify_user 验证密码（支持加密密码）
         is_local_password_valid = bool(UserDB.verify_user(student_id, password))
 
@@ -294,9 +325,10 @@ class AuthManager:
             if status_now != 0:
                 return status_now
 
-            nonlocal api_result
+            nonlocal api_result, api_check_attempted
             active_payload = payload or api_result
             if active_payload is None:
+                api_check_attempted = True
                 active_payload = await AuthManager.verify_login(
                     student_id,
                     password,
@@ -313,11 +345,19 @@ class AuthManager:
             logger.info("User %s logged in with local credentials", student_id)
             if id_status == 0:
                 # 老数据：本地密码正确，但需要获取身份证号
-                id_status = await _ensure_identity(local_user, None)
-                local_user = UserDB.get_user(student_id)
+                try:
+                    id_status = await _ensure_identity(local_user, None)
+                    local_user = UserDB.get_user(student_id)
+                except AuthError as exc:
+                    logger.warning(
+                        "Optional identity refresh unavailable for %s: %s",
+                        student_id,
+                        exc.message,
+                    )
         else:
             # 本地密码不匹配或用户不存在，尝试第三方API验证
             logger.info("User %s requires third-party API verification", student_id)
+            api_check_attempted = True
             api_result = await AuthManager.verify_login(
                 student_id,
                 password,
@@ -365,12 +405,21 @@ class AuthManager:
                 return None
             local_user = UserDB.get_user(student_id)
         
-        if AuthManager.sso_upgrade_enabled() and api_result is None:
-            api_result = await AuthManager.verify_login(
-                student_id,
-                password,
-                create_sso_handoff=True,
-            )
+        if AuthManager.sso_upgrade_enabled() and not api_check_attempted:
+            api_check_attempted = True
+            try:
+                api_result = await AuthManager.verify_login(
+                    student_id,
+                    password,
+                    create_sso_handoff=True,
+                )
+            except AuthError as exc:
+                logger.warning(
+                    "Optional SSO upgrade unavailable for %s: %s",
+                    student_id,
+                    exc.message,
+                )
+                api_result = None
 
         # 4. 生成JWT令牌
         def _format_created_at(value: Any) -> Any:

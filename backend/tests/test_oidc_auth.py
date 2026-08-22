@@ -2,7 +2,7 @@ import sys
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 
@@ -176,6 +176,75 @@ class OidcAccountLinkTests(unittest.TestCase):
         self.assertEqual(result["admin"]["id"], "local-admin")
 
 
+class LoginApiFailureTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def client_returning(response):
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.post.return_value = response
+        return client
+
+    async def test_unavailable_response_is_not_treated_as_bad_credentials(self):
+        client = self.client_returning(
+            Mock(status_code=503, text='{"code":"CAMPUS_AUTH_UNAVAILABLE"}')
+        )
+        with (
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.httpx, "AsyncClient", return_value=client),
+        ):
+            with self.assertRaises(auth.AuthError) as raised:
+                await auth.AuthManager.verify_login("20260001", "value")
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.message, "认证服务暂时不可用，请稍后重试")
+
+    async def test_unauthorized_response_remains_a_credential_rejection(self):
+        client = self.client_returning(Mock(status_code=401, text=""))
+        with (
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.httpx, "AsyncClient", return_value=client),
+        ):
+            result = await auth.AuthManager.verify_login("20260001", "value")
+
+        self.assertIsNone(result)
+
+
+class LoginRouteFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unavailable_login_service_is_reported_as_unavailable(self):
+        from fastapi import Response
+
+        from app.routes import auth as auth_route
+        from app.schemas import LoginRequest
+
+        with (
+            patch.object(
+                auth_route.CaptchaService,
+                "should_require_login_captcha",
+                AsyncMock(return_value=False),
+            ),
+            patch.object(auth_route.AuthManager, "login_admin", return_value=None),
+            patch.object(
+                auth_route.AuthManager,
+                "login_user",
+                AsyncMock(
+                    side_effect=auth.AuthError(
+                        "认证服务暂时不可用，请稍后重试",
+                        503,
+                    )
+                ),
+            ),
+        ):
+            result = await auth_route.login(
+                Mock(),
+                LoginRequest(student_id="20260001", password="value"),
+                Response(),
+            )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["code"], 503)
+        self.assertEqual(result["message"], "认证服务暂时不可用，请稍后重试")
+
+
 class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
     def local_user(self):
         return {
@@ -195,7 +264,12 @@ class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 auth.AuthManager,
                 "verify_login",
-                AsyncMock(return_value=None),
+                AsyncMock(
+                    side_effect=auth.AuthError(
+                        "认证服务暂时不可用，请稍后重试",
+                        503,
+                    )
+                ),
             ) as verify_login,
         ):
             result = await auth.AuthManager.login_user("20260001", "value")
@@ -207,6 +281,24 @@ class TransparentUpgradeTests(unittest.IsolatedAsyncioTestCase):
             "value",
             create_sso_handoff=True,
         )
+
+    async def test_required_external_login_propagates_unavailable_service(self):
+        unavailable = auth.AuthError("认证服务暂时不可用，请稍后重试", 503)
+        with (
+            patch.object(auth, "settings", oidc_settings()),
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.UserDB, "get_user", return_value=None),
+            patch.object(auth.UserDB, "verify_user", return_value=None),
+            patch.object(
+                auth.AuthManager,
+                "verify_login",
+                AsyncMock(side_effect=unavailable),
+            ),
+        ):
+            with self.assertRaises(auth.AuthError) as raised:
+                await auth.AuthManager.login_user("20260001", "value")
+
+        self.assertIs(raised.exception, unavailable)
 
     async def test_disabled_oidc_does_not_add_an_external_login_dependency(self):
         disabled = replace(
