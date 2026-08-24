@@ -15,6 +15,7 @@ RUN apt-get update \
         tzdata \
         fonts-noto-cjk \
         curl \
+        gosu \
     && sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen zh_CN.UTF-8 \
     && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
@@ -41,6 +42,7 @@ RUN uv venv "${VIRTUAL_ENV}" \
 
 # Runtime configuration is injected by Kubernetes and is never baked into the image.
 COPY --chown=10001:10001 backend/ /app/backend/
+COPY --chown=0:0 docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint
 
 # Ensure directories that require persistence always exist
 RUN mkdir -p /app/backend/items \
@@ -48,9 +50,12 @@ RUN mkdir -p /app/backend/items \
     && mkdir -p /app/backend/logs \
     && mkdir -p /app/backend/data \
     && mkdir -p /app/backend/exports \
-    && chown -R 10001:10001 /app/backend /app/public
+    && chown -R 10001:10001 /app/backend /app/public \
+    && chmod 0755 /usr/local/bin/backend-entrypoint
 
 USER 10001:10001
+
+ENTRYPOINT ["/usr/local/bin/backend-entrypoint"]
 
 EXPOSE 9099
 
