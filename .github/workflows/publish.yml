@@ -3,105 +3,61 @@ name: Verify and publish images
 on:
   pull_request:
   push:
-    branches:
-      - master
+    branches: [master]
   workflow_dispatch:
-
-concurrency:
-  group: publish-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ccr.ccs.tencentyun.com
 
 jobs:
-  verify-frontend:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
-      - name: Check out source
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
         with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Test frontend authentication flow
-        run: npm run test:frontend
-
-      - name: Build frontend
-        run: npm run build
-        env:
-          ENV: production
-          NEXT_PUBLIC_API_URL: https://shop-api.lazycampus.com
-          NEXT_PUBLIC_IMAGE_BASE_URL: https://shop-api.lazycampus.com
-          NEXT_PUBLIC_FILE_BASE_URL: https://shop-api.lazycampus.com
-          SHOP_NAME: Smart Shop
-
-  verify-backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      ADMIN_USERNAME: test-admin
-      ADMIN_PASSWORD: test-password
-      API_KEY: test-api-key
-      API_URL: https://example.invalid/v1
-      DB_PATH: /tmp/smart-shop-test.db
-      JWT_SECRET_KEY: test-jwt-secret
-      SHOP_NAME: Smart Shop Test
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v5
-
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test image selection
+        run: python3 scripts/test-ci-images.py
+      - name: Select changed runtime images
+        id: changes
+        run: python3 scripts/ci-images.py
       - name: Set up uv
+        if: steps.changes.outputs.backend == 'true'
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
-
-      - name: Install backend dependencies
-        run: uv venv && uv pip install -r backend/requirements.txt pytest
-
-      - name: Run backend tests
-        run: uv run pytest backend/tests -q
-
-      - name: Build backend image
-        run: docker build --file docker/Dockerfile.backend --tag smart-shop-backend:verify .
-
-  publish:
-    if: github.event_name != 'pull_request'
-    needs:
-      - verify-frontend
-      - verify-backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to Tencent Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.TCR_USERNAME }}
-          password: ${{ secrets.TCR_PASSWORD }}
-
-      - name: Build and push backend
+      - name: Test backend
+        if: steps.changes.outputs.backend == 'true'
+        env:
+          ADMIN_USERNAME: test-admin
+          ADMIN_PASSWORD: test-password
+          API_KEY: test-api-key
+          API_URL: https://example.invalid/v1
+          DB_PATH: /tmp/smart-shop-test.db
+          JWT_SECRET_KEY: test-jwt-secret
+          SHOP_NAME: Smart Shop Test
+        run: |
+          uv venv
+          uv pip install -r backend/requirements.txt pytest
+          uv run pytest backend/tests -q
+      - uses: docker/setup-buildx-action@v4
+      - name: Build backend once for verification and release
+        if: steps.changes.outputs.backend == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.backend
-          push: true
+          load: true
+          push: false
           cache-from: type=gha,scope=smart-shop-backend
           cache-to: type=gha,mode=max,scope=smart-shop-backend
           tags: |
@@ -110,26 +66,53 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-
-      - name: Build and push frontend
+      - name: Build frontend once for verification and release
+        if: steps.changes.outputs.frontend == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.frontend
-          push: true
+          load: true
+          push: false
           cache-from: type=gha,scope=smart-shop-frontend
           cache-to: type=gha,mode=max,scope=smart-shop-frontend
-          build-args: |
-            ENV=production
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_IMAGE_BASE_URL=${{ vars.NEXT_PUBLIC_IMAGE_BASE_URL }}
-            NEXT_PUBLIC_FILE_BASE_URL=${{ vars.NEXT_PUBLIC_FILE_BASE_URL }}
-            SHOP_NAME=${{ vars.SHOP_NAME }}
-            HEADER_LOGO=${{ vars.HEADER_LOGO }}
-            LOGO=${{ vars.LOGO }}
           tags: |
             ${{ env.REGISTRY }}/lazycampus/smart-shop-frontend:1.0.${{ github.run_number }}
             ${{ env.REGISTRY }}/lazycampus/smart-shop-frontend:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            ENV=production
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://shop-api.lazycampus.com' }}
+            NEXT_PUBLIC_IMAGE_BASE_URL=${{ vars.NEXT_PUBLIC_IMAGE_BASE_URL || 'https://shop-api.lazycampus.com' }}
+            NEXT_PUBLIC_FILE_BASE_URL=${{ vars.NEXT_PUBLIC_FILE_BASE_URL || 'https://shop-api.lazycampus.com' }}
+            SHOP_NAME=${{ vars.SHOP_NAME || 'Smart Shop' }}
+            HEADER_LOGO=${{ vars.HEADER_LOGO }}
+            LOGO=${{ vars.LOGO }}
+      - name: Smoke test the built frontend
+        if: steps.changes.outputs.frontend == 'true'
+        shell: bash
+        run: |
+          docker run --detach --name frontend-smoke --publish 127.0.0.1:3000:3000 "${REGISTRY}/lazycampus/smart-shop-frontend:1.0.${GITHUB_RUN_NUMBER}"
+          trap 'docker rm --force frontend-smoke >/dev/null' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:3000/; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Log in for a verified release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && (steps.changes.outputs.backend == 'true' || steps.changes.outputs.frontend == 'true')
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+      - name: Push tested images without rebuilding
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && (steps.changes.outputs.backend == 'true' || steps.changes.outputs.frontend == 'true')
+        shell: bash
+        run: |
+          images=()
+          [[ "${{ steps.changes.outputs.backend }}" != true ]] || images+=("${REGISTRY}/lazycampus/smart-shop-backend")
+          [[ "${{ steps.changes.outputs.frontend }}" != true ]] || images+=("${REGISTRY}/lazycampus/smart-shop-frontend")
+          bash scripts/push-images.sh "${images[@]}"

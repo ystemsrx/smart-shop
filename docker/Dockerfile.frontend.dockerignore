@@ -1,0 +1,47 @@
+# Node and build artifacts
+node_modules
+.next
+out
+
+# Python environment artifacts
+__pycache__
+*.pyc
+.venv
+venv
+backend/venv
+backend/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Logs and coverage
+*.log
+coverage
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Misc
+frontend.log
+.env
+.env.*
+
+# Runtime data — mounted via docker-compose volumes, must not be baked into the image
+backend/data
+backend/logs
+backend/exports
+backend/items
+
+# Backend edits must not invalidate the frontend build layer.
+backend
+docs
+.github
+scripts
+docker
+README.md
+LICENSE
