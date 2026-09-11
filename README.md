@@ -1,5 +1,7 @@
 # 🛍️ 智慧商城系统
 
+可选服务监控：配置独立 `STATUS_MONITOR_TOKEN` 后，使用 Bearer 凭据访问只读 `/internal/monitoring/v1/state`。商品/库存、购物车/订单、收款信息分别检查相关数据表，并附带近期请求结果。监测不创建订单、不执行付款、不发送邮件；SQLite 使用只读连接。未配置时不启用集成，商城可以独立运行。
+
 [![Made with Next.js](https://img.shields.io/badge/Made%20with-Next.js-000000?style=for-the-badge\&logo=next.js)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge\&logo=fastapi\&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge\&logo=python\&logoColor=white)](https://python.org/)

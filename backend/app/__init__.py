@@ -42,6 +42,8 @@ def build_app() -> FastAPI:
     app.include_router(chat_audit_router)
     app.include_router(profile_router)
     app.include_router(system_router)
+    from .monitoring import install_monitoring
+    install_monitoring(app)
     return app
 
 
