@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  REGISTRY: ccr.ccs.tencentyun.com
+  REGISTRY: hkccr.ccs.tencentyun.com
 
 jobs:
   verify:
