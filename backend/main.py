@@ -16,4 +16,5 @@ if __name__ == "__main__":
         port=settings.backend_port,
         reload=settings.is_development,
         log_level=settings.log_level.lower(),
+        proxy_headers=False,
     )

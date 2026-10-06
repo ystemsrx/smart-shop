@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from dotenv import load_dotenv
+from client_ip import parse_trusted_proxies
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -184,10 +185,13 @@ class Settings:
     api_key: str
     api_url: str
     enable_password_hash: bool
+    trust_proxy_cidrs: str = ""
 
 
 @lru_cache()
 def get_settings() -> Settings:
+    trust_proxy_cidrs = (_strip_quotes(os.getenv("TRUST_PROXY_CIDRS")) or "").strip()
+    parse_trusted_proxies(trust_proxy_cidrs)
     env_value = _normalize_env(_strip_quotes(os.getenv("ENV")))
     is_development = env_value == "development"
 
@@ -280,6 +284,7 @@ def get_settings() -> Settings:
     enable_password_hash = _as_bool(_strip_quotes(os.getenv("ENABLE_PASSWORD_HASH")), True)
 
     return Settings(
+        trust_proxy_cidrs=trust_proxy_cidrs,
         env=env_value,
         is_development=is_development,
         backend_host=backend_host,

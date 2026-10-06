@@ -19,6 +19,7 @@ from auth import (
 )
 from database import AdminDB, SalesCycleDB, SettingsDB, UserDB
 from config import get_settings
+from client_ip import get_client_ip
 from ..context import logger
 from ..schemas import (
     AdminLoginRequest,
@@ -110,7 +111,11 @@ async def login(http_request: Request, request: LoginRequest, response: Response
             set_auth_cookie(response, staff_result["access_token"])
             return success_response("登录成功", staff_result)
 
-        result = await AuthManager.login_user(request.student_id, request.password)
+        result = await AuthManager.login_user(
+            request.student_id,
+            request.password,
+            client_ip=get_client_ip(http_request, settings.trust_proxy_cidrs),
+        )
         if not result:
             return error_response("账号或密码错误", 401)
 

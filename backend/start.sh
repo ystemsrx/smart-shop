@@ -113,7 +113,7 @@ echo "Service will run on http://${HOST}:${PORT}"
 echo "API documentation: http://${HOST}:${PORT}/docs"
 echo "$START_MODE_LABEL"
 
-UVICORN_CMD=(uvicorn main:app --host "$HOST" --port "$PORT" --log-level "${RUNTIME_LOG_LEVEL,,}")
+UVICORN_CMD=(uvicorn main:app --no-proxy-headers --host "$HOST" --port "$PORT" --log-level "${RUNTIME_LOG_LEVEL,,}")
 
 if [ "$IS_DEV" -eq 1 ]; then
     UVICORN_CMD+=(--reload)

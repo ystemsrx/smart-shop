@@ -15,6 +15,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt as jose_jwt
 from database import UserDB, AdminDB, AddressDB, AgentAssignmentDB, BuildingDB
 from config import get_settings
+from client_ip import normalize_ip
 
 # 配置
 settings = get_settings()
@@ -106,6 +107,7 @@ class AuthManager:
         student_id: str,
         password: str,
         create_sso_handoff: bool = False,
+        client_ip: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """验证登录API"""
         if not LOGIN_API:
@@ -125,6 +127,9 @@ class AuthManager:
             }
             if LOGIN_API_TOKEN:
                 headers["Authorization"] = f"Bearer {LOGIN_API_TOKEN}"
+            normalized_ip = normalize_ip(client_ip)
+            if normalized_ip:
+                headers["X-Forwarded-For"] = normalized_ip
             
             payload = {
                 "account": student_id,
@@ -304,7 +309,9 @@ class AuthManager:
             raise AuthError("认证服务暂时不可用，请稍后重试", 503) from e
     
     @staticmethod
-    async def login_user(student_id: str, password: str) -> Optional[Dict[str, Any]]:
+    async def login_user(
+        student_id: str, password: str, client_ip: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """用户登录流程"""
         def _clean_id_number(value: Any) -> Optional[str]:
             if value is None:
@@ -327,6 +334,7 @@ class AuthManager:
                 student_id,
                 password,
                 create_sso_handoff=AuthManager.sso_upgrade_enabled(),
+                **({"client_ip": client_ip} if client_ip else {}),
             )
             if not api_result:
                 logger.warning("Third-party API verification failed for %s", student_id)

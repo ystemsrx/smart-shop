@@ -208,6 +208,24 @@ class LoginApiFailureTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
+    async def test_bridge_request_forwards_one_normalized_client_ip(self):
+        client = self.client_returning(Mock(status_code=401, text=""))
+        with (
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.httpx, "AsyncClient", return_value=client),
+        ):
+            await auth.AuthManager.verify_login("20260001", "value", client_ip="::ffff:198.51.100.20")
+        self.assertEqual(client.post.call_args.kwargs["headers"]["X-Forwarded-For"], "198.51.100.20")
+
+    async def test_malformed_client_ip_is_not_forwarded(self):
+        client = self.client_returning(Mock(status_code=401, text=""))
+        with (
+            patch.object(auth, "LOGIN_API", "https://login.example.test"),
+            patch.object(auth.httpx, "AsyncClient", return_value=client),
+        ):
+            await auth.AuthManager.verify_login("20260001", "value", client_ip="198.51.100.20,192.0.2.99")
+        self.assertNotIn("X-Forwarded-For", client.post.call_args.kwargs["headers"])
+
     async def test_identity_bridge_read_timeout_is_thirty_seconds(self):
         client = self.client_returning(Mock(status_code=401, text=""))
         with (
@@ -228,6 +246,21 @@ class LoginApiFailureTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LoginRouteFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_login_route_forwards_verified_ip_to_identity_bridge_flow(self):
+        from fastapi import Request, Response
+        from app.routes import auth as auth_route
+        from app.schemas import LoginRequest
+
+        request = Request({"type": "http", "method": "POST", "path": "/auth/login", "client": ("10.42.1.5", 1234), "headers": [(b"x-forwarded-for", b"192.0.2.99, 198.51.100.20")]})
+        with (
+            patch.object(auth_route, "settings", replace(auth_route.settings, trust_proxy_cidrs="10.42.0.0/16")),
+            patch.object(auth_route.CaptchaService, "should_require_login_captcha", AsyncMock(return_value=False)),
+            patch.object(auth_route.AuthManager, "login_admin", return_value=None),
+            patch.object(auth_route.AuthManager, "login_user", AsyncMock(return_value=None)) as login_user,
+        ):
+            await auth_route.login(request, LoginRequest(student_id="20260001", password="value"), Response())
+        login_user.assert_awaited_once_with("20260001", "value", client_ip="198.51.100.20")
+
     async def test_unavailable_login_service_is_reported_as_unavailable(self):
         from fastapi import Response
 
@@ -311,12 +344,13 @@ class IdentityBridgeLoginFlowTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=bridge_result),
             ) as verify_login,
         ):
-            result = await auth.AuthManager.login_user("20260001", "value")
+            result = await auth.AuthManager.login_user("20260001", "value", client_ip="198.51.100.20")
 
         verify_login.assert_awaited_once_with(
             "20260001",
             "value",
             create_sso_handoff=True,
+            client_ip="198.51.100.20",
         )
         create_user.assert_called_once_with(
             student_id="20260001",
