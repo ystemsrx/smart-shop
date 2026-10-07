@@ -1045,12 +1045,12 @@ export default function Cart() {
       />
 
 
-      <div className="min-h-screen pt-16" style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'clip' }}>
+      <div className="min-h-screen pt-16 flex flex-col" style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'clip' }}>
         <motion.main
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="pb-20 cart-page-main"
+          className="w-full flex-1 flex flex-col pb-20 cart-page-main"
           style={{ maxWidth: 1200, margin: '0 auto', padding: '32px clamp(20px, 5vw, 64px) 80px' }}
         >
           {/* 页头 */}
@@ -1301,7 +1301,7 @@ export default function Cart() {
             </div>
           ) : (
             /* 空状态 */
-            <div className="flex flex-col items-center justify-center cart-reveal cart-d1" style={{ height: 'calc(100dvh - 240px)' }}>
+            <div className="flex-1 flex flex-col items-center justify-center py-8 cart-reveal cart-d1">
               <div className="w-20 h-20 mb-5 rounded-full flex items-center justify-center" style={{ background: '#F5F2ED' }}>
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[#D97757] opacity-60">
                   <path d="M3 3h2l2.4 12.2a1.5 1.5 0 001.47 1.2h8.56a1.5 1.5 0 001.46-1.14L21 8H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

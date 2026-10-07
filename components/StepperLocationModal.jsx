@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getShopName } from '../utils/runtimeConfig';
 
@@ -21,6 +21,7 @@ export default function StepperLocationModal({
   
   // Custom stepper controls
   const [currentStep, setCurrentStep] = useState(1);
+  const stepContentRef = useRef(null);
   const [stepValidation, setStepValidation] = useState({
     1: true, // Welcome step is always valid
     2: false, // Address and building selection
@@ -31,6 +32,11 @@ export default function StepperLocationModal({
   useEffect(() => {
     if (isOpen) {
       setCurrentStep(1);
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
     }
   }, [isOpen]);
 
@@ -102,13 +108,13 @@ export default function StepperLocationModal({
       transition={{ duration: 0.2 }}
     >
       <motion.div
-        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-4xl max-h-[90dvh] min-h-0 flex flex-col"
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 8 }}
         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="relative bg-white border border-[#E8E2D8] rounded-2xl shadow-[0_24px_64px_rgba(20,20,19,0.16)] overflow-hidden flex flex-col max-h-full">
+        <div className="relative bg-white border border-[#E8E2D8] rounded-2xl shadow-[0_24px_64px_rgba(20,20,19,0.16)] overflow-hidden flex flex-col min-h-0 max-h-[90dvh]">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -163,8 +169,13 @@ export default function StepperLocationModal({
             </div>
 
             {/* Step Content with Animation */}
-            <div className="relative flex-1 min-h-[280px] overflow-y-auto">
-              <AnimatePresence mode="wait">
+            <div ref={stepContentRef} className="relative flex-1 min-h-0 overflow-x-hidden overflow-y-auto hide-scrollbar overscroll-contain">
+              <AnimatePresence
+                mode="wait"
+                onExitComplete={() => {
+                  if (stepContentRef.current) stepContentRef.current.scrollTop = 0;
+                }}
+              >
                 <motion.div
                   key={currentStep}
                   initial={{ opacity: 0, x: 20 }}
@@ -235,7 +246,7 @@ export default function StepperLocationModal({
                                   <i className="fas fa-tree-city text-[#6B8F47] text-xs"></i>
                                   园区选择
                                 </label>
-                                <div className={`grid gap-2 max-h-56 overflow-y-auto pr-1 ${addresses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                <div className={`grid gap-2 max-h-56 overflow-y-auto hide-scrollbar overscroll-contain pr-1 ${addresses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                   {addresses.map(addr => (
                                     <button
                                       key={addr.id}
@@ -283,7 +294,7 @@ export default function StepperLocationModal({
                                     <p className="text-xs text-amber-600">请联系管理员添加楼栋信息</p>
                                   </div>
                                 ) : (
-                                  <div className={`grid gap-2 max-h-56 overflow-y-auto pr-1 ${buildingOptions.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                  <div className={`grid gap-2 max-h-56 overflow-y-auto hide-scrollbar overscroll-contain pr-1 ${buildingOptions.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                     {buildingOptions.map(building => (
                                       <button
                                         key={building.id}

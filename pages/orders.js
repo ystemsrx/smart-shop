@@ -506,8 +506,8 @@ export default function Orders() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div className="min-h-screen pt-16 pb-12 selection:bg-orange-100 selection:text-orange-900" style={{ background: '#FDFBF7' }}>
-        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen pt-16 pb-12 flex flex-col selection:bg-orange-100 selection:text-orange-900" style={{ background: '#FDFBF7' }}>
+        <main className="w-full flex-1 flex flex-col max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
 
           {/* 页面标题 */}
           <div className="mb-10 mt-4 animate-fade-in-up">
@@ -523,7 +523,7 @@ export default function Orders() {
           )}
 
           {orders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-32 animate-fade-in-up">
+            <div className="flex-1 flex flex-col items-center justify-center py-8 animate-fade-in-up">
               <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6" style={{ background: '#F5F2ED' }}>
                 <i className="fas fa-shopping-bag text-3xl" style={{ color: '#DDD8D0' }}></i>
               </div>

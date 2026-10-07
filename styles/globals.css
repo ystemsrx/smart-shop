@@ -80,8 +80,20 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--primary-bg);
   color: var(--text-primary);
+}
+
+/* Follow the visible mobile viewport, including changes to browser toolbars. */
+@supports (height: 100dvh) {
+  .min-h-screen {
+    min-height: 100dvh;
+  }
+
+  .h-screen {
+    height: 100dvh;
+  }
 }
 
 /* Chat selection: keep text color, soften background */
@@ -788,6 +800,7 @@ body {
 #root {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 @keyframes stream-fade-in {
