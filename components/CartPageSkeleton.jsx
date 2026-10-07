@@ -137,7 +137,7 @@ export default function CartPageSkeleton({ overlay = false }) {
   }
 
   return (
-    <div className="min-h-screen pt-16" style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased', overflowX: 'hidden' }}>
+    <div className="h-screen overflow-hidden pt-16" style={{ background: '#FDFBF7', WebkitFontSmoothing: 'antialiased' }}>
       <CartPageSkeletonBody />
     </div>
   );

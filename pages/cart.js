@@ -535,33 +535,42 @@ export default function Cart() {
 
   // 预加载支付成功动画,避免结算时卡顿
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.customElements) {
-      const preloadAnimation = () => {
-        try {
-          // 创建一个隐藏的 dotlottie-wc 元素来预加载动画
-          const tempElement = document.createElement('dotlottie-wc');
-          tempElement.setAttribute('src', 'https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie');
-          tempElement.style.cssText = 'position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
-          document.body.appendChild(tempElement);
-          
-          // 10秒后移除预加载元素
-          setTimeout(() => {
-            if (tempElement && tempElement.parentNode) {
-              tempElement.parentNode.removeChild(tempElement);
-            }
-          }, 10000);
-        } catch (e) {
-          console.warn('Failed to preload payment success animation:', e);
-        }
-      };
-      
-      // 等待 Web Component 注册完成后预加载
-      if (window.customElements.get('dotlottie-wc')) {
-        preloadAnimation();
-      } else {
-        window.customElements.whenDefined('dotlottie-wc').then(preloadAnimation).catch(() => {});
+    if (typeof window === 'undefined' || !window.customElements) return;
+
+    let cancelled = false;
+    let tempElement = null;
+    let removeTimer = null;
+    const removePreloadElement = () => {
+      tempElement?.remove();
+      tempElement = null;
+    };
+    const preloadAnimation = () => {
+      if (cancelled) return;
+      try {
+        tempElement = document.createElement('dotlottie-wc');
+        tempElement.setAttribute('src', 'https://lottie.host/f3c97f35-f5a9-4cf8-9afa-d6084a659237/2S8UtFVgcc.lottie');
+        tempElement.setAttribute('aria-hidden', 'true');
+        // 固定在视口内，避免隐藏的预加载元素在页面底部产生滚动溢出
+        tempElement.style.cssText = 'position: fixed; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none;';
+        document.body.appendChild(tempElement);
+        removeTimer = setTimeout(removePreloadElement, 10000);
+      } catch (e) {
+        console.warn('Failed to preload payment success animation:', e);
       }
+    };
+
+    // 等待 Web Component 注册完成后预加载
+    if (window.customElements.get('dotlottie-wc')) {
+      preloadAnimation();
+    } else {
+      window.customElements.whenDefined('dotlottie-wc').then(preloadAnimation).catch(() => {});
     }
+
+    return () => {
+      cancelled = true;
+      clearTimeout(removeTimer);
+      removePreloadElement();
+    };
   }, []);
 
   useEffect(() => {

@@ -88,7 +88,7 @@ export default function OrdersPageSkeleton({ overlay = false }) {
   }
 
   return (
-    <div className="min-h-screen pt-20 pb-12" style={{ background: '#FDFBF7' }}>
+    <div className="h-screen overflow-hidden pt-20 pb-12" style={{ background: '#FDFBF7' }}>
       <OrdersPageSkeletonBody />
     </div>
   );
